@@ -1,0 +1,78 @@
+{
+  "schema": "pweh.fwtriage.extract-squashfs/v1",
+  "tool": {
+    "name": "unsquashfs",
+    "version": "4.5"
+  },
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-dahua-sample",
+  "generated_at": "2026-10-18T17:41:11.233Z",
+  "input": {
+    "path": "extract/parts-001/04-app.bin",
+    "size": 9109504,
+    "size_human": "8.69 MiB"
+  },
+  "params": {
+    "offset": 0,
+    "engine": "auto",
+    "max_output_bytes": 2147483648
+  },
+  "status": "complete",
+  "output_dir": "extract/app-001",
+  "manifest_path": "extract/app-001.manifest.json",
+  "artifact_id": "A-0028",
+  "superblock": {
+    "version": "4.0",
+    "endianness": "little",
+    "magic": "hsqs",
+    "compression": "xz",
+    "block_size": 131072,
+    "inodes": 6,
+    "fragments": 1,
+    "ids": 1,
+    "bytes_used": 625,
+    "mkfs_time": 1584947441,
+    "mkfs_time_iso": "2020-03-23T07:10:41Z",
+    "flags": [
+      "duplicates_removed",
+      "exportable"
+    ],
+    "flags_raw": "0xc0",
+    "truncated": false,
+    "nonstandard": false
+  },
+  "listing": {
+    "entries": 6,
+    "counts": {
+      "dir": 2,
+      "file": 4
+    },
+    "total_file_bytes": 188,
+    "setuid": [],
+    "setgid": [],
+    "world_writable_files": 0
+  },
+  "extracted": {
+    "files": 4,
+    "dirs": 1,
+    "symlinks": 0,
+    "other": 0,
+    "disk_bytes": 20480,
+    "logical_bytes": 4284
+  },
+  "attempts": [
+    {
+      "tool": "unsquashfs",
+      "path": "/usr/bin/unsquashfs",
+      "version": "4.5",
+      "stage": "extract",
+      "returncode": 0,
+      "timed_out": false,
+      "killed_reason": null,
+      "elapsed_seconds": 0.002,
+      "stderr_tail": []
+    }
+  ],
+  "warnings": [],
+  "offset_hex": "0x0"
+}

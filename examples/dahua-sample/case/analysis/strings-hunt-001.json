@@ -1,0 +1,982 @@
+{
+  "schema": "pweh.fwtriage.strings-hunt/v1",
+  "tool": "fw_strings_hunt",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-dahua-sample",
+  "generated_at": "2026-10-18T17:41:13.296Z",
+  "input": {
+    "path": "extract/rootfs-001",
+    "type": "directory"
+  },
+  "params": {
+    "patterns": "cctv",
+    "min_severity": null,
+    "include": null,
+    "max_hits": 500,
+    "per_pattern_cap": 50,
+    "pattern_source": "<REPO>/src/pweh/data/cctv-hunt-patterns.yaml",
+    "pattern_sha256": "476f3c5099cdc3df422a0f719985534bb229b5a4a8a8ca2af7fdbac65e24f68e"
+  },
+  "hits": [
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 3081,
+      "offset_hex": "0xc09",
+      "pattern_id": "dh-current-config",
+      "category": "info-leak",
+      "finding_category": "info-leak",
+      "severity": "high",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/current_config/",
+      "context": "/current_config/"
+    },
+    {
+      "file": "/usr/sbin/httpd",
+      "path": "extract/rootfs-001/usr/sbin/httpd",
+      "offset": 3278,
+      "offset_hex": "0xcce",
+      "pattern_id": "gen-hardcoded-basic-auth",
+      "category": "hardcoded-credential",
+      "finding_category": "hardcoded-credential",
+      "severity": "high",
+      "vendor": "generic",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "Authorization: Basic YW…<마스킹:Basic 자격증명,36자>",
+      "context": "Authorization: Basic YW…<마스킹:Basic 자격증명,36자>"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 3026,
+      "offset_hex": "0xbd2",
+      "pattern_id": "gen-mtd-config-accounts",
+      "category": "info-leak",
+      "finding_category": "info-leak",
+      "severity": "medium",
+      "vendor": "generic",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/mnt/mtd/Config/Account1",
+      "context": "/mnt/mtd/Config/Account1"
+    },
+    {
+      "file": "/usr/sbin/httpd",
+      "path": "extract/rootfs-001/usr/sbin/httpd",
+      "offset": 3802,
+      "offset_hex": "0xeda",
+      "pattern_id": "gen-shell-cmd-template",
+      "category": "command-injection",
+      "finding_category": "command-injection",
+      "severity": "medium",
+      "vendor": "generic",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "ping -c 1 %s",
+      "context": "ping -c 1 %s > /tmp/ping.log 2>&1"
+    },
+    {
+      "file": "/etc/init.d/rcS",
+      "path": "extract/rootfs-001/etc/init.d/rcS",
+      "offset": 557,
+      "offset_hex": "0x22d",
+      "pattern_id": "gen-telnetd-launch",
+      "category": "debug-interface",
+      "finding_category": "debug-interface",
+      "severity": "medium",
+      "vendor": "generic",
+      "scope": "text",
+      "encoding": "latin1",
+      "match": "telnetd",
+      "context": "/usr/sbin/telnetd &",
+      "line": 20
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 2878,
+      "offset_hex": "0xb3e",
+      "pattern_id": "dh-login-loopback-local",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "low",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "Loopback",
+      "context": "Loopback"
+    },
+    {
+      "file": "/usr/sbin/httpd",
+      "path": "extract/rootfs-001/usr/sbin/httpd",
+      "offset": 3724,
+      "offset_hex": "0xe8c",
+      "pattern_id": "gen-backdoor-keywords",
+      "category": "hardcoded-credential",
+      "finding_category": "hardcoded-credential",
+      "severity": "low",
+      "vendor": "generic",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "BACKDOOR",
+      "context": "PW…<마스킹:고정 토큰,36자>"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 1214327,
+      "offset_hex": "0x128777",
+      "pattern_id": "gen-loopback-trust-anchors",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "low",
+      "vendor": "generic",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "is_local_request",
+      "context": "is_local_request"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 1721777,
+      "offset_hex": "0x1a45b1",
+      "pattern_id": "gen-loopback-trust-anchors",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "low",
+      "vendor": "generic",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "is_local_request",
+      "context": "is_local_request"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 2891,
+      "offset_hex": "0xb4b",
+      "pattern_id": "dh-login-fields",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "clientType",
+      "context": "clientType"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 2902,
+      "offset_hex": "0xb56",
+      "pattern_id": "dh-login-fields",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "loginType",
+      "context": "loginType"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 2815,
+      "offset_hex": "0xaff",
+      "pattern_id": "dh-rpc2-endpoints",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "global.login",
+      "context": "global.login"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 2828,
+      "offset_hex": "0xb0c",
+      "pattern_id": "dh-rpc2-endpoints",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/RPC2_Login",
+      "context": "/RPC2_Login"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 3020,
+      "offset_hex": "0xbcc",
+      "pattern_id": "dh-rpc2-endpoints",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/RPC2",
+      "context": "/RPC2"
+    }
+  ],
+  "summary": {
+    "files_scanned": 25,
+    "bytes_scanned": 11310225,
+    "hits_total": 14,
+    "hits_stored": 14,
+    "by_severity": {
+      "medium": 3,
+      "low": 4,
+      "info": 5,
+      "high": 2
+    },
+    "patterns_matched": 10,
+    "patterns_selected": 67,
+    "vendor_scores": {
+      "dahua": 4
+    },
+    "vendor_family_guess": "dahua-like",
+    "skipped_large_files": 0,
+    "truncated": false,
+    "rootfs_dirs": [
+      "extract/rootfs-001"
+    ]
+  },
+  "by_pattern": {
+    "dh-current-config": {
+      "count": 1,
+      "files": 1,
+      "severity": "high",
+      "category": "info-leak",
+      "vendor": "dahua"
+    },
+    "gen-hardcoded-basic-auth": {
+      "count": 1,
+      "files": 1,
+      "severity": "high",
+      "category": "hardcoded-credential",
+      "vendor": "generic"
+    },
+    "gen-telnetd-launch": {
+      "count": 1,
+      "files": 1,
+      "severity": "medium",
+      "category": "debug-interface",
+      "vendor": "generic"
+    },
+    "gen-mtd-config-accounts": {
+      "count": 1,
+      "files": 1,
+      "severity": "medium",
+      "category": "info-leak",
+      "vendor": "generic"
+    },
+    "gen-shell-cmd-template": {
+      "count": 1,
+      "files": 1,
+      "severity": "medium",
+      "category": "command-injection",
+      "vendor": "generic"
+    },
+    "gen-loopback-trust-anchors": {
+      "count": 2,
+      "files": 1,
+      "severity": "low",
+      "category": "auth-bypass",
+      "vendor": "generic"
+    },
+    "dh-login-loopback-local": {
+      "count": 1,
+      "files": 1,
+      "severity": "low",
+      "category": "auth-bypass",
+      "vendor": "dahua"
+    },
+    "gen-backdoor-keywords": {
+      "count": 1,
+      "files": 1,
+      "severity": "low",
+      "category": "hardcoded-credential",
+      "vendor": "generic"
+    },
+    "dh-rpc2-endpoints": {
+      "count": 3,
+      "files": 1,
+      "severity": "info",
+      "category": "auth-bypass",
+      "vendor": "dahua"
+    },
+    "dh-login-fields": {
+      "count": 2,
+      "files": 1,
+      "severity": "info",
+      "category": "auth-bypass",
+      "vendor": "dahua"
+    }
+  },
+  "top_files": [
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "score": 18,
+      "patterns": [
+        "dh-current-config",
+        "gen-mtd-config-accounts",
+        "dh-login-loopback-local",
+        "gen-loopback-trust-anchors",
+        "dh-login-fields",
+        "dh-rpc2-endpoints"
+      ]
+    },
+    {
+      "file": "/usr/sbin/httpd",
+      "path": "extract/rootfs-001/usr/sbin/httpd",
+      "score": 9,
+      "patterns": [
+        "gen-hardcoded-basic-auth",
+        "gen-shell-cmd-template",
+        "gen-backdoor-keywords"
+      ]
+    },
+    {
+      "file": "/etc/init.d/rcS",
+      "path": "extract/rootfs-001/etc/init.d/rcS",
+      "score": 3,
+      "patterns": [
+        "gen-telnetd-launch"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "id": "hik-handler-families",
+      "description": "Hikvision API 핸들러 계열(ISAPI, PSIA, HikCGI, Genetec) 위치 앵커. 핸들러 간 인증 코드 비대칭(한 곳에만 존재하면 인증 생략 분기)이 CVE-2017-7921의 핵심.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "info",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-hikcgi-endpoints",
+      "description": "Monte Crypto FD가 예시한 HikCGI 엔드포인트. xref로 HikCGI 디스패처와 쿼리 파라미터 auth 처리(비밀번호 무시) 여부를 확인.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-sdk-weblanguage",
+      "description": "/SDK/webLanguage(PUT, XML language 요소). language 값이 셸에서 평가됨(공개 PoC 동작). 정확한 싱크는 (추정): sprintf류 -> system/popen류.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-psia-configurationdata",
+      "description": "저권한 계정이 설정 데이터(4바이트 반복 XOR)를 받아 admin 비밀번호 획득(Core CORE-2013-0708).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-configurationfile",
+      "description": "설정 백업 export. 사용자명과 평문 비밀번호 포함, 정적 키 암호화(FD: derived from the password \"abcdefg\").",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-anonymous-hardcoded",
+      "description": "하드코딩 anonymous 자격증명. 백슬래시+177 여섯 번이 문자 그대로 들어간 ASCII 텍스트(34바이트 anonymous:\\177\\177\\177\\177\\177\\177)에 매칭. Core CORE-2013-0708: login.js DoLogin()의 리터럴이며, Core가 제…",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "critical",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-anonymous-hardcoded-raw",
+      "description": "같은 자격증명이 바이너리에 실제 0x7F(DEL) 바이트로 저장된 경우를 가정한 패턴(미확인). 1차 출처(Core)의 쿠키 값은 백슬래시 텍스트 형태이므로 hik-anonymous-hardcoded가 우선.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-config-aes-key-raw",
+      "description": "설정 백업 복호화용 AES-128-ECB 키(제3자 복호화 도구 기준, 벤더 미확인). 히트 시 xref로 export/import 루틴 확인.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-config-aes-key-hex",
+      "description": "같은 키가 hex 문자열로 저장된 경우.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "dh-login-netkeyboard",
+      "description": "global.login의 clientType NetKeyboard 분기. 기능 미지원 장비에서 비밀번호 검증 없이 성공하는지 디컴파일로 확인.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-login-loopback-local",
+      "description": "loginType Loopback(+ clientType Local, 클라이언트가 쓴 ipAddr 127.0.0.1) 신뢰 분기. 일반 단어이므로 dh-login-fields와 같은 바이너리에서 날 때만 의미.",
+      "result": "match",
+      "evidence_ref": "/usr/bin/sonia@0xb3e",
+      "count": 1,
+      "severity": "low",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-login-fields",
+      "description": "Dahua 로그인 분기 키. 값마다 검증 경로를 표로 작성(cctv-vuln-patterns.md 3.2).",
+      "result": "match",
+      "evidence_ref": "/usr/bin/sonia@0xb4b",
+      "count": 2,
+      "severity": "info",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-rpc2-endpoints",
+      "description": "JSON-RPC 로그인 진입점(HTTP /RPC2_Login, DHIP 공용 로직).",
+      "result": "match",
+      "evidence_ref": "/usr/bin/sonia@0xaff",
+      "count": 3,
+      "severity": "info",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-current-config",
+      "description": "/current_config/ <-> /mnt/mtd/Config/ 매핑. 사용자 DB(passwd, Account1) 무인증 다운로드와 pass-the-hash(bashis 2017, ICSA-17-124-02).",
+      "result": "match",
+      "evidence_ref": "/usr/bin/sonia@0xc09",
+      "count": 1,
+      "severity": "high",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-public-config-allowlist",
+      "description": "의도적 공개 파일. 응급 수정이 이 두 파일만 허용하는 하드코딩 allowlist였음(bashis). 같은 디렉터리의 민감 파일 노출 여부 확인.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "low",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-loginex-js",
+      "description": "888888 계정의 로컬 전용 제한이 클라이언트 JS에서만 검사됨(bashis PoC 주석, CVE 미확인): https://github.com/mcw0/PoC/blob/master/dahua-backdoor-PoC.py",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "info",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-videotalk",
+      "description": "인증 없는 /videotalk HTTP 엔드포인트(Tenable TRA-2019-36).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "dahua"
+    },
+    {
+      "id": "xm-opentelnet-cmd",
+      "description": "TCP 9530 telnetd 활성화 명령 문자열(Yarmak). macGuarder/dvrHelper.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "critical",
+      "vendor": "xiongmai"
+    },
+    {
+      "id": "xm-opentelnet-handshake",
+      "description": "9530 challenge-response 응답 문자열(Yarmak).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "xiongmai"
+    },
+    {
+      "id": "xm-telnetoempasswd",
+      "description": "9530 백도어 PSK 파일 /mnt/custom/TelnetOEMPasswd(Yarmak).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "critical",
+      "vendor": "xiongmai"
+    },
+    {
+      "id": "xm-default-psk",
+      "description": "TelnetOEMPasswd가 없을 때 쓰는 기본 PSK(Yarmak).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "critical",
+      "vendor": "xiongmai"
+    },
+    {
+      "id": "xm-backdoor-daemons",
+      "description": "9527/9530 리스너 데몬 이름(VulnCheck netstat, Yarmak). init 스크립트나 BusyBox applet 목록에서 기동 여부 확인.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "xiongmai"
+    },
+    {
+      "id": "xm-universal-password",
+      "description": "Sofia 인증 함수의 만능 비밀번호 리터럴, 해시 비교 전에 검사(tothi 2017, CVE 미확인): https://github.com/tothi/pwn-hisilicon-dvr",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "critical",
+      "vendor": "xiongmai"
+    },
+    {
+      "id": "xm-empty-password-hash",
+      "description": "빈 비밀번호의 Sofia 해시. 기본 admin 공란이나 해시 수락(pass-the-hash) 경로 단서(tothi).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "xiongmai"
+    },
+    {
+      "id": "xm-upgrade-descriptor",
+      "description": "업데이트 기술자의 Shell 명령 실행(Script -> system). 서명 없는 업데이트(SEC Consult)와 34567 업그레이드 RCE(VulnCheck).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "xiongmai"
+    },
+    {
+      "id": "xm-upgrade-skipcheck",
+      "description": "업그레이드 호환성/CRC 검사를 생략시키는 특수값(VulnCheck). 무결성 검증 우회 분기.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "xiongmai"
+    },
+    {
+      "id": "xm-default-user-tluafed",
+      "description": "문서화되지 않은 default 계정의 비밀번호(SEC Consult SA-20181009-0).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "xiongmai"
+    },
+    {
+      "id": "xm-upgrade-server",
+      "description": "평문 업데이트 채널의 업데이트 서버(SEC Consult). 서버 사칭 위험.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "xiongmai"
+    },
+    {
+      "id": "hienc-backdoor-password",
+      "description": "box_Authenticate의 하드코딩 비밀번호 리터럴(Kojenov).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "critical",
+      "vendor": "hisilicon_video_encoder"
+    },
+    {
+      "id": "hienc-box-ini-password",
+      "description": "/box/box.ini의 평문 admin 비밀번호 키(Kojenov). 경로 순회로 유출.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "hisilicon_video_encoder"
+    },
+    {
+      "id": "tvt-4567-handshake-guid",
+      "description": "TCP/4567 하드코딩 인증 GUID, requestSystemConfig로 평문 자격증명 획득(bashis 2018, CVE 미확인): https://github.com/mcw0/PoC/blob/master/TVT_and_OEM_IPC_NVR_DVR_RCE_Backdoor_and_…",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "critical",
+      "vendor": "tvt"
+    },
+    {
+      "id": "tvt-hardcoded-web-password",
+      "description": "하드코딩 admin/root 웹 비밀번호(bashis 2018, CVE 미확인). 출처는 tvt-4567-handshake-guid와 동일.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "critical",
+      "vendor": "tvt"
+    },
+    {
+      "id": "tvt-nvms-anchors",
+      "description": "NVMS9000 백엔드(4567)가 loopback이 아닌 모든 인터페이스에서 리슨(bashis 2018, CVE 미확인).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "tvt"
+    },
+    {
+      "id": "tvt-querydevinfo",
+      "description": "장비 정보 노출 엔드포인트(VulDB CNA).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "tvt"
+    },
+    {
+      "id": "unv-maintain-daemon",
+      "description": "UDP 7788 독자 TLV 서비스, 폭 없는 sscanf %[^:] 스택 오버플로 -> telnetd root/123456(SSD).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "uniview"
+    },
+    {
+      "id": "unv-uvsh",
+      "description": "제한 셸 uvsh(ECHO로 우회 보고).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "low",
+      "vendor": "uniview"
+    },
+    {
+      "id": "unv-main-cgi-json",
+      "description": "json cmd 번호 디스패치에서 일부 cmd(설정 export, 패킷 캡처)를 세션 검증 없이 처리(bashis 2017, CVE 미확인): https://github.com/mcw0/PoC/blob/master/Uniview%20RCE%20PoC.txt",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "uniview"
+    },
+    {
+      "id": "wificam-loginuse-loginpas",
+      "description": "URI 자격증명 파라미터. .ini 경로는 빈 값으로 우회됨(경로 유형별 인증 비대칭).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "wificam"
+    },
+    {
+      "id": "wificam-ini-credential-files",
+      "description": "웹 루트에 심볼릭 링크된 자격증명 포함 설정 파일.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "wificam"
+    },
+    {
+      "id": "wificam-push-key",
+      "description": "Apple Push 인증서와 RSA 개인키 내장.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "wificam"
+    },
+    {
+      "id": "wificam-ftp-cgi",
+      "description": "FTP 설정값이 셸에서 평가됨(인증 필요, Pierre Kim, CVE 미확인): https://pierrekim.github.io/blog/2017-03-08-camera-goahead-0day.html",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "wificam"
+    },
+    {
+      "id": "wificam-rtsp-av0",
+      "description": "RTSP 10554 무인증 스트림 경로.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "wificam"
+    },
+    {
+      "id": "tbk-device-rsp",
+      "description": "Cookie uid 값으로 신원 결정, 사용자 목록이 JSON으로 자격증명 반환(NVD 설명).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "tbk"
+    },
+    {
+      "id": "dlink-config-getuser",
+      "description": "인증 없는 관리자 비밀번호 노출 엔드포인트(KEV).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "dlink"
+    },
+    {
+      "id": "dlink-ddns-enc",
+      "description": "인증된 명령 주입(KEV).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "dlink"
+    },
+    {
+      "id": "ptz-param-cgi",
+      "description": "Authorization 헤더가 없으면 인증을 적용하지 않음(KEV).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "ptzoptics"
+    },
+    {
+      "id": "ptz-ntp-addr",
+      "description": "ntp_addr 값이 ntp_client 기동 시 명령으로 실행(KEV).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "ptzoptics"
+    },
+    {
+      "id": "foscam-uri-substring-delete",
+      "description": "URI 부분 문자열 검색 뒤 strncat + access + remove로 무인증 경로 순회 파일 삭제(VDOO).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "foscam"
+    },
+    {
+      "id": "foscam-ntp-server",
+      "description": "setSystemTime ntpServer 명령 주입(CVE-2017-2849의 불완전 수정).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "foscam"
+    },
+    {
+      "id": "herospeed-telnetswitch",
+      "description": "TCP/787 telnetd 활성화 데몬(bashis 2018, CVE 미확인): https://github.com/mcw0/PoC/blob/master/Herospeed-TelnetSwitch.py",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "herospeed"
+    },
+    {
+      "id": "gen-telnetd-launch",
+      "description": "부팅 스크립트나 inittab의 telnetd 무조건 기동. 기본 실행, 비활성화 불가 사례 있음.",
+      "result": "match",
+      "evidence_ref": "/etc/init.d/rcS@0x22d",
+      "count": 1,
+      "severity": "medium",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-telnetd-login-shell",
+      "description": "BusyBox telnetd -l LOGIN(Exec LOGIN on connect)에 셸을 지정하면 인증 없이 셸 제공.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-inittab-console-shell",
+      "description": "BusyBox inittab(<id>:<runlevels>:<action>:<process>)에서 getty/login 없이 대화형 셸 실행(예제 파일의 ::askfirst:-/bin/sh). UART 무비밀번호 root 셸. action은 respawn/askfirst만, proce…",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-getty-autologin",
+      "description": "getty -l LOGIN(Invoke LOGIN instead of /bin/login)에 셸 지정. -n과 함께면 프롬프트도 없음.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-inetd-telnet",
+      "description": "inetd.conf의 telnet 서비스(BusyBox telnetd usage 예: 23 stream tcp wait root telnetd telnetd -w10).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-shell-cmd-template",
+      "description": "설정값을 %s로 끼워 넣는 셸 명령 템플릿(NTP, FTP, ping, tcpdump, 이미지 변환). system/popen 싱크와 연결되는지 추적.",
+      "result": "match",
+      "evidence_ref": "/usr/sbin/httpd@0xeda",
+      "count": 1,
+      "severity": "medium",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-sh-c-template",
+      "description": "sh -c 명령 템플릿에 포맷 인자 삽입.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-hardcoded-basic-auth",
+      "description": "포맷 지정자 없이 base64 자격증명이 박힌 Authorization 헤더(내장 자격증명).",
+      "result": "match",
+      "evidence_ref": "/usr/sbin/httpd@0xcce",
+      "count": 1,
+      "severity": "high",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-private-key-pem",
+      "description": "펌웨어 내장 개인키(모든 장비 공통일 가능성).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-mtd-config-accounts",
+      "description": "Dahua/XiongMai 계열 사용자 DB와 설정 경로. 웹 서빙 경로나 무인증 핸들러와 연결되는지 확인.",
+      "result": "match",
+      "evidence_ref": "/usr/bin/sonia@0xbd2",
+      "count": 1,
+      "severity": "medium",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-onvif-wsse-anchors",
+      "description": "ONVIF WS-UsernameToken 처리 앵커(접두사 붙은 이름 wsse:Nonce, wsu:Created 기준. 실제 Dahua 펌웨어에 이 문자열이 그대로 있는지는 미확인이며, 접두사 없는 Nonce/Created만 있을 수도 있다). nonce 캐시와 Created 신선도(…",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "info",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-static-digest-nonce",
+      "description": "포맷 지정자 없는 고정 Digest nonce(Kojenov 관찰: nonce=\"tick\"). 재전송 가능한 Digest 인증.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-backdoor-keywords",
+      "description": "일반 키워드 휴리스틱(오탐 많음). 히트 주변 비교 상수를 확인.",
+      "result": "match",
+      "evidence_ref": "/usr/sbin/httpd@0xe8c",
+      "count": 1,
+      "severity": "low",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-debug-telnet-keywords",
+      "description": "telnet 활성화나 디버그 셸 기능명 휴리스틱(OpenTelnet, TelnetSwitch 계열 포괄).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "low",
+      "vendor": "generic"
+    },
+    {
+      "id": "gen-loopback-trust-anchors",
+      "description": "로컬 요청 신뢰 판정 함수명 휴리스틱. 판정 근거가 소켓 peer 주소인지 요청 본문 값인지 확인.",
+      "result": "match",
+      "evidence_ref": "/usr/bin/sonia@0x128777",
+      "count": 2,
+      "severity": "low",
+      "vendor": "generic"
+    },
+    {
+      "id": "comp-goahead-version",
+      "description": "GoAhead 버전 캡처. 3.6.5 미만이면서 CGI 활성, 동적 링크 CGI면 환경 변수 주입 RCE(KEV 2021-12-10). 현행 Embedthis 소스(src/http.c)는 Server 헤더로 버전 없는 GoAhead-http를 보내고 CGI 환경 변수 SERVER_SO…",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "generic"
+    },
+    {
+      "id": "comp-mini-httpd-version",
+      "description": "mini_httpd 버전 캡처(nmap 배너 형식 mini_httpd/<ver>). 1.30 미만이면 임의 파일 읽기.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "generic"
+    }
+  ],
+  "commented_hits": [
+    {
+      "file": "/etc/init.d/rcS",
+      "path": "extract/rootfs-001/etc/init.d/rcS",
+      "offset": 452,
+      "offset_hex": "0x1c4",
+      "line": 18,
+      "pattern_id": "gen-telnetd-launch",
+      "context": "# PWEH-PLANT-05: telnetd ë¥¼ í­ì ê¸°ë (ëë²ê·¸ ì¸í°íì´ì¤ ìì ê°ë°©)"
+    }
+  ],
+  "commented_hit_count": 1,
+  "skipped_large_files": [],
+  "errors": [],
+  "notes": [],
+  "elapsed_seconds": 0.398
+}

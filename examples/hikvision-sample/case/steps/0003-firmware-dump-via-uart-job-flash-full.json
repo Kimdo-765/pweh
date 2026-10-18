@@ -1,0 +1,19 @@
+{
+  "schema": "pweh.step-result/v1",
+  "case_id": "example-hikvision-sample",
+  "skill": "firmware-dump-via-uart",
+  "step": "job-flash-full",
+  "status": "success",
+  "summary": "완료 dumps/flash-full.bin",
+  "started_at": null,
+  "finished_at": "2026-10-18T17:39:50.605Z",
+  "data": {
+    "job_id": "job-2297b6cb",
+    "result_path": "dumps/flash-full.bin",
+    "sha256": "e95ae853526947b9d29011f61c4cb3b92ce6fdff8a368cd23eef14cd40c5c2a2"
+  },
+  "artifacts": [],
+  "next_actions": [],
+  "blockers": [],
+  "seq": 3
+}

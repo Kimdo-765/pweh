@@ -1,0 +1,41 @@
+{
+  "schema": "pweh.fwtriage.uimage/v1",
+  "tool": "fw_uimage_info",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-hikvision-sample",
+  "generated_at": "2026-10-18T17:39:51.955Z",
+  "input": {
+    "path": "extract/parts-001/02-kernel.bin",
+    "size": 2097152,
+    "size_human": "2.00 MiB",
+    "sha256": "cd3325c4e11951b6d10f613974196636f550c2e71b05828fbf064b061f0423ed"
+  },
+  "params": {
+    "offset": 0
+  },
+  "image": {
+    "format": "legacy-uimage",
+    "magic": "0x27051956",
+    "header_crc": "0x4db64d04",
+    "header_crc_ok": true,
+    "timestamp": 1584947441,
+    "data_size": 394758,
+    "load_address": "0x40008000",
+    "entry_point": "0x40008000",
+    "data_crc": "0x5c755fb6",
+    "data_crc_ok": true,
+    "os": "linux",
+    "arch": "arm",
+    "type": "kernel",
+    "compression": "none",
+    "name": "Linux-4.9.37",
+    "total_size": 394822,
+    "timestamp_iso": "2020-03-23T07:10:41Z",
+    "truncated": false,
+    "payload_probe": {
+      "kind": "zimage",
+      "description": "ARM Linux zImage (크기 394758 bytes)",
+      "size": 394758
+    }
+  }
+}

@@ -1,0 +1,507 @@
+"""케이스(분석 작업) 작업공간.
+
+케이스 하나 = 대상 기기 하나에 대한 분석 세션. Skill 사이의 데이터 전달은 모두 케이스 디렉터리의
+파일로 이루어진다::
+
+    cases/<case_id>/
+      case.json          메타데이터: 대상, 소유/허가 증명, 단계 상태, 아티팩트 색인, 단계 결과 색인
+      audit.jsonl        이 케이스의 모든 기기 조작/안전 결정 로그
+      steps/NNNN-<skill>-<step>.json   단계 결과 (schemas/step-result.schema.json)
+      uart/              UART 세션 로그 (*.log 텍스트, *.raw 원시 바이트, *.events.jsonl)
+      dumps/             플래시/메모리 덤프 (*.bin + *.json 메타데이터)
+      extract/           펌웨어 추출 결과 (REA extract_firmware, unsquashfs 등)
+      analysis/          분석 산출물 (triage JSON, 디컴파일 발췌 등)
+      signals/           로직 애널라이저 캡처(.sr/.vcd) 및 디코딩 결과
+      jtag/              OpenOCD 덤프/레지스터 스냅샷
+      jobs/              백그라운드 작업 상태
+      findings.json      발견사항 (schemas/finding.schema.json 항목들의 목록)
+      report.md          최종 보고서 (report_generate)
+"""
+
+from __future__ import annotations
+
+import re
+import shutil
+from pathlib import Path
+from typing import Any, Iterable
+
+from .audit import AuditLog
+from .errors import AuthorizationRequired, CaseError, NotFound, ValidationFailed
+from .fsutil import (
+    atomic_write_json,
+    file_lock,
+    is_within,
+    read_json,
+    safe_join,
+    sha256_file,
+    utcnow,
+    utcnow_iso,
+)
+from . import schemas
+
+CASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+STANDARD_DIRS = ("steps", "uart", "dumps", "extract", "analysis", "signals", "jtag", "jobs", "notes")
+
+PIPELINE_PHASES = (
+    "uart-shell-acquisition",
+    "firmware-dump-via-uart",
+    "logic-analyzer-protocol-decode",
+    "firmware-static-analysis",
+    "cctv-auth-bypass-hunt",
+    "report",
+)
+PHASE_STATUSES = ("pending", "in-progress", "done", "partial", "failed", "skipped", "blocked")
+AUTH_BASES = ("owned", "written-authorization")
+SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+
+
+def _slug(text: str, maxlen: int = 24) -> str:
+    s = re.sub(r"[^A-Za-z0-9]+", "-", text or "").strip("-").lower()
+    return (s or "case")[:maxlen].strip("-") or "case"
+
+
+class Case:
+    def __init__(self, root: Path) -> None:
+        self.dir = Path(root).resolve()
+        self.id = self.dir.name
+
+    # -- 경로 -----------------------------------------------------------------
+    @property
+    def meta_path(self) -> Path:
+        return self.dir / "case.json"
+
+    @property
+    def findings_path(self) -> Path:
+        return self.dir / "findings.json"
+
+    @property
+    def lock_path(self) -> Path:
+        return self.dir / ".case.lock"
+
+    def path(self, *parts: str) -> Path:
+        """케이스 디렉터리 내부의 안전한 경로."""
+        return safe_join(self.dir, *parts)
+
+    def subdir(self, name: str) -> Path:
+        p = self.path(name)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    def rel(self, p: Path | str) -> str:
+        pp = Path(p).resolve()
+        try:
+            return str(pp.relative_to(self.dir))
+        except ValueError:
+            return str(pp)
+
+    def resolve_path(self, p: str | Path) -> Path:
+        """케이스 상대경로 또는 케이스 내부 절대경로를 절대경로로 (케이스 밖이면 오류)."""
+        pp = Path(p)
+        if not pp.is_absolute():
+            return self.path(str(pp))
+        if not is_within(self.dir, pp):
+            raise CaseError(f"케이스 디렉터리 밖의 경로입니다: {pp}", hint=f"{self.dir} 내부 경로를 사용하세요.")
+        return pp.resolve()
+
+    # -- 메타데이터 -------------------------------------------------------------
+    def load(self) -> dict[str, Any]:
+        meta = read_json(self.meta_path)
+        if meta is None:
+            raise NotFound(f"케이스 메타데이터가 없습니다: {self.meta_path}")
+        return meta
+
+    def _update(self, fn) -> dict[str, Any]:
+        with file_lock(self.lock_path):
+            meta = self.load()
+            result = fn(meta)
+            meta["updated_at"] = utcnow_iso()
+            atomic_write_json(self.meta_path, meta)
+            return result if result is not None else meta
+
+    @property
+    def meta(self) -> dict[str, Any]:
+        return self.load()
+
+    def is_authorized(self) -> bool:
+        auth = self.load().get("authorization") or {}
+        return auth.get("basis") in AUTH_BASES and bool(auth.get("owner")) and bool(auth.get("statement"))
+
+    def require_authorization(self) -> None:
+        if not self.is_authorized():
+            raise AuthorizationRequired(
+                f"케이스 {self.id} 에 소유/허가 증명(authorization)이 기록되어 있지 않습니다.",
+                hint=(
+                    "하드웨어 도구를 쓰기 전에 사용자에게 기기 소유 또는 서면 허가 여부를 확인받고, "
+                    "case_set_authorization(또는 `pweh case attest`)으로 기록하세요."
+                ),
+            )
+
+    def set_phase(self, phase: str, status: str, note: str | None = None) -> dict[str, Any]:
+        if status not in PHASE_STATUSES:
+            raise ValidationFailed(f"잘못된 단계 상태: {status!r}", hint=f"허용: {PHASE_STATUSES}")
+
+        def fn(meta: dict[str, Any]) -> dict[str, Any]:
+            phases = meta.setdefault("phases", {})
+            entry = phases.setdefault(phase, {})
+            entry["status"] = status
+            entry["updated_at"] = utcnow_iso()
+            if note:
+                entry["note"] = note
+            return entry
+
+        return self._update(fn)
+
+    def set_authorization(self, authorization: dict[str, Any]) -> dict[str, Any]:
+        auth = normalize_authorization(authorization)
+
+        def fn(meta: dict[str, Any]) -> dict[str, Any]:
+            meta["authorization"] = auth
+            return auth
+
+        result = self._update(fn)
+        self.audit({"event": "authorization_recorded", "authorization": auth})
+        return result
+
+    def update_target(self, patch: dict[str, Any]) -> dict[str, Any]:
+        def fn(meta: dict[str, Any]) -> dict[str, Any]:
+            tgt = meta.setdefault("target", {})
+            for k, v in patch.items():
+                if v is not None:
+                    tgt[k] = v
+            return tgt
+
+        return self._update(fn)
+
+    def add_note(self, text: str, author: str = "agent") -> dict[str, Any]:
+        note = {"at": utcnow_iso(), "author": author, "text": text}
+
+        def fn(meta: dict[str, Any]) -> dict[str, Any]:
+            meta.setdefault("notes", []).append(note)
+            return note
+
+        return self._update(fn)
+
+    # -- 아티팩트 ---------------------------------------------------------------
+    def register_artifact(
+        self,
+        path: str | Path,
+        *,
+        kind: str,
+        producer: str,
+        description: str | None = None,
+        extra: dict[str, Any] | None = None,
+        compute_hash: bool = True,
+    ) -> dict[str, Any]:
+        p = self.resolve_path(path)
+        if not p.exists():
+            raise NotFound(f"아티팩트 파일이 없습니다: {p}")
+        is_dir = p.is_dir()
+        entry: dict[str, Any] = {
+            "path": self.rel(p),
+            "kind": kind,
+            "producer": producer,
+            "is_dir": is_dir,
+            "created_at": utcnow_iso(),
+        }
+        if description:
+            entry["description"] = description
+        if not is_dir:
+            entry["size"] = p.stat().st_size
+            if compute_hash:
+                entry["sha256"] = sha256_file(p)
+        if extra:
+            entry["extra"] = extra
+
+        def fn(meta: dict[str, Any]) -> dict[str, Any]:
+            arts = meta.setdefault("artifacts", [])
+            # 같은 경로는 갱신
+            for i, a in enumerate(arts):
+                if a.get("path") == entry["path"]:
+                    entry["id"] = a.get("id")
+                    arts[i] = entry
+                    return entry
+            entry["id"] = f"A-{len(arts) + 1:04d}"
+            arts.append(entry)
+            return entry
+
+        result = self._update(fn)
+        self.audit({"event": "artifact_registered", "artifact": result})
+        return result
+
+    def import_file(self, src: str | Path, dest_subdir: str, *, kind: str, producer: str, description: str | None = None) -> dict[str, Any]:
+        """케이스 밖의 파일(예: 공식 펌웨어 다운로드)을 케이스로 복사 후 등록."""
+        srcp = Path(src).expanduser().resolve()
+        if not srcp.is_file():
+            raise NotFound(f"가져올 파일이 없습니다: {srcp}")
+        dst_dir = self.subdir(dest_subdir)
+        dst = dst_dir / srcp.name
+        if dst.exists():
+            raise CaseError(f"이미 같은 이름의 파일이 있습니다: {self.rel(dst)}")
+        shutil.copy2(srcp, dst)
+        return self.register_artifact(dst, kind=kind, producer=producer, description=description, extra={"imported_from": str(srcp)})
+
+    def artifacts(self, kind: str | None = None) -> list[dict[str, Any]]:
+        arts = self.load().get("artifacts", [])
+        return [a for a in arts if kind is None or a.get("kind") == kind]
+
+    # -- 단계 결과 --------------------------------------------------------------
+    def record_step(
+        self,
+        *,
+        skill: str,
+        step: str,
+        status: str,
+        summary: str,
+        data: dict[str, Any] | None = None,
+        artifacts: Iterable[str] | None = None,
+        next_actions: Iterable[str] | None = None,
+        blockers: Iterable[str] | None = None,
+        started_at: str | None = None,
+    ) -> dict[str, Any]:
+        result = {
+            "schema": "pweh.step-result/v1",
+            "case_id": self.id,
+            "skill": skill,
+            "step": step,
+            "status": status,
+            "summary": summary,
+            "started_at": started_at,
+            "finished_at": utcnow_iso(),
+            "data": data or {},
+            "artifacts": [self.rel(self.resolve_path(a)) for a in (artifacts or [])],
+            "next_actions": list(next_actions or []),
+            "blockers": list(blockers or []),
+        }
+        schemas.validate("step-result", result)
+        if step == "summary":
+            data_schema = schemas.SKILL_DATA_SCHEMAS.get(skill)
+            if data_schema:
+                schemas.validate(data_schema, result["data"], label=f"{skill} 요약 data")
+
+        def fn(meta: dict[str, Any]) -> dict[str, Any]:
+            steps = meta.setdefault("steps", [])
+            seq = len(steps) + 1
+            fname = f"{seq:04d}-{_slug(skill, 40)}-{_slug(step, 32)}.json"
+            rel = f"steps/{fname}"
+            atomic_write_json(self.path("steps", fname), {**result, "seq": seq})
+            steps.append({"seq": seq, "file": rel, "skill": skill, "step": step, "status": status, "at": result["finished_at"]})
+            # 요약 단계는 단계(phase) 상태도 갱신
+            if step == "summary" and skill in PIPELINE_PHASES:
+                phase_status = {"success": "done", "partial": "partial", "failed": "failed", "blocked": "blocked", "skipped": "skipped"}.get(status, "in-progress")
+                phases = meta.setdefault("phases", {})
+                phases[skill] = {"status": phase_status, "updated_at": result["finished_at"]}
+            return {**result, "seq": seq, "file": rel}
+
+        out = self._update(fn)
+        self.audit({"event": "step_recorded", "skill": skill, "step": step, "status": status, "file": out["file"]})
+        return out
+
+    def steps(self, skill: str | None = None, *, load: bool = False) -> list[dict[str, Any]]:
+        idx = self.load().get("steps", [])
+        rows = [s for s in idx if skill is None or s.get("skill") == skill]
+        if load:
+            return [read_json(self.path(s["file"])) or s for s in rows]
+        return rows
+
+    def latest_summary(self, skill: str) -> dict[str, Any] | None:
+        rows = [s for s in self.steps(skill) if s.get("step") == "summary"]
+        if not rows:
+            return None
+        return read_json(self.path(rows[-1]["file"]))
+
+    # -- 발견사항 ---------------------------------------------------------------
+    def _load_findings(self) -> dict[str, Any]:
+        doc = read_json(self.findings_path)
+        if doc is None:
+            doc = {"schema": "pweh.findings/v1", "case_id": self.id, "findings": []}
+        return doc
+
+    def findings(self, min_severity: str | None = None) -> list[dict[str, Any]]:
+        items = self._load_findings()["findings"]
+        if min_severity:
+            limit = SEVERITY_ORDER.get(min_severity, 4)
+            items = [f for f in items if SEVERITY_ORDER.get(f.get("severity", "info"), 4) <= limit]
+        return sorted(items, key=lambda f: (SEVERITY_ORDER.get(f.get("severity", "info"), 4), f.get("id", "")))
+
+    def add_finding(self, finding: dict[str, Any]) -> dict[str, Any]:
+        f = dict(finding)
+        f.setdefault("status", "unverified")
+        f.setdefault("created_at", utcnow_iso())
+        f.setdefault("evidence", [])
+        f.setdefault("references", [])
+        with file_lock(self.lock_path):
+            doc = self._load_findings()
+            items = doc["findings"]
+            # 중복 방지: 같은 제목 + 같은 위치면 기존 항목 반환
+            loc_key = (f.get("title"), str((f.get("location") or {}).get("file")), str((f.get("location") or {}).get("function")), str((f.get("location") or {}).get("address")))
+            for existing in items:
+                ek = (existing.get("title"), str((existing.get("location") or {}).get("file")), str((existing.get("location") or {}).get("function")), str((existing.get("location") or {}).get("address")))
+                if ek == loc_key:
+                    return {**existing, "duplicate": True}
+            f["id"] = f"F-{len(items) + 1:03d}"
+            schemas.validate("finding", f, label="finding")
+            items.append(f)
+            atomic_write_json(self.findings_path, doc)
+        self.audit({"event": "finding_added", "id": f["id"], "title": f.get("title"), "severity": f.get("severity")})
+        return f
+
+    def update_finding(self, finding_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        with file_lock(self.lock_path):
+            doc = self._load_findings()
+            for i, f in enumerate(doc["findings"]):
+                if f.get("id") == finding_id:
+                    updated = {**f, **{k: v for k, v in patch.items() if k != "id"}, "updated_at": utcnow_iso()}
+                    schemas.validate("finding", updated, label="finding")
+                    doc["findings"][i] = updated
+                    atomic_write_json(self.findings_path, doc)
+                    break
+            else:
+                raise NotFound(f"발견사항을 찾을 수 없습니다: {finding_id}")
+        self.audit({"event": "finding_updated", "id": finding_id, "fields": sorted(patch)})
+        return updated
+
+    # -- 감사 -----------------------------------------------------------------
+    def audit(self, event: dict[str, Any]) -> None:
+        AuditLog(self.dir / "audit.jsonl").write(event)
+
+    def summary(self) -> dict[str, Any]:
+        meta = self.load()
+        findings = self.findings()
+        sev: dict[str, int] = {}
+        for f in findings:
+            sev[f.get("severity", "info")] = sev.get(f.get("severity", "info"), 0) + 1
+        return {
+            "id": meta["id"],
+            "title": meta.get("title"),
+            "status": meta.get("status"),
+            "profile": meta.get("profile"),
+            "target": meta.get("target", {}),
+            "authorized": self.is_authorized(),
+            "phases": meta.get("phases", {}),
+            "artifact_count": len(meta.get("artifacts", [])),
+            "step_count": len(meta.get("steps", [])),
+            "findings_by_severity": sev,
+            "dir": str(self.dir),
+        }
+
+
+def normalize_authorization(authorization: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(authorization, dict):
+        raise ValidationFailed("authorization 은 객체여야 합니다.")
+    basis = str(authorization.get("basis", "")).strip().lower()
+    if basis not in AUTH_BASES:
+        raise ValidationFailed(
+            f"authorization.basis 는 {AUTH_BASES} 중 하나여야 합니다 (받은 값: {basis!r}).",
+            hint="본인 소유 기기면 'owned', 서면 허가를 받은 기기면 'written-authorization'.",
+        )
+    owner = str(authorization.get("owner", "")).strip()
+    statement = str(authorization.get("statement", "")).strip()
+    if not owner or not statement:
+        raise ValidationFailed(
+            "authorization.owner 와 authorization.statement 는 필수입니다.",
+            hint="statement 에는 사용자가 소유/허가를 확인한 말을 그대로 인용하세요.",
+        )
+    if basis == "written-authorization" and not str(authorization.get("document_ref", "")).strip():
+        raise ValidationFailed(
+            "서면 허가(written-authorization)인 경우 document_ref(허가서 식별자/경로)가 필요합니다.",
+        )
+    return {
+        "basis": basis,
+        "owner": owner,
+        "statement": statement,
+        "scope": str(authorization.get("scope", "")).strip() or "this device only, lab use",
+        "document_ref": (str(authorization.get("document_ref")).strip() if authorization.get("document_ref") else None),
+        "attested_by": str(authorization.get("attested_by", "")).strip() or "user (relayed by agent)",
+        "attested_via": str(authorization.get("attested_via", "agent-relayed")),
+        "attested_at": utcnow_iso(),
+    }
+
+
+class CaseStore:
+    def __init__(self, cases_dir: Path) -> None:
+        self.dir = Path(cases_dir)
+
+    def _case_dir(self, case_id: str) -> Path:
+        if not CASE_ID_RE.match(case_id or ""):
+            raise ValidationFailed(f"잘못된 case_id: {case_id!r}", hint="영문/숫자/._- 만 사용 (최대 80자)")
+        return safe_join(self.dir, case_id)
+
+    def exists(self, case_id: str) -> bool:
+        return (self._case_dir(case_id) / "case.json").exists()
+
+    def get(self, case_id: str) -> Case:
+        d = self._case_dir(case_id)
+        if not (d / "case.json").exists():
+            raise NotFound(
+                f"케이스를 찾을 수 없습니다: {case_id}",
+                hint="case_list 로 기존 케이스를 확인하거나 case_create 로 새로 만드세요.",
+            )
+        return Case(d)
+
+    def list(self) -> list[dict[str, Any]]:
+        if not self.dir.exists():
+            return []
+        rows = []
+        for d in sorted(self.dir.iterdir()):
+            meta = read_json(d / "case.json") if d.is_dir() else None
+            if not meta:
+                continue
+            rows.append(
+                {
+                    "id": meta.get("id"),
+                    "title": meta.get("title"),
+                    "status": meta.get("status"),
+                    "profile": meta.get("profile"),
+                    "created_at": meta.get("created_at"),
+                    "target": {k: meta.get("target", {}).get(k) for k in ("vendor", "model")},
+                }
+            )
+        return rows
+
+    def create(
+        self,
+        *,
+        title: str,
+        target: dict[str, Any] | None = None,
+        authorization: dict[str, Any] | None = None,
+        profile: str | None = None,
+        case_id: str | None = None,
+        notes: str | None = None,
+    ) -> Case:
+        target = dict(target or {})
+        if not case_id:
+            stamp = utcnow().strftime("%Y%m%d")
+            base = _slug(" ".join(str(target.get(k, "")) for k in ("vendor", "model")).strip() or title)
+            case_id = f"{stamp}-{base}"
+            n = 1
+            while self.exists(case_id if n == 1 else f"{case_id}-{n}"):
+                n += 1
+            if n > 1:
+                case_id = f"{case_id}-{n}"
+        d = self._case_dir(case_id)
+        if (d / "case.json").exists():
+            raise CaseError(f"이미 존재하는 케이스입니다: {case_id}")
+        d.mkdir(parents=True, exist_ok=True)
+        for sub in STANDARD_DIRS:
+            (d / sub).mkdir(exist_ok=True)
+        now = utcnow_iso()
+        meta: dict[str, Any] = {
+            "schema": "pweh.case/v1",
+            "id": case_id,
+            "title": title,
+            "status": "open",
+            "created_at": now,
+            "updated_at": now,
+            "profile": profile or "generic-ipcam",
+            "target": target,
+            "authorization": normalize_authorization(authorization) if authorization else None,
+            "phases": {p: {"status": "pending"} for p in PIPELINE_PHASES},
+            "artifacts": [],
+            "steps": [],
+            "notes": [{"at": now, "author": "agent", "text": notes}] if notes else [],
+        }
+        schemas.validate("case", meta, label="case.json")
+        atomic_write_json(d / "case.json", meta)
+        case = Case(d)
+        case.audit({"event": "case_created", "title": title, "profile": meta["profile"], "authorized": bool(meta["authorization"])})
+        return case

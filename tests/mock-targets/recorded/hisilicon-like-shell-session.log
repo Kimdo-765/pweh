@@ -1,0 +1,218 @@
+
+
+System startup
+
+Uncompress Ok!
+
+U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)hi3516ev300
+
+DRAM:  64 MiB
+Relocation Offset is: 0379e000
+Relocating to 43f9e000, new gd at 43f5dee0, sp at 43f5ded0
+SPI Nor:  Check Flash Memory Controller v100 ... Found
+SPI Nor ID Table Version 1.0
+SPI Nor(cs 0) ID: 0xef 0x40 0x18
+Block:64KB Chip:16MB Name:"W25Q128(B/F)V"
+SPI Nor total size: 16MB
+NAND:  0 MiB
+MMC:
+In:    serial
+Out:   serial
+Err:   serial
+Net:   eth0
+Hit any key to stop autoboot:  2  1  0 
+SF: Detected W25Q128(B/F)V with page size 256 Bytes, erase size 64 KiB, total 16 MiB
+
+SF: 2097152 bytes @ 0x50000 Read: OK
+## Booting kernel from Legacy Image at 42000000 ...
+   Image Name:   Linux-4.9.37
+   Image Type:   ARM Linux Kernel Image (uncompressed)
+   Data Size:    394759 Bytes = 385.5 KiB
+   Load Address: 40008000
+   Entry Point:  40008000
+   Loading Kernel Image ... OK
+
+Starting kernel ...
+
+Uncompressing Linux... done, booting the kernel.
+Booting Linux on physical CPU 0x0
+Linux version 4.9.37 (pweh@synthetic-build) (gcc version 6.3.0 (HC&C V100R002C00B027_20200302) ) #1 Mon Mar 23 15:03:32 CST 2020
+CPU: ARMv7 Processor [410fc075] revision 5 (ARMv7), cr=10c5387d
+CPU: div instructions available: patching division code
+CPU: PIPT / VIPT nonaliasing data cache, VIPT aliasing instruction cache
+OF: fdt:Machine model: Hisilicon HI3516EV300 DEMO Board
+Memory policy: Data cache writeback
+CPU: All CPU(s) started in SVC mode.
+Built 1 zonelists in Zone order, mobility grouping on.  Total pages: 10160
+Kernel command line: mem=40M console=ttyAMA0,115200 root=/dev/mtdblock3 rootfstype=squashfs init=linuxrc mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)
+PID hash table entries: 256 (order: -2, 1024 bytes)
+Dentry cache hash table entries: 8192 (order: 3, 32768 bytes)
+Inode-cache hash table entries: 4096 (order: 2, 16384 bytes)
+Memory: 35204K/40960K available (3790K kernel code, 158K rwdata, 1012K rodata, 152K init, 207K bss, 5756K reserved, 0K cma-reserved)
+Virtual kernel memory layout:
+    vector  : 0xffff0000 - 0xffff1000   (   4 kB)
+    fixmap  : 0xffc00000 - 0xfff00000   (3072 kB)
+    vmalloc : 0xc3000000 - 0xff800000   ( 968 MB)
+    lowmem  : 0xc0000000 - 0xc2800000   (  40 MB)
+    modules : 0xbf000000 - 0xc0000000   (  16 MB)
+      .text : 0xc0008000 - 0xc03bbd34   (3792 kB)
+      .init : 0xc04b0000 - 0xc04d6000   ( 152 kB)
+      .data : 0xc04d6000 - 0xc04fdb58   ( 159 kB)
+       .bss : 0xc04ffd5c - 0xc0533a10   ( 208 kB)
+SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+NR_IRQS:16 nr_irqs:16 16
+clocksource: arm,sp804: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 637086815595 ns
+sched_clock: 32 bits at 3000kHz, resolution 333ns, wraps every 715827882841ns
+Console: colour dummy device 80x30
+Calibrating delay loop... 1987.37 BogoMIPS (lpj=9936896)
+pid_max: default: 32768 minimum: 301
+Mount-cache hash table entries: 1024 (order: 0, 4096 bytes)
+Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes)
+CPU: Testing write buffer coherency: ok
+Setting up static identity map for 0x40008200 - 0x40008258
+devtmpfs: initialized
+VFP support v0.3: implementor 41 architecture 2 part 30 variant 7 rev 5
+clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604462750000 ns
+pinctrl core: initialized pinctrl subsystem
+NET: Registered protocol family 16
+DMA: preallocated 256 KiB pool for atomic coherent allocations
+Serial: AMBA PL011 UART driver
+12040000.uart: ttyAMA0 at MMIO 0x12040000 (irq = 23, base_baud = 0) is a PL011 rev2
+console [ttyAMA0] enabled
+12041000.uart: ttyAMA1 at MMIO 0x12041000 (irq = 24, base_baud = 0) is a PL011 rev2
+SCSI subsystem initialized
+usbcore: registered new interface driver usbfs
+usbcore: registered new interface driver hub
+usbcore: registered new device driver usb
+clocksource: Switched to clocksource arm,sp804
+NET: Registered protocol family 2
+TCP established hash table entries: 1024 (order: 0, 4096 bytes)
+TCP bind hash table entries: 1024 (order: 0, 4096 bytes)
+TCP: Hash tables configured (established 1024 bind 1024)
+UDP hash table entries: 256 (order: 0, 4096 bytes)
+UDP-Lite hash table entries: 256 (order: 0, 4096 bytes)
+NET: Registered protocol family 1
+workingset: timestamp_bits=30 max_order=14 bucket_order=0
+squashfs: version 4.0 (2009/01/31) Phillip Lougher
+jffs2: version 2.2. (NAND) (SUMMARY)  © 2001-2006 Red Hat, Inc.
+io scheduler noop registered (default)
+io scheduler deadline registered
+io scheduler cfq registered
+brd: module loaded
+hisi-sfc hisi_spi_nor.0: SPI Nor ID Table Version 1.0
+hisi-sfc hisi_spi_nor.0: SPI Nor(cs 0) ID: 0xef 0x40 0x18
+hisi-sfc hisi_spi_nor.0: Block:64KB Chip:16MB Name:"W25Q128(B/F)V"
+5 cmdlinepart partitions found on MTD device hi_sfc
+Creating 5 MTD partitions on "hi_sfc":
+0x000000000000-0x000000040000 : "boot"
+0x000000040000-0x000000050000 : "env"
+0x000000050000-0x000000250000 : "kernel"
+0x000000250000-0x000000750000 : "rootfs"
+0x000000750000-0x000001000000 : "app"
+libphy: Fixed MDIO Bus: probed
+libphy: hisi_femac_mii_bus: probed
+hisi-femac 10040000.ethernet: using random MAC address 3e:9a:2f:7d:5e:3b
+usbcore: registered new interface driver usb-storage
+i2c /dev entries driver
+hibvt_rtc 120e0000.rtc: rtc core: registered 120e0000.rtc as rtc0
+NET: Registered protocol family 17
+hibvt_rtc 120e0000.rtc: setting system clock to 1970-01-01 00:00:00 UTC (0)
+VFS: Mounted root (squashfs filesystem) readonly on device 31:3.
+devtmpfs: mounted
+Freeing unused kernel memory: 152K
+This architecture does not have kernel memory protection.
+init started: BusyBox v1.26.2 (2020-03-23 15:10:41 CST)
+mount: mounting none on /proc/bus/usb failed: No such file or directory
+Starting telnetd...
+ipcam: starting synthetic httpd on port 80
+
+Please press Enter to activate this console. 
+
+(none) login: root
+Password: 
+# cat /proc/mtd
+dev:    size   erasesize  name
+mtd0: 00040000 00010000 "boot"
+mtd1: 00010000 00010000 "env"
+mtd2: 00200000 00010000 "kernel"
+mtd3: 00500000 00010000 "rootfs"
+mtd4: 008b0000 00010000 "app"
+# cat /proc/cmdline
+mem=40M console=ttyAMA0,115200 root=/dev/mtdblock3 rootfstype=squashfs init=linuxrc mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)
+# uname -a
+Linux (none) 4.9.37 #1 Mon Mar 23 15:03:32 CST 2020 armv7l GNU/Linux
+# cat /proc/cpuinfo
+processor	: 0
+model name	: ARMv7 Processor rev 5 (v7l)
+BogoMIPS	: 1987.37
+Features	: half thumb fastmult vfp edsp neon vfpv3 tls vfpv4 idiva idivt vfpd32 lpae
+CPU implementer	: 0x41
+CPU architecture: 7
+CPU variant	: 0x0
+CPU part	: 0xc07
+CPU revision	: 5
+
+Hardware	: Generic DT based system
+Revision	: 0000
+Serial		: 0000000000000000
+# mount
+/dev/root on / type squashfs (ro,relatime)
+devtmpfs on /dev type devtmpfs (rw,relatime,size=17344k,nr_inodes=4336,mode=755)
+proc on /proc type proc (rw,relatime)
+sysfs on /sys type sysfs (rw,relatime)
+tmpfs on /tmp type tmpfs (rw,relatime)
+/dev/mtdblock4 on /app type squashfs (ro,relatime)
+# ps
+  PID USER       VSZ STAT COMMAND
+    1 root      1600 S    init
+    2 root         0 SW   [kthreadd]
+    3 root         0 SW   [ksoftirqd/0]
+    5 root         0 SW<  [kworker/0:0H]
+    7 root         0 SW   [rcu_preempt]
+   10 root         0 SW<  [lru-add-drain]
+   11 root         0 SW   [kdevtmpfs]
+   12 root         0 SW<  [netns]
+  139 root         0 SW<  [kblockd]
+  215 root         0 SW   [kswapd0]
+  298 root         0 SW   [spi0]
+  492 root      1600 S    syslogd
+  494 root      1600 S    klogd
+  528 root      1596 S    /usr/sbin/telnetd
+  533 root      2448 S    /usr/sbin/httpd -p 80 -h /var/www
+  610 root      1612 S    -sh
+  613 root      1600 R    ps
+# dd if=/dev/mtd1 bs=256 count=1 | hexdump -C
+1+0 records in
+1+0 records out
+256 bytes (256B) copied, 0.000143 seconds, 1.7MB/s
+00000000  f0 7d 1e 24 61 72 63 68  3d 61 72 6d 00 62 61 75  |.}.$arch=arm.bau|
+00000010  64 72 61 74 65 3d 31 31  35 32 30 30 00 62 6f 61  |drate=115200.boa|
+00000020  72 64 3d 68 69 33 35 31  36 65 76 33 30 30 00 62  |rd=hi3516ev300.b|
+00000030  6f 61 72 64 5f 6e 61 6d  65 3d 68 69 33 35 31 36  |oard_name=hi3516|
+00000040  65 76 33 30 30 00 62 6f  6f 74 61 72 67 73 3d 6d  |ev300.bootargs=m|
+00000050  65 6d 3d 34 30 4d 20 63  6f 6e 73 6f 6c 65 3d 74  |em=40M console=t|
+00000060  74 79 41 4d 41 30 2c 31  31 35 32 30 30 20 72 6f  |tyAMA0,115200 ro|
+00000070  6f 74 3d 2f 64 65 76 2f  6d 74 64 62 6c 6f 63 6b  |ot=/dev/mtdblock|
+00000080  33 20 72 6f 6f 74 66 73  74 79 70 65 3d 73 71 75  |3 rootfstype=squ|
+00000090  61 73 68 66 73 20 69 6e  69 74 3d 6c 69 6e 75 78  |ashfs init=linux|
+000000a0  72 63 20 6d 74 64 70 61  72 74 73 3d 68 69 5f 73  |rc mtdparts=hi_s|
+000000b0  66 63 3a 32 35 36 6b 28  62 6f 6f 74 29 2c 36 34  |fc:256k(boot),64|
+000000c0  6b 28 65 6e 76 29 2c 32  30 34 38 6b 28 6b 65 72  |k(env),2048k(ker|
+000000d0  6e 65 6c 29 2c 35 31 32  30 6b 28 72 6f 6f 74 66  |nel),5120k(rootf|
+000000e0  73 29 2c 2d 28 61 70 70  29 00 62 6f 6f 74 63 6d  |s),-(app).bootcm|
+000000f0  64 3d 73 66 20 70 72 6f  62 65 20 30 3b 20 73 66  |d=sf probe 0; sf|
+00000100
+# dd if=/dev/mtd1 bs=114 count=1 2>/dev/null | base64
+8H0eJGFyY2g9YXJtAGJhdWRyYXRlPTExNTIwMABib2FyZD1oaTM1MTZldjMwMABib2FyZF9uYW1l
+PWhpMzUxNmV2MzAwAGJvb3RhcmdzPW1lbT00ME0gY29uc29sZT10dHlBTUEwLDExNTIwMCByb290
+# md5sum /dev/mtd1
+f6767fe31809e6d85c57c9f7edaa238c  /dev/mtd1
+# netstat -tln
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       
+tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN      
+tcp        0      0 0.0.0.0:23              0.0.0.0:*               LISTEN      
+tcp        0      0 0.0.0.0:554             0.0.0.0:*               LISTEN      
+# xyzzy
+-sh: xyzzy: not found
+# 

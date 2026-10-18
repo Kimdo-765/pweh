@@ -1,0 +1,19 @@
+{
+  "schema": "pweh.step-result/v1",
+  "case_id": "example-dahua-sample",
+  "skill": "firmware-dump-via-uart",
+  "step": "job-flash-full",
+  "status": "success",
+  "summary": "완료 dumps/flash-full.bin",
+  "started_at": null,
+  "finished_at": "2026-10-18T17:41:08.114Z",
+  "data": {
+    "job_id": "job-d82e4195",
+    "result_path": "dumps/flash-full.bin",
+    "sha256": "560ae32b73b130eb8b3b6fef8d712b23d6477951f16546834fb1a353af6e878f"
+  },
+  "artifacts": [],
+  "next_actions": [],
+  "blockers": [],
+  "seq": 3
+}

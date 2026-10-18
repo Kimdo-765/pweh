@@ -1,0 +1,196 @@
+{
+  "schema": "pweh.step-result/v1",
+  "case_id": "example-hikvision-sample",
+  "skill": "firmware-static-analysis",
+  "step": "summary",
+  "status": "success",
+  "summary": "rootfs(squashfs) 추출·감사, REA/Ghidra 디컴파일. 발견 6건",
+  "started_at": null,
+  "finished_at": "2026-10-18T17:40:09.379Z",
+  "data": {
+    "firmware": {
+      "path": "dumps/flash-full.bin",
+      "sha256": "e95ae853526947b9d29011f61c4cb3b92ce6fdff8a368cd23eef14cd40c5c2a2",
+      "size": 16777216,
+      "source": "uart-dump"
+    },
+    "identification": {
+      "regions_crosscheck": "REA inspect_firmware_regions(binwalk): 영역 3개, fw_identify 와 같은 오프셋 uimage@0x50000, squashfs@0x250000, squashfs@0x750000, REA 가 놓친 영역 uboot-env@0x40000 → fw_identify 를 기본 지도로 채택",
+      "arch": "arm",
+      "endianness": "little",
+      "bootloader": "U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)hi3516ev300",
+      "kernel": {
+        "uimage_name": "Linux-4.9.37",
+        "compression": "none",
+        "header_crc_ok": true,
+        "data_crc_ok": true
+      },
+      "uboot_env": {
+        "crc_ok": true,
+        "count": 1
+      },
+      "mtdparts": {
+        "source": "uboot-env@0x40000:bootargs",
+        "text": "mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)"
+      },
+      "partitions": [
+        {
+          "name": "boot",
+          "offset": "0x0",
+          "size": 262144,
+          "content": "bootloader",
+          "file": "extract/parts-001/00-boot.bin"
+        },
+        {
+          "name": "env",
+          "offset": "0x40000",
+          "size": 65536,
+          "content": "uboot-env",
+          "file": "extract/parts-001/01-env.bin"
+        },
+        {
+          "name": "kernel",
+          "offset": "0x50000",
+          "size": 2097152,
+          "content": "uimage",
+          "file": "extract/parts-001/02-kernel.bin"
+        },
+        {
+          "name": "rootfs",
+          "offset": "0x250000",
+          "size": 5242880,
+          "content": "squashfs",
+          "file": "extract/parts-001/03-rootfs.bin"
+        },
+        {
+          "name": "app",
+          "offset": "0x750000",
+          "size": 9109504,
+          "content": "squashfs",
+          "file": "extract/parts-001/04-app.bin"
+        }
+      ],
+      "entropy": {
+        "unexplained_high_entropy_runs": 1,
+        "profile": "*##______#@@@@._________________________________________________"
+      },
+      "reports": [
+        "analysis/identify-002.json",
+        "analysis/entropy-001.json",
+        "analysis/uboot-env-001.json",
+        "analysis/carve-002.json",
+        "analysis/uimage-001.json"
+      ]
+    },
+    "extraction": {
+      "tool": "fwtriage",
+      "status": "complete",
+      "output_dir": "extract/rootfs-001",
+      "gaps": [
+        {
+          "region": "boot/env/uImage",
+          "kind": "non-filesystem",
+          "note": "부트로더·env·커널은 파일시스템이 아님 (예상된 gap)"
+        },
+        {
+          "region": "extract/rea-001",
+          "kind": "unpublished-entry",
+          "count": 125,
+          "note": "REA 교차 추출의 심볼릭 링크 (메타데이터로만 보존)"
+        }
+      ],
+      "runs": [
+        {
+          "tool": "fw_extract_squashfs",
+          "input": "extract/parts-001/03-rootfs.bin",
+          "output_dir": "extract/rootfs-001",
+          "status": "complete",
+          "manifest": "extract/rootfs-001.manifest.json"
+        },
+        {
+          "tool": "fw_extract_squashfs",
+          "output_dir": "extract/app-001",
+          "status": "complete"
+        },
+        {
+          "tool": "extract_firmware",
+          "output_dir": "extract/rea-001",
+          "coverage": "partial",
+          "purpose": "교차 확인"
+        }
+      ]
+    },
+    "rootfs": {
+      "path": "extract/rootfs-001",
+      "fs_type": "squashfs 4.0 xz",
+      "arch": "arm",
+      "endianness": "little",
+      "init_scripts": [
+        "/etc/inittab",
+        "/etc/profile",
+        "/etc/init.d/rcS"
+      ],
+      "services": [
+        "telnetd"
+      ],
+      "web_servers": [
+        "/usr/bin/davinci",
+        "/usr/sbin/httpd"
+      ]
+    },
+    "binaries_of_interest": [
+      {
+        "path": "/usr/bin/davinci",
+        "reason": "웹/메인 앱 바이너리 (hikvision); canary=False, pie=False",
+        "arch": "32-bit LSB EXEC, arm (EABI5, soft-float)",
+        "analyzed_with": "deferred: cctv-auth-bypass-hunt"
+      },
+      {
+        "path": "/usr/sbin/httpd",
+        "reason": "웹/메인 앱 바이너리 (generic); canary=False, pie=False",
+        "arch": "32-bit LSB EXEC, arm (EABI5, soft-float)",
+        "analyzed_with": "rea-ghidra",
+        "evidence_bundle": "analysis/rea-evidence-httpd-001.json"
+      },
+      {
+        "path": "/var/www/cgi-bin/status.cgi",
+        "reason": "CGI 프로그램",
+        "analyzed_with": "fallback"
+      },
+      {
+        "path": "/usr/sbin/telnetd",
+        "reason": "부팅 시 실행되는 서비스 (telnetd)",
+        "analyzed_with": "none"
+      }
+    ],
+    "rea": {
+      "provider": "ghidra",
+      "evidence_bundle": "analysis/rea-evidence-httpd-001.json",
+      "limitations": []
+    },
+    "finding_ids": [
+      "F-001",
+      "F-002",
+      "F-003",
+      "F-004",
+      "F-005",
+      "F-006"
+    ],
+    "notes": [
+      "펌웨어 출처: firmware-dump-via-uart (crc32-chunks 일치)",
+      "triage: analysis/rootfs-audit-001.json, analysis/strings-hunt-001.json, analysis/elf-info-001.json"
+    ]
+  },
+  "artifacts": [
+    "extract/rootfs-001",
+    "analysis/rootfs-audit-001.json",
+    "analysis/strings-hunt-001.json",
+    "analysis/elf-info-001.json",
+    "analysis/rea-evidence-httpd-001.json"
+  ],
+  "next_actions": [
+    "cctv-auth-bypass-hunt: 벤더 메인 앱·웹 구성요소 AH-01..AH-12 판정"
+  ],
+  "blockers": [],
+  "seq": 5
+}

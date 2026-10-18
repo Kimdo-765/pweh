@@ -1,0 +1,401 @@
+{
+  "schema": "pweh.fwtriage.rootfs-audit/v1",
+  "tool": "fw_rootfs_audit",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-dahua-sample",
+  "generated_at": "2026-10-18T17:41:12.888Z",
+  "input": {
+    "path": "extract/rootfs-001",
+    "type": "directory"
+  },
+  "params": {
+    "crack_defaults": true,
+    "crack_seconds": 30.0,
+    "max_file_size": 16777216,
+    "patterns": {
+      "source": "<REPO>/src/pweh/data/cctv-hunt-patterns.yaml",
+      "sha256": "476f3c5099cdc3df422a0f719985534bb229b5a4a8a8ca2af7fdbac65e24f68e"
+    },
+    "wordlist": "<REPO>/src/pweh/data/default-passwords.txt"
+  },
+  "summary": {
+    "entries": {
+      "dir": 23,
+      "symlink": 125,
+      "file": 25
+    },
+    "items_by_severity": {
+      "critical": 1,
+      "medium": 2
+    },
+    "items_by_category": {
+      "hardcoded-credential": 2,
+      "debug-interface": 1
+    },
+    "accounts": 4,
+    "cracked_or_empty": 1,
+    "services": [
+      "telnetd"
+    ],
+    "web_servers": 2,
+    "cgi_programs": 1,
+    "setuid": 0,
+    "private_keys": 0,
+    "manifest_used": true,
+    "vendor_family": "dahua-like"
+  },
+  "rootfs": {
+    "path": "extract/rootfs-001",
+    "fs_type": "squashfs 4.0 xz",
+    "arch": "arm",
+    "endianness": "little",
+    "init_scripts": [
+      "/etc/inittab",
+      "/etc/profile",
+      "/etc/init.d/rcS"
+    ],
+    "services": [
+      "telnetd"
+    ],
+    "web_servers": [
+      "/usr/bin/sonia",
+      "/usr/sbin/httpd"
+    ]
+  },
+  "platform": {
+    "arch": "arm",
+    "endianness": "little",
+    "elf_class": 32,
+    "arch_flags": "EABI5, soft-float",
+    "arch_source": "/bin/busybox",
+    "busybox": "BusyBox v1.26.2 (2020-03-23 15:10:41 CST)",
+    "release_files": {
+      "/etc/version": "dahua-like synthetic build 2020-03-23 15:10:41",
+      "/etc/hostname": "ipcam"
+    },
+    "libc": [],
+    "kernel_modules": []
+  },
+  "accounts": [
+    {
+      "user": "root",
+      "files": [
+        "/etc/passwd:1",
+        "/etc/shadow:1"
+      ],
+      "passwd_line": [
+        "/etc/passwd",
+        1
+      ],
+      "uid": 0,
+      "gid": 0,
+      "home": "/root",
+      "shell": "/bin/sh",
+      "hashes": [
+        {
+          "file": "/etc/shadow",
+          "line": 1,
+          "algorithm": "md5crypt",
+          "weak": true,
+          "locked": false
+        }
+      ],
+      "login_shell": true
+    },
+    {
+      "user": "daemon",
+      "files": [
+        "/etc/passwd:2",
+        "/etc/shadow:2"
+      ],
+      "passwd_line": [
+        "/etc/passwd",
+        2
+      ],
+      "uid": 1,
+      "gid": 1,
+      "home": "/usr/sbin",
+      "shell": "/bin/false",
+      "login_shell": false
+    },
+    {
+      "user": "bin",
+      "files": [
+        "/etc/passwd:3",
+        "/etc/shadow:3"
+      ],
+      "passwd_line": [
+        "/etc/passwd",
+        3
+      ],
+      "uid": 2,
+      "gid": 2,
+      "home": "/bin",
+      "shell": "/bin/false",
+      "login_shell": false
+    },
+    {
+      "user": "nobody",
+      "files": [
+        "/etc/passwd:4",
+        "/etc/shadow:4"
+      ],
+      "passwd_line": [
+        "/etc/passwd",
+        4
+      ],
+      "uid": 65534,
+      "gid": 65534,
+      "home": "/nonexistent",
+      "shell": "/bin/false",
+      "login_shell": false
+    }
+  ],
+  "hash_checks": [
+    {
+      "user": "root",
+      "hash": "$1$1Qd275ca$3NeG0Q9..yK8aIfbYMjZv/",
+      "source": "/etc/shadow",
+      "algorithm": "md5crypt",
+      "note": "MD5-crypt (약함, GPU 로 빠르게 대입 가능)",
+      "file": "/etc/shadow",
+      "line": 1,
+      "status": "cracked",
+      "candidates_tried": 13,
+      "candidates_total": 129,
+      "password": "11**",
+      "password_masked": "1***"
+    }
+  ],
+  "items": [
+    {
+      "id": "builtin-default-password",
+      "category": "hardcoded-credential",
+      "severity": "critical",
+      "title": "계정 'root' 의 비밀번호가 공개 기본 비밀번호 사전과 일치 (1***)",
+      "file": "/etc/shadow",
+      "line": 1,
+      "rationale": "공개된 IoT 기본 비밀번호 목록(src/pweh/data/default-passwords.txt)과 오프라인 대조 결과. 모든 동일 펌웨어 기기에 같은 비밀번호가 있을 가능성이 높다.",
+      "algorithm": "md5crypt"
+    },
+    {
+      "id": "gen-telnetd-launch",
+      "category": "debug-interface",
+      "severity": "medium",
+      "title": "gen-telnetd-launch: /etc/init.d/rcS:20",
+      "file": "/etc/init.d/rcS",
+      "line": 20,
+      "excerpt": "/usr/sbin/telnetd &",
+      "rationale": "부팅 스크립트나 inittab의 telnetd 무조건 기동. 기본 실행, 비활성화 불가 사례 있음.",
+      "references": [
+        "CVE-2017-8224",
+        "CVE-2020-24218"
+      ]
+    },
+    {
+      "id": "passwd-md5-crypt",
+      "category": "hardcoded-credential",
+      "severity": "medium",
+      "title": "passwd-md5-crypt: /etc/shadow:1",
+      "file": "/etc/shadow",
+      "line": 1,
+      "excerpt": "root:$1$1Qd…:18000:0:99999:7:::",
+      "rationale": "MD5-crypt 해시. 펌웨어 고정 계정이면 모든 장비 공통 비밀번호일 수 있음.",
+      "references": [
+        "CVE-2017-8224",
+        "CVE-2020-24218"
+      ]
+    }
+  ],
+  "services": [
+    {
+      "service": "telnetd",
+      "label": "telnet 서버",
+      "file": "/etc/init.d/rcS",
+      "line": 20,
+      "command": "/usr/sbin/telnetd &",
+      "binary": "/usr/sbin/telnetd"
+    }
+  ],
+  "inittab": [
+    {
+      "line": 2,
+      "id": "",
+      "runlevels": "",
+      "action": "sysinit",
+      "process": "/etc/init.d/rcS"
+    },
+    {
+      "line": 3,
+      "id": "",
+      "runlevels": "",
+      "action": "askfirst",
+      "process": "/bin/login"
+    },
+    {
+      "line": 4,
+      "id": "",
+      "runlevels": "",
+      "action": "restart",
+      "process": "/sbin/init"
+    },
+    {
+      "line": 5,
+      "id": "",
+      "runlevels": "",
+      "action": "ctrlaltdel",
+      "process": "/sbin/reboot"
+    },
+    {
+      "line": 6,
+      "id": "",
+      "runlevels": "",
+      "action": "shutdown",
+      "process": "/bin/umount -a -r"
+    }
+  ],
+  "startup_files": [
+    "/etc/inittab",
+    "/etc/profile",
+    "/etc/init.d/rcS"
+  ],
+  "mounts": [
+    {
+      "source": "config.safety.persistent_paths",
+      "mount_point": "/mnt/mtd",
+      "fs": null,
+      "present_in_image": true
+    },
+    {
+      "source": "config.safety.persistent_paths",
+      "mount_point": "/home",
+      "fs": null,
+      "present_in_image": true
+    },
+    {
+      "source": "config.safety.persistent_paths",
+      "mount_point": "/mnt/sd",
+      "fs": null,
+      "present_in_image": true
+    }
+  ],
+  "web": {
+    "servers": [
+      {
+        "path": "/usr/bin/sonia",
+        "name": "sonia",
+        "vendor": "dahua",
+        "elf": "32-bit LSB EXEC, arm (EABI5, soft-float)",
+        "size": 1728492
+      },
+      {
+        "path": "/usr/sbin/httpd",
+        "name": "httpd",
+        "vendor": "generic",
+        "elf": "32-bit LSB EXEC, arm (EABI5, soft-float)",
+        "size": 1803704
+      }
+    ],
+    "configs": [],
+    "cgi": [
+      {
+        "path": "/var/www/cgi-bin/status.cgi",
+        "elf": null,
+        "script": true,
+        "size": 113
+      }
+    ],
+    "web_roots": [
+      {
+        "path": "/var/www",
+        "files": 4
+      }
+    ]
+  },
+  "setuid": [],
+  "setgid": [],
+  "world_writable_startup": [],
+  "private_keys": [],
+  "certificates": [],
+  "interesting_paths": {
+    "etc/passwd": [
+      "/etc/passwd"
+    ],
+    "etc/shadow": [
+      "/etc/shadow"
+    ],
+    "etc/group": [
+      "/etc/group"
+    ],
+    "etc/inittab": [
+      "/etc/inittab"
+    ],
+    "etc/init.d/*": [
+      "/etc/init.d/rcS"
+    ],
+    "etc/init.d/rcS": [
+      "/etc/init.d/rcS"
+    ],
+    "etc/profile": [
+      "/etc/profile"
+    ],
+    "mnt/mtd/**": [
+      "/mnt/mtd/Config"
+    ],
+    "usr/bin/sonia": [
+      "/usr/bin/sonia"
+    ],
+    "**/cgi-bin/**": [
+      "/var/www/cgi-bin/status.cgi"
+    ],
+    "**/*.cgi": [
+      "/var/www/cgi-bin/status.cgi"
+    ],
+    "**/*.conf": [
+      "/etc/resolv.conf"
+    ],
+    "**/www/**": [
+      "/var/www/cgi-bin",
+      "/var/www/static",
+      "/var/www/index.html",
+      "/var/www/cgi-bin/status.cgi",
+      "/var/www/static/app.js",
+      "/var/www/static/style.css"
+    ]
+  },
+  "vendor": {
+    "family": "dahua-like",
+    "family_source": "evidence",
+    "vendor": "dahua",
+    "votes": {
+      "dahua": 5,
+      "xiongmai": 1
+    },
+    "evidence": [
+      "바이너리 이름 /usr/bin/sonia → dahua",
+      "경로 지표 /mnt/mtd/Config → dahua/xiongmai",
+      "경로 지표 /usr/bin/sonia → dahua"
+    ],
+    "profile_vendor_family": "dahua-like"
+  },
+  "binaries_of_interest": [
+    {
+      "path": "/usr/bin/sonia",
+      "reason": "웹/메인 앱 바이너리 (dahua)"
+    },
+    {
+      "path": "/usr/sbin/httpd",
+      "reason": "웹/메인 앱 바이너리 (generic)"
+    },
+    {
+      "path": "/var/www/cgi-bin/status.cgi",
+      "reason": "CGI 프로그램"
+    },
+    {
+      "path": "/usr/sbin/telnetd",
+      "reason": "부팅 시 실행되는 서비스 (telnetd)"
+    }
+  ],
+  "limitations": [],
+  "elapsed_seconds": 0.03
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/signal-capture.schema.json",
+  "title": "logic-analyzer-protocol-decode 요약 data",
+  "type": "object",
+  "required": ["capture"],
+  "properties": {
+    "capture": {
+      "type": "object",
+      "required": ["file"],
+      "properties": {
+        "file": {"type": "string", "description": "케이스 상대 경로 (signals/*.sr|*.vcd)"},
+        "device": {"type": ["string", "null"]},
+        "samplerate": {"type": ["integer", "null"]},
+        "duration_s": {"type": ["number", "null"]},
+        "channels": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}, "pin_label": {"type": "string"}}}}
+      }
+    },
+    "uart_estimate": {"type": ["object", "null"], "properties": {"channel": {"type": "string"}, "baudrate": {"type": ["integer", "null"]}, "confidence": {"type": ["number", "null"]}, "idle_level": {"type": ["integer", "null"]}}},
+    "decoders": {"type": "array", "items": {"type": "object", "required": ["stack"], "properties": {"stack": {"type": "string"}, "annotations": {"type": ["string", "null"]}, "output_file": {"type": ["string", "null"]}, "summary": {"type": "string"}}}},
+    "conclusions": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

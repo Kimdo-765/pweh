@@ -1,0 +1,328 @@
+# pweh.mocktarget 시뮬레이터 프로필 — Ingenic T31 계열 "유사" 카메라 (합성 데이터)
+#
+# 실제 벤더 펌웨어/코드가 아니다. 출력 "형식"은 Ingenic SDK 의 베이스인 U-Boot 2013.07 포크
+# (common/main.c simple 파서, common/cmd_sf.c 의 PRINT_TIME, common/hash.c, common/cmd_bdinfo.c MIPS),
+# Linux 3.10 (drivers/mtd, init/do_mounts.c, arch/mips/kernel/proc.c), BusyBox 소스에서 확인한 코드
+# 경로를 따르고, 값(날짜·주소·문구)은 합성한 것이다.
+# 근거: ~/pweh-refs/openipc/u-boot-ingenic, ~/pweh-refs/openipc/u-boot-t40/include/configs/isvp_t31.h,
+#       docs/references/uboot-and-boot-console.md
+name: ingenic-like
+description: >-
+  Ingenic T31 유사 MIPS(XBurst) IP 카메라 (U-Boot 2013.07 SDK 포크, simple 파서, Linux 3.10.14,
+  BusyBox 1.22.1, base64 애플릿 없음, 16MiB SPI NOR). 합성 데이터.
+aliases: [mock-ingenic, ingenic, t31-like]
+pipeline_profile: mock-ingenic
+arch: mips
+endianness: little
+baud: 115200
+
+flash:
+  type: spi-nor
+  model: "BY25Q128AS"
+  jedec_id: [0x68, 0x40, 0x18]
+  size: 16MiB
+  page_size: 256
+  erase_size: 64KiB
+  mtdparts: "jz_sfc:256k(boot),64k(env),2048k(kernel),4096k(rootfs),9920k(appfs)"
+
+dram:
+  base: 0x80000000
+  size: 64MiB
+
+uart:
+  rx_fifo: 64            # JZ UART RX FIFO
+  linux_rx_buffer: 4096
+
+uboot:
+  dialect: ingenic-2013
+  version: "U-Boot 2013.07 (Dec 09 2020 - 11:32:38)"
+  spl_version: "U-Boot SPL 2013.07 (Dec 09 2020 - 11:32:38)"
+  prompt: "isvp_t31# "
+  maxargs: 64
+  cbsize: 1024
+  loadaddr: 0x80600000
+  cc_version: "mips-linux-gnu-gcc (Ingenic r2.3.3 2016.12) 4.7.2"
+  ld_version: "GNU ld (Ingenic r2.3.3 2016.12) 2.24.51.20140512"
+  autoboot:
+    delay: 1
+    keys: null
+    zero_check: true
+  bdinfo:
+    boot_params: 0x81f6bf60
+    memstart: 0x80000000
+    memsize: 0x04000000
+    flashstart: 0x00000000
+    flashsize: 0x00000000
+    flashoffset: 0x00000000
+  env:
+    baudrate: "115200"
+    bootargs: "console=ttyS1,115200n8 mem=42M@0x0 rmem=22M@0x2a00000 init=/linuxrc rootfstype=squashfs root=/dev/mtdblock3 rw mtdparts=jz_sfc:256k(boot),64k(env),2048k(kernel),4096k(rootfs),9920k(appfs)"
+    bootcmd: "sf probe;sf read 0x80600000 0x50000 0x200000; bootm 0x80600000"
+    bootdelay: "1"
+    ethaddr: "00:d0:d0:00:95:27"
+    gatewayip: 193.169.4.1
+    ipaddr: 193.169.4.81
+    loads_echo: "1"
+    netmask: 255.255.255.0
+    serverip: 193.169.4.2
+  default_env:
+    baudrate: "115200"
+    bootargs: "console=ttyS1,115200n8 mem=42M@0x0 rmem=22M@0x2a00000 init=/linuxrc rootfstype=squashfs root=/dev/mtdblock2 rw mtdparts=jz_sfc:256k(boot),2560k(kernel),2048k(root),-(appfs)"
+    bootcmd: "sf probe;sf read 0x80600000 0x40000 0x280000; bootm 0x80600000"
+    bootdelay: "1"
+    ethaddr: "00:d0:d0:00:95:27"
+    gatewayip: 193.169.4.1
+    ipaddr: 193.169.4.81
+    loads_echo: "1"
+    netmask: 255.255.255.0
+    serverip: 193.169.4.2
+  runtime_env:
+    stdin: serial
+    stdout: serial
+    stderr: serial
+  commands: ["?", base, bdinfo, boot, bootd, bootm, cmp, coninfo, cp, crc32, echo, env, "false", go, help,
+             iminfo, loop, md, mm, mtdparts, mtest, mw, nm, ping, printenv, reset, run, saveenv, setenv, sf,
+             sleep, test, tftp, tftpboot, tftpput, "true", version]
+  net:
+    eth_name: Jz4775-9161
+    link_down:
+      - "Jz4775-9161 Waiting for PHY auto negotiation to complete.... TIMEOUT !"
+  timings:
+    bootrom: 0.15
+    banner_line: 0.004
+    spl_line: 0.002
+    flash_read_bps: 7200000
+    flash_erase_block: 0.04
+    flash_program_bps: 300000
+    kernel_line: 0.01
+    userspace: 0.5
+  spl_banner: |
+
+
+    {spl_version}
+    Timer init
+    CLK stop
+    PLL init
+    pll_init:366
+    nf=116 nr = 1 od0 = 1 od1 = 2
+    cppcr is 07405100
+    CPM_CPAPCR 0750510d
+    nf=99 nr = 1 od0 = 1 od1 = 2
+    cppcr is 06305100
+    CPM_CPMPCR 0630510d
+    cppcr 0x9a7b5510
+    apll_freq 1392000000
+    mpll_freq 1188000000
+    ddr sel mpll, cpu sel apll
+    ddrfreq 594000000
+    cclk  1392000000
+    l2clk 696000000
+    h0clk 237600000
+    h2clk 237600000
+    pclk  118800000
+    CLK init
+    SDRAM init
+    sdram init start
+    DDR clk rate 594000000
+    sdram init finished
+    SDRAM init ok
+    board_init_r
+    image entry point: 0x80100000
+  banner: |
+
+
+    {version}
+
+    Board: ISVP (Ingenic XBurst T31 SoC)
+    DRAM:  64 MiB
+    Top of RAM usable for U-Boot at: 84000000
+    Reserving 446k for U-Boot at: 83f90000
+    Reserving 32784k for malloc() at: 81f8c000
+    Reserving 32 Bytes for Board Info at: 81f8bfe0
+    Reserving 124 Bytes for Global Data at: 81f8bf60
+    Reserving 128k for boot params() at: 81f6bf60
+    Stack Pointer at: 81f6bf48
+    Now running in RAM - U-Boot at: 83f90000
+    MMC:   msc: 0
+    the manufacturer 68
+    SF: Detected BY25Q128AS
+    {env_warning}
+    In:    serial
+    Out:   serial
+    Err:   serial
+    Net:   ====>PHY not found!Jz4775-9161
+
+kernel:
+  version: "3.10.14__isvp_swan_1.0__"
+  image_name: "Linux-3.10.14__isvp_swan_1.0__"
+  load_addr: 0x80010000
+  entry: 0x80409520
+  compression: lzma
+  zimage_banner: false
+  machine: mips
+  build: "#1 PREEMPT Wed Dec 9 11:42:26 CST 2020"
+  version_line: "Linux version 3.10.14__isvp_swan_1.0__ (pweh@synthetic-build) (gcc version 4.7.2 (Ingenic r2.3.3 2016.12) ) #1 PREEMPT Wed Dec 9 11:42:26 CST 2020"
+  rootdev_major: 31
+  boot_log: |
+    {version_line}
+    bootconsole [early0] enabled
+    CPU0 RESET ERROR PC:00000000
+    CPU0 revision is: 00d00100 (Ingenic Xburst)
+    FPU revision is: 00b70000
+    CCLK:1392MHz L2CLK:696Mhz H0CLK:237MHz H2CLK:237Mhz PCLK:118Mhz
+    Determined physical RAM map:
+     memory: 0029a000 @ 00010000 (usable)
+     memory: 00036000 @ 002aa000 (usable after init)
+    User-defined physical RAM map:
+     memory: 02a00000 @ 00000000 (usable)
+    Zone ranges:
+      Normal   [mem 0x00000000-0x029fffff]
+    Movable zone start for each node
+    Early memory node ranges
+      node   0: [mem 0x00000000-0x029fffff]
+    Primary instruction cache 32kB, 8-way, VIPT, linesize 32 bytes.
+    Primary data cache 32kB, 8-way, VIPT, no aliases, linesize 32 bytes
+    pls check processor_id[0x00d00100],sc_jz not support!
+    MIPS secondary cache 128kB, 8-way, linesize 32 bytes.
+    Built 1 zonelists in Zone order, mobility grouping off.  Total pages: 10668
+    Kernel command line: {cmdline}
+    PID hash table entries: 256 (order: -2, 1024 bytes)
+    Dentry cache hash table entries: 8192 (order: 3, 32768 bytes)
+    Inode-cache hash table entries: 4096 (order: 2, 16384 bytes)
+    Memory: 39176k/43008k available (2654k kernel code, 3832k reserved, 853k data, 216k init, 0k highmem)
+    SLUB: HWalign=32, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+    Preemptible hierarchical RCU implementation.
+    NR_IRQS:418
+    clockevents_config_and_register success.
+    Calibrating delay loop... 1392.64 BogoMIPS (lpj=6963200)
+    pid_max: default: 32768 minimum: 301
+    Mount-cache hash table entries: 512
+    NET: Registered protocol family 16
+    bio: create slab <bio-0> at 0
+    jz-dma jz-dma: JZ SoC DMA initialized
+    SCSI subsystem initialized
+    usbcore: registered new interface driver usbfs
+    usbcore: registered new interface driver hub
+    usbcore: registered new device driver usb
+    Switching to clocksource jz_clocksource
+    NET: Registered protocol family 2
+    TCP established hash table entries: 512 (order: 0, 4096 bytes)
+    TCP bind hash table entries: 512 (order: -1, 2048 bytes)
+    TCP: Hash tables configured (established 512 bind 512)
+    TCP: reno registered
+    UDP hash table entries: 256 (order: 0, 4096 bytes)
+    UDP-Lite hash table entries: 256 (order: 0, 4096 bytes)
+    NET: Registered protocol family 1
+    squashfs: version 4.0 (2009/01/31) Phillip Lougher
+    jffs2: version 2.2. (NAND) © 2001-2006 Red Hat, Inc.
+    msgmni has been set to 76
+    io scheduler noop registered
+    io scheduler cfq registered (default)
+    jz-uart.1: ttyS1 at MMIO 0x10031000 (irq = 58) is a uart1
+    console [ttyS1] enabled, bootconsole disabled
+    brd: module loaded
+    jz SADC driver registeres over!
+    the id code = 684018, the flash name is BY25Q128AS
+    JZ SFC Controller for SFC channel 0 driver register
+    {mtd_partitions}
+    SPI NOR MTD LOAD OK
+    tun: Universal TUN/TAP device driver, 1.6
+    usbcore: registered new interface driver usb-storage
+    i2c /dev entries driver
+    jz_wdt jz-wdt: watchdog timer driver registered
+    TCP: cubic registered
+    NET: Registered protocol family 17
+    input: gpio-keys as /devices/platform/gpio-keys/input/input0
+    drivers/rtc/hctosys.c: unable to open rtc device (rtc0)
+    VFS: Mounted root (squashfs filesystem) readonly on device {rootdev}.
+    Freeing unused kernel memory: 216K (802aa000 - 802e0000)
+  cpuinfo: |
+    system type		: T31
+    machine			: Unknown
+    processor		: 0
+    cpu model		: Ingenic Xburst V0.0  FPU V0.0
+    BogoMIPS		: 1392.64
+    wait instruction	: yes
+    microsecond timers	: no
+    tlb_entries		: 32
+    extra interrupt vector	: yes
+    hardware watchpoint	: yes, count: 1, address/irw mask: [0x0fff]
+    isa			: mips32r2
+    ASEs implemented	: mxu
+    shadow register sets	: 1
+    kscratch registers	: 0
+    core			: 0
+    VCED exceptions		: not available
+    VCEI exceptions		: not available
+
+    Hardware		: isvp
+    Serial		: 00000000 00000000 00000000 00000000
+  meminfo:
+    MemTotal: 39392
+    MemFree: 21064
+    Buffers: 0
+    Cached: 6812
+
+linux:
+  hostname: "ingenic"
+  busybox_banner: "BusyBox v1.22.1 (2020-12-09 11:51:20 CST)"
+  login:
+    username: root
+    password: "12345"
+    motd: ""
+  shell_prompt: "# "
+  askfirst: true
+  rcs_output: |
+    mount: mounting tmpfs on /dev/shm failed: No such file or directory
+    Starting telnetd...
+    ipcam: starting synthetic httpd on port 80
+  applets: ["[", "[[", addgroup, adduser, ash, basename, cat, chgrp, chmod, chown, chroot, clear, cmp, cp,
+            cut, date, dd, delgroup, deluser, devmem, df, dirname, dmesg, du, echo, egrep, env, expr, "false",
+            fgrep, find, flash_eraseall, flashcp, free, getty, grep, gunzip, gzip, halt, hd, head, hexdump,
+            hostname, id, ifconfig, init, insmod, ip, kill, killall, klogd, linuxrc, ln, login, logread, ls,
+            lsmod, md5sum, mdev, mkdir, mknod, mount, mv, netstat, passwd, pidof, ping, poweroff, printf, ps,
+            pwd, reboot, rm, rmdir, rmmod, route, sed, sh, sleep, sort, stty, su, sync, syslogd, tail, tar,
+            tee, telnetd, test, tftp, top, touch, tr, "true", udhcpc, umount, uname, uptime, usleep, vi, wc,
+            wget, which, xargs, zcat]
+  processes:
+    - [1, root, 1620, "S", "init"]
+    - [2, root, 0, "SW", "[kthreadd]"]
+    - [3, root, 0, "SW", "[ksoftirqd/0]"]
+    - [5, root, 0, "SW<", "[kworker/0:0H]"]
+    - [6, root, 0, "SW", "[kworker/u2:0]"]
+    - [7, root, 0, "SW<", "[khelper]"]
+    - [8, root, 0, "SW", "[kdevtmpfs]"]
+    - [115, root, 0, "SW<", "[kblockd]"]
+    - [152, root, 0, "SW", "[kswapd0]"]
+    - [430, root, 1616, "S", "syslogd -n"]
+    - [432, root, 1616, "S", "klogd -n"]
+    - [471, root, 1612, "S", "/usr/sbin/telnetd"]
+    - [476, root, 2364, "S", "/usr/sbin/httpd -p 80 -h /var/www"]
+  mounts:
+    - ["/dev/root", "/", "squashfs", "ro,relatime"]
+    - ["devtmpfs", "/dev", "devtmpfs", "rw,relatime,size=19588k,nr_inodes=4897,mode=755"]
+    - ["proc", "/proc", "proc", "rw,relatime"]
+    - ["sysfs", "/sys", "sysfs", "rw,relatime"]
+    - ["tmpfs", "/tmp", "tmpfs", "rw,relatime"]
+    - ["/dev/mtdblock4", "/app", "squashfs", "ro,relatime"]
+  interfaces:
+    eth0:
+      hwaddr: "00:d0:d0:00:95:27"
+      inet: 193.169.4.81
+      bcast: 193.169.4.255
+      mask: 255.255.255.0
+      flags: "UP BROADCAST MULTICAST"
+      mtu: 1500
+      txqueuelen: 1000
+  listening:
+    - [tcp, "0.0.0.0:80"]
+    - [tcp, "0.0.0.0:23"]
+    - [tcp, "0.0.0.0:8554"]
+
+firmware:
+  build_date: "2020-12-09 11:51:20"
+  epoch: 1607485880
+  web_server: /usr/sbin/httpd
+  zig_target: mipsel-linux-musleabi
+  squashfs_comp: xz
+  app_mount: /app

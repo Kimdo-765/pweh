@@ -1,0 +1,3 @@
+# Codex: 이 Skill 은 사용자가 $pweh-start 로 명시적으로 호출할 때만 실행
+policy:
+  allow_implicit_invocation: false

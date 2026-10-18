@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/finding.schema.json",
+  "title": "PWEH 발견사항 (findings.json 의 항목)",
+  "type": "object",
+  "required": ["id", "title", "category", "severity", "confidence", "status", "summary", "location", "evidence", "reasoning"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^F-[0-9]{3,}$"},
+    "title": {"type": "string", "minLength": 3},
+    "category": {"enum": ["auth-bypass", "hardcoded-credential", "backdoor", "command-injection", "debug-interface", "weak-crypto", "info-leak", "insecure-update", "memory-corruption", "insecure-default", "other"]},
+    "severity": {"enum": ["critical", "high", "medium", "low", "info"]},
+    "confidence": {"enum": ["confirmed", "likely", "possible"], "description": "confirmed=증거로 확정, likely=강한 정황, possible=추가 확인 필요"},
+    "status": {"enum": ["unverified", "static-confirmed", "dynamically-confirmed", "false-positive", "wont-verify"]},
+    "summary": {"type": "string", "minLength": 3},
+    "location": {
+      "type": "object",
+      "description": "가능한 한 구체적으로. 최소 하나의 필드는 채울 것",
+      "minProperties": 1,
+      "properties": {
+        "firmware": {"type": ["string", "null"], "description": "케이스 상대 경로의 펌웨어/덤프"},
+        "file": {"type": ["string", "null"], "description": "rootfs 내부 경로 (예: /usr/sbin/httpd)"},
+        "function": {"type": ["string", "null"]},
+        "address": {"type": ["string", "null"]},
+        "offset": {"type": ["string", "integer", "null"]},
+        "line": {"type": ["integer", "null"]},
+        "interface": {"type": ["string", "null"], "description": "uart/jtag/http/rtsp/onvif/telnet 등"}
+      },
+      "additionalProperties": true
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["type", "ref"],
+        "properties": {
+          "type": {"enum": ["string", "decompilation", "disassembly", "file", "log", "rea-evidence", "signal", "config", "hash", "triage", "other"]},
+          "ref": {"type": "string", "description": "케이스 상대 경로, REA evidence id, 주소 등"},
+          "excerpt": {"type": "string"},
+          "sha256": {"type": ["string", "null"]}
+        },
+        "additionalProperties": true
+      }
+    },
+    "reasoning": {"type": "string", "minLength": 3},
+    "references": {"type": "array", "items": {"type": "string"}},
+    "verification_plan": {"type": "string", "description": "운영자 소유 기기·격리 랩에서의 검증 방법 (공격 페이로드 금지)"},
+    "remediation": {"type": "string"},
+    "produced_by": {"type": "object", "properties": {"skill": {"type": "string"}, "tool": {"type": "string"}, "agent": {"type": "string"}}},
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"}
+  },
+  "additionalProperties": true
+}

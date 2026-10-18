@@ -1,0 +1,351 @@
+{
+  "schema": "pweh.fwtriage.elf-info-dir/v1",
+  "tool": "fw_elf_info",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-hikvision-sample",
+  "generated_at": "2026-10-18T17:39:55.340Z",
+  "input": {
+    "path": "extract/rootfs-001",
+    "type": "directory"
+  },
+  "params": {
+    "max_files": 3000
+  },
+  "summary": {
+    "elf_count": 7,
+    "arch": {
+      "arm (EABI5, soft-float)": 7
+    },
+    "interpreters": {},
+    "with_command_exec": 2,
+    "network_facing_hint": 2,
+    "without_nx": 0,
+    "without_canary": 7,
+    "truncated": false,
+    "errors": 0
+  },
+  "binaries": [
+    {
+      "path": "/usr/bin/davinci",
+      "summary": "32-bit LSB EXEC, arm (EABI5, soft-float)",
+      "type": "EXEC",
+      "interpreter": null,
+      "static": true,
+      "needed": [],
+      "risky": {
+        "command-exec": [
+          "execve",
+          "posix_spawn",
+          "system"
+        ],
+        "unbounded-scanf": [
+          "sscanf",
+          "vfscanf",
+          "vsscanf"
+        ]
+      },
+      "network_facing_hint": true,
+      "hardening": {
+        "nx": true,
+        "relro": "none",
+        "pie": false,
+        "stack_canary": false
+      },
+      "score": 28.5,
+      "heuristics": {
+        "fn-command-exec": [
+          "execve",
+          "posix_spawn",
+          "system"
+        ],
+        "fn-command-build": [
+          "snprintf",
+          "vsnprintf"
+        ],
+        "fn-unsafe-copy": [
+          "memcpy"
+        ],
+        "fn-unbounded-scanf": [
+          "sscanf",
+          "vfscanf",
+          "vsscanf"
+        ],
+        "fn-auth-literal-compare": [
+          "strcmp",
+          "strncasecmp",
+          "strncmp",
+          "strstr"
+        ],
+        "fn-login-hash-compare": [
+          "strcmp"
+        ],
+        "fn-uri-substring-match": [
+          "strncasecmp",
+          "strncmp",
+          "strstr"
+        ],
+        "fn-path-ops-unnormalized": [
+          "fopen"
+        ],
+        "fn-cgi-env-from-request": [
+          "execve"
+        ],
+        "fn-debug-listener-ports": [
+          "accept",
+          "bind",
+          "htons",
+          "listen",
+          "socket"
+        ]
+      },
+      "unbounded_scanf_formats": [
+        "<%s>",
+        "</%s>",
+        "davinci (synthetic) %s [%s]",
+        "<UserList><User><userName>%s</userName></User></UserList>",
+        "HTTP/1.1 %d %s"
+      ]
+    },
+    {
+      "path": "/usr/sbin/httpd",
+      "summary": "32-bit LSB EXEC, arm (EABI5, soft-float)",
+      "type": "EXEC",
+      "interpreter": null,
+      "static": true,
+      "needed": [],
+      "risky": {
+        "command-exec": [
+          "execve",
+          "posix_spawn",
+          "system"
+        ],
+        "unbounded-scanf": [
+          "sscanf",
+          "vfscanf",
+          "vsscanf"
+        ]
+      },
+      "network_facing_hint": true,
+      "hardening": {
+        "nx": true,
+        "relro": "none",
+        "pie": false,
+        "stack_canary": false
+      },
+      "score": 28.5,
+      "heuristics": {
+        "fn-command-exec": [
+          "execve",
+          "posix_spawn",
+          "system"
+        ],
+        "fn-command-build": [
+          "snprintf",
+          "vsnprintf"
+        ],
+        "fn-unsafe-copy": [
+          "memcpy",
+          "strncpy"
+        ],
+        "fn-unbounded-scanf": [
+          "sscanf",
+          "vfscanf",
+          "vsscanf"
+        ],
+        "fn-auth-literal-compare": [
+          "bcmp",
+          "strcmp",
+          "strncasecmp",
+          "strncmp",
+          "strstr"
+        ],
+        "fn-login-hash-compare": [
+          "strcmp"
+        ],
+        "fn-uri-substring-match": [
+          "strncasecmp",
+          "strncmp",
+          "strrchr",
+          "strstr"
+        ],
+        "fn-path-ops-unnormalized": [
+          "fopen",
+          "open"
+        ],
+        "fn-cgi-env-from-request": [
+          "execve"
+        ],
+        "fn-debug-listener-ports": [
+          "accept",
+          "bind",
+          "htons",
+          "listen",
+          "socket"
+        ]
+      },
+      "unbounded_scanf_formats": [
+        "%s%s",
+        "uptime=%s",
+        "%s/index.html",
+        "%s [%s]",
+        "HTTP/1.0 %d %s"
+      ]
+    },
+    {
+      "path": "/bin/busybox",
+      "summary": "32-bit LSB EXEC, arm (EABI5, soft-float)",
+      "type": "EXEC",
+      "interpreter": null,
+      "static": true,
+      "needed": [],
+      "risky": {},
+      "network_facing_hint": false,
+      "hardening": {
+        "nx": true,
+        "relro": "none",
+        "pie": false,
+        "stack_canary": false
+      },
+      "score": 0.5,
+      "heuristics": {
+        "fn-unsafe-copy": [
+          "memcpy"
+        ],
+        "fn-auth-literal-compare": [
+          "strcmp"
+        ],
+        "fn-login-hash-compare": [
+          "strcmp"
+        ],
+        "fn-uri-substring-match": [
+          "strrchr"
+        ]
+      }
+    },
+    {
+      "path": "/usr/sbin/flash_erase",
+      "summary": "32-bit LSB EXEC, arm (EABI5, soft-float)",
+      "type": "EXEC",
+      "interpreter": null,
+      "static": true,
+      "needed": [],
+      "risky": {},
+      "network_facing_hint": false,
+      "hardening": {
+        "nx": true,
+        "relro": "none",
+        "pie": false,
+        "stack_canary": false
+      },
+      "score": 0.5,
+      "heuristics": {
+        "fn-unsafe-copy": [
+          "memcpy"
+        ],
+        "fn-auth-literal-compare": [
+          "strcmp"
+        ],
+        "fn-login-hash-compare": [
+          "strcmp"
+        ],
+        "fn-uri-substring-match": [
+          "strrchr"
+        ]
+      }
+    },
+    {
+      "path": "/usr/sbin/fw_printenv",
+      "summary": "32-bit LSB EXEC, arm (EABI5, soft-float)",
+      "type": "EXEC",
+      "interpreter": null,
+      "static": true,
+      "needed": [],
+      "risky": {},
+      "network_facing_hint": false,
+      "hardening": {
+        "nx": true,
+        "relro": "none",
+        "pie": false,
+        "stack_canary": false
+      },
+      "score": 0.5,
+      "heuristics": {
+        "fn-unsafe-copy": [
+          "memcpy"
+        ],
+        "fn-auth-literal-compare": [
+          "strcmp"
+        ],
+        "fn-login-hash-compare": [
+          "strcmp"
+        ],
+        "fn-uri-substring-match": [
+          "strrchr"
+        ]
+      }
+    },
+    {
+      "path": "/usr/sbin/fw_setenv",
+      "summary": "32-bit LSB EXEC, arm (EABI5, soft-float)",
+      "type": "EXEC",
+      "interpreter": null,
+      "static": true,
+      "needed": [],
+      "risky": {},
+      "network_facing_hint": false,
+      "hardening": {
+        "nx": true,
+        "relro": "none",
+        "pie": false,
+        "stack_canary": false
+      },
+      "score": 0.5,
+      "heuristics": {
+        "fn-unsafe-copy": [
+          "memcpy"
+        ],
+        "fn-auth-literal-compare": [
+          "strcmp"
+        ],
+        "fn-login-hash-compare": [
+          "strcmp"
+        ],
+        "fn-uri-substring-match": [
+          "strrchr"
+        ]
+      }
+    },
+    {
+      "path": "/usr/sbin/mtd_debug",
+      "summary": "32-bit LSB EXEC, arm (EABI5, soft-float)",
+      "type": "EXEC",
+      "interpreter": null,
+      "static": true,
+      "needed": [],
+      "risky": {},
+      "network_facing_hint": false,
+      "hardening": {
+        "nx": true,
+        "relro": "none",
+        "pie": false,
+        "stack_canary": false
+      },
+      "score": 0.5,
+      "heuristics": {
+        "fn-unsafe-copy": [
+          "memcpy"
+        ],
+        "fn-auth-literal-compare": [
+          "strcmp"
+        ],
+        "fn-login-hash-compare": [
+          "strcmp"
+        ],
+        "fn-uri-substring-match": [
+          "strrchr"
+        ]
+      }
+    }
+  ],
+  "errors": []
+}

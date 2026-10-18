@@ -1,0 +1,95 @@
+
+
+System startup
+
+
+U-Boot 2010.06 (Mar 05 2018 - 10:12:41)
+
+Check Flash Memory Controller v100 ... Found
+SPI Nor(cs 0) ID: 0xc2 0x20 0x18
+Block:64KB Chip:16MB Name:"MX25L128XX"
+SPI Nor total size: 16MB
+In:    serial
+Out:   serial
+Err:   serial
+Hit any key to stop autoboot:  1  0 
+16384 KiB hi_fmc at 0:0 is now current device
+
+## Booting kernel from Legacy Image at 82000000 ...
+   Image Name:   Linux-3.4.35
+   Image Type:   ARM Linux Kernel Image (uncompressed)
+   Data Size:    394742 Bytes = 385.5 KiB
+   Load Address: 80008000
+   Entry Point:  80008000
+   Loading Kernel Image ... OK
+OK
+
+Starting kernel ...
+
+Uncompressing Linux... done, booting the kernel.
+Booting Linux on physical CPU 0
+Linux version 3.4.35 (builder@buildhost) (gcc version 4.8.3 (Hisilicon_v300) ) #1 Mon Mar 5 10:20:11 CST 2018
+CPU: ARM926EJ-S [41069265] revision 5 (ARMv5TEJ), cr=00053177
+CPU: VIVT data cache, VIVT instruction cache
+Machine: hi3518ev200
+Memory policy: ECC disabled, Data cache writeback
+Built 1 zonelists in Zone order, mobility grouping on.  Total pages: 10160
+Kernel command line: mem=40M console=ttyAMA0,115200 root=/dev/mtdblock3 rootfstype=squashfs mtdparts=hi_sfc:512k(boot),256k(env),3072k(kernel),8192k(rootfs),-(app)
+PID hash table entries: 256 (order: -2, 1024 bytes)
+Dentry cache hash table entries: 8192 (order: 3, 32768 bytes)
+Inode-cache hash table entries: 4096 (order: 2, 16384 bytes)
+Memory: 40MB = 40MB total
+Memory: 34812k/34812k available, 6148k reserved, 0K highmem
+SLUB: Genslabs=13, HWalign=32, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+NR_IRQS:32
+VIC @fe0d0000: id 0x00641190, vendor 0x41
+sched_clock: 32 bits at 49MHz, resolution 20ns, wraps every 86767ms
+Console: colour dummy device 80x30
+Calibrating delay loop... 269.10 BogoMIPS (lpj=1345536)
+pid_max: default: 32768 minimum: 301
+Mount-cache hash table entries: 512
+CPU: Testing write buffer coherency: ok
+NET: Registered protocol family 16
+Serial: AMBA PL011 UART driver
+uart:0: ttyAMA0 at MMIO 0x20080000 (irq = 5) is a PL011 rev2
+console [ttyAMA0] enabled
+uart:1: ttyAMA1 at MMIO 0x20090000 (irq = 30) is a PL011 rev2
+bio: create slab <bio-0> at 0
+SCSI subsystem initialized
+usbcore: registered new interface driver usbfs
+usbcore: registered new interface driver hub
+usbcore: registered new device driver usb
+Switching to clocksource timer0
+NET: Registered protocol family 2
+TCP established hash table entries: 2048 (order: 2, 16384 bytes)
+TCP: Hash tables configured (established 2048 bind 2048)
+TCP: reno registered
+NET: Registered protocol family 1
+squashfs: version 4.0 (2009/01/31) Phillip Lougher
+jffs2: version 2.2. (NAND) © 2001-2006 Red Hat, Inc.
+io scheduler noop registered
+io scheduler deadline registered (default)
+brd: module loaded
+Check Flash Memory Controller v100 ...  Found.
+SPI Nor(cs 0) ID: 0xc2 0x20 0x18
+Block:64KB Chip:16MB Name:"MX25L128XX"
+SPI Nor total size: 16MB
+5 cmdlinepart partitions found on MTD device hi_sfc
+Creating 5 MTD partitions on "hi_sfc":
+0x000000000000-0x000000080000 : "boot"
+0x000000080000-0x0000000c0000 : "env"
+0x0000000c0000-0x0000003c0000 : "kernel"
+0x0000003c0000-0x000000bc0000 : "rootfs"
+0x000000bc0000-0x000001000000 : "app"
+himii: probed
+ehci_hcd: USB 2.0 'Enhanced' Host Controller (EHCI) Driver
+i2c /dev entries driver
+TCP: cubic registered
+NET: Registered protocol family 17
+VFS: Mounted root (squashfs filesystem) readonly on device 31:3.
+Freeing init memory: 160K
+init started: BusyBox v1.24.1 (2018-03-05 10:05:33 CST)
+Starting telnetd...
+ipcam: starting synthetic httpd on port 80
+
+Please press Enter to activate this console. 

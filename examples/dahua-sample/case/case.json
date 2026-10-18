@@ -1,0 +1,676 @@
+{
+  "schema": "pweh.case/v1",
+  "id": "example-dahua-sample",
+  "title": "dahua-like 합성 IP 카메라 — UART 덤프와 인증 우회 패턴 탐색 예제",
+  "status": "open",
+  "created_at": "2026-10-18T17:40:24.166Z",
+  "updated_at": "2026-10-18T17:41:39.605Z",
+  "profile": "dahua-ipc",
+  "target": {
+    "vendor": "pweh-synthetic (dahua-like, 실제 벤더 아님)",
+    "model": "SYNTH-DH-IPC",
+    "hardware_rev": "sim-1",
+    "firmware_version": "synthetic-2020-03-23",
+    "serial": "SIM-DH-0001",
+    "soc": "hi3516ev300 (U-Boot env soc)",
+    "flash": "W25Q128(B/F)V spi-nor 16 MiB",
+    "uboot_version": "U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)hi3516ev300",
+    "kernel_version": "4.9.37"
+  },
+  "authorization": {
+    "basis": "owned",
+    "owner": "PWEH 테스트 랩 (합성 시나리오)",
+    "statement": "이 카메라는 제가 직접 구매한 제 소유 기기이며, 하드웨어 보안 분석을 허가합니다. (합성 시나리오: pweh.mocktarget 시뮬레이터)",
+    "scope": "UART 콘솔 접속, 플래시 읽기 전용 덤프, 펌웨어 정적 분석. 영구 변경 금지.",
+    "document_ref": null,
+    "attested_by": "user (relayed by agent)",
+    "attested_via": "agent-relayed",
+    "attested_at": "2026-10-18T17:40:24.166Z"
+  },
+  "phases": {
+    "uart-shell-acquisition": {
+      "status": "done",
+      "updated_at": "2026-10-18T17:40:27.889Z"
+    },
+    "firmware-dump-via-uart": {
+      "status": "done",
+      "updated_at": "2026-10-18T17:41:08.586Z"
+    },
+    "logic-analyzer-protocol-decode": {
+      "status": "pending"
+    },
+    "firmware-static-analysis": {
+      "status": "done",
+      "updated_at": "2026-10-18T17:41:27.274Z"
+    },
+    "cctv-auth-bypass-hunt": {
+      "status": "partial",
+      "updated_at": "2026-10-18T17:41:39.578Z"
+    },
+    "report": {
+      "status": "done",
+      "updated_at": "2026-10-18T17:41:39.592Z"
+    }
+  },
+  "artifacts": [
+    {
+      "path": "uart/console-001.log",
+      "kind": "uart-log",
+      "producer": "uart-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:08.462Z",
+      "description": "UART 세션 console-001 (/dev/pts/8 @ 115200 8N1) — 텍스트 로그(RX/TX)",
+      "size": 113762807,
+      "sha256": "e15f6183166adaf2bec86151947ed0fa0642796c871abbc6b7394aa817b30d6b",
+      "extra": {
+        "session_id": "console-001",
+        "port": "/dev/pts/8",
+        "baudrate": 115200
+      },
+      "id": "A-0001"
+    },
+    {
+      "path": "uart/console-001.raw",
+      "kind": "uart-raw",
+      "producer": "uart-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:08.531Z",
+      "description": "UART 세션 console-001 (/dev/pts/8 @ 115200 8N1) — 수신 원시 바이트",
+      "size": 83187263,
+      "sha256": "bbcbe8639827d14ddea609876eb470579aad543b99bc4d024ff3dedeaa5e24f2",
+      "extra": {
+        "session_id": "console-001",
+        "port": "/dev/pts/8",
+        "baudrate": 115200
+      },
+      "id": "A-0002"
+    },
+    {
+      "path": "uart/console-001.events.jsonl",
+      "kind": "uart-events",
+      "producer": "uart-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:08.581Z",
+      "description": "UART 세션 console-001 (/dev/pts/8 @ 115200 8N1) — 송신·안전 결정·문맥 이벤트",
+      "size": 85159,
+      "sha256": "f90424f9a4841ed712c7af09bf50a11021f0ef36ca39ed7d91f6c98f370991a3",
+      "extra": {
+        "session_id": "console-001",
+        "port": "/dev/pts/8",
+        "baudrate": 115200
+      },
+      "id": "A-0003"
+    },
+    {
+      "path": "uart/console-001-boot-01.log",
+      "kind": "uart-log",
+      "producer": "uart-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:40:26.673Z",
+      "description": "부팅 로그 발췌 (console-001, 5900 바이트)",
+      "size": 5772,
+      "sha256": "84c602c57512019b4a75aca0a54b932e3658a6ee55c019c0b99a51166555daf6",
+      "extra": {
+        "session_id": "console-001",
+        "type": "boot-capture",
+        "cursor_start": 0,
+        "cursor_end": 5900
+      },
+      "id": "A-0004"
+    },
+    {
+      "path": "dumps/probe-kernel-head.bin",
+      "kind": "flash-dump",
+      "producer": "uart-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:40:28.835Z",
+      "description": "UART 덤프 (uboot-md, sf)",
+      "size": 65536,
+      "sha256": "6e127a00ed8f926a02a135779c21dbd7b411559705eaedc22ca8ab4a41ce40f8",
+      "extra": {
+        "metadata": "dumps/probe-kernel-head.json",
+        "method": "uboot-md",
+        "sha256": "6e127a00ed8f926a02a135779c21dbd7b411559705eaedc22ca8ab4a41ce40f8"
+      },
+      "id": "A-0005"
+    },
+    {
+      "path": "dumps/probe-kernel-head.json",
+      "kind": "other",
+      "producer": "uart-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:40:28.841Z",
+      "description": "UART 덤프 메타데이터",
+      "size": 1747,
+      "sha256": "02b4c2d702c9d88c19df444a111b31e016aca26aab519ca2c1136ba56255ecf5",
+      "extra": {
+        "type": "dump-metadata",
+        "dump": "dumps/probe-kernel-head.bin"
+      },
+      "id": "A-0006"
+    },
+    {
+      "path": "dumps/flash-full.bin",
+      "kind": "flash-dump",
+      "producer": "uart-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:07.977Z",
+      "description": "UART 덤프 (uboot-md, sf)",
+      "size": 16777216,
+      "sha256": "560ae32b73b130eb8b3b6fef8d712b23d6477951f16546834fb1a353af6e878f",
+      "extra": {
+        "metadata": "dumps/flash-full.json",
+        "method": "uboot-md",
+        "sha256": "560ae32b73b130eb8b3b6fef8d712b23d6477951f16546834fb1a353af6e878f"
+      },
+      "id": "A-0007"
+    },
+    {
+      "path": "dumps/flash-full.json",
+      "kind": "other",
+      "producer": "uart-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:07.989Z",
+      "description": "UART 덤프 메타데이터",
+      "size": 12224,
+      "sha256": "5c91aab86c69443b95c3cf100513c115e0043f46cff6b016ac689717e7186a2b",
+      "extra": {
+        "type": "dump-metadata",
+        "dump": "dumps/flash-full.bin"
+      },
+      "id": "A-0008"
+    },
+    {
+      "path": "analysis/identify-001.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:08.376Z",
+      "description": "fw_identify dumps/flash-full.bin",
+      "size": 8731,
+      "sha256": "3fb39c94150eb8c95a335030cc3855fc727b027e374ce6f280d0a4b3c295bf07",
+      "id": "A-0009"
+    },
+    {
+      "path": "extract/xcheck-001/00-xcheck.bin",
+      "kind": "partition",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:08.391Z",
+      "description": "xcheck @ 0x50000 (65536 bytes) from dumps/flash-full.bin",
+      "size": 65536,
+      "sha256": "6e127a00ed8f926a02a135779c21dbd7b411559705eaedc22ca8ab4a41ce40f8",
+      "extra": {
+        "offset": 327680,
+        "size": 65536,
+        "source": "dumps/flash-full.bin",
+        "layout_source": "partitions-argument"
+      },
+      "id": "A-0010"
+    },
+    {
+      "path": "extract/xcheck-001/index.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:08.398Z",
+      "description": "파티션 분할 색인 (extract/xcheck-001)",
+      "size": 916,
+      "sha256": "5a87b6951bbd044832e3c3113aa23e3c84b88a19a8cbd523c1d48938e855d367",
+      "id": "A-0011"
+    },
+    {
+      "path": "analysis/carve-001.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:08.405Z",
+      "description": "fw_carve dumps/flash-full.bin → extract/xcheck-001",
+      "size": 1481,
+      "sha256": "0fcd49bc46fab900047d60ec427a227cdc843fdc90686c0496ea9b62f3e0f1c6",
+      "id": "A-0012"
+    },
+    {
+      "path": "analysis/identify-002.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:08.851Z",
+      "description": "fw_identify dumps/flash-full.bin",
+      "size": 8731,
+      "sha256": "809c57f9c1fd92828031cdbf57dcd47dd719f09c7b1d8fba9f4578cc03ed0430",
+      "id": "A-0013"
+    },
+    {
+      "path": "analysis/entropy-001.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:09.335Z",
+      "description": "fw_entropy dumps/flash-full.bin",
+      "size": 5286,
+      "sha256": "1d173f74bfdce17d23bb036c609b92d3fd5afbaa0f3e9aa8bc0709689a946726",
+      "id": "A-0014"
+    },
+    {
+      "path": "analysis/uboot-env-001.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:09.364Z",
+      "description": "fw_uboot_env dumps/flash-full.bin",
+      "size": 4288,
+      "sha256": "ccdc1f9a518fa5ac6ac08436e434a81006da190f9469dc03c1db68b62eb99a5e",
+      "id": "A-0015"
+    },
+    {
+      "path": "extract/parts-001/00-boot.bin",
+      "kind": "partition",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:09.389Z",
+      "description": "boot @ 0x0 (262144 bytes) from dumps/flash-full.bin",
+      "size": 262144,
+      "sha256": "81f8e28f7d1df782565ce8d3b960ae31799f4a4eddd545ec5c88e10273941b77",
+      "extra": {
+        "offset": 0,
+        "size": 262144,
+        "source": "dumps/flash-full.bin",
+        "layout_source": "uboot-env@0x40000:bootargs"
+      },
+      "id": "A-0016"
+    },
+    {
+      "path": "extract/parts-001/01-env.bin",
+      "kind": "partition",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:09.394Z",
+      "description": "env @ 0x40000 (65536 bytes) from dumps/flash-full.bin",
+      "size": 65536,
+      "sha256": "adc68ad2f3d78fc85369ca25765b6b3cb2eb2906439d7f9ce7f4ba60ab5297d3",
+      "extra": {
+        "offset": 262144,
+        "size": 65536,
+        "source": "dumps/flash-full.bin",
+        "layout_source": "uboot-env@0x40000:bootargs"
+      },
+      "id": "A-0017"
+    },
+    {
+      "path": "extract/parts-001/02-kernel.bin",
+      "kind": "partition",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:09.401Z",
+      "description": "kernel @ 0x50000 (2097152 bytes) from dumps/flash-full.bin",
+      "size": 2097152,
+      "sha256": "aa75eb42a9e5edf48e027dedac981854ba02bb4f699f6078e657e06618dc4f81",
+      "extra": {
+        "offset": 327680,
+        "size": 2097152,
+        "source": "dumps/flash-full.bin",
+        "layout_source": "uboot-env@0x40000:bootargs"
+      },
+      "id": "A-0018"
+    },
+    {
+      "path": "extract/parts-001/03-rootfs.bin",
+      "kind": "partition",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:09.411Z",
+      "description": "rootfs @ 0x250000 (5242880 bytes) from dumps/flash-full.bin",
+      "size": 5242880,
+      "sha256": "aab01785c9480560f7ba346493cbe62c5e8fc09339dfea53b3d073df3772d6af",
+      "extra": {
+        "offset": 2424832,
+        "size": 5242880,
+        "source": "dumps/flash-full.bin",
+        "layout_source": "uboot-env@0x40000:bootargs"
+      },
+      "id": "A-0019"
+    },
+    {
+      "path": "extract/parts-001/04-app.bin",
+      "kind": "partition",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:09.426Z",
+      "description": "app @ 0x750000 (9109504 bytes) from dumps/flash-full.bin",
+      "size": 9109504,
+      "sha256": "e738227fea793a4632c6de845f3744827ddf86cb1860b5933fded6ad69b4e76e",
+      "extra": {
+        "offset": 7667712,
+        "size": 9109504,
+        "source": "dumps/flash-full.bin",
+        "layout_source": "uboot-env@0x40000:bootargs"
+      },
+      "id": "A-0020"
+    },
+    {
+      "path": "extract/parts-001/index.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:09.437Z",
+      "description": "파티션 분할 색인 (extract/parts-001)",
+      "size": 3789,
+      "sha256": "468e3b1c43a23257de85808a1f61d7f98befe26e3b565a23f57bd85957cd5b13",
+      "id": "A-0021"
+    },
+    {
+      "path": "analysis/carve-002.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:09.444Z",
+      "description": "fw_carve dumps/flash-full.bin → extract/parts-001",
+      "size": 4251,
+      "sha256": "585c28ed5e43db03c85295e9ecc6497fa5bd98e81b5a97f833ad84d4fdc7486a",
+      "id": "A-0022"
+    },
+    {
+      "path": "analysis/uimage-001.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:10.152Z",
+      "description": "fw_uimage_info extract/parts-001/02-kernel.bin@0x0",
+      "size": 1079,
+      "sha256": "8e37137d482e0a96692d5ebed72bae1fae52141d590a1345ad0758a3dae105ed",
+      "id": "A-0023"
+    },
+    {
+      "path": "extract/rootfs-001.manifest.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:10.792Z",
+      "description": "squashfs 매니페스트 (extract/rootfs-001)",
+      "size": 35143,
+      "sha256": "dafae86285153cc7a3e43e24254482f22c317b8b8203ff9b03f94a74b2e42797",
+      "id": "A-0024"
+    },
+    {
+      "path": "extract/rootfs-001",
+      "kind": "extracted-tree",
+      "producer": "fwtriage-mcp",
+      "is_dir": true,
+      "created_at": "2026-10-18T17:41:10.796Z",
+      "description": "squashfs v4.0 xz @ extract/parts-001/03-rootfs.bin+0x0 (unsquashfs)",
+      "extra": {
+        "source": "extract/parts-001/03-rootfs.bin",
+        "offset": 0,
+        "manifest": "extract/rootfs-001.manifest.json",
+        "status": "complete"
+      },
+      "id": "A-0025"
+    },
+    {
+      "path": "analysis/extract-squashfs-001.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:10.803Z",
+      "description": "fw_extract_squashfs → extract/rootfs-001",
+      "size": 2407,
+      "sha256": "3b1a7a4f13662243e33861d2a6e0ecce43542a8c0114b2ba2c59cddb00d80c5b",
+      "id": "A-0026"
+    },
+    {
+      "path": "extract/app-001.manifest.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:11.226Z",
+      "description": "squashfs 매니페스트 (extract/app-001)",
+      "size": 2102,
+      "sha256": "bdb6d2300ec39f1c455725fd8ad8d2af4f45f96d587889964ba77001f2020c4e",
+      "id": "A-0027"
+    },
+    {
+      "path": "extract/app-001",
+      "kind": "extracted-tree",
+      "producer": "fwtriage-mcp",
+      "is_dir": true,
+      "created_at": "2026-10-18T17:41:11.229Z",
+      "description": "squashfs v4.0 xz @ extract/parts-001/04-app.bin+0x0 (unsquashfs)",
+      "extra": {
+        "source": "extract/parts-001/04-app.bin",
+        "offset": 0,
+        "manifest": "extract/app-001.manifest.json",
+        "status": "complete"
+      },
+      "id": "A-0028"
+    },
+    {
+      "path": "analysis/extract-squashfs-002.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:11.236Z",
+      "description": "fw_extract_squashfs → extract/app-001",
+      "size": 1664,
+      "sha256": "5e288a9fd35e31adf40534020b3583db5716727d8eaab073c8b6943dda95ea7c",
+      "id": "A-0029"
+    },
+    {
+      "path": "extract/rea-001",
+      "kind": "extracted-tree",
+      "producer": "rea",
+      "is_dir": true,
+      "created_at": "2026-10-18T17:41:12.799Z",
+      "description": "REA unblob 교차 추출 (rootfs 파티션)",
+      "id": "A-0030"
+    },
+    {
+      "path": "analysis/rootfs-audit-001.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:12.892Z",
+      "description": "fw_rootfs_audit extract/rootfs-001",
+      "size": 9093,
+      "sha256": "8b734182241e17e9298233ef96c6a103d0abde7c123c132afdeb052d0edb2172",
+      "id": "A-0031"
+    },
+    {
+      "path": "analysis/strings-hunt-001.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:13.300Z",
+      "description": "fw_strings_hunt extract/rootfs-001",
+      "size": 31558,
+      "sha256": "4484107da60db07a36f8baff9a6dc24c497ea5eca6bc673e47abbe382d55f84c",
+      "id": "A-0032"
+    },
+    {
+      "path": "analysis/crack-hashes-001.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:13.315Z",
+      "description": "fw_crack_hashes (평문 포함, 반출 주의)",
+      "size": 963,
+      "sha256": "619d3dc71bc027adceceb39c0be74222ecc30b01caa2ef41415e8c6bc3331cbc",
+      "id": "A-0033"
+    },
+    {
+      "path": "analysis/elf-info-001.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:13.363Z",
+      "description": "fw_elf_info extract/rootfs-001 (디렉터리)",
+      "size": 7412,
+      "sha256": "41236901ffd7814064a7db04226e0d3382d5860e89405f8ab4b54e18213aecf6",
+      "id": "A-0034"
+    },
+    {
+      "path": "analysis/elf-info-002.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:13.400Z",
+      "description": "fw_elf_info extract/rootfs-001/usr/bin/sonia",
+      "size": 4596,
+      "sha256": "a9a015ac70f0c9739d50832ad1b2091c1392ad8b7f76a6a4c96f291233ae69d6",
+      "id": "A-0035"
+    },
+    {
+      "path": "analysis/elf-info-003.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:13.427Z",
+      "description": "fw_elf_info extract/rootfs-001/usr/sbin/httpd",
+      "size": 5271,
+      "sha256": "32b34f5f919efb01958d7fe3798177db868176c84f9c098e8b1773e30a8b173a",
+      "id": "A-0036"
+    },
+    {
+      "path": "analysis/rea-evidence-httpd-001.json",
+      "kind": "rea-evidence",
+      "producer": "rea",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:26.880Z",
+      "description": "REA evidence (/usr/sbin/httpd)",
+      "size": 313836,
+      "sha256": "01b11f9bada9f0c8e4de1ae52b2bfab8588db428d077ad8e9c832faf86f8e20f",
+      "id": "A-0037"
+    },
+    {
+      "path": "analysis/rootfs-audit-002.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:27.331Z",
+      "description": "fw_rootfs_audit extract/rootfs-001",
+      "size": 9094,
+      "sha256": "f6b8f8855b5d426309dea74ac8d57d4f18052e6e6fcd6aa9fcefe02bbecfcbc2",
+      "id": "A-0038"
+    },
+    {
+      "path": "analysis/strings-hunt-002.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:27.389Z",
+      "description": "fw_strings_hunt extract/rootfs-001/usr/bin/sonia",
+      "size": 8682,
+      "sha256": "bc63dfe6723df8030a6ac8764c38999514a3a6a7f10c00801f8cebe1becdfc3b",
+      "id": "A-0039"
+    },
+    {
+      "path": "analysis/strings-hunt-003.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:27.438Z",
+      "description": "fw_strings_hunt extract/rootfs-001/usr/bin/sonia",
+      "size": 2562,
+      "sha256": "9b0bb290828c65136753cb3a6322ca1116a8b09105081f1cc7ffe32014f75b0a",
+      "id": "A-0040"
+    },
+    {
+      "path": "analysis/strings-hunt-004.json",
+      "kind": "triage-report",
+      "producer": "fwtriage-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:27.489Z",
+      "description": "fw_strings_hunt extract/rootfs-001/usr/sbin/httpd",
+      "size": 3964,
+      "sha256": "90885cb761b89c2266782a5e2f124fd33794fd81083331096329cbe6ab1b5225",
+      "id": "A-0041"
+    },
+    {
+      "path": "analysis/rea-evidence-sonia-001.json",
+      "kind": "rea-evidence",
+      "producer": "rea",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:39.204Z",
+      "description": "REA evidence (/usr/bin/sonia)",
+      "size": 113150,
+      "sha256": "3b5458efcf677bac8b598c356caaec678ed735b6cf57493a4d87f907625f13c6",
+      "id": "A-0042"
+    },
+    {
+      "path": "report.md",
+      "kind": "report",
+      "producer": "case-mcp",
+      "is_dir": false,
+      "created_at": "2026-10-18T17:41:39.605Z",
+      "description": "최종 보고서",
+      "size": 27824,
+      "sha256": "3647ea6e8a402465a8ac6bced8206a29816b46405c9b129de77b7cd70fed2460",
+      "id": "A-0043"
+    }
+  ],
+  "steps": [
+    {
+      "seq": 1,
+      "file": "steps/0001-uart-shell-acquisition-summary.json",
+      "skill": "uart-shell-acquisition",
+      "step": "summary",
+      "status": "success",
+      "at": "2026-10-18T17:40:27.889Z"
+    },
+    {
+      "seq": 2,
+      "file": "steps/0002-firmware-dump-via-uart-job-flash-full.json",
+      "skill": "firmware-dump-via-uart",
+      "step": "job-flash-full",
+      "status": "in-progress",
+      "at": "2026-10-18T17:40:28.882Z"
+    },
+    {
+      "seq": 3,
+      "file": "steps/0003-firmware-dump-via-uart-job-flash-full.json",
+      "skill": "firmware-dump-via-uart",
+      "step": "job-flash-full",
+      "status": "success",
+      "at": "2026-10-18T17:41:08.114Z"
+    },
+    {
+      "seq": 4,
+      "file": "steps/0004-firmware-dump-via-uart-summary.json",
+      "skill": "firmware-dump-via-uart",
+      "step": "summary",
+      "status": "success",
+      "at": "2026-10-18T17:41:08.586Z"
+    },
+    {
+      "seq": 5,
+      "file": "steps/0005-firmware-static-analysis-summary.json",
+      "skill": "firmware-static-analysis",
+      "step": "summary",
+      "status": "success",
+      "at": "2026-10-18T17:41:27.274Z"
+    },
+    {
+      "seq": 6,
+      "file": "steps/0006-cctv-auth-bypass-hunt-triage.json",
+      "skill": "cctv-auth-bypass-hunt",
+      "step": "triage",
+      "status": "in-progress",
+      "at": "2026-10-18T17:41:27.494Z"
+    },
+    {
+      "seq": 7,
+      "file": "steps/0007-cctv-auth-bypass-hunt-summary.json",
+      "skill": "cctv-auth-bypass-hunt",
+      "step": "summary",
+      "status": "partial",
+      "at": "2026-10-18T17:41:39.578Z"
+    }
+  ],
+  "notes": [
+    {
+      "at": "2026-10-18T17:40:27.811Z",
+      "author": "agent",
+      "text": "UART: GND-GND, 기기 TX-어댑터 RX, 기기 RX-어댑터 TX, VCC 미연결, TX 3.3V 측정 (사람 보고, 시뮬레이터 PTY)"
+    }
+  ]
+}

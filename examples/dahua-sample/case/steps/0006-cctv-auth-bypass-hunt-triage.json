@@ -1,0 +1,18 @@
+{
+  "schema": "pweh.step-result/v1",
+  "case_id": "example-dahua-sample",
+  "skill": "cctv-auth-bypass-hunt",
+  "step": "triage",
+  "status": "in-progress",
+  "summary": "fwtriage 완료: vendor dahua-like, 문자열 매치 10",
+  "started_at": null,
+  "finished_at": "2026-10-18T17:41:27.494Z",
+  "data": {
+    "strings_hunt": "analysis/strings-hunt-001.json",
+    "rootfs_audit": "analysis/rootfs-audit-002.json"
+  },
+  "artifacts": [],
+  "next_actions": [],
+  "blockers": [],
+  "seq": 6
+}

@@ -1,0 +1,60 @@
+{
+  "mcpServers": {
+    "pweh-case": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$CLAUDE_PROJECT_DIR\"; [ -n \"$d\" ] || d=\"$PWD\"; exec \"$d/scripts/mcp-launch.sh\" pweh-case-mcp"
+      ]
+    },
+    "pweh-uart": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$CLAUDE_PROJECT_DIR\"; [ -n \"$d\" ] || d=\"$PWD\"; exec \"$d/scripts/mcp-launch.sh\" pweh-uart-mcp"
+      ]
+    },
+    "pweh-openocd": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$CLAUDE_PROJECT_DIR\"; [ -n \"$d\" ] || d=\"$PWD\"; exec \"$d/scripts/mcp-launch.sh\" pweh-openocd-mcp"
+      ]
+    },
+    "pweh-sigrok": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$CLAUDE_PROJECT_DIR\"; [ -n \"$d\" ] || d=\"$PWD\"; exec \"$d/scripts/mcp-launch.sh\" pweh-sigrok-mcp"
+      ]
+    },
+    "pweh-jtagulator": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$CLAUDE_PROJECT_DIR\"; [ -n \"$d\" ] || d=\"$PWD\"; exec \"$d/scripts/mcp-launch.sh\" pweh-jtagulator-mcp"
+      ]
+    },
+    "pweh-fwtriage": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$CLAUDE_PROJECT_DIR\"; [ -n \"$d\" ] || d=\"$PWD\"; exec \"$d/scripts/mcp-launch.sh\" pweh-fwtriage-mcp"
+      ]
+    },
+    "rea": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$CLAUDE_PROJECT_DIR\"; [ -n \"$d\" ] || d=\"$PWD\"; exec \"$d/scripts/mcp-launch.sh\" rea"
+      ]
+    }
+  }
+}

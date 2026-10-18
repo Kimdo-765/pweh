@@ -1,0 +1,146 @@
+{
+  "schema": "pweh.fwtriage.uboot-env/v1",
+  "tool": "fw_uboot_env",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-dahua-sample",
+  "generated_at": "2026-10-18T17:41:09.360Z",
+  "input": {
+    "path": "dumps/flash-full.bin",
+    "size": 16777216,
+    "size_human": "16.00 MiB",
+    "sha256": "560ae32b73b130eb8b3b6fef8d712b23d6477951f16546834fb1a353af6e878f"
+  },
+  "params": {
+    "sizes": null,
+    "align": 4096
+  },
+  "envs": [
+    {
+      "offset": 262144,
+      "offset_hex": "0x40000",
+      "size": 65536,
+      "redundant": false,
+      "flags": null,
+      "crc": "0x241e7df0",
+      "crc_endian": "little",
+      "variable_count": 16,
+      "env": {
+        "arch": "arm",
+        "baudrate": "115200",
+        "board": "hi3516ev300",
+        "board_name": "hi3516ev300",
+        "bootargs": "mem=40M console=ttyAMA0,115200 root=/dev/mtdblock3 rootfstype=squashfs init=linuxrc mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)",
+        "bootcmd": "sf probe 0; sf read 0x42000000 0x50000 0x200000; bootm 0x42000000",
+        "bootdelay": "2",
+        "bootfile": "uImage",
+        "cpu": "armv7",
+        "ethaddr": "00:00:23:34:45:66",
+        "ipaddr": "192.168.1.10",
+        "netmask": "255.255.255.0",
+        "serverip": "192.168.1.2",
+        "soc": "hi3516ev300",
+        "vendor": "hisilicon",
+        "verify": "n"
+      },
+      "key_vars": {
+        "bootcmd": "sf probe 0; sf read 0x42000000 0x50000 0x200000; bootm 0x42000000",
+        "bootargs": "mem=40M console=ttyAMA0,115200 root=/dev/mtdblock3 rootfstype=squashfs init=linuxrc mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)",
+        "bootdelay": "2",
+        "baudrate": "115200",
+        "ethaddr": "00:00:23:34:45:66",
+        "ipaddr": "192.168.1.10",
+        "serverip": "192.168.1.2",
+        "bootfile": "uImage",
+        "verify": "n"
+      },
+      "mtdparts": [
+        {
+          "source": "env:bootargs",
+          "text": "mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)",
+          "partitions": [
+            {
+              "device": "hi_sfc",
+              "name": "boot",
+              "offset": 0,
+              "size": 262144,
+              "ro": false
+            },
+            {
+              "device": "hi_sfc",
+              "name": "env",
+              "offset": 262144,
+              "size": 65536,
+              "ro": false
+            },
+            {
+              "device": "hi_sfc",
+              "name": "kernel",
+              "offset": 327680,
+              "size": 2097152,
+              "ro": false
+            },
+            {
+              "device": "hi_sfc",
+              "name": "rootfs",
+              "offset": 2424832,
+              "size": 5242880,
+              "ro": false
+            },
+            {
+              "device": "hi_sfc",
+              "name": "app",
+              "offset": 7667712,
+              "size": 9109504,
+              "ro": false
+            }
+          ],
+          "warnings": []
+        }
+      ]
+    }
+  ],
+  "redundant_note": null,
+  "embedded_default_envs": [
+    {
+      "offset": 164304,
+      "offset_hex": "0x281d0",
+      "size": 291,
+      "source": "embedded-default-env (CRC 없음)",
+      "variable_count": 15,
+      "key_vars": {
+        "bootcmd": "bootm 0x42000000",
+        "bootargs": "mem=40M console=ttyAMA0,115200",
+        "bootdelay": "2",
+        "baudrate": "115200",
+        "ethaddr": "00:00:23:34:45:66",
+        "ipaddr": "192.168.1.10",
+        "serverip": "192.168.1.2",
+        "bootfile": "uImage"
+      },
+      "env": {
+        "arch": "arm",
+        "baudrate": "115200",
+        "board": "hi3516ev300",
+        "board_name": "hi3516ev300",
+        "bootargs": "mem=40M console=ttyAMA0,115200",
+        "bootcmd": "bootm 0x42000000",
+        "bootdelay": "2",
+        "bootfile": "uImage",
+        "cpu": "armv7",
+        "ethaddr": "00:00:23:34:45:66",
+        "ipaddr": "192.168.1.10",
+        "netmask": "255.255.255.0",
+        "serverip": "192.168.1.2",
+        "soc": "hi3516ev300",
+        "vendor": "hisilicon"
+      },
+      "mtdparts": []
+    }
+  ],
+  "mtdparts_strings": [
+    {
+      "offset": 262307,
+      "text": "mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)"
+    }
+  ]
+}

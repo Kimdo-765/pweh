@@ -1,0 +1,62 @@
+{
+ "name": "dahua-sample",
+ "profile": "dahua-like",
+ "case_id": "example-dahua-sample",
+ "rea_used": true,
+ "rea_error": null,
+ "image_sha256": "560ae32b73b130eb8b3b6fef8d712b23d6477951f16546834fb1a353af6e878f",
+ "dump_sha256": "560ae32b73b130eb8b3b6fef8d712b23d6477951f16546834fb1a353af6e878f",
+ "dump_size": 16777216,
+ "findings": 8,
+ "planted": {
+  "PWEH-PLANT-01": [
+   "fw_strings_hunt#58",
+   "trace_feature#68",
+   "procedure_pseudo_code#73"
+  ],
+  "PWEH-PLANT-02": [
+   "procedure_pseudo_code#76",
+   "fw_strings_hunt#97"
+  ],
+  "PWEH-PLANT-03": [
+   "fw_strings_hunt#58",
+   "trace_feature#67",
+   "procedure_pseudo_code#72"
+  ],
+  "PWEH-PLANT-04": [
+   "fw_strings_hunt#58",
+   "trace_feature#66",
+   "procedure_pseudo_code#71",
+   "procedure_pseudo_code#77"
+  ],
+  "PWEH-PLANT-05": [
+   "fw_rootfs_audit#57",
+   "fw_strings_hunt#58",
+   "fw_rootfs_audit#93"
+  ],
+  "PWEH-PLANT-06": [
+   "fw_crack_hashes#59"
+  ],
+  "PWEH-DH-01": [
+   "fw_strings_hunt#58",
+   "fw_strings_hunt#95",
+   "search_procedures#101",
+   "trace_feature#104",
+   "trace_feature#105",
+   "procedure_pseudo_code#113",
+   "procedure_pseudo_code#115"
+  ],
+  "PWEH-DH-02": [
+   "fw_strings_hunt#58",
+   "fw_strings_hunt#95",
+   "fw_strings_hunt#96",
+   "trace_feature#102",
+   "procedure_pseudo_code#111",
+   "procedure_pseudo_code#117"
+  ]
+ },
+ "destructive_events": 0,
+ "calls": 132,
+ "elapsed_s": 77.6,
+ "command": ".venv/bin/python scripts/run_example.py --profile dahua-like --name dahua-sample"
+}

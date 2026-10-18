@@ -1,0 +1,3040 @@
+[
+ {
+  "name": "annotate_native_function",
+  "desc": "Atomically update one function name and/or entry comments, read them back, and return a refreshed complete function dossier. Ghidra changes its ephemeral sessio",
+  "args": [
+   "procedure",
+   "name",
+   "comment",
+   "inline_comment"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_native_load_image",
+  "desc": "Verify the provider's loaded DOS MZ or explicitly selected COM image against its immutable target snapshot: complete original/modified source-byte digests, head",
+  "args": [],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_native_data_type",
+  "desc": "Inspect one recovered type by exact database category path or defined typed data address. Returns observed size, alignment, packing, fields, bitfields, enum val",
+  "args": [
+   "type",
+   "address",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_native_instruction",
+  "desc": "Inspect one exact code or data address: decoded bytes, mnemonic, ordered operand tokens, flow, outgoing instruction references and typed incoming references whe",
+  "args": [
+   "address",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "resolve_native_call_targets",
+  "desc": "Resolve one explicit static call site using typed provider call references. Preserves ambiguous targets as candidates and unresolved computed calls as unknown; ",
+  "args": [
+   "address",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "address_name",
+  "desc": "Resolve the primary analyzed name at a code or data address. Headless providers require an explicit address; GUI providers may default to their current cursor. ",
+  "args": [
+   "document",
+   "address"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "comment",
+  "desc": "Read the regular analysis comment at an address, defaulting to the current cursor. This is read-only and returns null when no comment exists; use set_comment to",
+  "args": [
+   "document",
+   "address"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "current_address",
+  "desc": "Return Hopper's current cursor address for the selected document. Use only for interactive navigation state; prefer explicit addresses in reproducible investiga",
+  "args": [
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "current_procedure",
+  "desc": "Return the analyzed procedure containing Hopper's current cursor. This uses GUI cursor state and is not a procedure-name lookup.",
+  "args": [
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "current_document",
+  "desc": "Return the document currently selected by REA's Hopper bridge.",
+  "args": [],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "goto_address",
+  "desc": "Move Hopper's GUI cursor to a mapped address and return the observed cursor address. Interior coordinates snap to the containing analyzed object's start. Unmapp",
+  "args": [
+   "address",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inline_comment",
+  "desc": "Read the inline instruction comment at an address, defaulting to the current cursor. Returns null when absent; use set_inline_comment to write one.",
+  "args": [
+   "document",
+   "address"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "list_bookmarks",
+  "desc": "List every bookmark in the selected Hopper document as address and name pairs; unnamed bookmarks retain a null name. Use bookmarks as analyst-authored navigatio",
+  "args": [
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "list_documents",
+  "desc": "List provider program or document identities. Hopper may expose several documents; a Ghidra headless session contains exactly its one imported Program.",
+  "args": [],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "list_names",
+  "desc": "List every analyzed memory and external symbol as address/value pairs. Provider metadata distinguishes Ghidra primary, dynamic, external, type, and source facts",
+  "args": [
+   "document",
+   "address"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "list_procedures",
+  "desc": "List every analyzed procedure as address/value pairs after provider analysis. Ghidra metadata distinguishes thunks and external functions; use returned addresse",
+  "args": [
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "list_segments",
+  "desc": "List segments or memory blocks using exclusive end addresses. Ghidra reports block permissions, address space, image base, initialization, and overlay facts; Ho",
+  "args": [
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "list_strings",
+  "desc": "List every provider-defined string object, or filter to one address, as address/value pairs with encoding, terminator status, and byte length when available. Ho",
+  "args": [
+   "document",
+   "address"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "next_address",
+  "desc": "Return the next analyzed object address after an explicit address or current cursor. This is a navigation primitive, not instruction-flow or CFG analysis.",
+  "args": [
+   "document",
+   "address"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "prev_address",
+  "desc": "Return the previous analyzed object start before an explicit address or current cursor. This is a navigation primitive and may fail at document boundaries; data",
+  "args": [
+   "document",
+   "address"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "procedure_address",
+  "desc": "Resolve an unambiguous procedure symbol name or provider-normalized address to its canonical entry address. External address spaces remain explicit.",
+  "args": [
+   "procedure",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "procedure_assembly",
+  "desc": "Return assembly for one analyzed procedure identified by symbol or hexadecimal address. Use when pseudocode loses calling-convention or instruction-level detail",
+  "args": [
+   "procedure",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "procedure_callees",
+  "desc": "Return the provider's resolved direct callees for one procedure identified by symbol or address. Unresolved indirect calls may be absent; use analyze_function a",
+  "args": [
+   "procedure",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "procedure_callers",
+  "desc": "Return the provider's resolved direct callers for one procedure identified by symbol or address. Results reflect completed static analysis and may omit unresolv",
+  "args": [
+   "procedure",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "procedure_info",
+  "desc": "Return provider metadata for one procedure identified by symbol or address: entrypoint, signature, locals, size, block count, and complete inclusive body ranges",
+  "args": [
+   "procedure",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "read_function_instructions",
+  "desc": "Return every raw instruction for one analyzed procedure. Instruction text and body extent are provider-specific. Ghidra terminal-call assumptions that may cut t",
+  "args": [
+   "procedure",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "search_bytes",
+  "desc": "Find masked byte signatures in initialized analyzed memory. Hex byte pairs and ?? wildcards are supported; an optional equal-length hex mask selects bits. Bound",
+  "args": [
+   "pattern",
+   "mask",
+   "document",
+   "start",
+   "end",
+   "limit",
+   "cursor"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "read_bytes",
+  "desc": "Read analyzed bytes from one provider-normalized virtual address. The hexadecimal payload reports the exact returned length; incomplete reads remain explicit an",
+  "args": [
+   "address",
+   "length",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "address_to_file_offset",
+  "desc": "Map one provider-normalized virtual address to its original nonnegative file offset. Hopper verifies the original bytes against the selected executable digest a",
+  "args": [
+   "address",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "procedure_references",
+  "desc": "Return every raw incoming or outgoing reference edge for one procedure. Endpoint procedures are resolved only from provider containment. Ghidra preserves detail",
+  "args": [
+   "procedure",
+   "direction",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "procedure_pseudo_code",
+  "desc": "Decompile one analyzed procedure by symbol name or provider-normalized address. Ghidra also accepts file-offset:0x... selectors and falls back to a unique sourc",
+  "args": [
+   "procedure",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "resolve_containing_procedure",
+  "desc": "Resolve an arbitrary address, including an interior instruction or exact external entry, to its provider-analyzed containing procedure. A negative result distin",
+  "args": [
+   "address",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "search_procedures",
+  "desc": "Search every analyzed procedure name using literal matching by default or regex when requested. Results are deterministic and complete. Hopper regex mode uses E",
+  "args": [
+   "pattern",
+   "mode",
+   "case_sensitive",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "search_strings",
+  "desc": "Search every provider-defined string object using literal matching by default or regex when requested. Results are deterministic and complete over those defined",
+  "args": [
+   "pattern",
+   "mode",
+   "case_sensitive",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "set_address_name",
+  "desc": "Assign an analyst name to one mapped hexadecimal address and report whether the native edit succeeded and exact readback matched. Hopper rejects symbol names ex",
+  "args": [
+   "address",
+   "name",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "set_addresses_names",
+  "desc": "Assign analyst names to multiple mapped addresses in one call and return per-address edit/readback success booleans. Hopper validates mapped destinations, nativ",
+  "args": [
+   "names",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "set_bookmark",
+  "desc": "Create or replace a bookmark at a mapped hexadecimal address and report success. This mutates navigation metadata; bookmarks are analyst-authored navigation aid",
+  "args": [
+   "address",
+   "name",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "set_comment",
+  "desc": "Write a regular analysis comment at a hexadecimal address and return whether readback matched. An empty comment clears it. This mutates the Hopper document; use",
+  "args": [
+   "address",
+   "comment",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "set_inline_comment",
+  "desc": "Write an inline instruction comment at a hexadecimal address and return whether readback matched. An empty comment clears it; Hopper may flatten newlines, produ",
+  "args": [
+   "address",
+   "comment",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "unset_bookmark",
+  "desc": "Remove the bookmark at a mapped hexadecimal address and return whether it is absent. Hopper also permits removing an existing legacy bookmark outside mapped mem",
+  "args": [
+   "address",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "xrefs",
+  "desc": "Return analyzed references to a code or data address. Hopper may default to its current cursor; headless providers such as Ghidra require an explicit address. U",
+  "args": [
+   "document",
+   "address"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "trace_native_values",
+  "desc": "Trace a bounded static dependency graph from one explicit native procedure. Includes high-p-code def-use, constants, operators, memory and branch operations, re",
+  "args": [
+   "procedure",
+   "max_depth",
+   "max_functions",
+   "max_call_sites",
+   "max_nodes",
+   "max_edges",
+   "offset",
+   "limit"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_native_dispatch_metadata",
+  "desc": "Inspect the bound provider's name inventory for Objective-C class/method symbols and Swift mangled symbols, returning at most max_records decoded names. Include",
+  "args": [
+   "max_records"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "get_objc_classes",
+  "desc": "Discover and deduplicate Objective-C class labels, optionally filtering by literal substring.",
+  "args": [
+   "pattern"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "get_objc_protocols",
+  "desc": "Discover and deduplicate Objective-C and Swift protocol labels.",
+  "args": [],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "batch_decompile",
+  "desc": "Decompile each explicit procedure symbol or address concurrently. Preserves each input selector in address and reports the observed canonical entry and entry la",
+  "args": [
+   "addresses"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "get_call_graph",
+  "desc": "Resolve one symbol or address to its canonical procedure entry, then traverse the bound provider's caller or callee relationships until the reachable graph is e",
+  "args": [
+   "address",
+   "direction"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "analyze_swift_types",
+  "desc": "Categorize analyzed Swift procedure names using their manglings or same-address Swift symbol aliases. Decodes legacy and literal modern nominal contexts into cl",
+  "args": [
+   "category",
+   "pattern"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "find_xrefs_to_name",
+  "desc": "Resolve an exact name against the bound provider's name inventory and return a resolved or unresolved result. Unresolved names use the stable name_not_found rea",
+  "args": [
+   "name"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "binary_overview",
+  "desc": "Return the bound document and exhaustive procedure/string counts, plus every segment and segment_count when the provider supports segment enumeration. If segmen",
+  "args": [],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "analyze_function",
+  "desc": "Build a dossier for one native function identified by symbol or provider-returned address. Returns identity with complete inclusive analyzed body ranges or expl",
+  "args": [
+   "procedure"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_native_api",
+  "desc": "Analyze a native API boundary in one function identified by symbol or provider-returned address. Returns confidence, evidence, jump-table dispatch/data/case map",
+  "args": [
+   "procedure"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "trace_feature",
+  "desc": "Trace the complete literal query, preserving spaces, through every matching string and procedure, their xrefs, and truthful containing-procedure resolution. Ret",
+  "args": [
+   "query",
+   "case_sensitive"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "trace_call_path",
+  "desc": "Resolve start and optional goal symbols or addresses to canonical procedure entries, then trace direct callers or callees until the graph is exhausted or the go",
+  "args": [
+   "start",
+   "goal",
+   "direction"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "trace_native_ui_action",
+  "desc": "Trace one unique compiled UI action, object ID, native symbol or exact function address through authored connections, encoded or symbolized Objective-C handlers",
+  "args": [
+   "action",
+   "max_depth",
+   "max_nodes",
+   "max_edges"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "observe_native_ui",
+  "desc": "Observe an already-running native app by PID and window ID, bound to the active Mach-O target. Captures a bounded accessibility tree and selected-window screens",
+  "args": [
+   "pid",
+   "window_id",
+   "screenshot",
+   "accessibility",
+   "max_nodes"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "capture_native_ui_scenario",
+  "desc": "Run selected-element press, increment/decrement scroll, AXValue text entry and bounded wait steps in one exact native app window. Returns ordered before/after c",
+  "args": [
+   "pid",
+   "window_id",
+   "screenshot",
+   "accessibility",
+   "max_nodes",
+   "steps"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "observe_native_calls",
+  "desc": "Launch the active Mach-O as an owned process under LLDB and record each entry into caller-selected functions or Objective-C methods: thread, module, symbol, loa",
+  "args": [
+   "breakpoints",
+   "arguments",
+   "environment",
+   "working_directory",
+   "duration_ms",
+   "max_events",
+   "argument_registers",
+   "backtrace_frames"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_macho",
+  "desc": "Inspect Mach-O slices, load commands, imports, exports, dependencies, build metadata, segments, sections, permissions, and exact command provenance without laun",
+  "args": [
+   "detail"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_signature",
+  "desc": "Inspect the active Mach-O executable's code-signing identity, hashes, authorities, requirements, entitlements, hardened-runtime state, and exact command provena",
+  "args": [],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_plist",
+  "desc": "Parse Info.plist from the active artifact by default, or pass any local plist path. Returns normalized JSON rather than plutil text.",
+  "args": [
+   "path"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "list_architectures",
+  "desc": "List thin or universal Mach-O slices with offsets, sizes, alignment, explicit coverage, and native-tool provenance.",
+  "args": [],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "demangle_swift",
+  "desc": "Demangle an ordered list of single-line Swift symbols without requiring Hopper. Each input returns demangled, unchanged, or invalid status.",
+  "args": [
+   "symbols"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_artifact",
+  "desc": "Inspect an active archive or application package in one call. By default returns the complete content-addressed artifact graph once, as the typed nested invento",
+  "args": [
+   "integrity_policy",
+   "detail"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "extract_artifact",
+  "desc": "Extract all regular files from the active archive or application package into a fresh temporary directory chosen by REA. The result includes its location. Rejec",
+  "args": [
+   "integrity_policy"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "decode_interface_builder",
+  "desc": "Decode compiled storyboard and nib archives inside the active Apple app bundle, including keyed property lists and NIBArchive object tables, into a bounded obje",
+  "args": [
+   "max_documents",
+   "max_objects",
+   "max_connections",
+   "detail"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_keyed_archive",
+  "desc": "Inspect one Foundation NSKeyedArchiver plist in the active app bundle as original object-table nodes, class descriptors, named roots, and UID edges. Preserves s",
+  "args": [
+   "path",
+   "root",
+   "offset",
+   "limit"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_asset_catalog",
+  "desc": "Inspect compiled Assets.car metadata in an active Apple app bundle. Returns stable paginated catalog and rendition records with raw assetutil metadata and catal",
+  "args": [
+   "offset",
+   "limit"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "trace_dylib_resolution",
+  "desc": "Trace how dyld would resolve each Mach-O dylib load for the active Mach-O, or for every executable in the active .app bundle (the main app, XPC services, extens",
+  "args": [
+   "roots",
+   "architecture"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_managed_artifact",
+  "desc": "Inspect an explicit PE/CLI path, or the selected managed target, without loading or executing target code. Omitted or complete detail returns complete metadata ",
+  "args": [
+   "path",
+   "detail"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_managed_members",
+  "desc": "Inspect PE/CLI metadata members, signatures, raw CIL hashes, decoded-instruction-tuple hashes, separately reported exception regions, call edges, field-access a",
+  "args": [
+   "path",
+   "detail",
+   "type_names"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_managed_native_boundaries",
+  "desc": "Inspect PE/CLI ModuleRef, ImplMap/PInvoke declarations, CLI native-header indicators, and non-IL method implementation flags without loading or executing target",
+  "args": [
+   "path"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "compare_managed_members",
+  "desc": "Compare two authenticated inspect_managed_members Evidence records using unique-only tiers: exact declared type, name, and CIL/signature; exact declared type, n",
+  "args": [
+   "left",
+   "right"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "verify_managed_native_boundaries",
+  "desc": "Verify managed P/Invoke/native-boundary declarations against authenticated native export or function Evidence without executing managed code or translating mana",
+  "args": [
+   "managed_boundaries",
+   "native_observations"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "import_managed_reconstruction",
+  "desc": "Import decompiler-produced managed reconstruction against authenticated inspect_managed_members Evidence. The workflow locks each method to artifact SHA-256, MV",
+  "args": [
+   "static_members",
+   "decompiler",
+   "methods",
+   "notes"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "project_managed_application_graph",
+  "desc": "Project authenticated managed artifact, member, and native-boundary Evidence into the provider-neutral application graph without executing managed code, loading",
+  "args": [
+   "managed_artifact",
+   "managed_members",
+   "managed_native_boundaries"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_with_objdump",
+  "desc": "Run caller-selected GNU objdump inspection against a local artifact, or request operation=architectures without a path to list BFD targets advertised by the ins",
+  "args": [
+   "path",
+   "operation",
+   "follow_debug_links"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "execute_rizin_command",
+  "desc": "Execute one caller-selected Rizin command against a local artifact using the Rizin CLI profile that suppresses user settings and scripts while retaining plugins",
+  "args": [
+   "path",
+   "command"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "list_frida_devices",
+  "desc": "List Frida devices currently available to this host, optionally connecting to the caller-selected remote Frida endpoint. Remote authentication options are used ",
+  "args": [
+   "remote"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "list_frida_processes",
+  "desc": "List processes observed on a selected Frida device or caller-supplied remote endpoint. A remote connection is closed after discovery; authentication values are ",
+  "args": [
+   "device_id",
+   "remote"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "start_frida_session",
+  "desc": "Attach Frida to one selected process or spawn one selected target. Spawned targets remain paused until resume_frida_session, allowing scripts to load before exe",
+  "args": [
+   "mode",
+   "device_id",
+   "remote",
+   "pid",
+   "program",
+   "argv"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "load_frida_script",
+  "desc": "Load caller-supplied JavaScript into a Frida session. Scripts can read or change target memory and behavior and can access the target process's capabilities. Me",
+  "args": [
+   "session_id",
+   "source_kind",
+   "source",
+   "path"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "resume_frida_session",
+  "desc": "Resume the process created by a paused Frida spawn session. Attached processes are already running and cannot be resumed through this operation.",
+  "args": [
+   "session_id"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "unload_frida_script",
+  "desc": "Unload one caller-selected Frida script from a live session. This removes that script's instrumentation from the target.",
+  "args": [
+   "session_id",
+   "script_id"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "frida_session_status",
+  "desc": "Return observed Frida session state and queued script messages. Message history is bounded by the provider capture budget and reports truncation.",
+  "args": [
+   "session_id"
+  ],
+  "ann": {
+   "read_only_hint": true,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "close_frida_session",
+  "desc": "Unload session scripts and detach REA's Frida session. If a spawned process is still paused, resume it before detaching so it is not left suspended. REA never k",
+  "args": [
+   "session_id"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "instrument_with_frida",
+  "desc": "Run one caller-authored Frida script against an explicitly selected process and detach when the observation window ends. The CLI and MCP share this ephemeral wo",
+  "args": [
+   "mode",
+   "device_id",
+   "remote",
+   "pid",
+   "program",
+   "argv",
+   "source_kind",
+   "source",
+   "path",
+   "duration_ms"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "list_cutter_sessions",
+  "desc": "List live REA bridge sessions hosted by upstream Cutter instances, including observed document identity and bridge-directory security status. Discovery admits a",
+  "args": [],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "cutter_command",
+  "desc": "Run one arbitrary Rizin command in a selected live Cutter session. Commands may edit and persist analysis state or execute plugin-provided effects; completion u",
+  "args": [
+   "session_id",
+   "expected_generation",
+   "command",
+   "json"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "start_gdb_session",
+  "desc": "Start a BYO GDB process in MI3 mode when available, suppress startup files, and disable auto-loading. Persistent GDB sessions are available only on Linux, where",
+  "args": [
+   "inferior_tty"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "gdb_console",
+  "desc": "Run one unrestricted GDB CLI command through MI interpreter-exec console and return raw MI, console, target, and log records inline with Evidence. A command tim",
+  "args": [
+   "session_id",
+   "command"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "gdb_session_status",
+  "desc": "Return the observed lifecycle state and bounded recent MI records and process diagnostics for one persistent REA GDB session; truncation and invalid-UTF-8 field",
+  "args": [
+   "session_id"
+  ],
+  "ann": {
+   "read_only_hint": true,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "close_gdb_session",
+  "desc": "Close the owned GDB process after verifying the inferior state. When one live thread group has a verified durable output TTY, REA automatically detaches it, whi",
+  "args": [
+   "session_id"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "start_rizin_debug_session",
+  "desc": "Start a persistent Rizin debugger session using `-N` to suppress user settings and scripts while retaining plugins, `-0` for NUL framing, and `-d` with an optio",
+  "args": [
+   "path",
+   "inferior_tty",
+   "backend"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "rizin_debug_command",
+  "desc": "Execute one unrestricted command in a persistent Rizin debugger session. Returns raw output inline with Evidence, including backend output interleaved before th",
+  "args": [
+   "session_id",
+   "command"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "rizin_debug_session_status",
+  "desc": "Return observed lifecycle state and bounded recent NUL-framed output and process diagnostics for one Rizin debugger session; truncation fields report discarded ",
+  "args": [
+   "session_id"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "close_rizin_debug_session",
+  "desc": "Close the REA-owned Rizin debugger only after verifying no inferior remains or detaching one with a verified caller-selected TTY output sink. A detached target ",
+  "args": [
+   "session_id"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_packet_capture",
+  "desc": "Inspect caller-selected fields in an existing local packet capture with TShark 4.x. Return 50 matching frames by default, with match_offset/match_limit paging a",
+  "args": [
+   "path",
+   "fields",
+   "display_filter",
+   "decode_as",
+   "packet_limit",
+   "two_pass",
+   "match_offset",
+   "match_limit"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_packet_fields",
+  "desc": "Discover protocols or field names/types registered in the installed TShark 4.x. kind defaults to protocols; use fields and optional exact protocol abbreviation ",
+  "args": [
+   "kind",
+   "protocol",
+   "query",
+   "offset",
+   "limit"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "decode_signal_recording",
+  "desc": "Decode an existing local logic/signal recording on Linux with sigrok-cli 0.7.2 and util-linux prlimit. Supply decoder stack, channels and options explicitly; op",
+  "args": [
+   "path",
+   "decoders",
+   "input_format",
+   "annotations",
+   "line_offset",
+   "line_limit"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_signal_decoders",
+  "desc": "Discover installed sigrok protocol decoders or inspect one decoder's channel/option help on Linux. Omit decoder to list ID/name pairs; supply its exact ID for l",
+  "args": [
+   "decoder",
+   "query",
+   "offset",
+   "limit"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_android_package",
+  "desc": "Inspect a local APK's package, SDK and permission declarations, decoded manifest and class/resource counts. Omitted or complete detail preserves the complete re",
+  "args": [
+   "path",
+   "detail"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "search_android_classes",
+  "desc": "Search complete decompiler class-name rows in an explicit local APK by case-sensitive substring. Empty query inventories all rows. Repeated names remain repeate",
+  "args": [
+   "path",
+   "query"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_android_class",
+  "desc": "Inspect one exact Android class's parsed methods, fields and inner classes, including synthetic members. Returns display signatures and exact DEX prototypes wit",
+  "args": [
+   "path",
+   "class_name"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_android_method",
+  "desc": "Decompile one Android method with smali fallback. Requires explicit overload_index when multiple methods share a name. Reports its DEX prototype, representation",
+  "args": [
+   "path",
+   "class_name",
+   "method_name",
+   "overload_index"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "trace_android_references",
+  "desc": "Trace incoming static using nodes to an exact Android class or selected method overload. The total counts containing nodes, not individual invoke instructions. ",
+  "args": [
+   "path",
+   "class_name",
+   "method_name",
+   "overload_index"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_jeb_client",
+  "desc": "Inspect the running JEB client serving MCP: engine version, GUI or headless mode, and startup time. Does not open a target. Requires a caller-started JEB client",
+  "args": [],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "open_jeb_project",
+  "desc": "Open or create a JEB project from an artifact file or existing .jdb2 database on the engine host. Returns the project's input-file digests and top-level units. ",
+  "args": [
+   "path"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "list_jeb_units",
+  "desc": "List project units by stable unit path and type, with optional wildcard filter, parent restriction, and pagination. The engine caps pages at 100 units; a full p",
+  "args": [
+   "filter",
+   "parent_unit_path",
+   "index",
+   "count"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "decompile_jeb_item",
+  "desc": "Decompile one type or method to engine pseudo-code using its decompiler (Dalvik, Java, or native). item_address comes from the engine's code item listing; unit_",
+  "args": [
+   "unit_path",
+   "item_address",
+   "item_kind"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_binary_layout",
+  "desc": "Inspect an explicit local binary without launching it as a host process. Returns file-backed section/segment ranges, linked addresses, original symbol/REL/RELA ",
+  "args": [
+   "path",
+   "detail"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_analysis_view",
+  "desc": "Inspect selected views of completed binary-layout, JavaScript application, native analyze_function, inspect_artifact, inventory_artifact, inspect_wasm_artifact,",
+  "args": [
+   "source",
+   "view"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_pe_resources",
+  "desc": "Inspect one explicit local PE32/PE32+ image's complete bounded type/name/language resource tree without executing it or opening a disassembler. Returns numeric ",
+  "args": [
+   "path",
+   "max_file_bytes",
+   "max_entries"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_go_binary",
+  "desc": "Inspect embedded Go compiler version, main module, dependency/replacement versions and build settings in an explicit local ELF, PE or thin Mach-O image. Returns",
+  "args": [
+   "path"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_rust_binary",
+  "desc": "Inspect the cargo-auditable crate dependency list embedded in an explicit local ELF, PE or thin Mach-O image. Returns the artifact SHA-256, the .dep-v0 section ",
+  "args": [
+   "path"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "compare_wasm_interfaces",
+  "desc": "Compare typed core WASM import/export names, kinds and exact signatures from two authenticated inspect_wasm_artifact Evidence records. Select imports, exports o",
+  "args": [
+   "left",
+   "right",
+   "scope"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_wasm_artifact",
+  "desc": "Validate an explicit local WASM artifact with caller-supplied WABT 1.0.42. Omitted or complete detail returns exact byte SHA-256, sections, upstream import/expo",
+  "args": [
+   "path",
+   "glue_paths",
+   "candidate_paths",
+   "detail"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_evm_interface",
+  "desc": "Inspect explicit local flat EVM bytecode without target execution or chain/RPC access. Select raw or hex encoding explicitly. Omitted or complete detail returns",
+  "args": [
+   "path",
+   "encoding",
+   "detail"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_sqlite_database",
+  "desc": "Inspect an explicit local SQLite database snapshot and its existing sibling WAL without modifying source files or opening a native analysis provider. Requires N",
+  "args": [
+   "path",
+   "table",
+   "columns",
+   "schema_scope",
+   "row_limit"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_recorded_crash",
+  "desc": "Inspect a supplied Linux ELF64 amd64 or AArch64 little-endian core without launching its target or attaching to any live PID. Returns all recorded segments, raw",
+  "args": [
+   "path",
+   "include_debugger_context"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_firmware_regions",
+  "desc": "Inspect signature candidates in a local firmware file with Binwalk 3.1.x (verified with 3.1.0). Returns offsets, reported lengths, descriptions and raw confiden",
+  "args": [
+   "path"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "extract_firmware",
+  "desc": "Extract caller-selected firmware bytes with Unblob 26.6.x (verified with 26.6.4) into an absent output directory. Returns verified child paths/digests, task der",
+  "args": [
+   "path",
+   "output_directory",
+   "range",
+   "max_depth",
+   "max_output_bytes",
+   "max_output_files"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "trace_web_module_imports",
+  "desc": "Trace one exported website script's outgoing native ES imports/re-exports, using exact URL and optional selected import-map context. Reads a local export_web_sc",
+  "args": [
+   "manifest_path",
+   "script_index",
+   "importer_url",
+   "import_map"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "trace_web_source_location",
+  "desc": "Trace one generated position in an exported website script through an explicitly paired local source map. Verifies manifest, selected script and map SHA-256/byt",
+  "args": [
+   "manifest_path",
+   "script_index",
+   "source_map",
+   "generated_position"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "observe_web_execution",
+  "desc": "Instrument one selected CDP page for a finite, externally driven precise coverage window. Resets execution counters and prevents optimized execution until stopp",
+  "args": [
+   "cdp_endpoint",
+   "allowed_origins",
+   "target_id",
+   "observation_ms"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_web_event_listeners",
+  "desc": "Inspect listeners registered directly on the first main-document CSS match in one selected CDP page. Returns event flags, native callback locations, source owne",
+  "args": [
+   "cdp_endpoint",
+   "allowed_origins",
+   "target_id",
+   "selector"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_web_network_capture",
+  "desc": "Request detail summary for capture identity and counts; then page retained records with inspect_analysis_view kind capture (preview or complete), avoiding repea",
+  "args": [
+   "capture_path",
+   "format",
+   "record_ordinals",
+   "sensitive_values",
+   "detail"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "recover_javascript_sources",
+  "desc": "Recover readable modules from local UTF-8 JavaScript scripts/bundles into an absent directory, using caller-supplied Wakaru ^1.13.0 (verified with 1.14.0) on Li",
+  "args": [
+   "path",
+   "additional_paths",
+   "output_directory",
+   "extraction_mode",
+   "rewrite_level"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_adb_client",
+  "desc": "Inspect the caller-selected adb client: resolved binary, version, and install path. Never contacts devices and never starts the adb server. REA never installs p",
+  "args": [],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "list_adb_devices",
+  "desc": "List attached devices exactly as `adb devices -l` reports them: serial, state, transport, model metadata, and an inferred emulator/physical kind with its eviden",
+  "args": [],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_adb_device",
+  "desc": "Inspect one device's build identity through a fixed `getprop` whitelist: Android and SDK versions, security patch, fingerprint, product identity, CPU ABIs, and ",
+  "args": [
+   "serial"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "list_adb_packages",
+  "desc": "List installed packages on one device with each base APK's device path, optionally scoped to third-party or system packages. Paths are device filesystem paths, ",
+  "args": [
+   "serial",
+   "scope"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "pull_adb_package",
+  "desc": "Pull one installed package's complete APK set (base plus every split, as `pm path` reports) from the device into a caller-selected output directory, creating a ",
+  "args": [
+   "serial",
+   "package",
+   "output_directory"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "read_adb_logcat",
+  "desc": "Read a bounded dump of the device log (`logcat -d -t`) for one buffer, optionally restricted to a process id. No streaming, no clearing; the newest lines are ke",
+  "args": [
+   "serial",
+   "count",
+   "buffer",
+   "pid"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_adb_package",
+  "desc": "Inspect one installed package through `dumpsys package`: version name/code, install and update times, installer, user id, flags, and the requested-permission co",
+  "args": [
+   "serial",
+   "package"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "pull_adb_file",
+  "desc": "Pull one absolute device path (a database, shared-preferences XML, or any readable file) into a caller-selected output directory, digesting it with SHA-256. The",
+  "args": [
+   "serial",
+   "device_path",
+   "output_directory"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "push_adb_file",
+  "desc": "Push one local file to an absolute device path. A device-mutating tool: checks for an existing device file before transfer and refuses it unless overwrite is ex",
+  "args": [
+   "serial",
+   "local_path",
+   "device_path",
+   "overwrite"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "capture_adb_screen",
+  "desc": "Capture one frame of the device screen as a PNG (`screencap -p` through exec-out, no device-side file) into a caller-selected output directory, digesting it and",
+  "args": [
+   "serial",
+   "output_directory"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "list_adb_processes",
+  "desc": "List running processes exactly as `ps -A` reports them: user, pid, ppid, rss, state, and name. Useful for pairing with instrumentation lanes. Read-only.",
+  "args": [
+   "serial"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "list_adb_directory",
+  "desc": "List the immediate children of one absolute device directory, including hidden entries: names, kinds, permissions, owner, group, sizes, dates, and symlink targe",
+  "args": [
+   "serial",
+   "device_path"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "list_adb_features",
+  "desc": "List the device's declared hardware and software features (`pm list features`) for device fingerprinting. Read-only.",
+  "args": [
+   "serial"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "list_adb_services",
+  "desc": "List the device's binder services with their interfaces (`service list`). Read-only.",
+  "args": [
+   "serial"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_adb_display",
+  "desc": "Report the display's physical and any overridden size (`wm size`) and density (`wm density`) as the device declares them. Read-only; setting values is not expos",
+  "args": [
+   "serial"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_adb_window",
+  "desc": "Report the window manager's current focus declarations (mCurrentFocus and mFocusedApp from `dumpsys window windows`, or from `dumpsys window displays` when the ",
+  "args": [
+   "serial"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "read_adb_setting",
+  "desc": "Read one settings value (`settings get`) from the system, secure, or global namespace. Absent keys report the device's own null observation. Read-only; writing ",
+  "args": [
+   "serial",
+   "namespace",
+   "key"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "collect_adb_bugreport",
+  "desc": "Collect one device-generated bugreport archive (`adb bugreport`) into a caller-selected output directory, digesting the zip. The archive contains the device's o",
+  "args": [
+   "serial",
+   "output_directory"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "resolve_adb_packages",
+  "desc": "Find installed packages by case-insensitive substring of the package name (e.g. `whatsapp` → `com.whatsapp`), returning each match's base APK device path. The f",
+  "args": [
+   "serial",
+   "query"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "install_adb_package",
+  "desc": "Install one local APK on the device (`adb install [-r]`), recording the APK's host digest and byte size. A device-mutating tool: `replace_requested` records whe",
+  "args": [
+   "serial",
+   "apk_path",
+   "replace"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "uninstall_adb_package",
+  "desc": "Uninstall one package from the device (`adb uninstall`), removing its data for user 0. A device-mutating tool; absent packages report the device's own refusal r",
+  "args": [
+   "serial",
+   "package"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "start_adb_app",
+  "desc": "Start one installed app's resolved launcher activity with `am start -W -n`. A device-mutating tool for dynamic analysis. The full wait report determines success",
+  "args": [
+   "serial",
+   "package"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "start_adb_activity",
+  "desc": "Start an intent with `am start -W`: one action, optional data URI, optional explicit component, and up to 16 typed extras (string, boolean, int, long, float). A",
+  "args": [
+   "serial",
+   "action",
+   "data_uri",
+   "component",
+   "extras"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "stop_adb_app",
+  "desc": "Force-stop every process of one package (`am force-stop`), ending a dynamic-analysis run. A device-mutating tool; it succeeds whether or not the package had run",
+  "args": [
+   "serial",
+   "package"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_pcap_client",
+  "desc": "Inspect the caller-selected tshark and capinfos binaries: selected commands, selection sources, and versions. Both tools must be usable. Reads no capture file. ",
+  "args": [],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_pcap_capture",
+  "desc": "Request detail summary for capture identity/counts, then page retained facts with inspect_analysis_view kind pcap. Default detail complete preserves inline deli",
+  "args": [
+   "path",
+   "detail"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "identify_flutter_build",
+  "desc": "Identify a Flutter app's build facts by pure parsing: the Dart VM snapshot hash from every lib/<abi>/libapp.so AOT section (vm and isolate, cross-checked), per-",
+  "args": [
+   "path"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_dart_aot",
+  "desc": "Inspect one ABI's Dart AOT snapshot inside an APK: the four snapshot symbols located through the ELF dynamic symbol table with their offsets, sizes, and section",
+  "args": [
+   "path",
+   "abi",
+   "detail"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_apktool_client",
+  "desc": "Inspect the caller-selected apktool launcher: resolved command, selection source, and version. Decodes nothing. REA never installs Apktool or Java; select a lau",
+  "args": [],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "decode_android_resources",
+  "desc": "Decode one local APK's resources with `apktool d --no-src` in a provider-owned workspace that is removed after projection: the readable AndroidManifest.xml, apk",
+  "args": [
+   "path",
+   "include_strings",
+   "locale"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "export_web_scripts",
+  "desc": "Export JavaScript bytes already retained in one local inspect_web_page or capture_browser_scenario JSON capture (normalized result or complete Evidence). Writes",
+  "args": [
+   "capture_path",
+   "output_directory"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "list_browser_targets",
+  "desc": "List page targets exposed by the selected loopback Chrome DevTools Protocol endpoint. Optionally filter by exact origin. URLs preserve query values and fragment",
+  "args": [
+   "cdp_endpoint",
+   "allowed_origins"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_web_page",
+  "desc": "Passively inspect one selected page target through CDP without evaluating JavaScript, navigating, clicking, closing, or mutating the page. If no origin filter i",
+  "args": [
+   "cdp_endpoint",
+   "allowed_origins",
+   "target_id",
+   "observation_ms",
+   "include_accessibility_text",
+   "include_console_text",
+   "include_json_body_shapes",
+   "include_websocket_shapes",
+   "include_storage_keys",
+   "include_storage_fingerprints",
+   "include_script_sources"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "analyze_web_bundle",
+  "desc": "Capture JavaScript source from one selected CDP page and statically derive a chunk graph, route and endpoint candidates, vendor fingerprints, page-declared WebM",
+  "args": [
+   "cdp_endpoint",
+   "allowed_origins",
+   "target_id",
+   "observation_ms",
+   "include_accessibility_text",
+   "include_console_text",
+   "include_json_body_shapes",
+   "include_websocket_shapes",
+   "include_storage_keys",
+   "include_storage_fingerprints",
+   "include_script_sources",
+   "fetch_source_maps"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "observe_web_session",
+  "desc": "Arm a CDP observation window of the requested duration while the user operates the page. By default it follows the selected target's current origin; an explicit",
+  "args": [
+   "cdp_endpoint",
+   "allowed_origins",
+   "target_id",
+   "observation_ms"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "discover_webmcp_tools",
+  "desc": "Passively inventory every page-registered WebMCP tool and its complete structural input-schema summary using the experimental CDP WebMCP domain. Metadata is pag",
+  "args": [
+   "cdp_endpoint",
+   "allowed_origins",
+   "target_id",
+   "observation_ms"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "compare_web_captures",
+  "desc": "Compare passive web captures by providing before and after, each with the complete inspect_web_page normalized_result in inspection and an optional complete dis",
+  "args": [
+   "before",
+   "after",
+   "before_scenario",
+   "after_scenario",
+   "normalization"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "capture_web_screenshot",
+  "desc": "Capture the current visible viewport of one configured page as an inline, content-addressed PNG artifact. The operation never scrolls, navigates, or evaluates p",
+  "args": [
+   "cdp_endpoint",
+   "allowed_origins",
+   "target_id"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "compare_web_screenshots",
+  "desc": "Compare two self-verifying PNG screenshot artifacts with local pixel metrics. Returns exact changed-pixel ratios and channel deltas without OCR or external serv",
+  "args": [
+   "before",
+   "after",
+   "channel_threshold"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "capture_browser_scenario",
+  "desc": "Run a controlled browser scenario when passive observation cannot exercise the application. Launch the selected executable or connect to a loopback CDP target, ",
+  "args": [
+   "browser",
+   "start_url",
+   "environment",
+   "actions",
+   "storage",
+   "secrets",
+   "capture"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_electron_fuses",
+  "desc": "Inspect packaged Electron fuse bytes in one local macOS app bundle, Electron Framework binary, Windows PE executable, or Linux ELF executable. Returns the artif",
+  "args": [
+   "path"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "list_electron_targets",
+  "desc": "List every Electron file:// page target from a selected loopback CDP endpoint. Local file paths are canonicalized after symlink resolution. Selecting an endpoin",
+  "args": [
+   "cdp_endpoint"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "inspect_electron_page",
+  "desc": "Passively inspect one Electron file page by supplying its loopback CDP endpoint and target ID. The provider rechecks that the target currently exists at that en",
+  "args": [
+   "cdp_endpoint",
+   "target_id",
+   "observation_ms",
+   "include_script_sources"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "analyze_javascript_application",
+  "desc": "Reconstruct one local ASAR or extracted JavaScript application as an inline application graph without executing it. Returns recovered graph nodes, edges, semant",
+  "args": [
+   "input_path",
+   "format",
+   "integrity_policy",
+   "source_paths",
+   "max_semantic_nodes",
+   "max_semantic_nodes_per_file",
+   "max_heap_mb",
+   "analysis_timeout_ms",
+   "detail"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "reconcile_javascript_runtime",
+  "desc": "Reconcile verified static JavaScript application graphs with existing passive web/Electron CDP, passive V8 Inspector, or provider-owned active Electron Evidence",
+  "args": [
+   "static_layers",
+   "runtime_observations"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "capture_electron_scenario",
+  "desc": "Use this for a provider-owned Electron run when passive CDP or Inspector observation cannot exercise application behavior. REA owns startup and teardown, accept",
+  "args": [
+   "executable_path",
+   "application_path",
+   "application_root",
+   "args",
+   "actions"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "list_javascript_runtime_targets",
+  "desc": "List every eligible Node/Electron V8 Inspector target from an explicit literal-loopback endpoint. Node discovery file locations that cannot be verified are pres",
+  "args": [
+   "inspector_endpoint"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "observe_javascript_runtime",
+  "desc": "Attach passively to one Node/Electron V8 Inspector target by supplying its loopback Inspector endpoint and target ID. The provider rechecks target presence and ",
+  "args": [
+   "inspector_endpoint",
+   "target_id",
+   "runtime_kind",
+   "observation_ms"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "trace_application_feature",
+  "desc": "Trace a typed literal seed through every reachable part of an authenticated JavaScript Application Graph supplied as inline Evidence or exact same-session retai",
+  "args": [
+   "native_observations",
+   "seed",
+   "direction",
+   "application"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "trace_javascript_semantics",
+  "desc": "Trace static JavaScript data-flow, direct call/return, and closure relations from inline application Evidence or an exact same-session retained reference. Dynam",
+  "args": [
+   "application",
+   "query"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "compare_application_versions",
+  "desc": "Compare two authenticated JavaScript Application Graph versions supplied as inline Evidence or exact same-session retained references. Uses unique-only exact di",
+  "args": [
+   "left_native_observations",
+   "right_native_observations",
+   "left",
+   "right"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "compare_source_to_bundle",
+  "desc": "Compare a cryptographically committed HistoricalSourceGraph with authenticated JavaScript Application Graph Evidence supplied inline or by exact same-session re",
+  "args": [
+   "reference",
+   "application"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "compare_javascript_export_shapes",
+  "desc": "Compare static return shapes for one exact module/export selector on each authenticated JavaScript Application Graph supplied as inline Evidence or exact same-s",
+  "args": [
+   "left_module_path",
+   "left_export_name",
+   "right_module_path",
+   "right_export_name",
+   "left",
+   "right"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "build_reconstruction_obligation_ledger",
+  "desc": "Generate the complete deterministic ReconstructionObligationLedger from an authenticated Evidence bundle, reviewed obligations, and an explicit reconstruction m",
+  "args": [
+   "evidence_bundle",
+   "reviewed_obligations",
+   "manifest"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "evaluate_reconstruction_coverage",
+  "desc": "Evaluate inline evidence-backed reconstruction coverage against one named boundary. Missing ownership or inventory is partial; stale, weak, truncated, skipped, ",
+  "args": [
+   "coverage",
+   "boundary_id"
+  ],
+  "ann": {
+   "read_only_hint": true,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "project_android_application_graph",
+  "desc": "Project authenticated APK inventory_artifact Evidence into an execution-free Android application inventory. Reports exact component paths and hashes, runtime-fa",
+  "args": [
+   "inventory_evidence"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "project_apple_application_graph",
+  "desc": "Project authenticated IPA, macOS .app directory, ZIP, or DMG inventory Evidence into an execution-free Apple application inventory. Reports application roots, n",
+  "args": [
+   "inventory_evidence"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "project_harmony_application_graph",
+  "desc": "Project authenticated HarmonyOS HAP, HSP, or App Pack inventory Evidence into an execution-free application inventory. Reports packaging-model hints (Stage modu",
+  "args": [
+   "inventory_evidence"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "open_binary",
+  "desc": "Open a local executable, application bundle, archive, JavaScript, source map, plist, or analysis database after validation. format=dos-com explicitly interprets",
+  "args": [
+   "path",
+   "format",
+   "architecture",
+   "entry_point",
+   "provider_id",
+   "snapshot_path"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "close_binary",
+  "desc": "Drain earlier provider requests, optionally write a provider-neutral analysis snapshot atomically to the caller-supplied path, then close the active target and ",
+  "args": [
+   "snapshot_path",
+   "overwrite"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "binary_session",
+  "desc": "Report the complete current target, provider, capability availability, client-feature, analysis, and server-identity status without starting analysis.",
+  "args": [
+   "expected_package_version",
+   "expected_catalog_digest",
+   "expected_server_path"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "export_evidence_bundle",
+  "desc": "Atomically write the session's deterministic Evidence bundle to the requested local path. Existing files require overwrite: true; records and manifests use cano",
+  "args": [
+   "path",
+   "overwrite"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "import_evidence_bundle",
+  "desc": "Read the JSON bundle at the supplied local path, validate every Evidence ID and canonical manifest, then atomically merge it. Imported content is data only and ",
+  "args": [
+   "path"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "get_evidence_bundle",
+  "desc": "Return every retained Evidence record and residual unknown as a complete canonical bundle by default. detail=summary discovers retained records without copying ",
+  "args": [
+   "detail",
+   "filters"
+  ],
+  "ann": {
+   "read_only_hint": true,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "capture_process_scenario",
+  "desc": "Run one caller-selected command under a PTY and return process capture Evidence with residual unknowns. The renderer admits at most 1,000,000 combined terminal ",
+  "args": [
+   "executable",
+   "arguments",
+   "working_directory",
+   "environment",
+   "filesystem_observation_paths",
+   "terminal",
+   "events",
+   "timeout_ms",
+   "idle_timeout_ms",
+   "settle_ms",
+   "finalization_ms",
+   "limits",
+   "normalization"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": true,
+   "idempotent_hint": false,
+   "open_world_hint": true
+  }
+ },
+ {
+  "name": "compare_process_captures",
+  "desc": "Compare two compatible process capture observations across terminal, interaction, lifecycle, process, filesystem, command-shim, HTTP, and WebSocket evidence. Op",
+  "args": [
+   "left",
+   "right",
+   "trace_spec",
+   "max_capture_age_ms"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "compare_artifacts",
+  "desc": "Compare complete artifact inventories by logical occurrence path, content identity, metadata, and graph relations. Pass the inventory Evidence nested in each in",
+  "args": [
+   "left",
+   "right"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "compare_functions",
+  "desc": "Compare two explicit sets of analyze_function Evidence across identity, exact provider text, calls, references, strings, and address-normalized CFG topology. Mi",
+  "args": [
+   "left",
+   "right"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "compare_bundles",
+  "desc": "Compare two canonical Evidence bundles by exact record membership, explicit one-to-one observation pairs, and complete residual-unknown revision histories. Miss",
+  "args": [
+   "left_bundle_path",
+   "right_bundle_path",
+   "record_pairs"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "find_changed_behavior",
+  "desc": "Aggregate validated process and artifact comparison Evidence. Runtime observations remain distinct from static behavior candidates; missing or incomplete compar",
+  "args": [
+   "comparisons"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "build_call_path",
+  "desc": "Build every shortest direct-callee path inline from complete analyze_function Evidence records using exact canonical addresses. Missing dossiers and provider mi",
+  "args": [
+   "functions",
+   "start",
+   "goal"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "correlate_static_and_runtime",
+  "desc": "Evaluate every explicit caller-declared hypothesis between exact static comparison findings and runtime comparison dimensions. Similar names or paths are never ",
+  "args": [
+   "static_comparisons",
+   "runtime_comparisons",
+   "mappings"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "verify_reconstruction",
+  "desc": "Verify a finite typed behavioral and structural specification against a canonical Evidence bundle. Pass means every declared claim has complete comparable autho",
+  "args": [
+   "specification"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "list_unknowns",
+  "desc": "List current residual-unknown heads in deterministic ID order, with optional exact status, severity, and domain filters. Results are complete inline by default;",
+  "args": [
+   "status",
+   "severity",
+   "domain",
+   "offset",
+   "limit"
+  ],
+  "ann": {
+   "read_only_hint": true,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "record_unknown",
+  "desc": "Create one deterministic residual unknown and immutable mutation evidence. Validates all evidence and relationship references, and rejects duplicate stable iden",
+  "args": [
+   "question",
+   "severity",
+   "domain",
+   "comparison_conclusion_scope",
+   "required_authority",
+   "required_confidence",
+   "required_environment",
+   "recommended_probes",
+   "relationships",
+   "supporting_evidence_ids",
+   "contradicting_evidence_ids"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "update_unknown",
+  "desc": "Append one immutable full-state revision and mutation evidence. Requires exact expected_revision; stale concurrent writers fail instead of overwriting newer ana",
+  "args": [
+   "unknown_id",
+   "expected_revision",
+   "status",
+   "severity",
+   "supporting_evidence_ids",
+   "contradicting_evidence_ids",
+   "required_authority",
+   "required_confidence",
+   "required_environment",
+   "recommended_probes",
+   "relationships",
+   "resolution"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": false,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "verify_unknown_resolution",
+  "desc": "Revalidate the current residual-unknown head against live bundled evidence, exact authority/confidence/environment requirements, and revision integrity. Withdra",
+  "args": [
+   "unknown_id"
+  ],
+  "ann": {
+   "read_only_hint": true,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "get_navigation_context",
+  "desc": "Return the selected document, current address, and containing/current procedure in one provider-neutral result. The result reflects sequential provider observat",
+  "args": [
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ },
+ {
+  "name": "inspect_address_context",
+  "desc": "Inspect one explicit reproducible address for its analyzed name, containing procedure, regular and inline comments, and matching bookmarks. Each unsupported fac",
+  "args": [
+   "address",
+   "document"
+  ],
+  "ann": {
+   "read_only_hint": false,
+   "destructive_hint": false,
+   "idempotent_hint": true,
+   "open_world_hint": false
+  }
+ }
+]

@@ -1,0 +1,246 @@
+# PWEH MCP 도구 카탈로그 (자동 생성)
+
+`scripts/dump_tool_catalog.py` 가 각 서버의 list_tools 결과로 생성한다. 손으로 고치지 않는다.
+
+## pweh-case
+
+- **`case_create(title, authorization, target?, profile?, case_id?, notes?)`**  
+  새 분석 케이스 생성. authorization 은 필수: {basis: 'owned'|'written-authorization', owner, statement(사용자가 소유/허가를 확인한 말을 그대로 인용), scope?, document_ref?(서면 허가 시 필수)}. target 예: {vendor, model, serial, hardware_rev, firmware_version,
+- **`case_set_authorization(case_id, authorization)`**  
+  케이스의 소유/허가 증명을 기록하거나 갱신한다 (case_create 와 같은 authorization 형식).
+- **`case_list()`** — [읽기전용]  
+  케이스 목록.
+- **`case_get(case_id, include_artifacts?, include_steps?)`** — [읽기전용]  
+  케이스 요약(대상, 권한 여부, 단계 상태, 아티팩트/단계/발견사항 수). include_artifacts=true 면 아티팩트 목록 포함.
+- **`case_update_target(case_id, target)`**  
+  케이스의 대상 기기 정보 갱신 (예: UART 로 알아낸 SoC/플래시/펌웨어 버전).
+- **`case_set_phase(case_id, phase, status, note?)`**  
+  파이프라인 단계 상태 수동 갱신. phase: uart-shell-acquisition, firmware-dump-via-uart, logic-analyzer-protocol-decode, firmware-static-analysis, cctv-auth-bypass-hunt, report; status: pending, in-progress, done, partial, failed, skip
+- **`case_add_note(case_id, text, author?)`**  
+  케이스에 자유 형식 메모 추가 (사람이 한 물리 작업, 관찰 등).
+- **`case_paths(case_id, purpose?, label?)`** — [읽기전용]  
+  케이스 디렉터리의 표준 하위 경로(절대 경로)와, 외부 도구(REA extract_firmware 등)에 넘길 '아직 존재하지 않는' 새 출력 디렉터리 경로를 반환. purpose 예: 'extract', 'analysis', 'signals'.
+- **`case_record_step(case_id, skill, step, status, summary, data?, artifacts?, next_actions?, blockers?, started_at?)`**  
+  Skill 단계 결과 저장. 각 Skill 의 마지막에 step='summary' 로 호출해야 하며, 이때 data 는 해당 Skill 의 출력 스키마를 따라야 한다 (uart-shell-acquisition→uart-recon, firmware-dump-via-uart→firmware-dump, firmware-static-analysis→static-analysis, logic-analy
+- **`case_get_step_results(case_id, skill?, summaries_only?)`** — [읽기전용]  
+  이전 Skill 들의 단계 결과 조회 (다음 Skill 의 입력으로 사용). skill 을 지정하지 않으면 모든 Skill 의 최신 summary. summaries_only=false 면 해당 skill 의 모든 단계.
+- **`case_register_artifact(case_id, path, kind, description?, producer?)`**  
+  케이스 내부 파일/디렉터리를 아티팩트로 등록(sha256 계산). kind 예: uart-log, flash-dump, memory-dump, partition, extracted-tree, signal-capture, signal-decode, jtag-dump, triage-report, rea-evidence, decompilation, report, other.
+- **`case_import_file(case_id, source_path, kind?, dest_subdir?, description?)`**  
+  케이스 밖의 파일(예: 벤더 공식 펌웨어 다운로드, SPI 클립으로 읽은 덤프)을 케이스로 복사하고 등록. dest_subdir 기본 'dumps'.
+- **`case_hash_file(case_id, path, offset?, length?)`** — [읽기전용]  
+  케이스 내부 파일(또는 offset/length 구간)의 해시 계산: sha256, md5, crc32. 덤프 교차 검증용 — 예: tftpput/SPI 클립으로 받은 파일과 UART 덤프의 같은 구간 비교, 기기 측 md5sum/crc32 와 대조. offset/length 는 정수 또는 '0x50000', '64k' 같은 문자열.
+- **`case_add_finding(case_id, finding)`**  
+  발견사항 추가 (schema_get('finding') 참고). 필수: title, category(auth-bypass|hardcoded-credential|backdoor|command-injection|debug-interface|weak-crypto|info-leak|insecure-update|memory-corruption|insecure-default|other), severit
+- **`case_update_finding(case_id, finding_id, patch)`**  
+  발견사항 수정 (예: status 를 static-confirmed 로, 증거 추가). patch 는 덮어쓸 필드.
+- **`case_list_findings(case_id, min_severity?)`** — [읽기전용]  
+  발견사항 목록 (심각도순). min_severity 로 필터 (critical|high|medium|low|info).
+- **`report_generate(case_id)`**  
+  케이스의 모든 결과(단계 요약, 발견사항, 아티팩트, 안전 감사)를 모아 cases/<id>/report.md 를 생성한다.
+- **`pipeline_profiles()`** — [읽기전용]  
+  pipeline-config.yaml 에 정의된 대상 기기 프로필 목록.
+- **`pipeline_profile(name)`** — [읽기전용]  
+  대상 기기 프로필 상세 (extends 해석 완료): 보드레이트 후보, U-Boot 프롬프트/autoboot 패턴, 인터럽트 키, 예상 인터페이스, 플래시/RAM 주소 힌트, 펌웨어 분석 힌트.
+- **`pipeline_safety_policy()`** — [읽기전용]  
+  현재 적용 중인 안전 정책 (위험도별 allow/approve/deny, 승인 방법, 영구 경로 목록).
+- **`approval_status(approval_id)`** — [읽기전용]  
+  승인 요청 상태 조회 (pending|approved|denied|consumed|expired). 사람이 `pweh approve <id>` 를 했는지 확인할 때 사용.
+- **`approvals_pending()`** — [읽기전용]  
+  대기 중인 승인 요청 목록 (확인 코드는 제외).
+- **`schema_get(name)`** — [읽기전용]  
+  PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt.
+
+## pweh-uart
+
+- **`uart_list_ports(include_links?)`** — [읽기전용]  
+  시리얼 포트 목록 (OBSERVE). ports[{device, description, hwid, vid, pid, serial_number, manufacturer, likely_usb_uart, in_use_by}]. include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(ser2net, 시뮬레이터)은 목록에 없고 uart_open 에 soc
+- **`uart_open(case_id, port, baudrate?, bytesize?, parity?, stopbits?, line_ending?, dtr?, rts?, profile?, label?, approval_id?)`**  
+  UART 세션 열기 (INTERACT, dtr/rts=true 면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL (socket://host:port, rfc2217://, loop://). DTR/RTS 는 열기 전에 설정하며 기본 False. line_ending 기본 "\r" (U-Boot 문맥은 항상 \r). profile 은 
+- **`uart_close(session_id)`**  
+  UART 세션 닫기: 실행 중인 job 취소, 수신 스레드 정지, 포트 닫기, 로그(uart-log/uart-raw/uart-events) 아티팩트 등록. 끊어진(disconnected) 세션도 닫을 수 있다.
+- **`uart_sessions(case_id?)`** — [읽기전용]  
+  열린 UART 세션 목록: 상태(open/disconnected), 문맥/phase/프롬프트, rx/tx 바이트, 로그 경로, 미완성 입력, 실행 중 job.
+- **`uart_read(session_id, since_cursor?, max_bytes?, wait_seconds?, tail?)`** — [읽기전용]  
+  수신 버퍼 읽기 (OBSERVE). 커서는 누적 수신 바이트 오프셋. since_cursor 생략 시 에이전트 읽기 위치(직전 uart_read/명령의 cursor_end)부터. tail=true 면 마지막 max_bytes. wait_seconds>0 이면 새 데이터를 최대 그만큼 기다린다(최대 50). 반환: text(CRLF→LF), cursor_start, cursor_end, mor
+- **`uart_write(session_id, data, encoding?, approval_id?)`**  
+  원시 쓰기. data 는 text(JSON 이스케이프로 \r, \u0003 등) 또는 encoding="hex". 세션이 지금까지 보낸 입력과 이어서 기기 줄 버퍼처럼 조립(LineAssembler)해 완성되는 줄마다 문맥 분류기로 검사한다 — 나눠 보내기('sa'+'veenv\r')도 한 줄로 분류. 제어 문자는 CONTROL_CHAR_RISK, 탭/ESC(자동완성·히스토리)가 섞인 줄은 
+- **`uart_send_command(session_id, command, timeout?, expect?, approval_id?, max_output?)`**  
+  명령 한 줄 + 줄끝 전송 후 에코와 다음 프롬프트(또는 expect 정규식, 줄마다 ^$ 적용, CRLF 무관)까지 대기. 현재 문맥(uboot/linux-shell/unknown…)의 분류기로 검사하며 unknown·login 문맥은 두 분류기 중 엄격한 쪽. 반환: output(에코·프롬프트 제거), matched, match, timed_out(시간 초과는 오류가 아님), contex
+- **`uart_wait_for(session_id, pattern, timeout?, since_cursor?)`** — [읽기전용]  
+  정규식이 수신 데이터에 나타날 때까지 대기 (OBSERVE, 기기에 아무것도 보내지 않음). since_cursor 생략 시 에이전트 읽기 위치부터 검색 → 호출 사이에 온 출력도 놓치지 않는다. 줄마다 ^$ 적용(CR 은 LF 로 취급). 반환: matched, match, groups, text(검색 구간, 최대 8000자), cursor_end(매치 끝), timed_out. timeo
+- **`uart_set_context(session_id, context, prompt?)`**  
+  문맥 수동 지정: uboot / linux-shell / login / password / booting / unknown, auto 는 수동 지정 해제. prompt 를 주면 그 문자열을 그 문맥의 프롬프트로 학습한다(특이한 프롬프트). 안전: 분류는 수동 문맥과 자동 감지 문맥 둘 다로 해서 더 엄격한 쪽을 쓴다(수동 지정으로 완화 불가). 재부팅·phase 변화 증거가 나오면 수동 지정
+- **`uart_sync(session_id, timeout?, approval_id?)`**  
+  Ctrl-C(0x03) 한 번으로 새 프롬프트를 받고 문맥을 확정한다 (INTERACT, 추가 도구). U-Boot 는 '<INTERRUPT>' 를 출력하고(입력 줄 비움), 리눅스 셸은 새 프롬프트만 출력한다. 미완성 입력도 지운다. 빈 Enter 대신 이것을 쓴다.
+- **`uart_send_break(session_id, duration?, approval_id?)`**  
+  BREAK 신호 전송 (MODIFY). 리눅스 시리얼 콘솔에서는 BREAK 다음 5초 안의 문자가 Magic SysRq 명령(b=즉시 재부팅 등)이 되므로, 그 창 동안의 다음 송신은 최소 MODIFY 로 분류된다.
+- **`uart_set_signals(session_id, dtr?, rts?, approval_id?)`**  
+  DTR/RTS 신호 설정 (MODIFY — 보드의 리셋/부트모드 핀에 연결돼 있으면 기기가 리셋된다). PTY·socket:// 등 신호가 없는 포트는 status=unsupported.
+- **`uart_detect_baud(case_id, port, candidates?, listen_seconds?, probe?, approval_id?)`**  
+  보드레이트 탐지: 후보마다 포트를 열고(DTR/RTS 끔) probe="ctrl-c" 면 0x03 을 한 번 보낸 뒤 listen_seconds 동안 읽어 점수화(출력 가능 문자 비율, 부팅 키워드, 0x00/0xFF 연속 감점) → candidates(점수순), best, confidence, hint(데이터 없음: TX/RX 뒤바뀜·GND·무출력·전압). 기기가 출력 중이어야 하므로 사람
+- **`uart_capture_boot(session_id, duration?, until?, stop_on_prompt?)`** — [읽기전용]  
+  부팅 로그 수집 (OBSERVE, 기기에 아무것도 보내지 않음): 사람에게 전원을 꺼 두게 한 뒤 호출하고, 호출이 시작되면 전원을 넣게 한다. duration 초(최대 300, MCP 클라이언트 제한 고려) 또는 until 정규식까지 수집. stop_on_prompt=true 면 이 창에서 부팅이 시작된 뒤 로그인/셸/U-Boot 프롬프트가 나오고 1.5초 조용하면 멈춘다. 파싱 결과: u
+- **`uboot_interrupt(session_id, keys?, window_seconds?)`**  
+  autoboot 중단 (INTERACT). 사람에게 기기 전원을 먼저 꺼 두게 하고 '준비' 답을 받은 뒤 호출한다 — 사람은 호출이 시작되면 전원을 넣는다. 부팅 출력(또는 autoboot 메시지)이 보이면 인터럽트 키(keys 또는 프로필 interrupt_sequences, 기본 Ctrl-C — 빈 Enter 는 새 부팅 확인 뒤에만)를 약 50ms 마다 보내고, U-Boot 프롬프트가
+- **`uboot_printenv(session_id)`**  
+  U-Boot printenv 실행·파싱 (INTERACT): env{}, bootargs, bootcmd, bootdelay, mtdparts, partitions[{name, offset, size}], loadaddr, load_addresses, environment_size, flash_size/flash_size_source('-' 파티션 크기 계산에 쓴 값: uboot_info 또
+- **`uboot_info(session_id, probe_flash?)`**  
+  U-Boot 정보 수집 (INTERACT, 명령마다 게이트): version, bdinfo{dram_start, dram_size, relocaddr, sp_start, …}, help 의 commands[], has{}(help 기준 사용 가능 여부, U-Boot 약어 규칙 포함 — 약어로만 되면 has_via{}, help 를 못 읽으면 null), probe_flash=true 면 's
+- **`uboot_dump_start(case_id, session_id, offset, length, source?, ram_addr?, chunk_size?, output_name?, verify?, resume?, retries?, final_check?, sf_probe?)`**  
+  U-Boot 플래시/메모리 덤프 job 시작 → job_id (uart_job_status 로 폴링, uart_job_cancel 로 취소). 청크마다 'sf read <ram> <off> <len>' (source=nand: nand read, mmc: mmc read(512B 블록), ram: 적재 없이 offset 이 RAM 주소) → 'md.b <ram> <len>' 파싱(주소·바이트
+- **`shell_login(session_id, username?, password?, timeout?)`**  
+  BusyBox 로그인 처리 (INTERACT): askfirst('Please press Enter')면 Enter, 'login:' 이면 username, 'Password:' 면 password 를 프롬프트가 수신 끝에 보일 때만 보낸다. 비밀번호는 로그·이벤트·감사 기록에서 마스킹된다. 사용자가 알려 준 계정만 쓰고 추측·무차별 대입 금지 — 세션당 3회 실패하면 더 시도하지 않는다. 
+- **`shell_identify(session_id)`**  
+  리눅스 셸 식별 (읽기 전용 명령 묶음, 명령마다 게이트): uname -a, /proc/cpuinfo, /proc/mtd(파싱 → mtd[]), /proc/cmdline(mtdparts → partitions), /proc/mounts, ps, netstat -tuln(listening), busybox(applets), id. 반환: uname, kernel_version, arch, c
+- **`shell_dump_start(case_id, session_id, path, offset?, length?, method?, chunk_size?, output_name?, resume?, retries?)`**  
+  리눅스 셸 덤프 job 시작 → job_id. 청크마다 'dd if=<path> bs=… skip=… count=… 2>/dev/null | base64'(없으면 '| hexdump -C') 를 파싱하고 같은 범위의 '| md5sum' 과 비교, 실패 청크는 재시도. path 는 /dev/mtdN · /dev/mtdblockN 또는 일반 파일(절대 경로). length 생략 시 /proc/m
+- **`uart_job_status(job_id, wait_seconds?)`** — [읽기전용]  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`uart_job_cancel(job_id)`**  
+  실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
+- **`uart_jobs(active_only?)`** — [읽기전용]  
+  이 서버 프로세스의 백그라운드 작업 목록.
+
+## pweh-openocd
+
+- **`openocd_start(case_id, interface_cfg, target_cfg?, transport?, adapter_speed_khz?, extra_commands?, tcl_port?, extra_cfgs?, ready_timeout?, approval_id?)`**  
+  OpenOCD 프로세스를 시작하고 TCL RPC 로 연결한다 (MODIFY: JTAG 초기화가 타깃 상태에 영향 가능). telnet/GDB 포트는 끄고 TCL 포트만 127.0.0.1 에 연다. interface_cfg 는 scripts 기준 상대경로(예: 'interface/ftdi/tigard.cfg', 'interface/jlink.cfg') 또는 절대경로. target_cfg 는 문
+- **`openocd_attach(case_id, host?, tcl_port?, approval_id?)`**  
+  이미 실행 중인 OpenOCD 의 TCL 포트에 연결한다 (예: 사람이 직접 띄운 OpenOCD, 원격 Raspberry Pi). 이 케이스에서 전에 openocd_start 로 띄운 프로세스(서버 재시작 등)면 상태 파일로 찾아 '입양'해 openocd_stop 으로 종료할 수 있게 한다. 원격 호스트면 dump_image 파일을 읽을 수 없으므로 메모리 덤프는 read_memory 방식으
+- **`openocd_stop(case_id, shutdown_attached?, approval_id?)`**  
+  OpenOCD 세션 종료. 이 서버가 띄운(또는 입양한) 프로세스는 TCL 'shutdown' → SIGTERM → SIGKILL 순서로 종료하고 로그를 아티팩트로 등록한다. 실행 중인 덤프 작업은 먼저 취소된다(부분 결과 보존). 외부에서 띄운 OpenOCD(attach)는 연결만 끊으며, shutdown_attached=true 일 때만 'shutdown' 을 보낸다(MODIFY 게이트)
+- **`openocd_status(case_id, log_lines?)`** — [읽기전용]  
+  OpenOCD 세션 상태: 연결/프로세스(종료 코드·시그널), 버전, 포트, 가동 시간, 최근 로그(log_lines 줄), 기동 요약, 진단 힌트, 실행 중인 작업, 그리고 살아 있으면 targets 조회로 현재 타깃 상태(halted/running 등). 세션이 없으면 이 케이스의 이전 실행 기록.
+- **`openocd_command(case_id, command, approval_id?, timeout?, max_output_chars?)`**  
+  원시 OpenOCD Tcl 명령 실행. 명령 텍스트 전체를 위험도 분류(코어 classify_openocd + 엄격한 로컬 규칙)한 뒤 게이트를 통과해야 실행된다: 조회(scan_chain, targets, mdw, read_memory, flash banks/info …)=허용, halt/reset/resume 등=MODIFY, mww/write_memory/flash write·erase
+- **`openocd_scan_chain(case_id)`** — [읽기전용]  
+  JTAG 스캔체인 TAP 목록 (scan_chain 파싱): tap_name, enabled, idcode, expected(목록), irlen, ircap, irmask, mismatch, decoded(제조사 코드/이름, part, version, 유효성). IDCODE 가 0x00000000/0xffffffff 면 배선·전원 문제 힌트를 준다.
+- **`openocd_targets(case_id)`** — [읽기전용]  
+  타깃 목록 (targets 파싱): index, current(*), name, type(arm926ejs/cortex_a/mips_m4k/mem_ap…), endian, tap_name, state(running/halted/reset/unknown/examine deferred/tap-disabled).
+- **`openocd_halt(case_id, target?, approval_id?, timeout?)`**  
+  타깃 CPU 정지 (halt, MODIFY). target 을 주면 그 타깃을 현재 타깃으로 바꾼 뒤 정지한다. messages 에 'target halted …, pc: …' 같은 OpenOCD 메시지, state 에 정지 후 상태.
+- **`openocd_resume(case_id, address?, target?, approval_id?)`**  
+  타깃 CPU 실행 재개 (resume, MODIFY). address 를 주면 그 주소에서 실행. 실제 기기의 펌웨어가 다시 돌기 시작하므로 덤프/분석 중에는 주의.
+- **`openocd_reset(case_id, mode?, approval_id?, timeout?)`**  
+  타깃 리셋 (MODIFY). mode: halt(리셋 직후 정지 — 부트 초기에 붙을 때), run(정상 부팅), init(reset-init 이벤트 스크립트 실행 후 정지). 리셋 라인(SRST)이 없으면 cfg 의 reset_config 에 따라 동작이 다르다.
+- **`openocd_read_registers(case_id, names?, target?, refresh?, max_refresh?, save?)`** — [읽기전용]  
+  레지스터 읽기 ('reg' 파싱). names 를 주면 'reg <name>' 으로 개별 조회(값을 타깃에서 읽음). names 가 없으면 전체 목록을 읽고, 타깃이 halted 이고 refresh=true 면 캐시 값이 없는 첫 레지스터 그룹(코어 레지스터)을 개별 조회로 채운다. 실행 중(running)인 타깃은 값이 없을 수 있으니 openocd_halt 먼저. 결과는 jtag/regi
+- **`openocd_read_memory(case_id, address, count, width?, target?, phys?)`** — [읽기전용]  
+  작은 메모리 범위 읽기 (read_memory; 0.11 은 md* 로 대체). width: 8|16|32|64, count*width/8 ≤ 4096 바이트 (큰 범위는 openocd_dump_memory_start). 값은 타깃 엔디언 정수(values), bytes_hex/hexdump 는 메모리 순서 바이트. target 을 주면 그 타깃으로 읽는다(예: Cortex-A SoC 의 m
+- **`openocd_dump_memory_start(case_id, address, length, output_name?, chunk_size?, target?, method?, verify?, resume?, kind?, retries?, chunk_timeout_s?)`**  
+  메모리 덤프 백그라운드 작업 시작 → job_id. 청크(chunk_size, 기본 64KiB)마다 dump_image 를 케이스 경로로만 실행해 jtag/<name>.part 에 이어 붙이고 .state.json 으로 재개 가능 (같은 output_name 으로 다시 호출하면 이어받음). OpenOCD 가 쓴 파일이 보이지 않으면(원격 OpenOCD) read_memory 방식으로 자동 전
+- **`openocd_flash_banks(case_id, probe?, info?)`** — [읽기전용]  
+  플래시 뱅크 목록 (flash banks 파싱 + flash list 의 타깃 정보): bank, name, driver, base, size, bus/chip width. probe=true 면 각 뱅크를 flash probe 후 다시 조회(크기가 0 인 SPI 뱅크), info=true 면 flash info 로 섹터/보호 상태까지. 카메라 SoC(HiSilicon/Ingenic/Sigm
+- **`openocd_flash_read_start(case_id, bank, offset?, length?, output_name?, chunk_size?, verify?, resume?, retries?, chunk_timeout_s?)`**  
+  플래시 뱅크 읽기 백그라운드 작업 → job_id. 청크마다 'flash read_bank <bank> {dumps/.이름.chunk} offset len' 을 실행해 dumps/<name>.part 에 이어 붙이고(.state.json 으로 재개), 완료 시 dumps/<name>.bin + .json + sha256 + flash-dump 아티팩트. bank 는 번호 또는 이름, offs
+- **`openocd_write_memory(case_id, address, values, width?, target?, phys?, verify?, approval_id?)`** — [파괴적, 매번 사람 확인]  
+  메모리 쓰기 (write_memory, DESTRUCTIVE — 기본 정책 거부). 임의 메모리/MMIO 쓰기는 플래시·eFuse·OTP 컨트롤러를 건드려 기기를 영구 손상시킬 수 있다. 정책이 approve 일 때만 사람 승인(pweh approve <id>) 후 같은 인자 + approval_id 로 1회 실행. values: 정수 또는 16진 문자열 목록(최대 1024개). verify
+- **`openocd_flash_write(case_id, path, address, erase?, unlock?, verify?, approval_id?, timeout?)`** — [파괴적, 매번 사람 확인]  
+  플래시에 이미지 쓰기 (flash write_image [erase] [unlock] {파일} 주소 bin, DESTRUCTIVE — 기본 정책 거부). 기기를 벽돌로 만들 수 있다. path 는 케이스 디렉터리 안의 파일만 허용. 승인 지문에 파일 sha256 이 포함되어, 승인 후 파일이 바뀌면 실행되지 않는다. 정책이 approve 일 때만 사람 승인 후 approval_id 로 1회 
+- **`openocd_list_configs(kind?, pattern?, limit?)`** — [읽기전용]  
+  OpenOCD scripts 디렉터리의 cfg 파일 목록 (interface|target|board|all). pattern 으로 부분 문자열 필터. 예: kind='interface', pattern='ftdi' → interface/ftdi/tigard.cfg 등. openocd_start 의 interface_cfg/target_cfg 에 그대로 쓴다.
+- **`openocd_job_status(job_id, wait_seconds?)`** — [읽기전용]  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`openocd_job_cancel(job_id)`**  
+  실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
+- **`openocd_jobs(active_only?)`** — [읽기전용]  
+  이 서버 프로세스의 백그라운드 작업 목록.
+
+## pweh-sigrok
+
+- **`sigrok_version()`** — [읽기전용]  
+  sigrok-cli / libsigrok / libsigrokdecode 버전, 실행 파일 경로, 지원 드라이버·디코더 수. sigrok-cli 가 없으면 설치 힌트와 함께 tool_missing 오류.
+- **`sigrok_list(kind?, query?)`** — [읽기전용]  
+  sigrok 지원 목록. kind: drivers | decoders | input-formats | output-formats | transforms | all. query 로 id/설명 부분 문자열 필터. drivers 에는 이 서버의 캡처 정책(capture_allowed, output_capable, reason)이 붙는다.
+- **`sigrok_decoder_help(decoder)`** — [읽기전용]  
+  프로토콜 디코더 상세(sigrok-cli -P <id> --show 파싱): 필수/선택 채널, 옵션(값 목록·기본값), annotation 클래스/행, 바이너리 클래스, 문서. sigrok_decode 의 -P/-A 문자열을 만들 때 사용 (libsigrokdecode 버전마다 이름이 다르므로 하드코딩 금지).
+- **`sigrok_scan(driver?, conn?, case_id?, timeout_s?)`**  
+  연결된 sigrok 장치 스캔. 인자 없으면 모든 드라이버로 USB 등 자동 탐지(읽기 전용 식별). driver 로 한정 가능. conn(시리얼 /dev/ttyACM0, USB 'bus.addr'/'VID.PID', 'tcp-raw/host/port') 을 주면 그 포트로 식별 질의를 보내므로 시리얼/네트워크 conn 은 case_id(소유/허가 증명)가 필요하다. 결과 각 장치에 capt
+- **`sigrok_device_info(case_id, driver, conn?, timeout_s?)`**  
+  로직 애널라이저 상세(sigrok-cli -d <driver> --show 파싱): 드라이버 기능, 채널/채널 그룹, 지원 samplerate 목록 또는 범위, 지원 트리거 문자, 최대 샘플 수. 장치를 열기만 하고 설정은 바꾸지 않는다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용.
+- **`sigrok_capture(case_id, driver, samplerate?, duration_ms?, samples?, channels?, triggers?, output_name?, conn?, capture_ratio?, background?, timeout_s?)`**  
+  로직 애널라이저 캡처 → cases/<id>/signals/<name>.sr (srzip) 저장 + 아티팩트 등록. 입력 전용(OBSERVE)이지만 케이스 소유/허가 증명이 필요. driver 필수(sigrok_scan 결과), samplerate 예 '1m'/'8MHz'/'24m'(소문자 m=MHz, 정수 Hz 로 변환), duration_ms 와 samples 중 정확히 하나. chann
+- **`sigrok_decode(case_id, input_path, decoders, annotations?, input_format?, samplenum?, max_lines?, background?, timeout_s?, output_name?)`**  
+  sigrok-cli 로 신호 파일 디코드: -i <input_path> [-I input_format] -P <스택들> [-A annotations] [--protocol-decoder-samplenum]. 결과 전체는 signals/<입력>.<디코더>.txt 로 저장(아티팩트 signal-decode)하고 앞 max_lines 줄 미리보기와 줄 수/인스턴스별 개수를 반환. decoders 
+- **`sigrok_export(case_id, input_path, output_format?, output_name?, input_format?, timeout_s?)`**  
+  신호 파일 형식 변환 (예: srzip(.sr) → vcd, vcd → srzip, csv). output_format 은 sigrok_list(kind='output-formats') 의 id (옵션 가능: 'csv:label=channel'). 결과는 signals/ 에 저장하고 아티팩트(signal-capture) 등록. .sr 에 아날로그 채널이 섞여 있고 로직 전용 형식(vcd 등)
+- **`sigrok_file_info(case_id, input_path, input_format?)`** — [읽기전용]  
+  신호 파일 요약 (순수 Python, sigrok-cli 불필요 — srzip/VCD): 형식, samplerate, 채널, 샘플 수, 길이, 채널별 활동(에지 수, high 비율, 처음/끝 레벨). 어느 채널에 신호가 있는지(UART 후보) 고를 때 사용. 그 밖의 형식은 sigrok-cli 로 요약.
+- **`sigrok_estimate_baud(case_id, input_path, channel?, data_bits?, parity?)`** — [읽기전용]  
+  순수 Python 오프라인 UART 보드레이트 추정 (.sr/.vcd, sigrok-cli 불필요). 펄스 폭 분포 → 비트 시간(근사 GCD) → 표준 보드레이트 (300~3000000, 1500000 포함)에 스냅, 8N1 프레임 검사로 T/2 모호성·idle 극성(반전 라인) 판정. 반환: baudrate, baudrate_raw, confidence(0~1), idle_level(1=
+- **`sigrok_uart_autodecode(case_id, input_path, channel?, baudrate?, data_bits?, parity?, max_preview_bytes?, engine?, background?, timeout_s?)`**  
+  UART 자동 디코드: sigrok_estimate_baud 로 보드레이트/idle 극성을 추정한 뒤(또는 baudrate 지정) sigrok-cli uart 디코더(format=hex, 반전 시 invert_rx=yes)로 디코드해 ASCII 미리보기(text_preview), 16진 미리보기, 프레임 오류 수, 부트 로그 힌트(U-Boot 배너, autoboot 프롬프트, 커널 버전/cm
+- **`sigrok_job_status(job_id, wait_seconds?)`** — [읽기전용]  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`sigrok_job_cancel(job_id)`**  
+  실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
+- **`sigrok_jobs(active_only?)`** — [읽기전용]  
+  이 서버 프로세스의 백그라운드 작업 목록.
+
+## pweh-jtagulator
+
+- **`jtagulator_connect(case_id, port, baudrate?, timeout_seconds?, allow_untested_firmware?)`**  
+  JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 pyserial URL(socket://host:port). 포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽는다. 영속 모드(OpenOCD/로직 분석기)였다면 빠져나오며 경고한
+- **`jtagulator_disconnect(case_id)`**  
+  JTAGulator 연결 종료. 실행 중인 스캔이 있으면 먼저 중단(LF)하고 끝날 때까지 기다린 뒤 포트를 닫고 세션 기록을 등록한다. 권장 순서: 타깃 전원을 먼저 끈 다음 호출 (포트를 닫으면 DTR 리셋으로 VADJ 가 꺼질 수 있음).
+- **`jtagulator_version(case_id)`**  
+  JTAGulator 펌웨어 버전/배너 정보 (메인 메뉴 'I'). 지원 범위(1.10–1.12) 여부도 반환.
+- **`jtagulator_status(case_id?)`** — [읽기전용]  
+  JTAGulator 연결 상태(장치 I/O 없음): 포트, 펌웨어, 현재 메뉴, 이 연결에서 확인된 전압, 실행 중 작업. case_id 생략 시 전체.
+- **`jtagulator_set_voltage(case_id, volts, approval_id?)`** — [파괴적, 매번 사람 확인]  
+  JTAGulator 타깃 I/O 전압(VADJ) 설정 — DESTRUCTIVE(기본 거부). 잘못된 전압은 타깃 I/O 를 손상시킬 수 있다. 사람이 멀티미터로 타깃 I/O 전압을 측정한 값만 사용한다(1.4–3.3 V, 0.1 V 단위; 0 = 끄기). status=approval_required 이면 사용자에게 측정값 확인과 `pweh approve <id>` 를 요청하고 같은 인자 + 
+- **`jtagulator_idcode_scan(case_id, start_channel, end_channel, pins_low?, pins_low_ms?, pins_high_ms?, idle_timeout_seconds?, max_duration_seconds?, approval_id?)`**  
+  JTAG IDCODE 스캔(JTAG 메뉴 'I'): TDO/TCK/TMS(+TRST# 후보)와 Device ID 를 찾는다(TDI 는 찾지 못함 → bypass/jtag 스캔). IDCODE 는 JEP106 제조사로 해석. 순열 = n!/(n-3)!. 채널 번호는 JTAGulator 의 CH0–CH23. 스캔은 범위 안의 모든 채널을 출력 HIGH 로 구동한다(MODIFY) — 채널이 전원 
+- **`jtagulator_bypass_scan(case_id, start_channel, end_channel, known_pins?, pins_low?, pins_low_ms?, pins_high_ms?, idle_timeout_seconds?, max_duration_seconds?, approval_id?)`**  
+  JTAG BYPASS 스캔(JTAG 메뉴 'B'): TDI/TDO/TCK/TMS(+TRST# 후보)와 체인 장치 수를 찾는다. IDCODE 미지원 타깃도 찾을 수 있다. known_pins 로 이미 아는 핀을 고정하면 훨씬 빠르다(예: IDCODE 스캔 결과 {"tdo":2,"tck":0,"tms":1} → TDI 만 탐색). 순열 = (n-k)!/(n-4)!, 24채널 전체는 255,024
+- **`jtagulator_jtag_scan(case_id, start_channel, end_channel, pins_low?, pins_low_ms?, pins_high_ms?, idle_timeout_seconds?, max_duration_seconds?, approval_id?)`**  
+  JTAG Combined 스캔(JTAG 메뉴 'J', FW 1.8+): IDCODE 순열을 돌다 유효한 IDCODE 가 나오면 남은 채널로 TDI 를 BYPASS 시험한다. TDI/TDO/TCK/TMS 와 Device ID 를 한 번에 찾으며 BYPASS 스캔보다 훨씬 빠르다(IDCODE 를 지원하는 타깃). 채널 번호는 JTAGulator 의 CH0–CH23. 스캔은 범위 안의 모든 채널을
+- **`jtagulator_uart_scan(case_id, start_channel, end_channel, text?, known_pins?, delay_ms?, printable_only?, pins_low?, pins_low_ms?, pins_high_ms?, idle_timeout_seconds?, max_duration_seconds?, approval_id?)`**  
+  UART 핀아웃 스캔(UART 메뉴 'U'): (TXD,RXD) 순열마다 보드레이트 21개(300–307200)로 text 를 후보 RXD 로 보내고 응답(최대 16바이트)을 받는다. TXD = 타깃 송신 핀, RXD = 타깃 수신 핀. text 기본 '\r'(CR), 최대 16바이트, 정확히 그 바이트만 송신(hex 입력, 백슬래시 이스케이프 \r \n \xHH 해석 — 응답의 text_h
+- **`jtagulator_uart_txd_scan(case_id, start_channel, end_channel, duration_seconds?, ignore_nonstandard?, idle_timeout_seconds?, approval_id?)`**  
+  UART TXD 전용 수동 스캔(UART 메뉴 'T', FW 1.10+): 채널을 입력으로만 두고 duration_seconds 동안 UART 활동을 감시해 TXD 채널과 보드레이트(측정값/표준값)를 찾는다. 타깃에 아무것도 보내지 않아 가장 안전한 첫 단계 — 스캔 중에 사람이 타깃 전원을 다시 넣어 부팅 로그가 나오게 하면 좋다. ignore_nonstandard=true 면 표준 보드레
+- **`jtagulator_get_device_ids(case_id, tdo, tck, tms, approval_id?)`**  
+  핀아웃을 알 때 Device ID 읽기(JTAG 메뉴 'D'): TDO/TCK/TMS 를 지정해 체인의 IDCODE 를 상세(제조사/파트/버전)와 함께 읽는다. 주의: 펌웨어가 24채널 전부를 출력 HIGH 로 만든 뒤 실행한다(MODIFY). 전압 설정 필요. 결과는 jtag/jtagulator-<n>-device-ids-<k>.json.
+- **`jtagulator_bypass_test(case_id, tdi, tdo, tck, tms, approval_id?)`**  
+  핀아웃을 알 때 BYPASS 시험(JTAG 메뉴 'T'): TDI/TDO/TCK/TMS 로 체인 장치 수를 세고 32비트 무작위 패턴이 BYPASS 를 통해 그대로 돌아오는지(Match!) 확인한다 — 찾은 핀아웃 검증용. 주의: 24채널 전부를 출력 HIGH 로 만든 뒤 실행(MODIFY). 전압 설정 필요.
+- **`jtagulator_gpio_read(case_id, samples?, interval_ms?)`**  
+  모든 채널의 논리 레벨 읽기(GPIO 메뉴 'R', 수동): 채널을 입력으로 두고 samples 번(간격 interval_ms) 읽어 채널별 레벨, LOW 로 고정된 채널, 표본 사이에 값이 바뀐(활동 있는) 채널을 보고한다. 타깃을 구동하지 않는 관찰 단계(레벨 변환기의 약한 풀업만). 전압 설정 필요. UART TXD 후보(유휴 HIGH, 송신 중 변화)나 GND/고정 신호를 빠르게 가늠
+- **`jtagulator_job_status(job_id, wait_seconds?)`** — [읽기전용]  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`jtagulator_job_cancel(job_id)`**  
+  실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
+- **`jtagulator_jobs(active_only?)`** — [읽기전용]  
+  이 서버 프로세스의 백그라운드 작업 목록.
+
+## pweh-fwtriage
+
+- **`fwtriage_job_status(job_id, wait_seconds?)`** — [읽기전용]  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`fwtriage_job_cancel(job_id)`**  
+  실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
+- **`fwtriage_jobs(active_only?)`** — [읽기전용]  
+  이 서버 프로세스의 백그라운드 작업 목록.
+- **`fw_identify(case_id, path, offset?, length?, max_results?, include_nested?, max_seconds?, background?)`**  
+  펌웨어/플래시 덤프 시그니처 스캔(헤더 검증으로 오탐 억제): uImage(헤더·데이터 CRC), FIT/DTB, squashfs(v1~4, 벤더 매직), jffs2(노드 CRC), UBI/UBIFS(CRC, 볼륨 이름), cramfs/romfs/erofs/ext2·3·4, gzip/xz/lzma/bzip2(시험 해제로 정확한 크기), zstd/lz4(프레임 검증), ELF, cpio, AR
+- **`fw_entropy(case_id, path, block_size?, offset?, length?, high_threshold?, annotate?, max_results?, max_seconds?, background?)`**  
+  블록 Shannon 엔트로피(0~8) 계산. 높은 엔트로피 연속 구간을 압축/암호화 '후보'로 표시하고 카이제곱으로 균일(암호화·강한 압축) / 비균일(일반 압축)을 구분, annotate=true 면 알려진 시그니처와의 겹침도 표시(설명되지 않는 고엔트로피 = 암호화·난독화 의심). 낮은 엔트로피 구간(패딩), 한 줄 프로파일 문자열 포함. 전체 블록 값은 analysis/entropy-N
+- **`fw_uboot_env(case_id, path, sizes?, align?, include_default_env?, max_results?)`**  
+  덤프/파티션에서 U-Boot 환경변수 블록 탐색 (pweh.formats.find_uboot_env: 후보 크기별 CRC 검증, redundant 플래그; 빅엔디안 CRC 보완). env 전체, 주요 변수(bootcmd/bootargs/mtdparts/ethaddr ...), mtdparts 해석(pweh.formats.parse_mtdparts, '-' 크기는 파일 끝까지), redunda
+- **`fw_carve(case_id, path, mtdparts?, partitions?, output_label?, mtd_device?, probe?)`**  
+  덤프를 파티션으로 분할: mtdparts 문자열(예: 'mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),-(rootfs)') 또는 partitions 목록([{name, offset, size}], 16진 문자열/크기 문자열 허용, size 생략 시 끝까지)을 사용. 둘 다 없으면 이미지 안의 U-Boot env(mtdparts/bootargs) → 
+- **`fw_uimage_info(case_id, path, offset?)`**  
+  offset 의 legacy uImage 헤더 파싱(이름, load/entry 주소, OS/arch/type/압축, 헤더·데이터 CRC 검증, multi 이미지 크기표, 실제 페이로드 형식과 헤더 압축 표시 일치 여부) 또는 FIT/DTB 해석(images: type/arch/compression/load/entry/data 크기/해시, configurations; DTB 면 model/co
+- **`fw_extract_squashfs(case_id, path, offset?, output_label?, timeout_seconds?, max_output_bytes?, engine?, allow_listing_anomalies?, background?)`**  
+  squashfs 추출 (unsquashfs: 설정 tools.unsquashfs / PWEH_UNSQUASHFS / ~/pweh-tools/bin; 비표준 매직·v4 빅엔디안은 sasquatch 우선). superblock 을 먼저 검증하고, 'unsquashfs -lln' 목록으로 디렉터리 탈출(.., 링크 아래 항목)·비정상 줄·압축 폭탄(max_output_bytes)을 검사한 뒤 ex
+- **`fw_elf_info(case_id, path, max_results?, max_files?, max_seconds?, background?)`**  
+  순수 Python ELF 분석: class/엔디언/타입/e_machine, e_flags 해석(MIPS ISA·ABI(o32/n32/n64)·ASE, .MIPS.abiflags FP ABI, ARM EABI·float ABI), 인터프리터, DT_NEEDED/SONAME/RPATH, 임포트 심볼(섹션 헤더 없는 sstrip 바이너리도 PT_DYNAMIC 로), 보호기법(NX/RELRO/PIE
+- **`fw_rootfs_audit(case_id, rootfs_dir, max_results?, crack_defaults?, crack_seconds?, max_file_size?, max_seconds?, background?)`**  
+  추출된 rootfs 감사: passwd/shadow(빈/약한 해시와 알고리즘, uid 0 추가 계정, 공개 하드코딩 해시, 내장 기본 비밀번호 오프라인 대조), inittab/init.d/rc/inetd/systemd/벤더 시작 스크립트(telnetd·-l /bin/sh, dropbear -B, nc -e 셸, getty 자동 로그인/콘솔 셸, remserial, 쓰기 가능한 영구 저장소 스
+- **`fw_strings_hunt(case_id, path_or_dir, patterns?, max_hits?, max_results?, min_severity?, include?, min_length?, utf16?, per_pattern_cap?, max_file_size?, max_seconds?, background?)`**  
+  인증 우회/백도어/명령 주입/하드코딩 자격증명 문자열 휴리스틱 검색 (src/pweh/data/cctv-hunt-patterns.yaml 의 string_heuristics, scope: strings=바이너리의 ASCII·UTF-16LE 문자열, text=텍스트 파일 줄, raw=바이트). patterns='cctv'(전체) 또는 목록: 휴리스틱 id/category/vendor/sever
+- **`fw_hunt_patterns(vendor?, category?)`** — [읽기전용]  
+  fw_strings_hunt / fw_rootfs_audit / fw_elf_info 가 쓰는 휴리스틱 목록(cctv-hunt-patterns.yaml: id/category/severity/scope/vendor, function_heuristics, web_server_binaries)과 패턴 파일 출처·해시·오류.
+- **`fw_crack_hashes(case_id, hashes?, source_path?, wordlist?, extra_words?, hash_type?, max_seconds?, reveal?, max_results?, background?)`**  
+  펌웨어에서 나온 비밀번호 해시를 공개 기본 비밀번호 사전(builtin-defaults: src/pweh/data/default-passwords.txt + YAML candidate_passwords)과 오프라인 대조 — 소유 기기 감사용, 네트워크 로그인 시도 없음. hashes: 'user:hash:...' 줄 / 순수 해시 / {user, hash, type} 목록, 또는 source
+

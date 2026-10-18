@@ -1,0 +1,25 @@
+{
+  "schema": "pweh.step-result/v1",
+  "case_id": "example-hikvision-sample",
+  "skill": "firmware-dump-via-uart",
+  "step": "job-flash-full",
+  "status": "in-progress",
+  "summary": "U-Boot md.b 덤프 0x0+0x1000000 시작 (실기기 예상 119분)",
+  "started_at": null,
+  "finished_at": "2026-10-18T17:39:11.437Z",
+  "data": {
+    "tool": "uboot_dump_start",
+    "job_id": "job-2297b6cb",
+    "args": {
+      "source": "sf",
+      "offset": 0,
+      "length": "0x1000000",
+      "chunk_size": "256k",
+      "output_name": "flash-full"
+    }
+  },
+  "artifacts": [],
+  "next_actions": [],
+  "blockers": [],
+  "seq": 2
+}

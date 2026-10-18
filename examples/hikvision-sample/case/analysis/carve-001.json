@@ -1,0 +1,54 @@
+{
+  "schema": "pweh.fwtriage.carve/v1",
+  "tool": "fw_carve",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-hikvision-sample",
+  "generated_at": "2026-10-18T17:39:50.894Z",
+  "input": {
+    "path": "dumps/flash-full.bin",
+    "size": 16777216,
+    "size_human": "16.00 MiB",
+    "sha256": "e95ae853526947b9d29011f61c4cb3b92ce6fdff8a368cd23eef14cd40c5c2a2"
+  },
+  "params": {
+    "mtdparts": null,
+    "partitions": [
+      {
+        "name": "xcheck",
+        "offset": "0x50000",
+        "size": "0x10000"
+      }
+    ],
+    "mtd_device": null,
+    "output_label": "xcheck"
+  },
+  "output_dir": "extract/xcheck-001",
+  "index_path": "extract/xcheck-001/index.json",
+  "partitions": [
+    {
+      "index": 0,
+      "name": "xcheck",
+      "offset": 327680,
+      "offset_hex": "0x50000",
+      "size": 65536,
+      "size_hex": "0x10000",
+      "ro": false,
+      "status": "carved",
+      "path": "extract/xcheck-001/00-xcheck.bin",
+      "file": "extract/xcheck-001/00-xcheck.bin",
+      "bytes": 65536,
+      "sha256": "b6f2e962ba93c66ede13e70169701414a72530c57bf0ce4b186d97022dfef230",
+      "content": {
+        "kind": "uimage",
+        "description": "uImage 'Linux-4.9.37' linux/arm kernel, 압축=none, load=0x40008000 entry=0x40008000, 데이터 394758 bytes (이미지가 파일 끝에서 잘림)",
+        "size": 65536
+      },
+      "artifact_id": "A-0010"
+    }
+  ],
+  "warnings": [],
+  "layout": {
+    "source": "partitions-argument",
+    "devices": []
+  }
+}

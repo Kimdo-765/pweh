@@ -1,0 +1,139 @@
+{
+  "schema": "pweh.fwtriage.carve/v1",
+  "tool": "fw_carve",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-hikvision-sample",
+  "generated_at": "2026-10-18T17:39:51.925Z",
+  "input": {
+    "path": "dumps/flash-full.bin",
+    "size": 16777216,
+    "size_human": "16.00 MiB",
+    "sha256": "e95ae853526947b9d29011f61c4cb3b92ce6fdff8a368cd23eef14cd40c5c2a2"
+  },
+  "params": {
+    "mtdparts": null,
+    "partitions": null,
+    "mtd_device": null,
+    "output_label": "parts"
+  },
+  "output_dir": "extract/parts-001",
+  "index_path": "extract/parts-001/index.json",
+  "partitions": [
+    {
+      "index": 0,
+      "name": "boot",
+      "offset": 0,
+      "offset_hex": "0x0",
+      "size": 262144,
+      "size_hex": "0x40000",
+      "ro": false,
+      "status": "carved",
+      "path": "extract/parts-001/00-boot.bin",
+      "file": "extract/parts-001/00-boot.bin",
+      "bytes": 262144,
+      "sha256": "af3bdcd6765632e316705fc9ef849942a1824f3948117283aa520f4aea2c1337",
+      "content": {
+        "kind": "bootloader",
+        "description": "U-Boot 버전 문자열 포함: U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)hi3516ev300"
+      },
+      "artifact_id": "A-0016"
+    },
+    {
+      "index": 1,
+      "name": "env",
+      "offset": 262144,
+      "offset_hex": "0x40000",
+      "size": 65536,
+      "size_hex": "0x10000",
+      "ro": false,
+      "status": "carved",
+      "path": "extract/parts-001/01-env.bin",
+      "file": "extract/parts-001/01-env.bin",
+      "bytes": 65536,
+      "sha256": "adc68ad2f3d78fc85369ca25765b6b3cb2eb2906439d7f9ce7f4ba60ab5297d3",
+      "content": {
+        "kind": "uboot-env",
+        "description": "U-Boot env 블록 (크기 65536, 변수 16개)",
+        "size": 65536
+      },
+      "artifact_id": "A-0017"
+    },
+    {
+      "index": 2,
+      "name": "kernel",
+      "offset": 327680,
+      "offset_hex": "0x50000",
+      "size": 2097152,
+      "size_hex": "0x200000",
+      "ro": false,
+      "status": "carved",
+      "path": "extract/parts-001/02-kernel.bin",
+      "file": "extract/parts-001/02-kernel.bin",
+      "bytes": 2097152,
+      "sha256": "cd3325c4e11951b6d10f613974196636f550c2e71b05828fbf064b061f0423ed",
+      "content": {
+        "kind": "uimage",
+        "description": "uImage 'Linux-4.9.37' linux/arm kernel, 압축=none, load=0x40008000 entry=0x40008000, 데이터 394758 bytes",
+        "size": 394822
+      },
+      "artifact_id": "A-0018"
+    },
+    {
+      "index": 3,
+      "name": "rootfs",
+      "offset": 2424832,
+      "offset_hex": "0x250000",
+      "size": 5242880,
+      "size_hex": "0x500000",
+      "ro": false,
+      "status": "carved",
+      "path": "extract/parts-001/03-rootfs.bin",
+      "file": "extract/parts-001/03-rootfs.bin",
+      "bytes": 5242880,
+      "sha256": "24d9d2f238d18bb8f9a65235d6e5b0ce5a9208c7c123b4b13a8bf14a38894a72",
+      "content": {
+        "kind": "squashfs",
+        "description": "SquashFS v4.0 little endian, xz, 블록 131072, inode 180, 크기 1284938 bytes, 생성 2020-03-23T07:10:41Z",
+        "size": 1284938
+      },
+      "artifact_id": "A-0019"
+    },
+    {
+      "index": 4,
+      "name": "app",
+      "offset": 7667712,
+      "offset_hex": "0x750000",
+      "size": 9109504,
+      "size_hex": "0x8b0000",
+      "ro": false,
+      "status": "carved",
+      "path": "extract/parts-001/04-app.bin",
+      "file": "extract/parts-001/04-app.bin",
+      "bytes": 9109504,
+      "sha256": "7008981ed12f14e4c141851c269646b87ae124a9b12269cef349e682e2188369",
+      "content": {
+        "kind": "squashfs",
+        "description": "SquashFS v4.0 little endian, xz, 블록 131072, inode 6, 크기 629 bytes, 생성 2020-03-23T07:10:41Z",
+        "size": 629
+      },
+      "artifact_id": "A-0020"
+    }
+  ],
+  "warnings": [
+    "레이아웃 후보 2개 중 첫 번째 유효 후보(uboot-env@0x40000:bootargs)를 사용했습니다."
+  ],
+  "layout": {
+    "source": "uboot-env@0x40000:bootargs",
+    "text": "mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)",
+    "device": "hi_sfc",
+    "devices": [
+      "hi_sfc"
+    ],
+    "other_candidates": [
+      {
+        "source": "string@0x400a3",
+        "text": "mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)"
+      }
+    ]
+  }
+}

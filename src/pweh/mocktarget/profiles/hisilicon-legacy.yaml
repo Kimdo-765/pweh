@@ -1,0 +1,256 @@
+# pweh.mocktarget 시뮬레이터 프로필 — HiSilicon V1~V3 계열 "유사" 카메라 (합성 데이터)
+#
+# 실제 벤더 펌웨어/코드가 아니다. HiSilicon Hi3518EV200 SDK 의 U-Boot 2010.06 포크 동작을 재현한다:
+# simple 파서, CONFIG_SYS_LONGHELP 없음(사용법 한 줄), print_buffer 마지막 줄 패딩 없음, 플래시 저장 순서
+# printenv(+ 2010.06 크기 공식), "%u KiB hi_fmc at 0:0 is now current device", sf read 성공 시 빈 줄,
+# env CRC 워드가 0xFFFFFFFF 면 부팅 중 기본 env 자동 기록, 대문자 "CRC32 for".
+# 값과 배치는 docs/references/uboot-and-boot-console.md §14.1/§14.3 합성 트랜스크립트와 맞췄다.
+# 근거: ~/pweh-refs/openipc/u-boot-hi3516cv200 (common/main.c, cmd_mem.c, cmd_sf.c, cmd_nvedit.c, env_sf.c,
+#       cmd_bdinfo.c, lib/display_options.c, include/configs/hi3518ev200.h), 공개 Hi3518EV200 부팅 로그
+name: hisilicon-legacy
+description: >-
+  HiSilicon Hi3518EV200 유사 ARM926EJ-S IP 카메라 (U-Boot 2010.06 SDK 포크, simple 파서, Linux 3.4.35,
+  BusyBox 1.24.1, 16MiB SPI NOR). 오래된 HiSilicon 카메라 계열의 출력 형식. 합성 데이터.
+aliases: [hi3518ev200-like, hisilicon-2010]
+pipeline_profile: hisilicon-ipcam
+arch: arm
+endianness: little
+baud: 115200
+
+flash:
+  type: spi-nor
+  model: "MX25L128XX"
+  device_name: hi_fmc
+  jedec_id: [0xc2, 0x20, 0x18]
+  size: 16MiB
+  page_size: 256
+  erase_size: 64KiB
+  mtdparts: "hi_sfc:512k(boot),256k(env),3072k(kernel),8192k(rootfs),-(app)"
+  memory_window: 0x58000000
+
+dram:
+  base: 0x80000000
+  size: 64MiB
+
+uart:
+  rx_fifo: 16
+  linux_rx_buffer: 4096
+
+uboot:
+  dialect: hisilicon-2010
+  version: "U-Boot 2010.06 (Mar 05 2018 - 10:12:41)"
+  prompt: "hisilicon # "
+  maxargs: 32
+  cbsize: 1024
+  loadaddr: 0x82000000
+  autoboot:
+    delay: 1
+    keys: null
+    zero_check: true
+  bdinfo:
+    arch_number: 0x00001F40
+    env_t: 0x00000000
+    boot_params: 0x80000100
+  env_offset: 0x80000
+  env_size: 0x40000
+  # 저장 순서가 printenv 순서다 (2010.06 은 정렬하지 않는다)
+  env:
+    bootargs: "mem=40M console=ttyAMA0,115200 root=/dev/mtdblock3 rootfstype=squashfs mtdparts=hi_sfc:512k(boot),256k(env),3072k(kernel),8192k(rootfs),-(app)"
+    bootcmd: "sf probe 0;sf read 0x82000000 0xc0000 0x300000;bootm 0x82000000"
+    bootdelay: "1"
+    baudrate: "115200"
+    ethaddr: "00:00:23:34:45:66"
+    ipaddr: 192.168.1.10
+    serverip: 192.168.1.2
+    netmask: 255.255.255.0
+    bootfile: '"uImage"'
+    verify: "n"
+  default_env:
+    bootargs: "mem=96M console=ttyAMA0,115200"
+    bootcmd: "bootm 0x82000000"
+    bootdelay: "1"
+    baudrate: "115200"
+    ethaddr: "00:00:23:34:45:66"
+    ipaddr: 192.168.1.10
+    serverip: 192.168.1.2
+    netmask: 255.255.255.0
+    bootfile: '"uImage"'
+  # console_init_r 이 stdin/stdout/stderr 를, main_loop 이 ver(CONFIG_VERSION_VARIABLE)를 실행 중에 setenv
+  runtime_env:
+    stdin: serial
+    stdout: serial
+    stderr: serial
+    ver: "{version}"
+  commands: ["?", base, bdinfo, boot, bootd, bootm, cmp, coninfo, cp, crc32, echo, getinfo, go, help, iminfo,
+             loop, md, mm, mtest, mw, nm, ping, printenv, reset, run, saveenv, setenv, sf, sleep, tftp, version]
+  net:
+    eth_name: eth0
+    link_down:
+      - "Hisilicon ETH net controler"
+      - "MAC:   00-00-23-34-45-66"
+      - "UP_PORT : phy status change : LINK=DOWN : DUPLEX=FULL : SPEED=100M"
+  timings:
+    bootrom: 0.2
+    banner_line: 0.004
+    flash_read_bps: 6000000
+    flash_erase_block: 0.05
+    flash_program_bps: 250000
+    kernel_line: 0.01
+    userspace: 0.6
+  banner: |
+
+
+    System startup
+
+
+    {version}
+
+    Check Flash Memory Controller v100 ... Found
+    SPI Nor(cs 0) ID: 0xc2 0x20 0x18
+    Block:64KB Chip:16MB Name:"MX25L128XX"
+    SPI Nor total size: 16MB
+    {env_warning}In:    serial
+    Out:   serial
+    Err:   serial
+
+kernel:
+  version: "3.4.35"
+  image_name: "Linux-3.4.35"
+  load_addr: 0x80008000
+  entry: 0x80008000
+  compression: none
+  zimage_banner: true
+  machine: armv5tejl
+  build: "#1 Mon Mar 5 10:20:11 CST 2018"
+  version_line: "Linux version 3.4.35 (builder@buildhost) (gcc version 4.8.3 (Hisilicon_v300) ) #1 Mon Mar 5 10:20:11 CST 2018"
+  rootdev_major: 31
+  boot_log: |
+    Booting Linux on physical CPU 0
+    {version_line}
+    CPU: ARM926EJ-S [41069265] revision 5 (ARMv5TEJ), cr=00053177
+    CPU: VIVT data cache, VIVT instruction cache
+    Machine: hi3518ev200
+    Memory policy: ECC disabled, Data cache writeback
+    Built 1 zonelists in Zone order, mobility grouping on.  Total pages: 10160
+    Kernel command line: {cmdline}
+    PID hash table entries: 256 (order: -2, 1024 bytes)
+    Dentry cache hash table entries: 8192 (order: 3, 32768 bytes)
+    Inode-cache hash table entries: 4096 (order: 2, 16384 bytes)
+    Memory: 40MB = 40MB total
+    Memory: 34812k/34812k available, 6148k reserved, 0K highmem
+    SLUB: Genslabs=13, HWalign=32, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+    NR_IRQS:32
+    VIC @fe0d0000: id 0x00641190, vendor 0x41
+    sched_clock: 32 bits at 49MHz, resolution 20ns, wraps every 86767ms
+    Console: colour dummy device 80x30
+    Calibrating delay loop... 269.10 BogoMIPS (lpj=1345536)
+    pid_max: default: 32768 minimum: 301
+    Mount-cache hash table entries: 512
+    CPU: Testing write buffer coherency: ok
+    NET: Registered protocol family 16
+    Serial: AMBA PL011 UART driver
+    uart:0: ttyAMA0 at MMIO 0x20080000 (irq = 5) is a PL011 rev2
+    console [ttyAMA0] enabled
+    uart:1: ttyAMA1 at MMIO 0x20090000 (irq = 30) is a PL011 rev2
+    bio: create slab <bio-0> at 0
+    SCSI subsystem initialized
+    usbcore: registered new interface driver usbfs
+    usbcore: registered new interface driver hub
+    usbcore: registered new device driver usb
+    Switching to clocksource timer0
+    NET: Registered protocol family 2
+    TCP established hash table entries: 2048 (order: 2, 16384 bytes)
+    TCP: Hash tables configured (established 2048 bind 2048)
+    TCP: reno registered
+    NET: Registered protocol family 1
+    squashfs: version 4.0 (2009/01/31) Phillip Lougher
+    jffs2: version 2.2. (NAND) © 2001-2006 Red Hat, Inc.
+    io scheduler noop registered
+    io scheduler deadline registered (default)
+    brd: module loaded
+    Check Flash Memory Controller v100 ...  Found.
+    SPI Nor(cs 0) ID: 0xc2 0x20 0x18
+    Block:64KB Chip:16MB Name:"MX25L128XX"
+    SPI Nor total size: 16MB
+    {mtd_partitions}
+    himii: probed
+    ehci_hcd: USB 2.0 'Enhanced' Host Controller (EHCI) Driver
+    i2c /dev entries driver
+    TCP: cubic registered
+    NET: Registered protocol family 17
+    VFS: Mounted root (squashfs filesystem) readonly on device {rootdev}.
+    Freeing init memory: 160K
+  cpuinfo: |
+    Processor	: ARM926EJ-S rev 5 (v5l)
+    BogoMIPS	: 269.10
+    Features	: swp half thumb fastmult edsp java
+    CPU implementer	: 0x41
+    CPU architecture: 5TEJ
+    CPU variant	: 0x0
+    CPU part	: 0x926
+    CPU revision	: 5
+
+    Hardware	: hi3518ev200
+    Revision	: 0000
+    Serial		: 0000000000000000
+  meminfo:
+    MemTotal: 34812
+    MemFree: 17908
+    Buffers: 0
+    Cached: 6916
+
+linux:
+  hostname: "(none)"
+  busybox_banner: "BusyBox v1.24.1 (2018-03-05 10:05:33 CST)"
+  login:
+    username: root
+    password: "666666"
+    motd: ""
+  shell_prompt: "# "
+  askfirst: true
+  rcs_output: |
+    Starting telnetd...
+    ipcam: starting synthetic httpd on port 80
+  applets: ["[", "[[", ash, base64, basename, cat, chmod, chown, cp, cut, date, dd, df, dmesg, du, echo, egrep,
+            env, expr, "false", fgrep, find, flash_eraseall, flashcp, free, getty, grep, gunzip, gzip, halt, hd, head,
+            hexdump, hostname, id, ifconfig, init, insmod, kill, killall, linuxrc, ln, login, ls, lsmod, md5sum,
+            mdev, mkdir, mknod, mount, mv, netstat, passwd, ping, poweroff, ps, pwd, reboot, rm, rmdir, rmmod,
+            route, sed, sh, sleep, sync, tail, tar, tee, telnetd, test, tftp, top, touch, "true", udhcpc, umount,
+            uname, uptime, usleep, vi, wc, wget, which, zcat]
+  processes:
+    - [1, root, 1584, "S", "init"]
+    - [2, root, 0, "SW", "[kthreadd]"]
+    - [3, root, 0, "SW", "[ksoftirqd/0]"]
+    - [5, root, 0, "SW<", "[khelper]"]
+    - [92, root, 0, "SW<", "[kblockd]"]
+    - [210, root, 0, "SW", "[kswapd0]"]
+    - [520, root, 1584, "S", "/usr/sbin/telnetd"]
+    - [524, root, 2296, "S", "/usr/sbin/httpd -p 80 -h /var/www"]
+  mounts:
+    - ["rootfs", "/", "rootfs", "rw"]
+    - ["/dev/root", "/", "squashfs", "ro,relatime"]
+    - ["proc", "/proc", "proc", "rw,relatime"]
+    - ["sysfs", "/sys", "sysfs", "rw,relatime"]
+    - ["tmpfs", "/tmp", "tmpfs", "rw,relatime"]
+    - ["/dev/mtdblock4", "/app", "squashfs", "ro,relatime"]
+  interfaces:
+    eth0:
+      hwaddr: "00:00:23:34:45:66"
+      inet: 192.168.1.10
+      bcast: 192.168.1.255
+      mask: 255.255.255.0
+      flags: "UP BROADCAST MULTICAST"
+      mtu: 1500
+      txqueuelen: 1000
+  listening:
+    - [tcp, "0.0.0.0:80"]
+    - [tcp, "0.0.0.0:23"]
+    - [tcp, "0.0.0.0:554"]
+
+firmware:
+  build_date: "2018-03-05 10:05:33"
+  epoch: 1520215533
+  web_server: /usr/sbin/httpd
+  zig_target: arm-linux-musleabi
+  squashfs_comp: xz
+  app_mount: /app

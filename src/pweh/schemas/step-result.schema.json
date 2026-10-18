@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/step-result.schema.json",
+  "title": "PWEH 단계 결과 (cases/<id>/steps/*.json)",
+  "description": "Skill 의 각 단계(또는 최종 summary) 결과. step=='summary' 이면 data 는 해당 Skill 의 출력 스키마를 따라야 한다.",
+  "type": "object",
+  "required": ["schema", "case_id", "skill", "step", "status", "summary", "finished_at", "data", "artifacts"],
+  "properties": {
+    "schema": {"const": "pweh.step-result/v1"},
+    "case_id": {"type": "string"},
+    "skill": {"type": "string", "minLength": 1},
+    "step": {"type": "string", "minLength": 1},
+    "status": {"enum": ["success", "partial", "failed", "blocked", "skipped", "in-progress"]},
+    "summary": {"type": "string", "minLength": 1},
+    "started_at": {"type": ["string", "null"]},
+    "finished_at": {"type": "string"},
+    "data": {"type": "object"},
+    "artifacts": {"type": "array", "items": {"type": "string"}},
+    "next_actions": {"type": "array", "items": {"type": "string"}},
+    "blockers": {"type": "array", "items": {"type": "string"}},
+    "seq": {"type": "integer"}
+  },
+  "additionalProperties": true
+}

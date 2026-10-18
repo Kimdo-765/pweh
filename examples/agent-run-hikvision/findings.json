@@ -1,0 +1,325 @@
+{
+ "schema": "pweh.findings/v1",
+ "case_id": "20261018-unknown-hikvision-ip-ipc",
+ "findings": [
+  {
+   "title": "httpd check_auth 의 하드코딩 서비스 토큰 비교로 인증 생략",
+   "category": "backdoor",
+   "severity": "critical",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "check_auth 가 요청 token(X-Service-Token 헤더 또는 query 의 token 파라미터)을 고정 문자열과 strcmp 해 일치하면 Basic 인증 검사 없이 1(성공)을 반환한다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/sbin/httpd",
+    "function": "check_auth",
+    "address": "0x2235c",
+    "interface": "http"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-httpd-001.json#ev_c2a5faf2e6e13979c8f843d2611405d391c0e7ed4be14939a3ed2310ea19ed5b",
+     "excerpt": "if ((req->token[0] != '\\0') && (strcmp(req->token, \"<고정 토큰, 마스킹>\") == 0)) { return 1; }"
+    },
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-httpd-001.json#ev_90f01b0bfb30e54f55686261a8ca4ff5bab945a998d4c872959f40a1f7bd31c9",
+     "excerpt": "parse_request: 'X-Service-Token: ' 헤더 → req->token; 없으면 get_param(query, \"token\", ...)"
+    },
+    {
+     "type": "string",
+     "ref": "/usr/sbin/httpd@0xe8c",
+     "excerpt": "36자 고정 토큰 (마스킹), VA 0x10e7d, 참조 0x223a0 (check_auth)"
+    }
+   ],
+   "reasoning": "handle_client(0x22084) 는 모든 요청에서 디스패치 전에 check_auth 를 호출하고, check_auth 는 토큰 일치 시 자격증명 검사 전에 성공을 반환한다. 같은 펌웨어를 쓰는 모든 기기에 같은 값이 있다. 토큰은 query 로도 받으므로 URL 하나로 인증을 우회할 수 있다.",
+   "verification_plan": "격리 랩의 소유 기기에서만: 자격증명 없는 요청이 401 로 거부되는지 negative test 로 확인한다. 토큰을 실은 요청은 만들지 않는다.",
+   "remediation": "하드코딩 토큰 분기와 X-Service-Token/token 파라미터 처리를 제거하고, 모든 경로가 기기별 자격증명 검증을 거치게 한다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea batch_decompile (ghidra)"
+   },
+   "created_at": "2026-10-18T16:37:38.421Z",
+   "references": [],
+   "id": "F-001"
+  },
+  {
+   "title": "httpd check_credentials 의 하드코딩 admin 계정",
+   "category": "hardcoded-credential",
+   "severity": "high",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "check_credentials 가 사용자 'admin' 과 .rodata 의 고정 비밀번호를 strcmp 로 비교한다. 설정 저장소를 읽지 않으므로 비밀번호를 바꿀 수 없다. selftest 함수의 Basic 헤더 문자열도 같은 계정이다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/sbin/httpd",
+    "function": "check_credentials",
+    "address": "0x22b08",
+    "interface": "http"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-httpd-001.json#ev_c2a5faf2e6e13979c8f843d2611405d391c0e7ed4be14939a3ed2310ea19ed5b",
+     "excerpt": "if (strcmp(user, \"admin\") == 0 && strcmp(pass, \"pweh-****\") == 0) return 1;"
+    },
+    {
+     "type": "string",
+     "ref": "/usr/sbin/httpd@0xcce",
+     "excerpt": "Authorization: Basic YWRt**** (selftest 0x21fac 에서만 사용, 루프백 자기 점검)"
+    },
+    {
+     "type": "triage",
+     "ref": "analysis/strings-hunt-001.json",
+     "excerpt": "gen-hardcoded-basic-auth high"
+    }
+   ],
+   "reasoning": "check_auth(Basic 경로)와 handle_login_cgi 가 모두 check_credentials 를 호출한다. 비교 대상이 상수라 모든 동일 펌웨어 기기에 공통인 관리자 계정이다. Basic 문자열 자체는 selftest 에만 쓰이므로 별도 우회 경로는 아니다.",
+   "verification_plan": "격리 랩의 소유 기기에서 웹 UI 비밀번호를 바꾼 뒤에도 펌웨어 고정 계정이 남는지, 수정 빌드와 디컴파일 diff 로 확인한다.",
+   "remediation": "자격증명을 기기별 설정 저장소의 솔트된 강한 해시로 옮기고, 첫 부팅 때 비밀번호 설정을 강제한다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea batch_decompile (ghidra)"
+   },
+   "created_at": "2026-10-18T16:37:50.231Z",
+   "references": [],
+   "id": "F-002"
+  },
+  {
+   "title": "httpd handle_ping_cgi 의 host 파라미터 명령 주입",
+   "category": "command-injection",
+   "severity": "high",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "handle_ping_cgi 가 query 의 host 값을 URL 디코드한 뒤 필터 없이 'ping -c 1 %s ...' 에 snprintf 하고 system() 으로 실행한다(httpd 는 root 로 기동, rcS).",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/sbin/httpd",
+    "function": "handle_ping_cgi",
+    "address": "0x22470",
+    "interface": "http /cgi-bin/ping.cgi"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-httpd-001.json#ev_c2a5faf2e6e13979c8f843d2611405d391c0e7ed4be14939a3ed2310ea19ed5b",
+     "excerpt": "get_param(req->query,\"host\",host,0x80); snprintf(cmd,0x100,\"ping -c 1 %s > /tmp/ping.log 2>&1\",host); system(cmd);"
+    },
+    {
+     "type": "string",
+     "ref": "/usr/sbin/httpd@0xeda",
+     "excerpt": "ping -c 1 %s > /tmp/ping.log 2>&1"
+    }
+   ],
+   "reasoning": "인증 후 경로다(handle_client 가 check_auth 뒤에 디스패치). 그러나 F-001 의 고정 토큰이나 F-002 의 고정 계정과 결합하면 사실상 인증 없이 root 명령 실행이 된다. 셸 메타문자 필터가 없다.",
+   "verification_plan": "격리 랩 소유 기기에서 정상 IP 값만으로 동작을 확인하고, 수정 빌드에서 입력 검증이 추가됐는지 디컴파일 비교한다. 메타문자를 담은 요청은 만들지 않는다.",
+   "remediation": "system() 대신 execv 로 인자 배열을 넘기고, host 를 IP/호스트명 문법으로 엄격히 검증한다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea trace_feature + batch_decompile (ghidra)"
+   },
+   "created_at": "2026-10-18T16:38:01.429Z",
+   "references": [],
+   "id": "F-003"
+  },
+  {
+   "title": "httpd is_static_resource 의 부분 문자열 허용 목록으로 인증 생략 + 경로 정규화 없음",
+   "category": "auth-bypass",
+   "severity": "medium",
+   "confidence": "likely",
+   "status": "unverified",
+   "summary": "check_auth 는 is_static_resource 가 참이면 인증 없이 통과시킨다. 판정은 '/static/' 접두어 또는 경로 어디든 '.css/.js/.png/.jpg' 가 들어 있는지(strstr)다. 통과한 경로는 정규화 없이 g_root 와 이어 붙여 open() 한다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/sbin/httpd",
+    "function": "is_static_resource",
+    "address": "0x229e0",
+    "interface": "http"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-httpd-001.json#ev_c2a5faf2e6e13979c8f843d2611405d391c0e7ed4be14939a3ed2310ea19ed5b",
+     "excerpt": "strncmp(path,\"/static/\",8) / strstr(path,\".css\"|\".js\"|\".png\"|\".jpg\") → return 1; handle_client: snprintf(full,0x200,\"%s%s\",g_root,path); send_file(...)"
+    }
+   ],
+   "reasoning": "CGI 디스패치는 NUL 포함 bcmp 로 정확히 일치해야 하므로 CGI 자체는 이 경로로 우회되지 않는다(query 는 parse_request 에서 분리). 다만 파일 제공 경로는 '..' 를 걸러내지 않아 '/static/' 접두어로 웹 루트 밖 파일을 인증 없이 읽을 가능성이 있다. g_root 와 static 디렉터리 존재 여부를 확인하지 않았으므로 likely/unverified.",
+   "verification_plan": "rootfs 의 g_root 값과 /static 디렉터리 존재를 정적으로 확인하고, 격리 랩 소유 기기에서 인증 없는 정상 정적 파일 요청과 웹 루트 밖 경로 요청이 각각 어떻게 처리되는지 negative test 로 본다.",
+   "remediation": "확장자 검사 대신 정확한 디렉터리 접두어 + realpath 정규화 후 웹 루트 내부인지 검사한다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea batch_decompile (ghidra)"
+   },
+   "created_at": "2026-10-18T16:38:15.933Z",
+   "references": [],
+   "id": "F-004"
+  },
+  {
+   "title": "davinci /SDK/webLanguage 인증 전 명령 주입",
+   "category": "command-injection",
+   "severity": "critical",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "dispatch 가 '/SDK/webLanguage' 를 인증 함수 호출 전에 handle_web_language 로 보낸다. handle_web_language 는 요청 본문 XML 의 <language> 값(최대 63자)을 'cp -rf /usr/share/webroot/i18n/%s/* ...' 에 넣어 system() 으로 실행한다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/bin/davinci",
+    "function": "handle_web_language",
+    "address": "0x2219c",
+    "interface": "http /SDK/webLanguage"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-davinci-001.json#ev_734a97aa26b69fbcccded43400c88e38f27d76359fe15d7172e08b83e9035cfe",
+     "excerpt": "dispatch: if (strcmp(path,\"/SDK/webLanguage\")==0) { handle_web_language(fd,req); return; }  // 인증 전"
+    },
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-davinci-001.json#ev_734a97aa26b69fbcccded43400c88e38f27d76359fe15d7172e08b83e9035cfe",
+     "excerpt": "xml_value(req->body,lang,...); snprintf(cmd,0x100,\"cp -rf /usr/share/webroot/i18n/%s/* /tmp/i18n/ 2>/dev/null\",lang); system(cmd);"
+    },
+    {
+     "type": "string",
+     "ref": "/usr/bin/davinci@0xcd1",
+     "excerpt": "/SDK/webLanguage"
+    }
+   ],
+   "reasoning": "P1(인증 전 디스패치) + P11(system 주입), CVE-2021-36260 계열 형태다. 벤더가 Hikvision 정품으로 확인되지 않았고(바이너리 이름·배너만 일치, 합성 펌웨어 마커 존재) 빌드 비교 미실시라 CVE 는 references 에 넣지 않았다. 인증 없는 네트워크 요청 하나로 davinci 권한(root 추정)의 명령 실행이 가능하다.",
+   "references": [
+    "docs/references/cctv-vuln-patterns.md#5"
+   ],
+   "verification_plan": "격리 랩 소유 기기에서 정상 언어 코드만 담은 요청의 동작을 보고, 벤더 패치 펌웨어가 있으면 handle_web_language 를 디컴파일 비교한다. 메타문자를 담은 요청은 만들지 않는다.",
+   "remediation": "webLanguage 를 인증 뒤로 옮기고 언어 값을 허용 목록(en, ko, ...)으로 검증하며 system() 대신 파일 API 를 쓴다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea batch_decompile (ghidra)"
+   },
+   "created_at": "2026-10-18T16:38:28.939Z",
+   "id": "F-005",
+   "updated_at": "2026-10-18T16:41:03.360Z"
+  },
+  {
+   "title": "davinci hikcgi_auth 의 매직 query 파라미터로 비밀번호 검증 생략",
+   "category": "auth-bypass",
+   "severity": "critical",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "/Security/ 계열 인증 함수 hikcgi_auth 는 query 에 특정 파라미터가 있고 값이 base64 로 디코드되면, 그 안의 사용자 이름을 그대로 신뢰하고 verify_password 없이 1 을 반환한다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/bin/davinci",
+    "function": "hikcgi_auth",
+    "address": "0x22568",
+    "interface": "http /Security/*"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-davinci-001.json#ev_734a97aa26b69fbcccded43400c88e38f27d76359fe15d7172e08b83e9035cfe",
+     "excerpt": "if (query_param(req->query, enc,...) && b64_decode(enc,decoded,0xa0) > 0) { ...; snprintf(user,userlen,\"%s\",decoded); return 1; }  // verify_password 없음"
+    },
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-davinci-001.json#ev_41abe504dcb4eb5e33f3b299709c7451d2f2485c4f492602322bfdf592ff03ba",
+     "excerpt": "query_param: strncmp(query, \"<고정 파라미터 이름, 마스킹>\", 0xf) && query[0xf]=='='"
+    }
+   ],
+   "reasoning": "P1/P5(매직 파라미터로 인증 생략), CVE-2017-7921 계열 형태다. dispatch 는 /Security/ 경로에 hikcgi_auth 를 쓰므로 /Security/users 등 사용자 정보 핸들러에 비밀번호 없이 접근할 수 있다. 다른 계열(ISAPI/PSIA/SDK)은 basic_auth_check 만 쓴다(핸들러 간 인증 비대칭). 벤더 미확인·빌드 비교 미실시라 CVE 는 references 에 넣지 않았다.",
+   "references": [
+    "docs/references/cctv-vuln-patterns.md#5"
+   ],
+   "verification_plan": "격리 랩 소유 기기에서 자격증명 없는 /Security/users 요청이 401 인지 negative test 로 확인한다. 매직 파라미터를 실은 요청은 만들지 않는다.",
+   "remediation": "query 기반 인증 분기를 제거하고 모든 계열에 basic_auth_check(또는 Digest)를 강제한다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea batch_decompile (ghidra)"
+   },
+   "created_at": "2026-10-18T16:38:40.844Z",
+   "id": "F-006",
+   "updated_at": "2026-10-18T16:41:06.854Z"
+  },
+  {
+   "title": "davinci verify_password 의 솔트 없는 64비트 비암호 해시(FNV-1a 계열)",
+   "category": "weak-crypto",
+   "severity": "medium",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "verify_password 가 /home/config/users.db 의 'name:%llx' 값과 pw_digest(user, pass)를 비교한다. pw_digest 는 FNV 소수 0x1b3 을 쓰는 64비트 비암호 해시로, 솔트·반복이 없다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/bin/davinci",
+    "function": "pw_digest",
+    "address": "0x22958",
+    "interface": "http"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-davinci-001.json#ev_41abe504dcb4eb5e33f3b299709c7451d2f2485c4f492602322bfdf592ff03ba",
+     "excerpt": "h = (h ^ byte) * 0x1b3 (64비트 곱) — user, ':', pass 순서로 누적"
+    },
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-davinci-001.json#ev_734a97aa26b69fbcccded43400c88e38f27d76359fe15d7172e08b83e9035cfe",
+     "excerpt": "sscanf(line,\"%63[^:]:%llx\",name,&stored); uVar5 = (pw_digest(user,pass) == stored);"
+    }
+   ],
+   "reasoning": "users.db 가 유출되면(F-006 등) 오프라인 무차별 대입이 매우 빠르다. 영구 경로(/home/config)는 이 덤프의 rootfs/app 에 없어 실제 해시 값은 확인하지 못했다.",
+   "verification_plan": "격리 랩 소유 기기의 users.db 형식만 확인하고, 수정 빌드가 강한 KDF 로 바뀌었는지 디컴파일 비교한다.",
+   "remediation": "bcrypt/scrypt/PBKDF2 등 솔트된 KDF 로 교체한다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea batch_decompile (ghidra)"
+   },
+   "created_at": "2026-10-18T16:38:52.505Z",
+   "references": [],
+   "id": "F-007"
+  },
+  {
+   "title": "부팅 시 telnetd 무조건 기동 + root 계정이 공개 기본 비밀번호",
+   "category": "debug-interface",
+   "severity": "high",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "/etc/init.d/rcS:20 이 '/usr/sbin/telnetd &' 를 조건 없이 실행하고, /etc/shadow 의 root(md5crypt) 비밀번호가 공개 IoT 기본 비밀번호 사전과 일치한다(오프라인 대조, 54***).",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/etc/init.d/rcS",
+    "line": 20,
+    "interface": "telnet/23"
+   },
+   "evidence": [
+    {
+     "type": "triage",
+     "ref": "analysis/rootfs-audit-001.json",
+     "excerpt": "gen-telnetd-launch rcS:20 '/usr/sbin/telnetd &'; builtin-default-password root md5crypt cracked (54***)"
+    },
+    {
+     "type": "file",
+     "ref": "/etc/shadow",
+     "excerpt": "root:$1$7Q2…(마스킹):18000:0:99999:7:::"
+    },
+    {
+     "type": "file",
+     "ref": "/etc/init.d/rcS",
+     "excerpt": "/usr/sbin/telnetd &"
+    }
+   ],
+   "reasoning": "P5/P6: rcS 가 telnetd 를 무조건 기동하고 root 비밀번호가 펌웨어 공통 공개 기본값이다(고정 root 비밀번호 + 실제 기동되는 로그인 서비스 = high, checklist §0.3). CVE-2017-8224 계열 형태지만 벤더가 달라 references 에는 넣지 않았다. 평문은 analysis/ 에만 있고 대화·보고서에는 마스킹한다.",
+   "references": [
+    "docs/references/cctv-vuln-patterns.md#5"
+   ],
+   "verification_plan": "격리 랩의 소유 기기에서 23번 포트가 열려 있는지만 확인한다(로그인 시도는 사용자 명시 동의 후 본인 기기 UART/랩에서만).",
+   "remediation": "telnetd 를 제거하거나 기본 비활성화하고, 기기별 고유 root 비밀번호 또는 root 로그인 비활성화를 적용한다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "fw_rootfs_audit"
+   },
+   "created_at": "2026-10-18T16:39:01.396Z",
+   "id": "F-008",
+   "updated_at": "2026-10-18T16:41:08.061Z"
+  }
+ ]
+}

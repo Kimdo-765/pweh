@@ -1,0 +1,41 @@
+{
+  "schema": "pweh.fwtriage.uimage/v1",
+  "tool": "fw_uimage_info",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-dahua-sample",
+  "generated_at": "2026-10-18T17:41:10.148Z",
+  "input": {
+    "path": "extract/parts-001/02-kernel.bin",
+    "size": 2097152,
+    "size_human": "2.00 MiB",
+    "sha256": "aa75eb42a9e5edf48e027dedac981854ba02bb4f699f6078e657e06618dc4f81"
+  },
+  "params": {
+    "offset": 0
+  },
+  "image": {
+    "format": "legacy-uimage",
+    "magic": "0x27051956",
+    "header_crc": "0x29dce5dc",
+    "header_crc_ok": true,
+    "timestamp": 1584947441,
+    "data_size": 394767,
+    "load_address": "0x40008000",
+    "entry_point": "0x40008000",
+    "data_crc": "0xf35084d1",
+    "data_crc_ok": true,
+    "os": "linux",
+    "arch": "arm",
+    "type": "kernel",
+    "compression": "none",
+    "name": "Linux-4.9.37",
+    "total_size": 394831,
+    "timestamp_iso": "2020-03-23T07:10:41Z",
+    "truncated": false,
+    "payload_probe": {
+      "kind": "zimage",
+      "description": "ARM Linux zImage (크기 394767 bytes)",
+      "size": 394767
+    }
+  }
+}

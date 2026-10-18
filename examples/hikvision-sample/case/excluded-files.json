@@ -1,0 +1,153 @@
+{
+  "note": "예제에 넣지 않은 파일 목록 (펌웨어 덤프·파티션·추출 트리·원시 UART 바이트). 같은 명령으로 다시 만들면 같은 sha256 이 나온다(덤프/추출물).",
+  "excluded_files": [
+    {
+      "path": "dumps/flash-full.bin",
+      "size": 16777216,
+      "sha256": "e95ae853526947b9d29011f61c4cb3b92ce6fdff8a368cd23eef14cd40c5c2a2",
+      "reason": "바이너리 (덤프·원시 UART 바이트) — 크기와 sha256 만 기록"
+    },
+    {
+      "path": "dumps/probe-kernel-head.bin",
+      "size": 65536,
+      "sha256": "b6f2e962ba93c66ede13e70169701414a72530c57bf0ce4b186d97022dfef230",
+      "reason": "바이너리 (덤프·원시 UART 바이트) — 크기와 sha256 만 기록"
+    },
+    {
+      "path": "uart/console-001.raw",
+      "size": 83187263,
+      "sha256": "e0228350507254817fa35d3acf4b4cc8ff8ef8d7ccec3bc9a3f9107d8b8e6bdb",
+      "reason": "바이너리 (덤프·원시 UART 바이트) — 크기와 sha256 만 기록"
+    }
+  ],
+  "extract_trees": [
+    {
+      "path": "extract/app-001",
+      "kind": "dir",
+      "files": 4,
+      "bytes": 192,
+      "file_sha256": {
+        "extract/app-001/README.txt": "1583c9328ed70f9e02e7d5e3aa1c9ccf6a0e81e4a61c6b82afa1f7e5672d752b",
+        "extract/app-001/config/network.conf": "8c99838a83416b85a59ff4ca21dbd785e369958a15ec0bc476db0808a20d6d6b",
+        "extract/app-001/config/onvif.conf": "fba862df5b96066c2c6cf065a30c640f4fdca6679722af9ee8924e0d099ca20e",
+        "extract/app-001/config/rtsp.conf": "3cd8a5215e10bc8b896695c3f6700186a2d3995e3ece50704f8eaa7762b35ce9"
+      }
+    },
+    {
+      "path": "extract/app-001.manifest.json",
+      "kind": "file",
+      "files": 1,
+      "bytes": 2102,
+      "sha256": "ad8879ba512aba5a5f438e1506cedb888282847d2699dc7c39362c7f50f622dd"
+    },
+    {
+      "path": "extract/parts-001",
+      "kind": "dir",
+      "files": 6,
+      "bytes": 16781005,
+      "file_sha256": {
+        "extract/parts-001/00-boot.bin": "af3bdcd6765632e316705fc9ef849942a1824f3948117283aa520f4aea2c1337",
+        "extract/parts-001/01-env.bin": "adc68ad2f3d78fc85369ca25765b6b3cb2eb2906439d7f9ce7f4ba60ab5297d3",
+        "extract/parts-001/02-kernel.bin": "cd3325c4e11951b6d10f613974196636f550c2e71b05828fbf064b061f0423ed",
+        "extract/parts-001/03-rootfs.bin": "24d9d2f238d18bb8f9a65235d6e5b0ce5a9208c7c123b4b13a8bf14a38894a72",
+        "extract/parts-001/04-app.bin": "7008981ed12f14e4c141851c269646b87ae124a9b12269cef349e682e2188369",
+        "extract/parts-001/index.json": "ba39edaa6b757fdc8ec4369d9c18133752c45d912f5be67a07dbd5224d6fa515"
+      }
+    },
+    {
+      "path": "extract/rea-001",
+      "kind": "dir",
+      "files": 27,
+      "bytes": 15296173,
+      "file_sha256": {
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/bin/busybox": "8f4cf157f710a7371d9235e110373dbe428779b61716ddfe05b180038443024e",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/fstab": "a1735cff294720f282ad3549227a5186e5cb056d3d2f178a29d246fb2e4354f6",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/group": "57f4099e5154a3c5eb11570068e3af3d8960dad64437b143686a6b2bd3bf0f04",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/hostname": "476b872f46af4a3d0d24b243dce069c073e86167693de304740bd3054408b266",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/hosts": "02c82a9ffce44f1517b0b64380e11ea41d15812267a0fbff97221b5a6921df50",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/init.d/rcS": "f2229bec0806c84da16905c5cf707c93bf4f026331262c781377d84dd818123a",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/inittab": "31b83d26981cc62701f06a3f9f0aa5355f4f2408b2d01ef0b2309829595c1c07",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/issue": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/passwd": "cf99f8ad266f82184ee85cb0729ee5704f48ca1bcf9ce13a0f337402c5790128",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/profile": "411f1a57a32639ba0f72fea1fa1e45fe2df0ed267430b39e01f57171d5e5980b",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/pweh-synthetic.txt": "9da8be4c131a17973bee070b3f489d000da0e25909830561454f52ea720b4c7e",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/securetty": "bdd36b5f3cc31d03f138961899e86338cbeb44cdb5c2dccb769573efc7ef86d0",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/shadow": "c64995734a48518b715a356d7bcdb1c75a6d5301138fee4a0ce71992d4d76740",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/shells": "35fa7f9244d299e08104d223b43e92d746dadb7d7b2d7df6281a60f675b0237d",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/etc/version": "149b3aa8282f1f00d375d49cda8535c287571eb17180747e26414333059f71ce",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/usr/bin/davinci": "f76270ce9c83ed33c7b3ee9bb32893f98fabc1b53003f60af72d7cae0b9badf6",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/usr/sbin/flash_erase": "8f4cf157f710a7371d9235e110373dbe428779b61716ddfe05b180038443024e",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/usr/sbin/fw_printenv": "8f4cf157f710a7371d9235e110373dbe428779b61716ddfe05b180038443024e",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/usr/sbin/fw_setenv": "8f4cf157f710a7371d9235e110373dbe428779b61716ddfe05b180038443024e",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/usr/sbin/httpd": "4b733ee710d74675528e64465a8fddc07f65f495ddbce2c6f071d15aa2ea896a",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/usr/sbin/mtd_debug": "8f4cf157f710a7371d9235e110373dbe428779b61716ddfe05b180038443024e",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/usr/share/webroot/i18n/en/README.txt": "85e85d23b035ae735f41d6a2450cd9cd3d9f5dc40353a16281eed5ffbbb49f90",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/var/www/cgi-bin/status.cgi": "61478f20082c77ba4e77109fa17effb09712c9b37bee88cebcdbe3abb5924734",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/var/www/index.html": "2925132321c631409cae0516a645de1bb19a87f3fab1fc72267beceab75ab744",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/var/www/static/app.js": "ad96d04c62b3ff56747122f0aa2b0e62b491a9b8995b687b086316a4bcdd23c8",
+        "extract/rea-001/firmware.bin_extract/0-1286144.squashfs_v4_le_extract/var/www/static/style.css": "0bf4d668930b5ab1d543ab1d43785e7cbe4b5f29d95ed3593ea5e9953f7cca59",
+        "extract/rea-001/firmware.bin_extract/1286144-5242880.padding": "ec6d0e27f56ead63406fb5aaac50f48be51c2db23b570933a598d44cd07620ed"
+      }
+    },
+    {
+      "path": "extract/rootfs-001",
+      "kind": "dir",
+      "files": 26,
+      "bytes": 11339437,
+      "file_sha256": {
+        "extract/rootfs-001/bin/busybox": "8f4cf157f710a7371d9235e110373dbe428779b61716ddfe05b180038443024e",
+        "extract/rootfs-001/etc/fstab": "a1735cff294720f282ad3549227a5186e5cb056d3d2f178a29d246fb2e4354f6",
+        "extract/rootfs-001/etc/group": "57f4099e5154a3c5eb11570068e3af3d8960dad64437b143686a6b2bd3bf0f04",
+        "extract/rootfs-001/etc/hostname": "476b872f46af4a3d0d24b243dce069c073e86167693de304740bd3054408b266",
+        "extract/rootfs-001/etc/hosts": "02c82a9ffce44f1517b0b64380e11ea41d15812267a0fbff97221b5a6921df50",
+        "extract/rootfs-001/etc/init.d/rcS": "f2229bec0806c84da16905c5cf707c93bf4f026331262c781377d84dd818123a",
+        "extract/rootfs-001/etc/inittab": "31b83d26981cc62701f06a3f9f0aa5355f4f2408b2d01ef0b2309829595c1c07",
+        "extract/rootfs-001/etc/issue": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "extract/rootfs-001/etc/passwd": "cf99f8ad266f82184ee85cb0729ee5704f48ca1bcf9ce13a0f337402c5790128",
+        "extract/rootfs-001/etc/profile": "411f1a57a32639ba0f72fea1fa1e45fe2df0ed267430b39e01f57171d5e5980b",
+        "extract/rootfs-001/etc/pweh-synthetic.txt": "9da8be4c131a17973bee070b3f489d000da0e25909830561454f52ea720b4c7e",
+        "extract/rootfs-001/etc/securetty": "bdd36b5f3cc31d03f138961899e86338cbeb44cdb5c2dccb769573efc7ef86d0",
+        "extract/rootfs-001/etc/shadow": "c64995734a48518b715a356d7bcdb1c75a6d5301138fee4a0ce71992d4d76740",
+        "extract/rootfs-001/etc/shells": "35fa7f9244d299e08104d223b43e92d746dadb7d7b2d7df6281a60f675b0237d",
+        "extract/rootfs-001/etc/version": "149b3aa8282f1f00d375d49cda8535c287571eb17180747e26414333059f71ce",
+        "extract/rootfs-001/usr/bin/davinci": "f76270ce9c83ed33c7b3ee9bb32893f98fabc1b53003f60af72d7cae0b9badf6",
+        "extract/rootfs-001/usr/sbin/flash_erase": "8f4cf157f710a7371d9235e110373dbe428779b61716ddfe05b180038443024e",
+        "extract/rootfs-001/usr/sbin/fw_printenv": "8f4cf157f710a7371d9235e110373dbe428779b61716ddfe05b180038443024e",
+        "extract/rootfs-001/usr/sbin/fw_setenv": "8f4cf157f710a7371d9235e110373dbe428779b61716ddfe05b180038443024e",
+        "extract/rootfs-001/usr/sbin/httpd": "4b733ee710d74675528e64465a8fddc07f65f495ddbce2c6f071d15aa2ea896a",
+        "extract/rootfs-001/usr/sbin/mtd_debug": "8f4cf157f710a7371d9235e110373dbe428779b61716ddfe05b180038443024e",
+        "extract/rootfs-001/usr/share/webroot/i18n/en/README.txt": "85e85d23b035ae735f41d6a2450cd9cd3d9f5dc40353a16281eed5ffbbb49f90",
+        "extract/rootfs-001/var/www/cgi-bin/status.cgi": "61478f20082c77ba4e77109fa17effb09712c9b37bee88cebcdbe3abb5924734",
+        "extract/rootfs-001/var/www/index.html": "2925132321c631409cae0516a645de1bb19a87f3fab1fc72267beceab75ab744",
+        "extract/rootfs-001/var/www/static/app.js": "ad96d04c62b3ff56747122f0aa2b0e62b491a9b8995b687b086316a4bcdd23c8",
+        "extract/rootfs-001/var/www/static/style.css": "0bf4d668930b5ab1d543ab1d43785e7cbe4b5f29d95ed3593ea5e9953f7cca59"
+      }
+    },
+    {
+      "path": "extract/rootfs-001.manifest.json",
+      "kind": "file",
+      "files": 1,
+      "bytes": 35869,
+      "sha256": "b5bb72c7c2ea826e4b1c64765aaee1cf0a36ecbc7c13d26f76f0f1939c8a639f"
+    },
+    {
+      "path": "extract/xcheck-001",
+      "kind": "dir",
+      "files": 2,
+      "bytes": 66452,
+      "file_sha256": {
+        "extract/xcheck-001/00-xcheck.bin": "b6f2e962ba93c66ede13e70169701414a72530c57bf0ce4b186d97022dfef230",
+        "extract/xcheck-001/index.json": "c1519e822d02e7218d8086dbb513ff384003494c9d7730083c504df14c84f023"
+      }
+    }
+  ],
+  "trimmed_text_files": [
+    "uart/console-001.log"
+  ],
+  "path_placeholders": {
+    "<CASE_DIR>": "케이스 디렉터리 절대 경로",
+    "<WORKSPACE>": "임시 작업공간 절대 경로",
+    "<REPO>": "저장소 루트",
+    "~": "실행한 사용자의 홈 디렉터리"
+  }
+}

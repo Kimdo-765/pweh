@@ -1,0 +1,312 @@
+# PWEH 파이프라인 설정
+#
+# MCP 서버와 `pweh` CLI 는 이 파일을 읽는다 (환경변수 PWEH_CONFIG 로 다른 파일 지정 가능).
+# 문자열의 ${VAR} / ${VAR:-기본값} 은 환경변수로 확장된다.
+# 프로필(profiles)은 대상 기기별 파라미터 묶음이며 `extends` 로 상속한다.
+# 벤더별 값은 공개 자료 기반의 "힌트"다. 실제 기기에서 관찰한 값이 항상 우선한다.
+
+version: 1
+
+workspace:
+  cases_dir: cases          # 저장소 루트 기준 상대 경로
+  state_dir: .pweh/state    # 승인 레코드, 전역 감사 로그
+
+safety:
+  # 영구 변경/하드웨어 손상 가능 작업: deny(기본) | approve(사람 승인 후 1회 허용)
+  # 에이전트는 이 값을 스스로 바꾸면 안 된다. 사람이 필요할 때만 바꾼다.
+  destructive_policy: deny
+  # 휘발성 상태 변경(setenv, boot, reset, halt, DTR 토글 …): allow | approve | deny
+  modify_policy: allow
+  # 분류 규칙에 없는 명령의 위험도: interact | modify | destructive
+  unknown_command_risk: modify
+  # 사람 승인 방법 (앞에서부터 시도):
+  #   elicitation = MCP elicitation 확인 폼 (Claude Code v2.1.76+ 등 지원 클라이언트에서 사람이 확인 코드를 입력)
+  #   cli         = 별도 터미널에서 `pweh approve <id>` (어떤 클라이언트에서도 동작하는 대역 외 승인)
+  # 클라이언트가 elicitation 을 자동 거절/취소하면 거부(fail-closed)된다. 그런 환경이면 [cli] 만 남긴다.
+  approval_methods: [elicitation, cli]
+  approval_ttl_seconds: 900
+  # 하드웨어 도구는 케이스에 소유/허가 증명이 있어야 동작
+  require_authorization: true
+  # 리눅스 셸에서 이 경로에 쓰면 '영구 변경'으로 분류
+  persistent_paths:
+    - /mnt/mtd
+    - /mnt/flash
+    - /mnt/config
+    - /mnt/custom
+    - /config
+    - /data
+    - /etc/config
+    - /home
+    - /opt
+    - /usr/local
+    - /var/lib
+    - /appfs
+    - /mnt/sd
+
+tools:
+  sigrok_cli: ${PWEH_SIGROK_CLI:-sigrok-cli}
+  openocd: ${PWEH_OPENOCD:-openocd}
+  openocd_scripts: ${PWEH_OPENOCD_SCRIPTS:-}
+  rea: ${PWEH_REA:-rea}
+  binwalk: ${PWEH_BINWALK:-binwalk}
+  unblob: ${PWEH_UNBLOB:-unblob}
+  mksquashfs: ${PWEH_MKSQUASHFS:-mksquashfs}
+  unsquashfs: ${PWEH_UNSQUASHFS:-unsquashfs}
+  mkimage: ${PWEH_MKIMAGE:-mkimage}
+  mkenvimage: ${PWEH_MKENVIMAGE:-mkenvimage}
+  zig: ${PWEH_ZIG:-zig}
+
+# sigrok-mcp 캡처 드라이버 정책 (읽기 전용으로 참조됨).
+# 내장 규칙: 로직 애널라이저/오실로스코프 허용 목록만 캡처 가능, 출력 제어 장치(전원공급기·전자부하·신호발생기·릴레이)는
+# 항상 거부되며 아래 allow 로도 풀 수 없다.
+# sigrok:
+#   capture_drivers_allow: []   # 측정 전용 드라이버를 추가로 허용 (예: [some-logic-analyzer])
+#   capture_drivers_deny: []    # 추가로 거부할 드라이버
+
+uart:
+  # 프로필에 baud_candidates 가 있으면 그것을 먼저, 그 다음 이 목록을 시도
+  default_baud_candidates: [115200, 57600, 38400, 19200, 9600, 230400, 460800, 921600, 1500000, 3000000]
+  read_buffer_bytes: 4194304
+  default_command_timeout: 10.0
+
+# ---------------------------------------------------------------------------
+# 대상 기기 프로필
+#
+# uart.uboot_prompts / linux_shell_prompts / login_prompts / password_prompts:
+#     수신 버퍼의 "마지막 줄"에 대해 검사하는 정규식 (Python re, 끝에 공백 허용)
+# uart.autoboot_patterns: autoboot 카운트다운 감지 정규식
+# uart.interrupt_sequences: autoboot 를 멈추기 위해 반복 전송할 키 (YAML 이스케이프: "\x03" = Ctrl-C)
+#     빈 Enter("\r")는 U-Boot 프롬프트에서 직전 명령을 반복하므로 기본값에 넣지 않는다.
+# flash.ram_load_addr: sf read 로 플래시를 읽어 둘 RAM 주소 힌트 (실제로는 uboot_info 의 safe_ram_addr 를 우선)
+#
+# 서버가 직접 쓰는 키: uart.*(프롬프트·autoboot·인터럽트 키·보드레이트 후보·줄 끝·줄 길이), safety.
+# 에이전트·Skill 이 pipeline_profile 로 읽는 참고 값(서버 코드는 읽지 않음): expected_interfaces, flash.ram_load_addr,
+#   flash.dump_chunk_bytes, flash.expected_size, flash.env_offset_hint, uart.default_credentials_to_try(사용자가 준 값만 시도).
+#   실제 기기 출력(부트 로그·bdinfo·sf probe)이 항상 이 값보다 우선한다.
+# ---------------------------------------------------------------------------
+profiles:
+  # 근거: docs/references/uboot-and-boot-console.md §1(SoC 프로파일), §8(autoboot), §9(프롬프트), §10(Ctrl-C).
+  # ODM 이 SDK 기본값을 바꾸는 일이 흔하므로 실제 부트 로그가 항상 우선한다.
+  generic-ipcam:
+    description: 벤더/SoC 미상 IP 카메라·DVR 기본 프로필 (알려진 SDK 프롬프트를 모두 인식)
+    vendor: unknown
+    soc_family: unknown
+    arch: unknown
+    endianness: little
+    expected_interfaces: [uart, spi-flash]
+    uart:
+      baud_candidates: [115200, 57600, 38400]
+      framing: 8N1
+      line_ending: "\r"           # U-Boot readline 은 \r 과 \n 을 각각 Enter 로 처리 → \r\n 금지 (§0 R1)
+      uboot_prompts:
+        - '^(hisilicon|goke|xmedia|SigmaStar|MStar|GM|A320|OpenIPC) ?# ?$'
+        - '^isvp(_t\w+)?# ?$'
+        - '^nvt@\w+: ?$'
+        - '^amboot> ?$'
+        - '^=> ?$'
+        - '^U-Boot ?> ?$'
+        - '^[A-Za-z][A-Za-z0-9_.@-]{1,31} ?# ?$'
+        - '^[A-Za-z][A-Za-z0-9_.@-]{1,31} ?> ?$'
+      hush_ps2_prompts: ['^ ?> ?$']   # 따옴표가 안 닫힌 hush 보조 프롬프트 → Ctrl-C 로 빠져나온다
+      linux_shell_prompts:
+        - '(^|[\s:/~\]])[#$] ?$'
+      login_prompts:
+        - '(?i)login: ?$'
+      password_prompts:
+        - '(?i)password: ?$'
+      autoboot_patterns:
+        - 'Hit any key to stop autoboot'
+        - "Hit key to stop autoboot\\('CTRL\\+C'\\)"
+        - '(?i)press ctrl-?c to (stop|abort) autoboot'
+        - '(?i)press enter to interrupt boot'
+        - '(?i)autoboot in \d+ seconds'
+        - '(?i)press .{0,20}(key|ctrl).{0,30}(stop|abort|interrupt)'
+      # Ctrl-C: 비-keyed autoboot 에서는 '아무 키'로 소비되고, 이미 프롬프트면 <INTERRUPT> 만 출력해 부작용이 없다 (§8.6, §10).
+      # 빈 Enter("\r")는 프롬프트에서 직전 명령을 반복하므로 기본값에 넣지 않는다 (§0 R2).
+      interrupt_sequences: ["\x03"]
+      autoboot_silent: false       # true 면 카운트다운 메시지 없이(bootdelay 0, keyed) 전원 투입 순간에만 키를 받는다
+      interrupt_window_s: 30
+      boot_markers:
+        uboot: ['U-Boot \d{4}\.\d{2}', 'U-Boot SPL', 'DRAM:', 'Check spi flash controller', 'Check Flash Memory Controller', 'SF: Detected']
+        kernel: ['Starting kernel', 'Uncompressing Linux', 'Linux version \d', '## Booting kernel from Legacy Image']
+        userspace: ['Freeing unused kernel memory', 'Please press Enter to activate this console', 'BusyBox v']
+        flash_write_warning: ['Saving Environment to', 'Erasing SPI flash', 'Write default environment to flash', 'RECOVERY: kernel/rootfs invalid']
+      default_credentials_to_try: []   # 소유 기기에서도 자동 무차별 대입은 하지 않는다. 사용자가 알려준 계정만 사용
+    flash:
+      type: unknown
+      expected_size: null
+      ram_load_addr: null
+      dump_chunk_bytes: 65536
+    firmware:
+      web_servers: [boa, goahead, lighttpd, thttpd, mini_httpd, httpd, uhttpd]
+      config_paths: [/mnt/mtd, /etc/config, /config]
+    hunt:
+      vendor_family: generic
+
+  hisilicon-ipcam:
+    extends: generic-ipcam
+    description: HiSilicon Hi35xx 계열 ARM IP 카메라 (Hi3516/Hi3518 등, SDK V1~V4) — 많은 OEM 의 기반
+    soc_family: hisilicon
+    arch: arm
+    uart:
+      baud_candidates: [115200]
+      uboot_prompts:
+        - '^hisilicon ?# ?$'          # SDK V1~V4 (실기기 출력 확인됨)
+        - '^OpenIPC ?# ?$'            # OpenIPC 빌드
+        - '^[A-Za-z][A-Za-z0-9_.@-]{1,31} ?# ?$'
+      interrupt_sequences: ["\x03"]   # SDK: 아무 키(bootdelay 1~2). OpenIPC V4: "Press Ctrl-c to stop autoboot"
+      console: ttyAMA0
+    flash:
+      type: spi-nor
+      expected_size: 16MiB
+      env_offset_hint: 0x80000        # SDK 기본 0x80000/0x40000, OpenIPC 빌드 0x40000/0x10000
+      mtd_id: hi_sfc
+      ram_load_addr: null             # uboot_info 의 bdinfo(DRAM 시작/relocaddr)로 결정
+    firmware:
+      web_servers: [boa, goahead, lighttpd, thttpd, mini_httpd, httpd]
+    hunt:
+      vendor_family: hisilicon-oem
+
+  goke-ipcam:
+    extends: hisilicon-ipcam
+    description: Goke GK72xx 계열 (HiSilicon V4 계열 SDK)
+    soc_family: goke
+    uart:
+      uboot_prompts:
+        - '^goke ?# ?$'               # 설정 소스 기준 (실기기 출력 미확인)
+        - '^OpenIPC ?# ?$'
+        - '^[A-Za-z][A-Za-z0-9_.@-]{1,31} ?# ?$'
+    flash:
+      mtd_id: sfc
+
+  hikvision-ipc:
+    extends: hisilicon-ipcam
+    description: Hikvision 스타일 IPC (HiSilicon/Ambarella 계열). 웹/서비스 바이너리 davinci, centaurus 등
+    vendor: hikvision
+    firmware:
+      web_servers: [davinci, centaurus, httpd, webs]
+    hunt:
+      vendor_family: hikvision-like
+
+  dahua-ipc:
+    extends: hisilicon-ipcam
+    description: Dahua 스타일 IPC/DVR. 메인 서비스 바이너리 sonia, 설정 /mnt/mtd/Config
+    vendor: dahua
+    firmware:
+      web_servers: [sonia, webs, httpd]
+      config_paths: [/mnt/mtd/Config, /mnt/mtd]
+    hunt:
+      vendor_family: dahua-like
+
+  xiongmai-ipc:
+    extends: hisilicon-ipcam
+    description: XiongMai(XMeye) 계열 OEM 카메라/DVR (HiSilicon 또는 XM510/XM530 SoC). 메인 서비스 Sofia
+    vendor: xiongmai
+    uart:
+      console: ttyAMA0
+    flash:
+      mtd_id: xm_sfc                  # XM510/XM530 (HiSilicon 기반이면 hi_sfc)
+    firmware:
+      web_servers: [Sofia, boa]
+      config_paths: [/mnt/mtd/Config, /mnt/custom]
+    hunt:
+      vendor_family: xiongmai-like
+
+  ingenic-t-series:
+    extends: generic-ipcam
+    description: Ingenic T 시리즈(T10/T20/T21/T23/T30/T31/T40) MIPS IP 카메라
+    soc_family: ingenic
+    arch: mips
+    endianness: little
+    uart:
+      baud_candidates: [115200]
+      uboot_prompts:
+        - '^isvp(_t\w+)?# ?$'         # SDK: isvp_t31# / isvp_t20# … (T10 은 isvp# )
+        - '^OpenIPC ?# ?$'
+        - '^[A-Za-z][A-Za-z0-9_.@-]{1,31} ?# ?$'
+      # SDK: 아무 키(bootdelay 1). OpenIPC u-boot-ingenic 빌드는 "Press ENTER to interrupt boot" (CR 키),
+      # OpenIPC T40 은 "Press Ctrl-c to abort autoboot". 기본은 Ctrl-C, OpenIPC Ingenic 빌드면 profile 을 ingenic-openipc 로.
+      interrupt_sequences: ["\x03"]
+      console: ttyS1
+    flash:
+      type: spi-nor
+      expected_size: 16MiB
+      env_offset_hint: 0x3C000        # SDK 유도값 0x3C000/0x4000, OpenIPC 0x40000/0x10000
+      mtd_id: jz_sfc
+    hunt:
+      vendor_family: ingenic-oem
+
+  ingenic-openipc:
+    extends: ingenic-t-series
+    description: OpenIPC 로 교체된 Ingenic 카메라 (keyed autoboot, CR 로 중단)
+    uart:
+      autoboot_patterns: ['(?i)press enter to interrupt boot']
+      # 전원 투입 직후에는 직전 명령이 없으므로 CR 반복이 안전하다. 프롬프트를 확인하면 즉시 멈춘다.
+      interrupt_sequences: ["\r"]
+
+  sigmastar-ipcam:
+    extends: generic-ipcam
+    description: SigmaStar/MStar 계열 ARM IP 카메라 (Infinity5/6/6E/6C, MSC313E)
+    soc_family: sigmastar
+    arch: arm
+    uart:
+      baud_candidates: [115200]
+      uboot_prompts:
+        - '^(SigmaStar|MStar) ?# ?$'
+        - '^OpenIPC ?# ?$'
+        - '^[A-Za-z][A-Za-z0-9_.@-]{1,31} ?# ?$'
+      # SDK: keyed autoboot, 메시지 없음, CONFIG_AUTOBOOT_DELAY_STR "\x0d"(CR), bootdelay 0 → 입력 버퍼를 두 번만 확인.
+      # 사람이 전원을 넣는 순간에 맞춰 CR 을 짧은 간격으로 보내야 한다 (§8.6-2).
+      autoboot_silent: true
+      interrupt_sequences: ["\r"]
+      console: ttyS0
+    flash:
+      type: spi-nor
+      mtd_id: NOR_FLASH
+
+  novatek-ipcam:
+    extends: generic-ipcam
+    description: Novatek NA51055 계열 (bootdelay 0, 아무 키)
+    soc_family: novatek
+    arch: arm
+    uart:
+      uboot_prompts: ['^nvt@\w+: ?$', '^=> ?$', '^[A-Za-z][A-Za-z0-9_.@-]{1,31} ?# ?$']
+      autoboot_silent: true           # bootdelay 0: 전원 투입 순간의 입력만 확인
+      interrupt_sequences: ["\x03"]
+
+  grainmedia-ipcam:
+    extends: generic-ipcam
+    description: Grain Media GM8126/GM8139/GM8210/GM8287 계열 (bootdelay 3)
+    soc_family: grainmedia
+    arch: arm
+    uart:
+      uboot_prompts: ['^(GM|A320) ?# ?$', '^[A-Za-z][A-Za-z0-9_.@-]{1,31} ?# ?$']
+
+  rockchip-ipcam:
+    extends: generic-ipcam
+    description: Rockchip 계열 (U-Boot next-dev, Ctrl-C 만 인식)
+    soc_family: rockchip
+    arch: arm
+    uart:
+      baud_candidates: [1500000, 115200]
+      uboot_prompts: ['^=> ?$']
+      autoboot_patterns: ["Hit key to stop autoboot\\('CTRL\\+C'\\)"]
+      interrupt_sequences: ["\x03"]
+
+  # --- 테스트/데모용 시뮬레이터 프로필 (pweh-mock-device) ---
+  mock-hisilicon:
+    extends: hisilicon-ipcam
+    description: pweh.mocktarget 시뮬레이터 (HiSilicon 유사, 16MiB SPI NOR, ARM)
+    vendor: pweh-mock
+    uart:
+      baud_candidates: [115200]
+    flash:
+      type: spi-nor
+      expected_size: 16MiB
+    hunt:
+      vendor_family: hisilicon-oem
+
+  mock-ingenic:
+    extends: ingenic-t-series
+    description: pweh.mocktarget 시뮬레이터 (Ingenic 유사, 16MiB SPI NOR, MIPS)
+    vendor: pweh-mock

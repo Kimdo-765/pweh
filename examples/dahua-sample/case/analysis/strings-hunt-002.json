@@ -1,0 +1,308 @@
+{
+  "schema": "pweh.fwtriage.strings-hunt/v1",
+  "tool": "fw_strings_hunt",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-dahua-sample",
+  "generated_at": "2026-10-18T17:41:27.385Z",
+  "input": {
+    "path": "extract/rootfs-001/usr/bin/sonia",
+    "size": 1728492,
+    "size_human": "1.65 MiB"
+  },
+  "params": {
+    "patterns": [
+      "dahua",
+      "lit:127.0.0.1"
+    ],
+    "min_severity": null,
+    "include": null,
+    "max_hits": 500,
+    "per_pattern_cap": 50,
+    "pattern_source": "<REPO>/src/pweh/data/cctv-hunt-patterns.yaml",
+    "pattern_sha256": "476f3c5099cdc3df422a0f719985534bb229b5a4a8a8ca2af7fdbac65e24f68e"
+  },
+  "hits": [
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 3081,
+      "offset_hex": "0xc09",
+      "pattern_id": "dh-current-config",
+      "category": "info-leak",
+      "finding_category": "info-leak",
+      "severity": "high",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/current_config/",
+      "context": "/current_config/"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 2878,
+      "offset_hex": "0xb3e",
+      "pattern_id": "dh-login-loopback-local",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "low",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "Loopback",
+      "context": "Loopback"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 3051,
+      "offset_hex": "0xbeb",
+      "pattern_id": "custom-lit-ebb56da9",
+      "category": "custom",
+      "finding_category": "other",
+      "severity": "info",
+      "vendor": "custom",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "127.0.0.1",
+      "context": "127.0.0.1"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 2891,
+      "offset_hex": "0xb4b",
+      "pattern_id": "dh-login-fields",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "clientType",
+      "context": "clientType"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 2902,
+      "offset_hex": "0xb56",
+      "pattern_id": "dh-login-fields",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "loginType",
+      "context": "loginType"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 2815,
+      "offset_hex": "0xaff",
+      "pattern_id": "dh-rpc2-endpoints",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "global.login",
+      "context": "global.login"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 2828,
+      "offset_hex": "0xb0c",
+      "pattern_id": "dh-rpc2-endpoints",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/RPC2_Login",
+      "context": "/RPC2_Login"
+    },
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "offset": 3020,
+      "offset_hex": "0xbcc",
+      "pattern_id": "dh-rpc2-endpoints",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "dahua",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/RPC2",
+      "context": "/RPC2"
+    }
+  ],
+  "summary": {
+    "files_scanned": 1,
+    "bytes_scanned": 1728492,
+    "hits_total": 8,
+    "hits_stored": 8,
+    "by_severity": {
+      "low": 1,
+      "info": 6,
+      "high": 1
+    },
+    "patterns_matched": 5,
+    "patterns_selected": 9,
+    "vendor_scores": {
+      "dahua": 4
+    },
+    "vendor_family_guess": "dahua-like",
+    "skipped_large_files": 0,
+    "truncated": false,
+    "rootfs_dirs": [
+      "extract/rootfs-001"
+    ]
+  },
+  "by_pattern": {
+    "dh-current-config": {
+      "count": 1,
+      "files": 1,
+      "severity": "high",
+      "category": "info-leak",
+      "vendor": "dahua"
+    },
+    "dh-login-loopback-local": {
+      "count": 1,
+      "files": 1,
+      "severity": "low",
+      "category": "auth-bypass",
+      "vendor": "dahua"
+    },
+    "dh-rpc2-endpoints": {
+      "count": 3,
+      "files": 1,
+      "severity": "info",
+      "category": "auth-bypass",
+      "vendor": "dahua"
+    },
+    "dh-login-fields": {
+      "count": 2,
+      "files": 1,
+      "severity": "info",
+      "category": "auth-bypass",
+      "vendor": "dahua"
+    },
+    "custom-lit-ebb56da9": {
+      "count": 1,
+      "files": 1,
+      "severity": "info",
+      "category": "custom",
+      "vendor": "custom"
+    }
+  },
+  "top_files": [
+    {
+      "file": "/usr/bin/sonia",
+      "path": "extract/rootfs-001/usr/bin/sonia",
+      "score": 12,
+      "patterns": [
+        "dh-current-config",
+        "dh-login-loopback-local",
+        "dh-login-fields",
+        "dh-rpc2-endpoints",
+        "custom-lit-ebb56da9"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "id": "dh-login-netkeyboard",
+      "description": "global.login의 clientType NetKeyboard 분기. 기능 미지원 장비에서 비밀번호 검증 없이 성공하는지 디컴파일로 확인.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-login-loopback-local",
+      "description": "loginType Loopback(+ clientType Local, 클라이언트가 쓴 ipAddr 127.0.0.1) 신뢰 분기. 일반 단어이므로 dh-login-fields와 같은 바이너리에서 날 때만 의미.",
+      "result": "match",
+      "evidence_ref": "/usr/bin/sonia@0xb3e",
+      "count": 1,
+      "severity": "low",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-login-fields",
+      "description": "Dahua 로그인 분기 키. 값마다 검증 경로를 표로 작성(cctv-vuln-patterns.md 3.2).",
+      "result": "match",
+      "evidence_ref": "/usr/bin/sonia@0xb4b",
+      "count": 2,
+      "severity": "info",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-rpc2-endpoints",
+      "description": "JSON-RPC 로그인 진입점(HTTP /RPC2_Login, DHIP 공용 로직).",
+      "result": "match",
+      "evidence_ref": "/usr/bin/sonia@0xaff",
+      "count": 3,
+      "severity": "info",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-current-config",
+      "description": "/current_config/ <-> /mnt/mtd/Config/ 매핑. 사용자 DB(passwd, Account1) 무인증 다운로드와 pass-the-hash(bashis 2017, ICSA-17-124-02).",
+      "result": "match",
+      "evidence_ref": "/usr/bin/sonia@0xc09",
+      "count": 1,
+      "severity": "high",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-public-config-allowlist",
+      "description": "의도적 공개 파일. 응급 수정이 이 두 파일만 허용하는 하드코딩 allowlist였음(bashis). 같은 디렉터리의 민감 파일 노출 여부 확인.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "low",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-loginex-js",
+      "description": "888888 계정의 로컬 전용 제한이 클라이언트 JS에서만 검사됨(bashis PoC 주석, CVE 미확인): https://github.com/mcw0/PoC/blob/master/dahua-backdoor-PoC.py",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "info",
+      "vendor": "dahua"
+    },
+    {
+      "id": "dh-videotalk",
+      "description": "인증 없는 /videotalk HTTP 엔드포인트(Tenable TRA-2019-36).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "dahua"
+    },
+    {
+      "id": "custom-lit-ebb56da9",
+      "description": "사용자 지정 리터럴: 127.0.0.1",
+      "result": "match",
+      "evidence_ref": "/usr/bin/sonia@0xbeb",
+      "count": 1,
+      "severity": "info",
+      "vendor": "custom"
+    }
+  ],
+  "commented_hits": [],
+  "commented_hit_count": 0,
+  "skipped_large_files": [],
+  "errors": [],
+  "notes": [],
+  "elapsed_seconds": 0.047
+}

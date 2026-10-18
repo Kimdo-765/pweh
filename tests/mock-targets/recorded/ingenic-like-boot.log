@@ -1,0 +1,155 @@
+
+
+U-Boot SPL 2013.07 (Dec 09 2020 - 11:32:38)
+Timer init
+CLK stop
+PLL init
+pll_init:366
+nf=116 nr = 1 od0 = 1 od1 = 2
+cppcr is 07405100
+CPM_CPAPCR 0750510d
+nf=99 nr = 1 od0 = 1 od1 = 2
+cppcr is 06305100
+CPM_CPMPCR 0630510d
+cppcr 0x9a7b5510
+apll_freq 1392000000
+mpll_freq 1188000000
+ddr sel mpll, cpu sel apll
+ddrfreq 594000000
+cclk  1392000000
+l2clk 696000000
+h0clk 237600000
+h2clk 237600000
+pclk  118800000
+CLK init
+SDRAM init
+sdram init start
+DDR clk rate 594000000
+sdram init finished
+SDRAM init ok
+board_init_r
+image entry point: 0x80100000
+
+
+U-Boot 2013.07 (Dec 09 2020 - 11:32:38)
+
+Board: ISVP (Ingenic XBurst T31 SoC)
+DRAM:  64 MiB
+Top of RAM usable for U-Boot at: 84000000
+Reserving 446k for U-Boot at: 83f90000
+Reserving 32784k for malloc() at: 81f8c000
+Reserving 32 Bytes for Board Info at: 81f8bfe0
+Reserving 124 Bytes for Global Data at: 81f8bf60
+Reserving 128k for boot params() at: 81f6bf60
+Stack Pointer at: 81f6bf48
+Now running in RAM - U-Boot at: 83f90000
+MMC:   msc: 0
+the manufacturer 68
+SF: Detected BY25Q128AS
+
+In:    serial
+Out:   serial
+Err:   serial
+Net:   ====>PHY not found!Jz4775-9161
+Hit any key to stop autoboot:  1  0 
+the manufacturer 68
+SF: Detected BY25Q128AS
+
+--->probe spend 4 ms
+SF: 2097152 bytes @ 0x50000 Read: OK
+--->read spend 291 ms
+## Booting kernel from Legacy Image at 80600000 ...
+   Image Name:   Linux-3.10.14__isvp_swan_1.0__
+   Image Type:   MIPS Linux Kernel Image (lzma compressed)
+   Data Size:    399098 Bytes = 389.7 KiB
+   Load Address: 80010000
+   Entry Point:  80409520
+   Verifying Checksum ... OK
+   Uncompressing Kernel Image ... OK
+
+Starting kernel ...
+
+Linux version 3.10.14__isvp_swan_1.0__ (pweh@synthetic-build) (gcc version 4.7.2 (Ingenic r2.3.3 2016.12) ) #1 PREEMPT Wed Dec 9 11:42:26 CST 2020
+bootconsole [early0] enabled
+CPU0 RESET ERROR PC:00000000
+CPU0 revision is: 00d00100 (Ingenic Xburst)
+FPU revision is: 00b70000
+CCLK:1392MHz L2CLK:696Mhz H0CLK:237MHz H2CLK:237Mhz PCLK:118Mhz
+Determined physical RAM map:
+ memory: 0029a000 @ 00010000 (usable)
+ memory: 00036000 @ 002aa000 (usable after init)
+User-defined physical RAM map:
+ memory: 02a00000 @ 00000000 (usable)
+Zone ranges:
+  Normal   [mem 0x00000000-0x029fffff]
+Movable zone start for each node
+Early memory node ranges
+  node   0: [mem 0x00000000-0x029fffff]
+Primary instruction cache 32kB, 8-way, VIPT, linesize 32 bytes.
+Primary data cache 32kB, 8-way, VIPT, no aliases, linesize 32 bytes
+pls check processor_id[0x00d00100],sc_jz not support!
+MIPS secondary cache 128kB, 8-way, linesize 32 bytes.
+Built 1 zonelists in Zone order, mobility grouping off.  Total pages: 10668
+Kernel command line: console=ttyS1,115200n8 mem=42M@0x0 rmem=22M@0x2a00000 init=/linuxrc rootfstype=squashfs root=/dev/mtdblock3 rw mtdparts=jz_sfc:256k(boot),64k(env),2048k(kernel),4096k(rootfs),9920k(appfs)
+PID hash table entries: 256 (order: -2, 1024 bytes)
+Dentry cache hash table entries: 8192 (order: 3, 32768 bytes)
+Inode-cache hash table entries: 4096 (order: 2, 16384 bytes)
+Memory: 39176k/43008k available (2654k kernel code, 3832k reserved, 853k data, 216k init, 0k highmem)
+SLUB: HWalign=32, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+Preemptible hierarchical RCU implementation.
+NR_IRQS:418
+clockevents_config_and_register success.
+Calibrating delay loop... 1392.64 BogoMIPS (lpj=6963200)
+pid_max: default: 32768 minimum: 301
+Mount-cache hash table entries: 512
+NET: Registered protocol family 16
+bio: create slab <bio-0> at 0
+jz-dma jz-dma: JZ SoC DMA initialized
+SCSI subsystem initialized
+usbcore: registered new interface driver usbfs
+usbcore: registered new interface driver hub
+usbcore: registered new device driver usb
+Switching to clocksource jz_clocksource
+NET: Registered protocol family 2
+TCP established hash table entries: 512 (order: 0, 4096 bytes)
+TCP bind hash table entries: 512 (order: -1, 2048 bytes)
+TCP: Hash tables configured (established 512 bind 512)
+TCP: reno registered
+UDP hash table entries: 256 (order: 0, 4096 bytes)
+UDP-Lite hash table entries: 256 (order: 0, 4096 bytes)
+NET: Registered protocol family 1
+squashfs: version 4.0 (2009/01/31) Phillip Lougher
+jffs2: version 2.2. (NAND) © 2001-2006 Red Hat, Inc.
+msgmni has been set to 76
+io scheduler noop registered
+io scheduler cfq registered (default)
+jz-uart.1: ttyS1 at MMIO 0x10031000 (irq = 58) is a uart1
+console [ttyS1] enabled, bootconsole disabled
+brd: module loaded
+jz SADC driver registeres over!
+the id code = 684018, the flash name is BY25Q128AS
+JZ SFC Controller for SFC channel 0 driver register
+5 cmdlinepart partitions found on MTD device jz_sfc
+Creating 5 MTD partitions on "jz_sfc":
+0x000000000000-0x000000040000 : "boot"
+0x000000040000-0x000000050000 : "env"
+0x000000050000-0x000000250000 : "kernel"
+0x000000250000-0x000000650000 : "rootfs"
+0x000000650000-0x000001000000 : "appfs"
+SPI NOR MTD LOAD OK
+tun: Universal TUN/TAP device driver, 1.6
+usbcore: registered new interface driver usb-storage
+i2c /dev entries driver
+jz_wdt jz-wdt: watchdog timer driver registered
+TCP: cubic registered
+NET: Registered protocol family 17
+input: gpio-keys as /devices/platform/gpio-keys/input/input0
+drivers/rtc/hctosys.c: unable to open rtc device (rtc0)
+VFS: Mounted root (squashfs filesystem) readonly on device 31:3.
+Freeing unused kernel memory: 216K (802aa000 - 802e0000)
+init started: BusyBox v1.22.1 (2020-12-09 11:51:20 CST)
+mount: mounting tmpfs on /dev/shm failed: No such file or directory
+Starting telnetd...
+ipcam: starting synthetic httpd on port 80
+
+Please press Enter to activate this console. 

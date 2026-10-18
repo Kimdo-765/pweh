@@ -1,0 +1,246 @@
+
+
+U-Boot SPL 2013.07 (Dec 09 2020 - 11:32:38)
+Timer init
+CLK stop
+PLL init
+pll_init:366
+nf=116 nr = 1 od0 = 1 od1 = 2
+cppcr is 07405100
+CPM_CPAPCR 0750510d
+nf=99 nr = 1 od0 = 1 od1 = 2
+cppcr is 06305100
+CPM_CPMPCR 0630510d
+cppcr 0x9a7b5510
+apll_freq 1392000000
+mpll_freq 1188000000
+ddr sel mpll, cpu sel apll
+ddrfreq 594000000
+cclk  1392000000
+l2clk 696000000
+h0clk 237600000
+h2clk 237600000
+pclk  118800000
+CLK init
+SDRAM init
+sdram init start
+DDR clk rate 594000000
+sdram init finished
+SDRAM init ok
+board_init_r
+image entry point: 0x80100000
+
+
+U-Boot 2013.07 (Dec 09 2020 - 11:32:38)
+
+Board: ISVP (Ingenic XBurst T31 SoC)
+DRAM:  64 MiB
+Top of RAM usable for U-Boot at: 84000000
+Reserving 446k for U-Boot at: 83f90000
+Reserving 32784k for malloc() at: 81f8c000
+Reserving 32 Bytes for Board Info at: 81f8bfe0
+Reserving 124 Bytes for Global Data at: 81f8bf60
+Reserving 128k for boot params() at: 81f6bf60
+Stack Pointer at: 81f6bf48
+Now running in RAM - U-Boot at: 83f90000
+MMC:   msc: 0
+the manufacturer 68
+SF: Detected BY25Q128AS
+
+In:    serial
+Out:   serial
+Err:   serial
+Net:   ====>PHY not found!Jz4775-9161
+Hit any key to stop autoboot:  1  0 
+the manufacturer 68
+SF: Detected BY25Q128AS
+
+--->probe spend 4 ms
+SF: 2097152 bytes @ 0x50000 Read: OK
+--->read spend 291 ms
+## Booting kernel from Legacy Image at 80600000 ...
+   Image Name:   Linux-3.10.14__isvp_swan_1.0__
+   Image Type:   MIPS Linux Kernel Image (lzma compressed)
+   Data Size:    399098 Bytes = 389.7 KiB
+   Load Address: 80010000
+   Entry Point:  80409520
+   Verifying Checksum ... OK
+   Uncompressing Kernel Image ... OK
+
+Starting kernel ...
+
+Linux version 3.10.14__isvp_swan_1.0__ (pweh@synthetic-build) (gcc version 4.7.2 (Ingenic r2.3.3 2016.12) ) #1 PREEMPT Wed Dec 9 11:42:26 CST 2020
+bootconsole [early0] enabled
+CPU0 RESET ERROR PC:00000000
+CPU0 revision is: 00d00100 (Ingenic Xburst)
+FPU revision is: 00b70000
+CCLK:1392MHz L2CLK:696Mhz H0CLK:237MHz H2CLK:237Mhz PCLK:118Mhz
+Determined physical RAM map:
+ memory: 0029a000 @ 00010000 (usable)
+ memory: 00036000 @ 002aa000 (usable after init)
+User-defined physical RAM map:
+ memory: 02a00000 @ 00000000 (usable)
+Zone ranges:
+  Normal   [mem 0x00000000-0x029fffff]
+Movable zone start for each node
+Early memory node ranges
+  node   0: [mem 0x00000000-0x029fffff]
+Primary instruction cache 32kB, 8-way, VIPT, linesize 32 bytes.
+Primary data cache 32kB, 8-way, VIPT, no aliases, linesize 32 bytes
+pls check processor_id[0x00d00100],sc_jz not support!
+MIPS secondary cache 128kB, 8-way, linesize 32 bytes.
+Built 1 zonelists in Zone order, mobility grouping off.  Total pages: 10668
+Kernel command line: console=ttyS1,115200n8 mem=42M@0x0 rmem=22M@0x2a00000 init=/linuxrc rootfstype=squashfs root=/dev/mtdblock3 rw mtdparts=jz_sfc:256k(boot),64k(env),2048k(kernel),4096k(rootfs),9920k(appfs)
+PID hash table entries: 256 (order: -2, 1024 bytes)
+Dentry cache hash table entries: 8192 (order: 3, 32768 bytes)
+Inode-cache hash table entries: 4096 (order: 2, 16384 bytes)
+Memory: 39176k/43008k available (2654k kernel code, 3832k reserved, 853k data, 216k init, 0k highmem)
+SLUB: HWalign=32, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+Preemptible hierarchical RCU implementation.
+NR_IRQS:418
+clockevents_config_and_register success.
+Calibrating delay loop... 1392.64 BogoMIPS (lpj=6963200)
+pid_max: default: 32768 minimum: 301
+Mount-cache hash table entries: 512
+NET: Registered protocol family 16
+bio: create slab <bio-0> at 0
+jz-dma jz-dma: JZ SoC DMA initialized
+SCSI subsystem initialized
+usbcore: registered new interface driver usbfs
+usbcore: registered new interface driver hub
+usbcore: registered new device driver usb
+Switching to clocksource jz_clocksource
+NET: Registered protocol family 2
+TCP established hash table entries: 512 (order: 0, 4096 bytes)
+TCP bind hash table entries: 512 (order: -1, 2048 bytes)
+TCP: Hash tables configured (established 512 bind 512)
+TCP: reno registered
+UDP hash table entries: 256 (order: 0, 4096 bytes)
+UDP-Lite hash table entries: 256 (order: 0, 4096 bytes)
+NET: Registered protocol family 1
+squashfs: version 4.0 (2009/01/31) Phillip Lougher
+jffs2: version 2.2. (NAND) © 2001-2006 Red Hat, Inc.
+msgmni has been set to 76
+io scheduler noop registered
+io scheduler cfq registered (default)
+jz-uart.1: ttyS1 at MMIO 0x10031000 (irq = 58) is a uart1
+console [ttyS1] enabled, bootconsole disabled
+brd: module loaded
+jz SADC driver registeres over!
+the id code = 684018, the flash name is BY25Q128AS
+JZ SFC Controller for SFC channel 0 driver register
+5 cmdlinepart partitions found on MTD device jz_sfc
+Creating 5 MTD partitions on "jz_sfc":
+0x000000000000-0x000000040000 : "boot"
+0x000000040000-0x000000050000 : "env"
+0x000000050000-0x000000250000 : "kernel"
+0x000000250000-0x000000650000 : "rootfs"
+0x000000650000-0x000001000000 : "appfs"
+SPI NOR MTD LOAD OK
+tun: Universal TUN/TAP device driver, 1.6
+usbcore: registered new interface driver usb-storage
+i2c /dev entries driver
+jz_wdt jz-wdt: watchdog timer driver registered
+TCP: cubic registered
+NET: Registered protocol family 17
+input: gpio-keys as /devices/platform/gpio-keys/input/input0
+drivers/rtc/hctosys.c: unable to open rtc device (rtc0)
+VFS: Mounted root (squashfs filesystem) readonly on device 31:3.
+Freeing unused kernel memory: 216K (802aa000 - 802e0000)
+init started: BusyBox v1.22.1 (2020-12-09 11:51:20 CST)
+mount: mounting tmpfs on /dev/shm failed: No such file or directory
+Starting telnetd...
+ipcam: starting synthetic httpd on port 80
+
+Please press Enter to activate this console. 
+
+ingenic login: root
+Password: 
+# cat /proc/mtd
+dev:    size   erasesize  name
+mtd0: 00040000 00010000 "boot"
+mtd1: 00010000 00010000 "env"
+mtd2: 00200000 00010000 "kernel"
+mtd3: 00400000 00010000 "rootfs"
+mtd4: 009b0000 00010000 "appfs"
+# cat /proc/cmdline
+console=ttyS1,115200n8 mem=42M@0x0 rmem=22M@0x2a00000 init=/linuxrc rootfstype=squashfs root=/dev/mtdblock3 rw mtdparts=jz_sfc:256k(boot),64k(env),2048k(kernel),4096k(rootfs),9920k(appfs)
+# uname -a
+Linux ingenic 3.10.14__isvp_swan_1.0__ #1 PREEMPT Wed Dec 9 11:42:26 CST 2020 mips GNU/Linux
+# cat /proc/cpuinfo
+system type		: T31
+machine			: Unknown
+processor		: 0
+cpu model		: Ingenic Xburst V0.0  FPU V0.0
+BogoMIPS		: 1392.64
+wait instruction	: yes
+microsecond timers	: no
+tlb_entries		: 32
+extra interrupt vector	: yes
+hardware watchpoint	: yes, count: 1, address/irw mask: [0x0fff]
+isa			: mips32r2
+ASEs implemented	: mxu
+shadow register sets	: 1
+kscratch registers	: 0
+core			: 0
+VCED exceptions		: not available
+VCEI exceptions		: not available
+
+Hardware		: isvp
+Serial		: 00000000 00000000 00000000 00000000
+# mount
+/dev/root on / type squashfs (ro,relatime)
+devtmpfs on /dev type devtmpfs (rw,relatime,size=19588k,nr_inodes=4897,mode=755)
+proc on /proc type proc (rw,relatime)
+sysfs on /sys type sysfs (rw,relatime)
+tmpfs on /tmp type tmpfs (rw,relatime)
+/dev/mtdblock4 on /app type squashfs (ro,relatime)
+# ps
+  PID USER       VSZ STAT COMMAND
+    1 root      1620 S    init
+    2 root         0 SW   [kthreadd]
+    3 root         0 SW   [ksoftirqd/0]
+    5 root         0 SW<  [kworker/0:0H]
+    6 root         0 SW   [kworker/u2:0]
+    7 root         0 SW<  [khelper]
+    8 root         0 SW   [kdevtmpfs]
+  115 root         0 SW<  [kblockd]
+  152 root         0 SW   [kswapd0]
+  430 root      1616 S    syslogd -n
+  432 root      1616 S    klogd -n
+  471 root      1612 S    /usr/sbin/telnetd
+  476 root      2364 S    /usr/sbin/httpd -p 80 -h /var/www
+  610 root      1612 S    -sh
+  613 root      1600 R    ps
+# dd if=/dev/mtd1 bs=256 count=1 | hexdump -C
+1+0 records in
+1+0 records out
+256 bytes (256B) copied, 0.000143 seconds, 1.7MB/s
+00000000  08 a1 e3 78 62 61 75 64  72 61 74 65 3d 31 31 35  |...xbaudrate=115|
+00000010  32 30 30 00 62 6f 6f 74  61 72 67 73 3d 63 6f 6e  |200.bootargs=con|
+00000020  73 6f 6c 65 3d 74 74 79  53 31 2c 31 31 35 32 30  |sole=ttyS1,11520|
+00000030  30 6e 38 20 6d 65 6d 3d  34 32 4d 40 30 78 30 20  |0n8 mem=42M@0x0 |
+00000040  72 6d 65 6d 3d 32 32 4d  40 30 78 32 61 30 30 30  |rmem=22M@0x2a000|
+00000050  30 30 20 69 6e 69 74 3d  2f 6c 69 6e 75 78 72 63  |00 init=/linuxrc|
+00000060  20 72 6f 6f 74 66 73 74  79 70 65 3d 73 71 75 61  | rootfstype=squa|
+00000070  73 68 66 73 20 72 6f 6f  74 3d 2f 64 65 76 2f 6d  |shfs root=/dev/m|
+00000080  74 64 62 6c 6f 63 6b 33  20 72 77 20 6d 74 64 70  |tdblock3 rw mtdp|
+00000090  61 72 74 73 3d 6a 7a 5f  73 66 63 3a 32 35 36 6b  |arts=jz_sfc:256k|
+000000a0  28 62 6f 6f 74 29 2c 36  34 6b 28 65 6e 76 29 2c  |(boot),64k(env),|
+000000b0  32 30 34 38 6b 28 6b 65  72 6e 65 6c 29 2c 34 30  |2048k(kernel),40|
+000000c0  39 36 6b 28 72 6f 6f 74  66 73 29 2c 39 39 32 30  |96k(rootfs),9920|
+000000d0  6b 28 61 70 70 66 73 29  00 62 6f 6f 74 63 6d 64  |k(appfs).bootcmd|
+000000e0  3d 73 66 20 70 72 6f 62  65 3b 73 66 20 72 65 61  |=sf probe;sf rea|
+000000f0  64 20 30 78 38 30 36 30  30 30 30 30 20 30 78 35  |d 0x80600000 0x5|
+00000100
+# md5sum /dev/mtd1
+8a64ba1cef769fffb4161d2600486fe9  /dev/mtd1
+# netstat -tln
+Active Internet connections (only servers)
+Proto Recv-Q Send-Q Local Address           Foreign Address         State       
+tcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN      
+tcp        0      0 0.0.0.0:23              0.0.0.0:*               LISTEN      
+tcp        0      0 0.0.0.0:8554            0.0.0.0:*               LISTEN      
+# xyzzy
+-sh: xyzzy: not found
+# 

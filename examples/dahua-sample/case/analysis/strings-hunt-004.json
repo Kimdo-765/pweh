@@ -1,0 +1,157 @@
+{
+  "schema": "pweh.fwtriage.strings-hunt/v1",
+  "tool": "fw_strings_hunt",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-dahua-sample",
+  "generated_at": "2026-10-18T17:41:27.485Z",
+  "input": {
+    "path": "extract/rootfs-001/usr/sbin/httpd",
+    "size": 1803704,
+    "size_human": "1.72 MiB"
+  },
+  "params": {
+    "patterns": [
+      "re:^/[A-Za-z0-9_.-]+/$",
+      "re:^\\.(?:css|js|png|jpg|gif|html?)$"
+    ],
+    "min_severity": null,
+    "include": null,
+    "max_hits": 500,
+    "per_pattern_cap": 50,
+    "pattern_source": "<REPO>/src/pweh/data/cctv-hunt-patterns.yaml",
+    "pattern_sha256": "476f3c5099cdc3df422a0f719985534bb229b5a4a8a8ca2af7fdbac65e24f68e"
+  },
+  "hits": [
+    {
+      "file": "/usr/sbin/httpd",
+      "path": "extract/rootfs-001/usr/sbin/httpd",
+      "offset": 3385,
+      "offset_hex": "0xd39",
+      "pattern_id": "custom-re-2f4a55cd",
+      "category": "custom",
+      "finding_category": "other",
+      "severity": "info",
+      "vendor": "custom",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": ".css",
+      "context": ".css"
+    },
+    {
+      "file": "/usr/sbin/httpd",
+      "path": "extract/rootfs-001/usr/sbin/httpd",
+      "offset": 3602,
+      "offset_hex": "0xe12",
+      "pattern_id": "custom-re-2f4a55cd",
+      "category": "custom",
+      "finding_category": "other",
+      "severity": "info",
+      "vendor": "custom",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": ".jpg",
+      "context": ".jpg"
+    },
+    {
+      "file": "/usr/sbin/httpd",
+      "path": "extract/rootfs-001/usr/sbin/httpd",
+      "offset": 3631,
+      "offset_hex": "0xe2f",
+      "pattern_id": "custom-re-2f4a55cd",
+      "category": "custom",
+      "finding_category": "other",
+      "severity": "info",
+      "vendor": "custom",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": ".png",
+      "context": ".png"
+    },
+    {
+      "file": "/usr/sbin/httpd",
+      "path": "extract/rootfs-001/usr/sbin/httpd",
+      "offset": 3858,
+      "offset_hex": "0xf12",
+      "pattern_id": "custom-re-52cbd49c",
+      "category": "custom",
+      "finding_category": "other",
+      "severity": "info",
+      "vendor": "custom",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/static/",
+      "context": "/static/"
+    }
+  ],
+  "summary": {
+    "files_scanned": 1,
+    "bytes_scanned": 1803704,
+    "hits_total": 4,
+    "hits_stored": 4,
+    "by_severity": {
+      "info": 4
+    },
+    "patterns_matched": 2,
+    "patterns_selected": 2,
+    "vendor_scores": {},
+    "vendor_family_guess": null,
+    "skipped_large_files": 0,
+    "truncated": false,
+    "rootfs_dirs": [
+      "extract/rootfs-001"
+    ]
+  },
+  "by_pattern": {
+    "custom-re-2f4a55cd": {
+      "count": 3,
+      "files": 1,
+      "severity": "info",
+      "category": "custom",
+      "vendor": "custom"
+    },
+    "custom-re-52cbd49c": {
+      "count": 1,
+      "files": 1,
+      "severity": "info",
+      "category": "custom",
+      "vendor": "custom"
+    }
+  },
+  "top_files": [
+    {
+      "file": "/usr/sbin/httpd",
+      "path": "extract/rootfs-001/usr/sbin/httpd",
+      "score": 4,
+      "patterns": [
+        "custom-re-52cbd49c",
+        "custom-re-2f4a55cd"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "id": "custom-re-52cbd49c",
+      "description": "사용자 지정 정규식: ^/[A-Za-z0-9_.-]+/$",
+      "result": "match",
+      "evidence_ref": "/usr/sbin/httpd@0xf12",
+      "count": 1,
+      "severity": "info",
+      "vendor": "custom"
+    },
+    {
+      "id": "custom-re-2f4a55cd",
+      "description": "사용자 지정 정규식: ^\\.(?:css|js|png|jpg|gif|html?)$",
+      "result": "match",
+      "evidence_ref": "/usr/sbin/httpd@0xd39",
+      "count": 3,
+      "severity": "info",
+      "vendor": "custom"
+    }
+  ],
+  "commented_hits": [],
+  "commented_hit_count": 0,
+  "skipped_large_files": [],
+  "errors": [],
+  "notes": [],
+  "elapsed_seconds": 0.042
+}

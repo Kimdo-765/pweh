@@ -1,0 +1,345 @@
+{
+ "schema": "pweh.findings/v1",
+ "case_id": "20261018-unknown-dahua-ip-ipc",
+ "findings": [
+  {
+   "title": "httpd check_auth 의 하드코딩 토큰 비교로 인증 생략",
+   "category": "backdoor",
+   "severity": "critical",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "check_auth 가 요청의 토큰 값을 펌웨어에 고정된 문자열과 비교해 일치하면 자격증명 검사 없이 인증 성공을 반환한다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/sbin/httpd",
+    "function": "check_auth",
+    "address": "0x2235c",
+    "interface": "http"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-httpd-001.json#ev_d81e375ef2b6f79e3d1f82d19357ea2968cf1cc7912e1d0faa56425de160a61a",
+     "excerpt": "if (req->token[0] != 0 && strcmp(req->token, \"<고정 문자열, 마스킹>\") == 0) return 1;"
+    },
+    {
+     "type": "string",
+     "ref": "/usr/sbin/httpd@0xe8c",
+     "excerpt": "고정 토큰 문자열 (마스킹), VA 0x10e7d"
+    }
+   ],
+   "reasoning": "handle_client 는 모든 요청에서 check_auth 를 먼저 호출하고, check_auth 는 토큰이 일치하면 Basic 인증 검사 전에 성공을 반환한다. 같은 펌웨어를 쓰는 모든 기기에 같은 값이 있다.",
+   "verification_plan": "격리 랩의 소유 기기에서만 진행: 자격증명 없는 요청이 401 로 거부되는지 확인하는 negative test. 수정 빌드가 나오면 check_auth 디컴파일 diff.",
+   "remediation": "하드코딩 토큰 분기를 제거하고 모든 경로가 check_credentials 를 거치게 한다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea batch_decompile (ghidra)"
+   },
+   "created_at": "2026-10-18T16:31:42.208Z",
+   "references": [],
+   "id": "F-001"
+  },
+  {
+   "title": "httpd check_credentials 의 하드코딩 관리자 자격증명",
+   "category": "hardcoded-credential",
+   "severity": "high",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "check_credentials 가 사용자 이름과 비밀번호를 바이너리에 고정된 리터럴과 비교한다. 사용자가 바꿀 수 없는 공통 관리자 계정이다. 같은 값이 selftest 의 Basic 헤더에도 들어 있다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/sbin/httpd",
+    "function": "check_credentials",
+    "address": "0x22b08",
+    "interface": "http"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-httpd-001.json#ev_d81e375ef2b6f79e3d1f82d19357ea2968cf1cc7912e1d0faa56425de160a61a",
+     "excerpt": "strcmp(user, \"admin\") == 0 && strcmp(pass, \"<마스킹>\") == 0 -> return 1"
+    },
+    {
+     "type": "string",
+     "ref": "/usr/sbin/httpd@0xcce",
+     "excerpt": "Authorization: Basic <마스킹> (selftest 전용, ev_244a300a...)"
+    }
+   ],
+   "reasoning": "자격증명 저장소를 쓰지 않고 리터럴만 비교하므로 비밀번호를 바꿀 방법이 없다. Basic 헤더 문자열은 selftest(루프백 자가 점검)에서만 참조되지만 같은 자격증명을 담고 있다.",
+   "verification_plan": "격리 랩의 소유 기기에서만 진행: 웹 UI 에서 비밀번호를 바꾼 뒤에도 펌웨어 고정값이 유효한지 확인한다. 고정값으로 로그인을 시도하지는 않는다. 수정 빌드와 디컴파일 diff 를 비교한다.",
+   "remediation": "자격증명을 기기별로 설정 가능한 저장소(솔트 해시)로 옮기고, 첫 부팅 때 비밀번호 변경을 강제한다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea batch_decompile (ghidra)"
+   },
+   "created_at": "2026-10-18T16:31:50.380Z",
+   "references": [],
+   "id": "F-002"
+  },
+  {
+   "title": "httpd ping.cgi 의 host 파라미터가 필터 없이 system() 으로 전달",
+   "category": "command-injection",
+   "severity": "high",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "handle_ping_cgi 가 쿼리의 host 값을 셸 명령 템플릿에 snprintf 로 끼워 넣고 문자 검증 없이 system() 을 호출한다. 이 핸들러는 인증 뒤에 있지만, F-001 처럼 인증을 건너뛰는 경로와 결합되면 위험이 커진다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/sbin/httpd",
+    "function": "handle_ping_cgi",
+    "address": "0x22470",
+    "interface": "http"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-httpd-001.json#ev_d81e375ef2b6f79e3d1f82d19357ea2968cf1cc7912e1d0faa56425de160a61a",
+     "excerpt": "get_param(query,\"host\",host,0x80); snprintf(cmd,0x100,\"ping -c 1 %s > /tmp/ping.log 2>&1\",host); system(cmd);"
+    },
+    {
+     "type": "rea-evidence",
+     "ref": "analysis/rea-evidence-httpd-001.json#ev_d87b64bd1282dea92c2c47dc15725eb18a19f7b29f4c233bd34dfd5517ffa687",
+     "excerpt": "trace_call_path handle_client -> handle_ping_cgi -> system: reached"
+    }
+   ],
+   "reasoning": "get_param 은 URL 디코딩만 하고 셸 메타문자를 거르지 않는다. 그 값이 그대로 셸 명령 문자열이 된다. 디스패치 순서상 check_auth 를 통과해야 이 핸들러에 도달한다.",
+   "verification_plan": "격리 랩의 소유 기기에서만 진행: 정상적인 IP 값이 동작하는지 확인하고, 수정 빌드에서 입력 검증이 들어갔는지 디컴파일로 비교한다. 주입 페이로드는 보내지 않는다.",
+   "remediation": "host 를 IP/호스트명 허용 목록으로 검증하고, system() 대신 인자 배열로 execv 계열을 쓴다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea batch_decompile, trace_call_path (ghidra)"
+   },
+   "created_at": "2026-10-18T16:31:59.453Z",
+   "references": [],
+   "id": "F-003"
+  },
+  {
+   "title": "httpd is_static_resource 의 부분 문자열 판정으로 인증 생략 범위 과대",
+   "category": "auth-bypass",
+   "severity": "medium",
+   "confidence": "likely",
+   "status": "static-confirmed",
+   "summary": "check_auth 는 경로에 정적 파일 확장자 부분 문자열(.css/.js/.png/.jpg)이 어디든 들어 있거나 /static/ 으로 시작하면 인증 없이 통과시킨다. 파일 제공 경로는 웹 루트와 요청 경로를 정규화 없이 이어 붙인다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/sbin/httpd",
+    "function": "is_static_resource",
+    "address": "0x229e0",
+    "interface": "http"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-httpd-001.json#ev_d81e375ef2b6f79e3d1f82d19357ea2968cf1cc7912e1d0faa56425de160a61a",
+     "excerpt": "strncmp(path,\"/static/\",8) / strstr(path,\".css\"|\".js\"|\".png\"|\".jpg\") -> return 1"
+    },
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-httpd-001.json#ev_d81e375ef2b6f79e3d1f82d19357ea2968cf1cc7912e1d0faa56425de160a61a",
+     "excerpt": "handle_client: snprintf(full,0x200,\"%s%s\",g_root,...) -> send_file (경로 정규화 없음)"
+    }
+   ],
+   "reasoning": "CGI 핸들러는 정확한 경로 비교(bcmp, NUL 포함)로 고르고 parse_request 가 쿼리를 떼어 내므로, 이 우회는 CGI 에는 닿지 않는 것으로 보인다. 다만 일반 파일 제공은 인증 없이 이루어지고 '..' 를 거르지 않는다. 웹 루트 밖 파일이 노출되는지는 디렉터리 구성에 달려 있어 likely 로 둔다.",
+   "verification_plan": "격리 랩의 소유 기기에서만 진행: 정적 확장자가 아닌 보호 페이지가 자격증명 없이 401 로 거부되는지 negative test. 웹 루트 디렉터리 구성은 rootfs 에서 확인한다.",
+   "remediation": "확장자는 접미사로만 비교하고, 경로를 정규화(realpath)한 뒤 웹 루트 안인지 검사한다. 인증 면제는 명시적인 목록으로만 둔다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea batch_decompile (ghidra)"
+   },
+   "created_at": "2026-10-18T16:32:09.598Z",
+   "references": [],
+   "id": "F-004"
+  },
+  {
+   "title": "sonia global.login 이 클라이언트가 제공한 루프백 표시를 신뢰해 비밀번호 검사 생략",
+   "category": "auth-bypass",
+   "severity": "critical",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "rpc_global_login 은 요청 본문의 필드만으로 '로컬 요청' 여부를 판단하고(is_local_request), 로컬이면 verify_password 를 부르지 않고 세션을 발급한다. 실제 소켓 피어 주소(peer_loopback)는 계산되지만 판단에 쓰이지 않는다. Dahua 계열의 알려진 로그인 우회 클래스와 같은 구조다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/bin/sonia",
+    "function": "rpc_global_login / is_local_request",
+    "address": "0x22400",
+    "interface": "http"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-sonia-001.json#ev_5269ae69e69ad990857c22a06ecc813244a9445ae0c628e1f7c5a6edbbce2ff9",
+     "excerpt": "iVar1 = is_local_request(&l); ok = 1; if (iVar1 == 0) ok = verify_password(user, pass); send_login_result(fd, ok, user);"
+    },
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-sonia-001.json#ev_5269ae69e69ad990857c22a06ecc813244a9445ae0c628e1f7c5a6edbbce2ff9",
+     "excerpt": "is_local_request: 본문의 loginType/ipAddr 문자열만 비교. peer_is_loopback 인자는 로그 출력에만 사용"
+    }
+   ],
+   "reasoning": "/RPC2_Login 은 session_valid 검사 전에 처리되고, 로컬 판정에 쓰는 값은 모두 원격 클라이언트가 정하는 본문 필드다. send_login_result 는 ok 일 때 유효한 SessionID 를 돌려주고, 이 세션은 /RPC2 인증에 그대로 통과한다.",
+   "references": [
+    "CVE-2021-33044 (유사 클래스, Dahua)"
+   ],
+   "verification_plan": "격리 랩의 소유 기기에서만 진행: 잘못된 비밀번호의 일반 로그인이 거부되는지 negative test. 벤더 패치 버전이 있으면 is_local_request 가 소켓 피어 주소를 쓰도록 바뀌었는지 디컴파일 diff.",
+   "remediation": "로컬 신뢰 판단은 getpeername 결과(peer_loopback)로만 하고, 원격 요청에는 항상 비밀번호를 검증한다. 루프백 로그인 모드 자체를 없애는 것이 좋다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea batch_decompile (ghidra)"
+   },
+   "created_at": "2026-10-18T16:32:44.756Z",
+   "id": "F-005"
+  },
+  {
+   "title": "sonia /current_config/ 경로가 인증 없이 설정 파일(계정 해시 포함) 제공",
+   "category": "info-leak",
+   "severity": "critical",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "http_dispatch 가 /current_config/ 접두사 경로를 세션 검사보다 먼저 처리해 /mnt/mtd/Config/ 아래 파일을 그대로 돌려준다. 이 디렉터리에는 verify_password 가 읽는 계정 파일(Account1)이 있다. 경로 탈출('/', '..')은 막지만 디렉터리 안의 파일은 모두 인증 없이 읽힌다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/bin/sonia",
+    "function": "http_dispatch / serve_config_file",
+    "address": "0x21e0c",
+    "interface": "http"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-sonia-001.json#ev_5269ae69e69ad990857c22a06ecc813244a9445ae0c628e1f7c5a6edbbce2ff9",
+     "excerpt": "if (strncmp(path,\"/current_config/\",0x10)==0) { serve_config_file(fd, path+0x10); return; }  // session_valid 보다 앞"
+    },
+    {
+     "type": "string",
+     "ref": "/usr/bin/sonia@0xc09",
+     "excerpt": "/current_config/ (strings-hunt dh-current-config)"
+    },
+    {
+     "type": "triage",
+     "ref": "analysis/strings-hunt-001.json",
+     "excerpt": "/mnt/mtd/Config/Account1 @0xbd2"
+    }
+   ],
+   "reasoning": "세션 검사는 /RPC2_Login 이 아닌 경로에만 적용되는데, /current_config/ 분기가 그보다 앞에 있다. 계정 파일의 해시는 솔트 없는 빠른 해시(F-007)라 노출 시 오프라인 추측에 취약하다. Dahua 계열의 알려진 설정 노출 클래스와 같다. 런타임 계정 파일은 쓰기 가능한 파티션에 생기므로 덤프에는 없다.",
+   "references": [
+    "CVE-2017-7921 / Dahua 설정 노출 유사 클래스"
+   ],
+   "verification_plan": "격리 랩의 소유 기기에서만 진행: 수정 빌드에서 이 경로가 세션 검사 뒤로 옮겨졌는지 디컴파일 diff. 기기 자체에서는 자격증명 없는 요청이 401 을 받는지만 보고, 응답 내용은 케이스 밖으로 복사하지 않는다.",
+   "remediation": "/current_config/ 엔드포인트를 제거하거나 session_valid 뒤로 옮기고, 계정 파일은 웹으로 제공하지 않는다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea batch_decompile, trace_feature (ghidra)"
+   },
+   "created_at": "2026-10-18T16:33:12.985Z",
+   "id": "F-006"
+  },
+  {
+   "title": "sonia verify_password 가 솔트 없는 64비트 FNV-1a 해시로 비밀번호 검증",
+   "category": "weak-crypto",
+   "severity": "medium",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "pw_digest 는 user, ':' , pass 를 이어 FNV-1a 64비트(비암호 해시, 솔트·반복 없음)로 계산하고 Account1 의 저장값과 비교한다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/usr/bin/sonia",
+    "function": "pw_digest / verify_password",
+    "address": "0x22b18",
+    "interface": "http"
+   },
+   "evidence": [
+    {
+     "type": "decompilation",
+     "ref": "analysis/rea-evidence-sonia-001.json#ev_836b69250f9fe6d5d5238183f29d3fc1771fe60f2eac530533bfe8f3d9e0733c",
+     "excerpt": "초깃값 0x14650fb0:739d0383 → FNV-1a 오프셋(0xcbf29ce484222325 에 첫 바이트 연산 포함), 곱 0x1b3(+<<40) = FNV 소수 0x100000001b3"
+    }
+   ],
+   "reasoning": "FNV 는 빠른 비암호 해시이고 솔트가 사용자 이름뿐이라, 저장값이 노출되면(F-006) 오프라인 추측이 쉽다.",
+   "verification_plan": "오프라인 검증만 한다: 사용자가 알고 있는 자기 기기 비밀번호로 만든 값이 Account1 형식과 맞는지 비교한다.",
+   "remediation": "bcrypt/scrypt/PBKDF2 처럼 느리고 솔트를 쓰는 KDF 로 바꾼다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "rea batch_decompile (ghidra)"
+   },
+   "created_at": "2026-10-18T16:33:30.532Z",
+   "references": [],
+   "id": "F-007"
+  },
+  {
+   "title": "root 계정 비밀번호가 공개 기본 비밀번호 사전과 일치 (/etc/shadow, md5crypt)",
+   "category": "hardcoded-credential",
+   "severity": "critical",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "rootfs 의 /etc/shadow 에 있는 root 의 md5crypt 해시가 공개 IoT 기본 비밀번호 사전의 값과 오프라인 대조에서 일치했다. rootfs 는 읽기 전용 squashfs 라 모든 동일 펌웨어 기기에 같은 값이 있다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/etc/shadow",
+    "line": 1,
+    "interface": "uart/telnet"
+   },
+   "evidence": [
+    {
+     "type": "triage",
+     "ref": "analysis/rootfs-audit-001.json",
+     "excerpt": "builtin-default-password: root md5crypt cracked (1***)"
+    },
+    {
+     "type": "file",
+     "ref": "extract/rootfs-001/etc/shadow",
+     "excerpt": "root:$1$1Qd…:18000:0:99999:7::: (해시 일부)"
+    }
+   ],
+   "reasoning": "해시가 읽기 전용 rootfs 에 고정돼 있고, F-009 의 telnetd 와 UART 콘솔 로그인에 쓰이는 계정이다. 평문은 analysis/ 에만 남기고 마스킹했다.",
+   "verification_plan": "사용자가 명시적으로 동의하면 자기 기기의 UART 콘솔에서만 확인한다. 네트워크 로그인이나 다른 기기에는 쓰지 않는다.",
+   "remediation": "기기별 고유 비밀번호를 쓰고, root 로그인을 끈다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "fw_rootfs_audit"
+   },
+   "created_at": "2026-10-18T16:33:47.496Z",
+   "references": [],
+   "id": "F-008",
+   "updated_at": "2026-10-18T16:34:08.929Z"
+  },
+  {
+   "title": "rcS 가 부팅 때 telnetd 를 무조건 기동",
+   "category": "debug-interface",
+   "severity": "medium",
+   "confidence": "confirmed",
+   "status": "static-confirmed",
+   "summary": "/etc/init.d/rcS 20행이 설정 조건 없이 /usr/sbin/telnetd 를 백그라운드로 실행한다. F-008 의 root 계정과 함께 원격 셸 접근 면을 만든다.",
+   "location": {
+    "firmware": "dumps/flash-full.bin",
+    "file": "/etc/init.d/rcS",
+    "line": 20,
+    "interface": "telnet"
+   },
+   "evidence": [
+    {
+     "type": "triage",
+     "ref": "analysis/rootfs-audit-001.json",
+     "excerpt": "/usr/sbin/telnetd &"
+    },
+    {
+     "type": "file",
+     "ref": "extract/rootfs-001/etc/init.d/rcS",
+     "excerpt": "line 20: /usr/sbin/telnetd &"
+    }
+   ],
+   "reasoning": "읽기 전용 rootfs 의 부팅 스크립트라 사용자가 끌 방법이 없다. 실제 리스닝 여부는 아직 기기에서 보지 않았다.",
+   "references": [
+    "CVE-2017-8224",
+    "CVE-2020-24218"
+   ],
+   "verification_plan": "격리 랩의 소유 기기에서 포트 23 이 열려 있는지만 확인한다(로그인 시도 없음).",
+   "remediation": "telnetd 를 제거하거나 기본 비활성화하고, 필요하면 키 기반 SSH 로 대체한다.",
+   "produced_by": {
+    "skill": "firmware-static-analysis",
+    "tool": "fw_rootfs_audit"
+   },
+   "created_at": "2026-10-18T16:34:02.715Z",
+   "id": "F-009"
+  }
+ ]
+}

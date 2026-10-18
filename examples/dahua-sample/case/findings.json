@@ -1,0 +1,375 @@
+{
+  "schema": "pweh.findings/v1",
+  "case_id": "example-dahua-sample",
+  "findings": [
+    {
+      "title": "root 계정 비밀번호가 공개 기본 비밀번호 사전과 일치 (약한 MD5-crypt)",
+      "category": "hardcoded-credential",
+      "severity": "high",
+      "confidence": "confirmed",
+      "status": "static-confirmed",
+      "summary": "/etc/shadow 의 root 해시가 공개 기본 비밀번호 사전 항목과 오프라인 대조로 일치한다 (평문은 케이스 analysis/ 에만 있음).",
+      "location": {
+        "firmware": "dumps/flash-full.bin",
+        "file": "/etc/shadow",
+        "line": 1,
+        "interface": "uart/telnet"
+      },
+      "evidence": [
+        {
+          "type": "triage",
+          "ref": "analysis/rootfs-audit-001.json",
+          "excerpt": "builtin-default-password /etc/shadow:1 계정 'root' 의 비밀번호가 공개 기본 비밀번호 사전과 일치 (1***)"
+        },
+        {
+          "type": "hash",
+          "ref": "analysis/crack-hashes-001.json",
+          "excerpt": "root: md5crypt $1$1Qd275ca$… → cracked (1***)"
+        },
+        {
+          "type": "triage",
+          "ref": "analysis/rootfs-audit-001.json",
+          "excerpt": "passwd-md5-crypt /etc/shadow:1 root:$1$1Qd…:18000:0:99999:7:::"
+        }
+      ],
+      "reasoning": "fw_rootfs_audit 와 fw_crack_hashes 가 같은 결과를 냈다. 같은 펌웨어의 모든 기기가 같은 비밀번호를 가질 가능성이 높다 (P5).",
+      "produced_by": {
+        "skill": "firmware-static-analysis",
+        "tool": "fw_rootfs_audit + fw_crack_hashes",
+        "agent": "pweh-e2e scripted agent (tests/e2e/agent_flow.py)"
+      },
+      "verification_plan": "소유 기기의 UART 콘솔에서 운영자가 이미 아는 계정으로만 확인한다. 무차별 대입은 하지 않는다.",
+      "remediation": "기기별 초기 비밀번호 또는 첫 부팅 시 변경 강제, sha512crypt 이상 사용.",
+      "created_at": "2026-10-18T17:41:27.240Z",
+      "references": [],
+      "id": "F-001"
+    },
+    {
+      "title": "부팅 스크립트가 telnetd 를 무조건 기동 (디버그 인터페이스 상시 개방)",
+      "category": "debug-interface",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "status": "static-confirmed",
+      "summary": "/etc/init.d/rcS 20행이 조건 없이 telnetd 를 백그라운드로 실행한다. 네트워크에서 로그인 프롬프트가 항상 열린다.",
+      "location": {
+        "firmware": "dumps/flash-full.bin",
+        "file": "/etc/init.d/rcS",
+        "line": 20,
+        "interface": "telnet"
+      },
+      "evidence": [
+        {
+          "type": "triage",
+          "ref": "analysis/rootfs-audit-001.json",
+          "excerpt": "gen-telnetd-launch /etc/init.d/rcS:20 /usr/sbin/telnetd &"
+        },
+        {
+          "type": "file",
+          "ref": "/etc/init.d/rcS",
+          "excerpt": "/usr/sbin/telnetd &"
+        },
+        {
+          "type": "string",
+          "ref": "/etc/init.d/rcS@0x22d",
+          "excerpt": "gen-telnetd-launch: /usr/sbin/telnetd &"
+        }
+      ],
+      "reasoning": "시작 스크립트 원문 줄이 직접 증거다 (패턴 P6). 기본 비밀번호(별도 발견사항)와 결합하면 원격 셸 노출로 이어진다.",
+      "produced_by": {
+        "skill": "firmware-static-analysis",
+        "tool": "fw_rootfs_audit",
+        "agent": "pweh-e2e scripted agent (tests/e2e/agent_flow.py)"
+      },
+      "verification_plan": "격리 랩의 소유 기기에서 부팅 뒤 23/tcp 리슨 여부만 확인한다 (로그인 시도 없음).",
+      "remediation": "telnetd 기동 줄을 제거하거나 개발 빌드 전용 플래그로 감싼다.",
+      "created_at": "2026-10-18T17:41:27.252Z",
+      "references": [],
+      "id": "F-002"
+    },
+    {
+      "title": "httpd check_credentials 의 고정 관리자 계정 비교 (하드코딩 자격증명)",
+      "category": "hardcoded-credential",
+      "severity": "high",
+      "confidence": "confirmed",
+      "status": "static-confirmed",
+      "summary": "check_credentials 가 사용자 이름·비밀번호를 고정 리터럴과 비교해 일치하면 로그인 성공으로 처리한다. 같은 자격증명이 Basic 헤더 리터럴로도 박혀 있다.",
+      "location": {
+        "firmware": "dumps/flash-full.bin",
+        "file": "/usr/sbin/httpd",
+        "function": "check_credentials",
+        "address": "0x22b08",
+        "offset": "0xcce",
+        "interface": "http"
+      },
+      "evidence": [
+        {
+          "type": "string",
+          "ref": "/usr/sbin/httpd@0xcce",
+          "excerpt": "Authorization: Basic YW…<마스킹:Basic 자격증명,36자> (base64 디코드: admin:<마스킹>)"
+        },
+        {
+          "type": "triage",
+          "ref": "analysis/strings-hunt-001.json",
+          "excerpt": "gen-hardcoded-basic-auth /usr/sbin/httpd@0xcce"
+        },
+        {
+          "type": "decompilation",
+          "ref": "analysis/rea-evidence-httpd-001.json#ev_82064774f0bebee249d328907deb5592e1d91fc46791d80197c97fb289d2a7b7",
+          "excerpt": "  cVar1 = strcmp((c_char *)user,(c_char *)\"admin\");\n  if ((cVar1 == 0) && (cVar1 = strcmp((c_char *)pass,(c_char *)\"pw…<마스킹:내장 비밀번호,21자>\"), cVar1 == 0)\n    return 1;"
+        }
+      ],
+      "reasoning": "사용자 이름과 비밀번호를 각각 .rodata 리터럴과 strcmp 해 일치하면 1(성공)을 반환한다 (고정 계정). 문자열 단계의 Basic 헤더(디코드한 사용자:비밀번호)와 같은 값이다 (P5).",
+      "produced_by": {
+        "skill": "firmware-static-analysis",
+        "tool": "rea procedure_pseudo_code (ghidra)",
+        "agent": "pweh-e2e scripted agent (tests/e2e/agent_flow.py)"
+      },
+      "verification_plan": "격리 랩(인터넷과 분리된 VLAN)의 소유 기기에서만 확인한다. 1) 같은 빌드의 펌웨어로 정적 결과를 재현하고 2) 수정 빌드가 있으면 해당 함수를 디컴파일 diff 한다. 3) 동적 확인은 정상 거부 동작을 보는 negative test 로 한정하고 우회·공격 요청은 만들지 않는다.",
+      "remediation": "고정 계정과 자가 점검용 자격증명을 제거하고 기기별 비밀값을 쓴다.",
+      "created_at": "2026-10-18T17:41:27.256Z",
+      "references": [],
+      "id": "F-003"
+    },
+    {
+      "title": "httpd handle_ping_cgi 의 요청 값 → system() 명령 주입",
+      "category": "command-injection",
+      "severity": "high",
+      "confidence": "confirmed",
+      "status": "static-confirmed",
+      "summary": "handle_ping_cgi 가 요청 값을 포맷 문자열 \"ping -c 1 %s > /tmp/ping.log 2>&1\" 에 넣어 system() 으로 실행한다. 메타문자 필터나 화이트리스트가 없다.",
+      "location": {
+        "firmware": "dumps/flash-full.bin",
+        "file": "/usr/sbin/httpd",
+        "function": "handle_ping_cgi",
+        "address": "0x22470",
+        "offset": "0xeda",
+        "interface": "http"
+      },
+      "evidence": [
+        {
+          "type": "string",
+          "ref": "/usr/sbin/httpd@0xeda",
+          "excerpt": "gen-shell-cmd-template: ping -c 1 %s > /tmp/ping.log 2>&1"
+        },
+        {
+          "type": "triage",
+          "ref": "analysis/strings-hunt-001.json",
+          "excerpt": "gen-shell-cmd-template /usr/sbin/httpd@0xeda"
+        },
+        {
+          "type": "decompilation",
+          "ref": "analysis/rea-evidence-httpd-001.json#ev_ae3f3cf07e61780e7d9de552b8a59be432a8cd7f9c9aaf007af9b2bb1c57f138",
+          "excerpt": "  iVar1 = get_param(req->query,\"host\",acStack_98,0x80);\n    snprintf(acStack_198,0x100,\"ping -c 1 %s > /tmp/ping.log 2>&1\",acStack_98);\n    system(acStack_198);"
+        }
+      ],
+      "reasoning": "포맷 문자열 \"ping -c 1 %s > /tmp/ping.log 2>&1\" 의 %s 결과 버퍼가 필터 없이 system() 으로 간다. 요청 처리 경로에서 도달한다 (인증 뒤) (P11)",
+      "produced_by": {
+        "skill": "firmware-static-analysis",
+        "tool": "rea procedure_pseudo_code (ghidra)",
+        "agent": "pweh-e2e scripted agent (tests/e2e/agent_flow.py)"
+      },
+      "verification_plan": "격리 랩(인터넷과 분리된 VLAN)의 소유 기기에서만 확인한다. 1) 같은 빌드의 펌웨어로 정적 결과를 재현하고 2) 수정 빌드가 있으면 해당 함수를 디컴파일 diff 한다. 3) 동적 확인은 정상 거부 동작을 보는 negative test 로 한정하고 우회·공격 요청은 만들지 않는다.",
+      "remediation": "셸을 거치지 말고 execve 인자 배열과 입력 화이트리스트(고정 목록)를 쓴다.",
+      "created_at": "2026-10-18T17:41:27.261Z",
+      "references": [],
+      "id": "F-004"
+    },
+    {
+      "title": "httpd check_auth 의 하드코딩 토큰 비교로 인증 생략 (백도어)",
+      "category": "backdoor",
+      "severity": "critical",
+      "confidence": "confirmed",
+      "status": "static-confirmed",
+      "summary": "check_auth 가 요청 토큰을 고정 문자열과 strcmp 해 일치하면 자격증명 검사 없이 1(인증 성공)을 반환한다.",
+      "location": {
+        "firmware": "dumps/flash-full.bin",
+        "file": "/usr/sbin/httpd",
+        "function": "check_auth",
+        "address": "0x2235c",
+        "offset": "0xe8c",
+        "interface": "http"
+      },
+      "evidence": [
+        {
+          "type": "string",
+          "ref": "/usr/sbin/httpd@0xe8c",
+          "excerpt": "PW…<마스킹:고정 토큰,36자>"
+        },
+        {
+          "type": "triage",
+          "ref": "analysis/strings-hunt-001.json",
+          "excerpt": "gen-backdoor-keywords /usr/sbin/httpd@0xe8c"
+        },
+        {
+          "type": "decompilation",
+          "ref": "analysis/rea-evidence-httpd-001.json#ev_1fb00ae8271ba615549c52382b19f9b3236ce7e126ce20b0de51c05cd0b97e5d",
+          "excerpt": "       (cVar3 = strcmp((c_char *)req->token,(c_char *)\"PW…<마스킹:고정 토큰,36자>\"),\n      return 1;"
+        }
+      ],
+      "reasoning": "요청 토큰을 .rodata 의 고정 문자열과 strcmp 해 일치하면 자격증명 검사 전에 1(성공)을 반환한다. 문자열 히트(백도어 키워드가 든 토큰)가 이 비교의 상수다. 같은 펌웨어를 쓰는 모든 기기에 같은 값이 있다 (P4/P6).",
+      "produced_by": {
+        "skill": "firmware-static-analysis",
+        "tool": "rea procedure_pseudo_code (ghidra)",
+        "agent": "pweh-e2e scripted agent (tests/e2e/agent_flow.py)"
+      },
+      "verification_plan": "격리 랩(인터넷과 분리된 VLAN)의 소유 기기에서만 확인한다. 1) 같은 빌드의 펌웨어로 정적 결과를 재현하고 2) 수정 빌드가 있으면 해당 함수를 디컴파일 diff 한다. 3) 동적 확인은 정상 거부 동작을 보는 negative test 로 한정하고 우회·공격 요청은 만들지 않는다.",
+      "remediation": "토큰 분기를 제거하고 모든 경로가 정상 자격증명 검증을 거치게 한다.",
+      "created_at": "2026-10-18T17:41:27.265Z",
+      "references": [],
+      "id": "F-005"
+    },
+    {
+      "title": "httpd is_static_resource: 정적 파일 접두어/확장자 부분 문자열이면 인증 생략",
+      "category": "auth-bypass",
+      "severity": "high",
+      "confidence": "confirmed",
+      "status": "static-confirmed",
+      "summary": "is_static_resource 가 정규화 전 URI 에 정적 접두사나 확장자 부분 문자열이 있으면 1 을 돌려 호출자가 인증 검사를 건너뛴다. 임의 경로에 확장자 문자열만 섞어도 인증 없이 처리될 수 있다.",
+      "location": {
+        "firmware": "dumps/flash-full.bin",
+        "file": "/usr/sbin/httpd",
+        "function": "is_static_resource",
+        "address": "0x229e0",
+        "interface": "http"
+      },
+      "evidence": [
+        {
+          "type": "decompilation",
+          "ref": "analysis/rea-evidence-httpd-001.json#ev_18e18030140af3dce762fe5400157b1346b15d5b932b122013a4f5163070d802",
+          "excerpt": "  cVar1 = strncmp((c_char *)path,(c_char *)\"/static/\",8);\n       (pcVar2 = strstr((c_char *)path,(c_char *)\".css\"), pcVar2 == (____0_c_char)0x0)) &&\n      (pcVar2 = strstr((c_char *)path,(c_char *)\".js\"), pcVar2 == (____0_c_char)0x0)) &&\n     (pcVar2 = strstr((c_char *)path,(c_char *)\".png\"), pcVar2 == (____0_c_char)0x0)) {\n    pcVar2 = strstr((c_char *)path,(c_char *)\".jpg\");\n    return (uint)(pcVar2 != (____0_c_char)0x0);"
+        }
+      ],
+      "reasoning": "정규화 전 URI 원문을 접두사(strncmp)와 확장자 부분 문자열(strstr)로 비교해 1 을 반환한다 → 호출자가 인증을 생략 (P1)",
+      "produced_by": {
+        "skill": "firmware-static-analysis",
+        "tool": "rea procedure_pseudo_code (ghidra)",
+        "agent": "pweh-e2e scripted agent (tests/e2e/agent_flow.py)"
+      },
+      "verification_plan": "격리 랩(인터넷과 분리된 VLAN)의 소유 기기에서만 확인한다. 1) 같은 빌드의 펌웨어로 정적 결과를 재현하고 2) 수정 빌드가 있으면 해당 함수를 디컴파일 diff 한다. 3) 동적 확인은 정상 거부 동작을 보는 negative test 로 한정하고 우회·공격 요청은 만들지 않는다.",
+      "remediation": "경로를 정규화한 뒤 정적 디렉터리 접두사만 정확히 비교하고, CGI/API 경로는 항상 인증한다.",
+      "created_at": "2026-10-18T17:41:27.269Z",
+      "references": [],
+      "id": "F-006"
+    },
+    {
+      "title": "sonia: 세션 확인 전에 설정 디렉터리 파일을 내려줌 (계정 DB 노출)",
+      "category": "info-leak",
+      "severity": "high",
+      "confidence": "confirmed",
+      "status": "static-confirmed",
+      "summary": "설정 파일 경로 접두사 요청이 세션 확인보다 먼저 처리되어, 같은 디렉터리의 계정 DB 를 포함한 설정 파일이 인증 없이 제공된다.",
+      "location": {
+        "firmware": "dumps/flash-full.bin",
+        "file": "/usr/bin/sonia",
+        "function": "serve_config_file",
+        "address": "0x21f70",
+        "interface": "http"
+      },
+      "evidence": [
+        {
+          "type": "string",
+          "ref": "/usr/bin/sonia@0xc09",
+          "excerpt": "dh-current-config: /current_config/"
+        },
+        {
+          "type": "string",
+          "ref": "/usr/bin/sonia@0xbd2",
+          "excerpt": "gen-mtd-config-accounts: /mnt/mtd/Config/Account1"
+        },
+        {
+          "type": "triage",
+          "ref": "analysis/strings-hunt-001.json",
+          "excerpt": "dh-current-config, gen-mtd-config-accounts"
+        },
+        {
+          "type": "decompilation",
+          "ref": "analysis/rea-evidence-sonia-001.json#ev_674adfa25e52b31b17500fed3a6da3f241bbc00a9b1d4506ef6f375b9858c009",
+          "excerpt": "  cVar3 = strncmp((c_char *)pcVar5,(c_char *)\"/current_config/\",0x10);\n    serve_config_file(fd,r->path + 0x10);\n    iVar4 = session_valid(r);"
+        },
+        {
+          "type": "decompilation",
+          "ref": "analysis/rea-evidence-sonia-001.json#ev_0843885144b14c96288c1bd96f9bd44f6dbba6e2254f63d672f9ce07cda14ee5",
+          "excerpt": "  if (((*name != '\\0') && (pcVar1 = strchr((c_char *)name,0x2f), pcVar1 == (____0_c_char)0x0)) &&\n     (pcVar1 = strstr((c_char *)name,(c_char *)\"..\"), pcVar1 == (____0_c_char)0x0)) {\n    snprintf(acStack_118,0x100,\"/mnt/mtd/Config/%s\",name);\n    send_file(fd,acStack_118);"
+        }
+      ],
+      "reasoning": "\"/current_config/\" 접두사 요청을 session_valid 보다 먼저 serve_config_file 로 넘긴다 (인증 전 설정 파일 제공) / 요청 이름을 /mnt/mtd/Config/ 아래 파일 경로로 만들어 그대로 내려준다 (P1/P8, CVE-2017-7925 계열)",
+      "produced_by": {
+        "skill": "cctv-auth-bypass-hunt",
+        "tool": "rea procedure_pseudo_code (ghidra)",
+        "agent": "pweh-e2e scripted agent (tests/e2e/agent_flow.py)"
+      },
+      "references": [
+        "docs/references/cctv-vuln-patterns.md#4.2"
+      ],
+      "verification_plan": "격리 랩(인터넷과 분리된 VLAN)의 소유 기기에서만 확인한다. 1) 같은 빌드의 펌웨어로 정적 결과를 재현하고 2) 수정 빌드가 있으면 해당 함수를 디컴파일 diff 한다. 3) 동적 확인은 정상 거부 동작을 보는 negative test 로 한정하고 우회·공격 요청은 만들지 않는다.",
+      "remediation": "설정 파일 제공 경로를 제거하거나 세션 확인 뒤로 옮기고, 공개 파일은 명시적 allowlist 로 한정한다.",
+      "created_at": "2026-10-18T17:41:39.566Z",
+      "id": "F-007"
+    },
+    {
+      "title": "sonia is_local_request: 로그인의 '로컬 요청' 신뢰를 클라이언트가 보낸 loginType/ipAddr 로 판정 (비밀번호 검증 생략)",
+      "category": "auth-bypass",
+      "severity": "critical",
+      "confidence": "confirmed",
+      "status": "static-confirmed",
+      "summary": "is_local_request 가 요청 본문의 login_type/ip_addr 값만으로 로컬 요청 여부를 정한다. rpc_global_login 는 그 결과가 참이면 verify_password 를 부르지 않고 성공으로 응답한다.",
+      "location": {
+        "firmware": "dumps/flash-full.bin",
+        "file": "/usr/bin/sonia",
+        "function": "is_local_request",
+        "address": "0x2250c",
+        "interface": "http"
+      },
+      "evidence": [
+        {
+          "type": "string",
+          "ref": "/usr/bin/sonia@0xb3e",
+          "excerpt": "dh-login-loopback-local: Loopback"
+        },
+        {
+          "type": "string",
+          "ref": "/usr/bin/sonia@0x128777",
+          "excerpt": "gen-loopback-trust-anchors: is_local_request"
+        },
+        {
+          "type": "string",
+          "ref": "/usr/bin/sonia@0x1a45b1",
+          "excerpt": "gen-loopback-trust-anchors: is_local_request"
+        },
+        {
+          "type": "string",
+          "ref": "/usr/bin/sonia@0xb4b",
+          "excerpt": "dh-login-fields: clientType"
+        },
+        {
+          "type": "triage",
+          "ref": "analysis/strings-hunt-001.json",
+          "excerpt": "dh-login-fields, dh-login-loopback-local, gen-loopback-trust-anchors"
+        },
+        {
+          "type": "decompilation",
+          "ref": "analysis/rea-evidence-sonia-001.json#ev_6bad37c6c1e24afce75925f2bea042a01d1aaaa7f1044d8e811c69861adef2dc",
+          "excerpt": "  cVar1 = strcmp((c_char *)l->login_type,(c_char *)\"Loopback\");\n    return 0;\n  cVar1 = strcmp((c_char *)l->ip_addr,(c_char *)\"127.0.0.1\");\n  return (uint)(cVar1 == 0);"
+        },
+        {
+          "type": "decompilation",
+          "ref": "analysis/rea-evidence-sonia-001.json#ev_7673ea9a0576de943a8f7060e62e2c1f0d98ff1a1db2b241cd106b6f1906f298",
+          "excerpt": "  iVar1 = is_local_request(&lStack_130);\n  ok = 1;\n    ok = verify_password(lStack_130.user,lStack_130.pass);\n  send_login_result(fd,ok,lStack_130.user);"
+        }
+      ],
+      "reasoning": "요청 구조체의 login_type == \"Loopback\" 과 ip_addr == \"127.0.0.1\"(클라이언트가 써 넣은 값)만으로 로컬 요청이라고 판정한다. is_local_request 가 참이면 verify_password 를 부르지 않고 성공(ok=1)으로 응답한다. 소켓 peer 주소가 아니라 클라이언트가 주장한 값이다 (P4, CVE-2021-33045 계열).",
+      "produced_by": {
+        "skill": "cctv-auth-bypass-hunt",
+        "tool": "rea procedure_pseudo_code (ghidra)",
+        "agent": "pweh-e2e scripted agent (tests/e2e/agent_flow.py)"
+      },
+      "references": [
+        "docs/references/cctv-vuln-patterns.md#4.2"
+      ],
+      "verification_plan": "격리 랩(인터넷과 분리된 VLAN)의 소유 기기에서만 확인한다. 1) 같은 빌드의 펌웨어로 정적 결과를 재현하고 2) 수정 빌드가 있으면 해당 함수를 디컴파일 diff 한다. 3) 동적 확인은 정상 거부 동작을 보는 negative test 로 한정하고 우회·공격 요청은 만들지 않는다.",
+      "remediation": "로컬 판정은 getpeername 결과로 하고 모든 로그인 분기에서 비밀번호/다이제스트 검증을 강제한다.",
+      "created_at": "2026-10-18T17:41:39.573Z",
+      "id": "F-008"
+    }
+  ]
+}

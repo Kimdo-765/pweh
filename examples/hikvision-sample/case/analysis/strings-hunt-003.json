@@ -1,0 +1,164 @@
+{
+  "schema": "pweh.fwtriage.strings-hunt/v1",
+  "tool": "fw_strings_hunt",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-hikvision-sample",
+  "generated_at": "2026-10-18T17:40:09.537Z",
+  "input": {
+    "path": "extract/rootfs-001/usr/bin/davinci",
+    "size": 1757612,
+    "size_human": "1.68 MiB"
+  },
+  "params": {
+    "patterns": [
+      "re:^/[A-Za-z0-9_.-]+/$",
+      "re:^\\.(?:css|js|png|jpg|gif|html?)$"
+    ],
+    "min_severity": null,
+    "include": null,
+    "max_hits": 500,
+    "per_pattern_cap": 50,
+    "pattern_source": "<REPO>/src/pweh/data/cctv-hunt-patterns.yaml",
+    "pattern_sha256": "476f3c5099cdc3df422a0f719985534bb229b5a4a8a8ca2af7fdbac65e24f68e"
+  },
+  "hits": [
+    {
+      "file": "/usr/bin/davinci",
+      "path": "extract/rootfs-001/usr/bin/davinci",
+      "offset": 3411,
+      "offset_hex": "0xd53",
+      "pattern_id": "custom-re-52cbd49c",
+      "category": "custom",
+      "finding_category": "other",
+      "severity": "info",
+      "vendor": "custom",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/Security/",
+      "context": "/Security/"
+    },
+    {
+      "file": "/usr/bin/davinci",
+      "path": "extract/rootfs-001/usr/bin/davinci",
+      "offset": 3432,
+      "offset_hex": "0xd68",
+      "pattern_id": "custom-re-52cbd49c",
+      "category": "custom",
+      "finding_category": "other",
+      "severity": "info",
+      "vendor": "custom",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/System/",
+      "context": "/System/"
+    },
+    {
+      "file": "/usr/bin/davinci",
+      "path": "extract/rootfs-001/usr/bin/davinci",
+      "offset": 3441,
+      "offset_hex": "0xd71",
+      "pattern_id": "custom-re-52cbd49c",
+      "category": "custom",
+      "finding_category": "other",
+      "severity": "info",
+      "vendor": "custom",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/SDK/",
+      "context": "/SDK/"
+    },
+    {
+      "file": "/usr/bin/davinci",
+      "path": "extract/rootfs-001/usr/bin/davinci",
+      "offset": 3447,
+      "offset_hex": "0xd77",
+      "pattern_id": "custom-re-52cbd49c",
+      "category": "custom",
+      "finding_category": "other",
+      "severity": "info",
+      "vendor": "custom",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/ISAPI/",
+      "context": "/ISAPI/"
+    },
+    {
+      "file": "/usr/bin/davinci",
+      "path": "extract/rootfs-001/usr/bin/davinci",
+      "offset": 3455,
+      "offset_hex": "0xd7f",
+      "pattern_id": "custom-re-52cbd49c",
+      "category": "custom",
+      "finding_category": "other",
+      "severity": "info",
+      "vendor": "custom",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/PSIA/",
+      "context": "/PSIA/"
+    }
+  ],
+  "summary": {
+    "files_scanned": 1,
+    "bytes_scanned": 1757612,
+    "hits_total": 5,
+    "hits_stored": 5,
+    "by_severity": {
+      "info": 5
+    },
+    "patterns_matched": 1,
+    "patterns_selected": 2,
+    "vendor_scores": {},
+    "vendor_family_guess": null,
+    "skipped_large_files": 0,
+    "truncated": false,
+    "rootfs_dirs": [
+      "extract/rootfs-001"
+    ]
+  },
+  "by_pattern": {
+    "custom-re-52cbd49c": {
+      "count": 5,
+      "files": 1,
+      "severity": "info",
+      "category": "custom",
+      "vendor": "custom"
+    }
+  },
+  "top_files": [
+    {
+      "file": "/usr/bin/davinci",
+      "path": "extract/rootfs-001/usr/bin/davinci",
+      "score": 5,
+      "patterns": [
+        "custom-re-52cbd49c"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "id": "custom-re-52cbd49c",
+      "description": "사용자 지정 정규식: ^/[A-Za-z0-9_.-]+/$",
+      "result": "match",
+      "evidence_ref": "/usr/bin/davinci@0xd53",
+      "count": 5,
+      "severity": "info",
+      "vendor": "custom"
+    },
+    {
+      "id": "custom-re-2f4a55cd",
+      "description": "사용자 지정 정규식: ^\\.(?:css|js|png|jpg|gif|html?)$",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "info",
+      "vendor": "custom"
+    }
+  ],
+  "commented_hits": [],
+  "commented_hit_count": 0,
+  "skipped_large_files": [],
+  "errors": [],
+  "notes": [],
+  "elapsed_seconds": 0.042
+}

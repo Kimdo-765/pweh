@@ -1,0 +1,54 @@
+{
+  "schema": "pweh.fwtriage.carve/v1",
+  "tool": "fw_carve",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-dahua-sample",
+  "generated_at": "2026-10-18T17:41:08.402Z",
+  "input": {
+    "path": "dumps/flash-full.bin",
+    "size": 16777216,
+    "size_human": "16.00 MiB",
+    "sha256": "560ae32b73b130eb8b3b6fef8d712b23d6477951f16546834fb1a353af6e878f"
+  },
+  "params": {
+    "mtdparts": null,
+    "partitions": [
+      {
+        "name": "xcheck",
+        "offset": "0x50000",
+        "size": "0x10000"
+      }
+    ],
+    "mtd_device": null,
+    "output_label": "xcheck"
+  },
+  "output_dir": "extract/xcheck-001",
+  "index_path": "extract/xcheck-001/index.json",
+  "partitions": [
+    {
+      "index": 0,
+      "name": "xcheck",
+      "offset": 327680,
+      "offset_hex": "0x50000",
+      "size": 65536,
+      "size_hex": "0x10000",
+      "ro": false,
+      "status": "carved",
+      "path": "extract/xcheck-001/00-xcheck.bin",
+      "file": "extract/xcheck-001/00-xcheck.bin",
+      "bytes": 65536,
+      "sha256": "6e127a00ed8f926a02a135779c21dbd7b411559705eaedc22ca8ab4a41ce40f8",
+      "content": {
+        "kind": "uimage",
+        "description": "uImage 'Linux-4.9.37' linux/arm kernel, 압축=none, load=0x40008000 entry=0x40008000, 데이터 394767 bytes (이미지가 파일 끝에서 잘림)",
+        "size": 65536
+      },
+      "artifact_id": "A-0010"
+    }
+  ],
+  "warnings": [],
+  "layout": {
+    "source": "partitions-argument",
+    "devices": []
+  }
+}

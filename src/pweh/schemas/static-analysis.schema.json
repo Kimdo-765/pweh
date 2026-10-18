@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/static-analysis.schema.json",
+  "title": "firmware-static-analysis 요약 data",
+  "type": "object",
+  "required": ["firmware", "extraction"],
+  "properties": {
+    "firmware": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "size": {"type": ["integer", "null"]},
+        "source": {"enum": ["uart-dump", "jtag-dump", "spi-clip", "vendor-download", "other"]}
+      }
+    },
+    "identification": {"type": "object", "description": "fw_identify / inspect_firmware_regions 결과 요약 (아키텍처, 엔디언, 파티션, U-Boot env)"},
+    "extraction": {
+      "type": "object",
+      "required": ["tool", "status"],
+      "properties": {
+        "tool": {"enum": ["rea-unblob", "rea-binwalk", "fwtriage", "unsquashfs", "manual", "none"]},
+        "output_dir": {"type": ["string", "null"]},
+        "status": {"enum": ["complete", "partial", "failed", "skipped"]},
+        "gaps": {"type": "array"}
+      }
+    },
+    "rootfs": {
+      "type": ["object", "null"],
+      "properties": {
+        "path": {"type": "string"},
+        "fs_type": {"type": ["string", "null"]},
+        "arch": {"type": ["string", "null"]},
+        "endianness": {"type": ["string", "null"]},
+        "init_scripts": {"type": "array"},
+        "services": {"type": "array"},
+        "web_servers": {"type": "array"}
+      }
+    },
+    "binaries_of_interest": {"type": "array", "items": {"type": "object", "required": ["path", "reason"]}},
+    "rea": {"type": ["object", "null"], "properties": {"provider": {"type": ["string", "null"]}, "evidence_bundle": {"type": ["string", "null"]}, "limitations": {"type": "array"}}},
+    "finding_ids": {"type": "array", "items": {"type": "string"}},
+    "notes": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

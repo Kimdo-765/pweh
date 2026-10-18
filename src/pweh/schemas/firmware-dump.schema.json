@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/firmware-dump.schema.json",
+  "title": "firmware-dump-via-uart 요약 data",
+  "type": "object",
+  "required": [
+    "method",
+    "output",
+    "verification"
+  ],
+  "properties": {
+    "method": {
+      "enum": [
+        "uboot-md",
+        "uboot-tftpput",
+        "uboot-fatwrite",
+        "linux-hexdump",
+        "linux-base64",
+        "linux-nc",
+        "linux-tftp",
+        "jtag-openocd",
+        "spi-clip-flashrom",
+        "vendor-download",
+        "other"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "flash_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "flash_size": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "offset": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ]
+        },
+        "length": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ]
+        },
+        "partition": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ram_addr": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "device_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "required": [
+        "path",
+        "sha256",
+        "size"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "케이스 상대 경로 (dumps/*.bin)"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "required": [
+        "method",
+        "match"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "crc32-uboot",
+            "md5-device",
+            "sha256-device",
+            "crc32-chunks",
+            "double-read",
+            "size-only",
+            "none"
+          ]
+        },
+        "expected": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "actual": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "match": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "chunks": {
+      "type": "object"
+    },
+    "partitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "offset",
+          "size"
+        ]
+      }
+    },
+    "duration_seconds": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "baudrate": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true
+}

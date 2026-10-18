@@ -1,0 +1,4371 @@
+{
+ "pweh-case": {
+  "module": "case_mcp.server",
+  "tools": [
+   {
+    "name": "case_create",
+    "description": "새 분석 케이스 생성. authorization 은 필수: {basis: 'owned'|'written-authorization', owner, statement(사용자가 소유/허가를 확인한 말을 그대로 인용), scope?, document_ref?(서면 허가 시 필수)}. target 예: {vendor, model, serial, hardware_rev, firmware_version, soc}. profile 은 pipeline_profiles 의 이름 (모르면 생략 → generic-ipcam).",
+    "params": [
+     {
+      "name": "title",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "authorization",
+      "type": "object",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "target",
+      "type": "object/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "profile",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "case_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "notes",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_set_authorization",
+    "description": "케이스의 소유/허가 증명을 기록하거나 갱신한다 (case_create 와 같은 authorization 형식).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "authorization",
+      "type": "object",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_list",
+    "description": "케이스 목록.",
+    "params": [],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_get",
+    "description": "케이스 요약(대상, 권한 여부, 단계 상태, 아티팩트/단계/발견사항 수). include_artifacts=true 면 아티팩트 목록 포함.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "include_artifacts",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "include_steps",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_update_target",
+    "description": "케이스의 대상 기기 정보 갱신 (예: UART 로 알아낸 SoC/플래시/펌웨어 버전).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "target",
+      "type": "object",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_set_phase",
+    "description": "파이프라인 단계 상태 수동 갱신. phase: uart-shell-acquisition, firmware-dump-via-uart, logic-analyzer-protocol-decode, firmware-static-analysis, cctv-auth-bypass-hunt, report; status: pending, in-progress, done, partial, failed, skipped, blocked.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "phase",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "status",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "note",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_add_note",
+    "description": "케이스에 자유 형식 메모 추가 (사람이 한 물리 작업, 관찰 등).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "text",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "author",
+      "type": "string",
+      "required": false,
+      "default": "agent"
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_paths",
+    "description": "케이스 디렉터리의 표준 하위 경로(절대 경로)와, 외부 도구(REA extract_firmware 등)에 넘길 '아직 존재하지 않는' 새 출력 디렉터리 경로를 반환. purpose 예: 'extract', 'analysis', 'signals'.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "purpose",
+      "type": "string",
+      "required": false,
+      "default": "extract"
+     },
+     {
+      "name": "label",
+      "type": "string",
+      "required": false,
+      "default": "run"
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_record_step",
+    "description": "Skill 단계 결과 저장. 각 Skill 의 마지막에 step='summary' 로 호출해야 하며, 이때 data 는 해당 Skill 의 출력 스키마를 따라야 한다 (uart-shell-acquisition→uart-recon, firmware-dump-via-uart→firmware-dump, firmware-static-analysis→static-analysis, logic-analyzer-protocol-decode→signal-capture, cctv-auth-bypass-hunt→auth-hunt; schema_get 으로 확인). status: success|partial|failed|blocked|skipped|in-progress. artifacts 는 케이스 상대 경로 목록.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "skill",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "step",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "status",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "summary",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "data",
+      "type": "object/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "artifacts",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "next_actions",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "blockers",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "started_at",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_get_step_results",
+    "description": "이전 Skill 들의 단계 결과 조회 (다음 Skill 의 입력으로 사용). skill 을 지정하지 않으면 모든 Skill 의 최신 summary. summaries_only=false 면 해당 skill 의 모든 단계.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "skill",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "summaries_only",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_register_artifact",
+    "description": "케이스 내부 파일/디렉터리를 아티팩트로 등록(sha256 계산). kind 예: uart-log, flash-dump, memory-dump, partition, extracted-tree, signal-capture, signal-decode, jtag-dump, triage-report, rea-evidence, decompilation, report, other.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "kind",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "description",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "producer",
+      "type": "string",
+      "required": false,
+      "default": "agent"
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_import_file",
+    "description": "케이스 밖의 파일(예: 벤더 공식 펌웨어 다운로드, SPI 클립으로 읽은 덤프)을 케이스로 복사하고 등록. dest_subdir 기본 'dumps'.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "source_path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "kind",
+      "type": "string",
+      "required": false,
+      "default": "firmware-image"
+     },
+     {
+      "name": "dest_subdir",
+      "type": "string",
+      "required": false,
+      "default": "dumps"
+     },
+     {
+      "name": "description",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_hash_file",
+    "description": "케이스 내부 파일(또는 offset/length 구간)의 해시 계산: sha256, md5, crc32. 덤프 교차 검증용 — 예: tftpput/SPI 클립으로 받은 파일과 UART 덤프의 같은 구간 비교, 기기 측 md5sum/crc32 와 대조. offset/length 는 정수 또는 '0x50000', '64k' 같은 문자열.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string",
+      "required": false,
+      "default": 0
+     },
+     {
+      "name": "length",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_add_finding",
+    "description": "발견사항 추가 (schema_get('finding') 참고). 필수: title, category(auth-bypass|hardcoded-credential|backdoor|command-injection|debug-interface|weak-crypto|info-leak|insecure-update|memory-corruption|insecure-default|other), severity(critical|high|medium|low|info), confidence(confirmed|likely|possible), summary, location{file,function,address,...}, evidence[{type, ref, excerpt?}](1개 이상), reasoning. 선택: references(CVE/URL), verification_plan(소유 기기·격리 랩 기준, 공격 페이로드 금지), remediation, status(unverified 기본). id 는 자동 부여.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "finding",
+      "type": "object",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_update_finding",
+    "description": "발견사항 수정 (예: status 를 static-confirmed 로, 증거 추가). patch 는 덮어쓸 필드.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "finding_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "patch",
+      "type": "object",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "case_list_findings",
+    "description": "발견사항 목록 (심각도순). min_severity 로 필터 (critical|high|medium|low|info).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "min_severity",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "report_generate",
+    "description": "케이스의 모든 결과(단계 요약, 발견사항, 아티팩트, 안전 감사)를 모아 cases/<id>/report.md 를 생성한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "pipeline_profiles",
+    "description": "pipeline-config.yaml 에 정의된 대상 기기 프로필 목록.",
+    "params": [],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "pipeline_profile",
+    "description": "대상 기기 프로필 상세 (extends 해석 완료): 보드레이트 후보, U-Boot 프롬프트/autoboot 패턴, 인터럽트 키, 예상 인터페이스, 플래시/RAM 주소 힌트, 펌웨어 분석 힌트.",
+    "params": [
+     {
+      "name": "name",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "pipeline_safety_policy",
+    "description": "현재 적용 중인 안전 정책 (위험도별 allow/approve/deny, 승인 방법, 영구 경로 목록).",
+    "params": [],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "approval_status",
+    "description": "승인 요청 상태 조회 (pending|approved|denied|consumed|expired). 사람이 `pweh approve <id>` 를 했는지 확인할 때 사용.",
+    "params": [
+     {
+      "name": "approval_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "approvals_pending",
+    "description": "대기 중인 승인 요청 목록 (확인 코드는 제외).",
+    "params": [],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "schema_get",
+    "description": "PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt.",
+    "params": [
+     {
+      "name": "name",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   }
+  ]
+ },
+ "pweh-uart": {
+  "module": "uart_mcp.server",
+  "tools": [
+   {
+    "name": "uart_list_ports",
+    "description": "시리얼 포트 목록 (OBSERVE). ports[{device, description, hwid, vid, pid, serial_number, manufacturer, likely_usb_uart, in_use_by}]. include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(ser2net, 시뮬레이터)은 목록에 없고 uart_open 에 socket://host:port 로 준다.",
+    "params": [
+     {
+      "name": "include_links",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "uart_open",
+    "description": "UART 세션 열기 (INTERACT, dtr/rts=true 면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL (socket://host:port, rfc2217://, loop://). DTR/RTS 는 열기 전에 설정하며 기본 False. line_ending 기본 \"\\r\" (U-Boot 문맥은 항상 \\r). profile 은 pipeline_profiles 이름(생략 시 케이스 프로필) — 프롬프트/autoboot 정규식과 인터럽트 키를 정한다. 반환: session_id, log_path/raw_path/events_path(케이스 상대), context, cursor. 세션이 열려 있는 동안 수신 스레드가 계속 기록한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "port",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "baudrate",
+      "type": "integer",
+      "required": false,
+      "default": 115200
+     },
+     {
+      "name": "bytesize",
+      "type": "integer",
+      "required": false,
+      "default": 8
+     },
+     {
+      "name": "parity",
+      "type": "string",
+      "required": false,
+      "default": "N"
+     },
+     {
+      "name": "stopbits",
+      "type": "number",
+      "required": false,
+      "default": 1
+     },
+     {
+      "name": "line_ending",
+      "type": "string",
+      "required": false,
+      "default": "\r"
+     },
+     {
+      "name": "dtr",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "rts",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "profile",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "label",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "uart_close",
+    "description": "UART 세션 닫기: 실행 중인 job 취소, 수신 스레드 정지, 포트 닫기, 로그(uart-log/uart-raw/uart-events) 아티팩트 등록. 끊어진(disconnected) 세션도 닫을 수 있다.",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "uart_sessions",
+    "description": "열린 UART 세션 목록: 상태(open/disconnected), 문맥/phase/프롬프트, rx/tx 바이트, 로그 경로, 미완성 입력, 실행 중 job.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "uart_read",
+    "description": "수신 버퍼 읽기 (OBSERVE). 커서는 누적 수신 바이트 오프셋. since_cursor 생략 시 에이전트 읽기 위치(직전 uart_read/명령의 cursor_end)부터. tail=true 면 마지막 max_bytes. wait_seconds>0 이면 새 데이터를 최대 그만큼 기다린다(최대 50). 반환: text(CRLF→LF), cursor_start, cursor_end, more, context, prompt, state, lost_bytes(버퍼에서 밀려난 양).",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "since_cursor",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "max_bytes",
+      "type": "integer",
+      "required": false,
+      "default": 8192
+     },
+     {
+      "name": "wait_seconds",
+      "type": "number",
+      "required": false,
+      "default": 0
+     },
+     {
+      "name": "tail",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": {
+     "anthropic/maxResultSizeChars": 200000
+    }
+   },
+   {
+    "name": "uart_write",
+    "description": "원시 쓰기. data 는 text(JSON 이스케이프로 \\r, \\u0003 등) 또는 encoding=\"hex\". 세션이 지금까지 보낸 입력과 이어서 기기 줄 버퍼처럼 조립(LineAssembler)해 완성되는 줄마다 문맥 분류기로 검사한다 — 나눠 보내기('sa'+'veenv\\r')도 한 줄로 분류. 제어 문자는 CONTROL_CHAR_RISK, 탭/ESC(자동완성·히스토리)가 섞인 줄은 DESTRUCTIVE. U-Boot 문맥에서 \\r\\n 은 명령+빈 줄(반복)로 본다. 최대 4096 바이트. 일반 명령은 uart_send_command 를 쓴다.",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "data",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "encoding",
+      "type": "string",
+      "required": false,
+      "default": "text"
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "uart_send_command",
+    "description": "명령 한 줄 + 줄끝 전송 후 에코와 다음 프롬프트(또는 expect 정규식, 줄마다 ^$ 적용, CRLF 무관)까지 대기. 현재 문맥(uboot/linux-shell/unknown…)의 분류기로 검사하며 unknown·login 문맥은 두 분류기 중 엄격한 쪽. 반환: output(에코·프롬프트 제거), matched, match, timed_out(시간 초과는 오류가 아님), context, prompt, cursor_end(이어서 uart_read). U-Boot 에서 빈 command 는 직전 명령 반복으로 분류된다 — 프롬프트를 깨우려면 uart_sync. 로그인은 shell_login 을 쓴다. timeout 은 최대 600초지만 MCP 클라이언트 제한(대개 60초)을 고려하라.",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "command",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "timeout",
+      "type": "number",
+      "required": false,
+      "default": 10
+     },
+     {
+      "name": "expect",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "max_output",
+      "type": "integer",
+      "required": false,
+      "default": 20000
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": {
+     "anthropic/maxResultSizeChars": 200000
+    }
+   },
+   {
+    "name": "uart_wait_for",
+    "description": "정규식이 수신 데이터에 나타날 때까지 대기 (OBSERVE, 기기에 아무것도 보내지 않음). since_cursor 생략 시 에이전트 읽기 위치부터 검색 → 호출 사이에 온 출력도 놓치지 않는다. 줄마다 ^$ 적용(CR 은 LF 로 취급). 반환: matched, match, groups, text(검색 구간, 최대 8000자), cursor_end(매치 끝), timed_out. timeout 최대 600초 (MCP 클라이언트 제한 고려).",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "pattern",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "timeout",
+      "type": "number",
+      "required": false,
+      "default": 30
+     },
+     {
+      "name": "since_cursor",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": {
+     "anthropic/maxResultSizeChars": 200000
+    }
+   },
+   {
+    "name": "uart_set_context",
+    "description": "문맥 수동 지정: uboot / linux-shell / login / password / booting / unknown, auto 는 수동 지정 해제. prompt 를 주면 그 문자열을 그 문맥의 프롬프트로 학습한다(특이한 프롬프트). 안전: 분류는 수동 문맥과 자동 감지 문맥 둘 다로 해서 더 엄격한 쪽을 쓴다(수동 지정으로 완화 불가). 재부팅·phase 변화 증거가 나오면 수동 지정은 풀린다.",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "context",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "prompt",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "uart_sync",
+    "description": "Ctrl-C(0x03) 한 번으로 새 프롬프트를 받고 문맥을 확정한다 (INTERACT, 추가 도구). U-Boot 는 '<INTERRUPT>' 를 출력하고(입력 줄 비움), 리눅스 셸은 새 프롬프트만 출력한다. 미완성 입력도 지운다. 빈 Enter 대신 이것을 쓴다.",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "timeout",
+      "type": "number",
+      "required": false,
+      "default": 3
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "uart_send_break",
+    "description": "BREAK 신호 전송 (MODIFY). 리눅스 시리얼 콘솔에서는 BREAK 다음 5초 안의 문자가 Magic SysRq 명령(b=즉시 재부팅 등)이 되므로, 그 창 동안의 다음 송신은 최소 MODIFY 로 분류된다.",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "duration",
+      "type": "number",
+      "required": false,
+      "default": 0.25
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "uart_set_signals",
+    "description": "DTR/RTS 신호 설정 (MODIFY — 보드의 리셋/부트모드 핀에 연결돼 있으면 기기가 리셋된다). PTY·socket:// 등 신호가 없는 포트는 status=unsupported.",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "dtr",
+      "type": "boolean/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "rts",
+      "type": "boolean/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "uart_detect_baud",
+    "description": "보드레이트 탐지: 후보마다 포트를 열고(DTR/RTS 끔) probe=\"ctrl-c\" 면 0x03 을 한 번 보낸 뒤 listen_seconds 동안 읽어 점수화(출력 가능 문자 비율, 부팅 키워드, 0x00/0xFF 연속 감점) → candidates(점수순), best, confidence, hint(데이터 없음: TX/RX 뒤바뀜·GND·무출력·전압). 기기가 출력 중이어야 하므로 사람에게 전원을 먼저 꺼 두게 하고 '준비' 답을 받은 뒤 호출한다 — 사람은 호출이 시작되면 전원을 넣는다 (전원 투입 중에는 probe=\"none\" 권장: ctrl-c 가 autoboot 를 멈출 수 있음). probe=ctrl-c 는 MODIFY(다른 속도로 보낸 0x03 은 기기에서 다른 바이트로 읽힐 수 있음), probe=none 은 INTERACT. 이 포트로 열린 세션이 없어야 한다. 총 50초 제한.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "port",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "candidates",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "listen_seconds",
+      "type": "number",
+      "required": false,
+      "default": 2.5
+     },
+     {
+      "name": "probe",
+      "type": "string",
+      "required": false,
+      "default": "ctrl-c"
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "uart_capture_boot",
+    "description": "부팅 로그 수집 (OBSERVE, 기기에 아무것도 보내지 않음): 사람에게 전원을 꺼 두게 한 뒤 호출하고, 호출이 시작되면 전원을 넣게 한다. duration 초(최대 300, MCP 클라이언트 제한 고려) 또는 until 정규식까지 수집. stop_on_prompt=true 면 이 창에서 부팅이 시작된 뒤 로그인/셸/U-Boot 프롬프트가 나오고 1.5초 조용하면 멈춘다. 파싱 결과: uboot_version, autoboot_message, bootdelay, kernel_version, cmdline, mtdparts, partitions, login_prompt, shell_prompt, flash, flash_write_warnings, stages. 발췌는 uart/<session>-boot-NN.log 로 저장·등록.",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "duration",
+      "type": "number",
+      "required": false,
+      "default": 30
+     },
+     {
+      "name": "until",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "stop_on_prompt",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": {
+     "anthropic/maxResultSizeChars": 200000
+    }
+   },
+   {
+    "name": "uboot_interrupt",
+    "description": "autoboot 중단 (INTERACT). 사람에게 기기 전원을 먼저 꺼 두게 하고 '준비' 답을 받은 뒤 호출한다 — 사람은 호출이 시작되면 전원을 넣는다. 부팅 출력(또는 autoboot 메시지)이 보이면 인터럽트 키(keys 또는 프로필 interrupt_sequences, 기본 Ctrl-C — 빈 Enter 는 새 부팅 확인 뒤에만)를 약 50ms 마다 보내고, U-Boot 프롬프트가 나오면 멈춘 뒤 Ctrl-C 로 깨끗한 프롬프트를 받는다. keys 예: [\"ctrl-c\", \"space\"], [\"\\u0003\"]. 반환: interrupted, outcome(prompt/kernel/linux/uboot_password/window_expired/…), new_boot_seen, prompt, autoboot_message, bootdelay, keys_used, keys_sent, explanation(실패 원인: bootdelay=0, 보드레이트, keyed autoboot, 부트로더 비밀번호 잠금 …). 호출 시점에 이미 부팅 중이던 기기의 이전 출력은 판단에 쓰지 않고 새 부팅을 기다린다(그동안 리눅스에 키를 보내지 않음). window_seconds 최대 120 (MCP 클라이언트 제한 고려, 기본 30).",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "keys",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "window_seconds",
+      "type": "number",
+      "required": false,
+      "default": 30
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "uboot_printenv",
+    "description": "U-Boot printenv 실행·파싱 (INTERACT): env{}, bootargs, bootcmd, bootdelay, mtdparts, partitions[{name, offset, size}], loadaddr, load_addresses, environment_size, flash_size/flash_size_source('-' 파티션 크기 계산에 쓴 값: uboot_info 또는 부팅 로그, 모르면 null). 출력이 완전할 때(Environment size 줄)만 세션의 env 추적에 반영 — run/boot 분류가 이 값을 쓴다.",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": {
+     "anthropic/maxResultSizeChars": 200000
+    }
+   },
+   {
+    "name": "uboot_info",
+    "description": "U-Boot 정보 수집 (INTERACT, 명령마다 게이트): version, bdinfo{dram_start, dram_size, relocaddr, sp_start, …}, help 의 commands[], has{}(help 기준 사용 가능 여부, U-Boot 약어 규칙 포함 — 약어로만 되면 has_via{}, help 를 못 읽으면 null), probe_flash=true 면 'sf probe 0' 으로 flash{type, model, size_bytes}, 추적 env 가 있으면 partitions[](플래시 크기로 '-' 채움). DRAM 안에서 U-Boot 자신(relocaddr/malloc/스택)과 하위 1 MiB 를 피한 safe_ram_addr 과 ram_window 를 제안한다 (env loadaddr/bootcmd 주소 우선). uboot_dump_start 는 ram_addr 을 생략하면 이 값을 쓴다.",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "probe_flash",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": {
+     "anthropic/maxResultSizeChars": 200000
+    }
+   },
+   {
+    "name": "uboot_dump_start",
+    "description": "U-Boot 플래시/메모리 덤프 job 시작 → job_id (uart_job_status 로 폴링, uart_job_cancel 로 취소). 청크마다 'sf read <ram> <off> <len>' (source=nand: nand read, mmc: mmc read(512B 블록), ram: 적재 없이 offset 이 RAM 주소) → 'md.b <ram> <len>' 파싱(주소·바이트 수 검증) → 'crc32 <ram> <len>' 과 호스트 crc32 비교, 실패 청크는 retries 번 재시도. 좋은 청크마다 dumps/<name>.bin.part + .state.json 을 갱신해 같은 인자로 다시 부르면 이어 받는다(resume). 끝나면 dumps/<name>.bin + dumps/<name>.json(firmware-dump 스키마 필드) + 아티팩트(flash-dump/memory-dump). 시작 전에 모든 계획 명령이 INTERACT 이하인지 검사한다. offset/length 는 정수 또는 '0x50000', '16M'. ram_addr 생략 시 uboot_info 의 safe_ram_addr. chunk_size 최대 256 KiB. 처리량: 115200 baud 에서 약 2.3 KB/s (16 MiB ≈ 2시간).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "length",
+      "type": "integer/string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "source",
+      "type": "string",
+      "required": false,
+      "default": "sf"
+     },
+     {
+      "name": "ram_addr",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "chunk_size",
+      "type": "integer/string",
+      "required": false,
+      "default": 65536
+     },
+     {
+      "name": "output_name",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "verify",
+      "type": "string",
+      "required": false,
+      "default": "crc32"
+     },
+     {
+      "name": "resume",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "retries",
+      "type": "integer",
+      "required": false,
+      "default": 3
+     },
+     {
+      "name": "final_check",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "sf_probe",
+      "type": "string/null",
+      "required": false,
+      "default": "0"
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "shell_login",
+    "description": "BusyBox 로그인 처리 (INTERACT): askfirst('Please press Enter')면 Enter, 'login:' 이면 username, 'Password:' 면 password 를 프롬프트가 수신 끝에 보일 때만 보낸다. 비밀번호는 로그·이벤트·감사 기록에서 마스킹된다. 사용자가 알려 준 계정만 쓰고 추측·무차별 대입 금지 — 세션당 3회 실패하면 더 시도하지 않는다. username 을 생략하면 askfirst 콘솔 활성화만 한다(로그인 없는 콘솔; login: 이 나오면 username_required). 반환: logged_in, status(ok/already_logged_in/password_required/username_required/login_incorrect/context_unknown(U-Boot 일 수 있는 프롬프트 → uart_sync)/uboot_prompt/uboot_password_prompt(커널 전 Password: = 부트로더 잠금, 아무것도 보내지 않음)/…), prompt, steps.",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "username",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "password",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "timeout",
+      "type": "number",
+      "required": false,
+      "default": 15
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "shell_identify",
+    "description": "리눅스 셸 식별 (읽기 전용 명령 묶음, 명령마다 게이트): uname -a, /proc/cpuinfo, /proc/mtd(파싱 → mtd[]), /proc/cmdline(mtdparts → partitions), /proc/mounts, ps, netstat -tuln(listening), busybox(applets), id. 반환: uname, kernel_version, arch, cpu, mtd[], cmdline, mounts, processes, listening, busybox_applets, has_base64/has_hexdump/has_md5sum.",
+    "params": [
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": {
+     "anthropic/maxResultSizeChars": 200000
+    }
+   },
+   {
+    "name": "shell_dump_start",
+    "description": "리눅스 셸 덤프 job 시작 → job_id. 청크마다 'dd if=<path> bs=… skip=… count=… 2>/dev/null | base64'(없으면 '| hexdump -C') 를 파싱하고 같은 범위의 '| md5sum' 과 비교, 실패 청크는 재시도. path 는 /dev/mtdN · /dev/mtdblockN 또는 일반 파일(절대 경로). length 생략 시 /proc/mtd 크기(또는 wc -c). .part/.state.json 으로 재개, 끝나면 dumps/<name>.bin + .json(method linux-base64/linux-hexdump, verification md5-device) + 아티팩트(partition). 처리량: base64 ≈ 8 KB/s, hexdump ≈ 2.3 KB/s @115200.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string",
+      "required": false,
+      "default": 0
+     },
+     {
+      "name": "length",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "method",
+      "type": "string",
+      "required": false,
+      "default": "auto"
+     },
+     {
+      "name": "chunk_size",
+      "type": "integer/string",
+      "required": false,
+      "default": 65536
+     },
+     {
+      "name": "output_name",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "resume",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "retries",
+      "type": "integer",
+      "required": false,
+      "default": 3
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "uart_job_status",
+    "description": "백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "wait_seconds",
+      "type": "number",
+      "required": false,
+      "default": 0.0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "uart_job_cancel",
+    "description": "실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "uart_jobs",
+    "description": "이 서버 프로세스의 백그라운드 작업 목록.",
+    "params": [
+     {
+      "name": "active_only",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   }
+  ]
+ },
+ "pweh-openocd": {
+  "module": "openocd_mcp.server",
+  "tools": [
+   {
+    "name": "openocd_start",
+    "description": "OpenOCD 프로세스를 시작하고 TCL RPC 로 연결한다 (MODIFY: JTAG 초기화가 타깃 상태에 영향 가능). telnet/GDB 포트는 끄고 TCL 포트만 127.0.0.1 에 연다. interface_cfg 는 scripts 기준 상대경로(예: 'interface/ftdi/tigard.cfg', 'interface/jlink.cfg') 또는 절대경로. target_cfg 는 문자열 또는 목록. 카메라 SoC 는 전용 target cfg 가 없는 경우가 많아 target_cfg 없이 extra_commands 로 'jtag newtap ...', 'target create ...' 를 주거나 아예 생략해 자동 탐색(AUTO 힌트)한다. transport: jtag|swd. adapter_speed_khz: 처음엔 100~1000 권장. tcl_port=0 이면 빈 포트 자동 선택. 케이스 밖 사용자 cfg 파일은 내용을 위험도 분류기로 검사한다. 로그는 jtag/openocd-<n>.log. 반환: tcl_port, version, startup(TAP 검출, 오류/경고), diagnosis(배선/전원 힌트), scan_chain, targets, health.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "interface_cfg",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "target_cfg",
+      "type": "string/array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "transport",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "adapter_speed_khz",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "extra_commands",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "tcl_port",
+      "type": "integer",
+      "required": false,
+      "default": 6666
+     },
+     {
+      "name": "extra_cfgs",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "ready_timeout",
+      "type": "number",
+      "required": false,
+      "default": 30.0
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_attach",
+    "description": "이미 실행 중인 OpenOCD 의 TCL 포트에 연결한다 (예: 사람이 직접 띄운 OpenOCD, 원격 Raspberry Pi). 이 케이스에서 전에 openocd_start 로 띄운 프로세스(서버 재시작 등)면 상태 파일로 찾아 '입양'해 openocd_stop 으로 종료할 수 있게 한다. 원격 호스트면 dump_image 파일을 읽을 수 없으므로 메모리 덤프는 read_memory 방식으로 자동 전환되고 플래시 덤프는 불가.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "host",
+      "type": "string",
+      "required": false,
+      "default": "127.0.0.1"
+     },
+     {
+      "name": "tcl_port",
+      "type": "integer",
+      "required": false,
+      "default": 6666
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_stop",
+    "description": "OpenOCD 세션 종료. 이 서버가 띄운(또는 입양한) 프로세스는 TCL 'shutdown' → SIGTERM → SIGKILL 순서로 종료하고 로그를 아티팩트로 등록한다. 실행 중인 덤프 작업은 먼저 취소된다(부분 결과 보존). 외부에서 띄운 OpenOCD(attach)는 연결만 끊으며, shutdown_attached=true 일 때만 'shutdown' 을 보낸다(MODIFY 게이트).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "shutdown_attached",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_status",
+    "description": "OpenOCD 세션 상태: 연결/프로세스(종료 코드·시그널), 버전, 포트, 가동 시간, 최근 로그(log_lines 줄), 기동 요약, 진단 힌트, 실행 중인 작업, 그리고 살아 있으면 targets 조회로 현재 타깃 상태(halted/running 등). 세션이 없으면 이 케이스의 이전 실행 기록.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "log_lines",
+      "type": "integer",
+      "required": false,
+      "default": 40
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_command",
+    "description": "원시 OpenOCD Tcl 명령 실행. 명령 텍스트 전체를 위험도 분류(코어 classify_openocd + 엄격한 로컬 규칙)한 뒤 게이트를 통과해야 실행된다: 조회(scan_chain, targets, mdw, read_memory, flash banks/info …)=허용, halt/reset/resume 등=MODIFY, mww/write_memory/flash write·erase/program/OTP·eFuse·옵션바이트 등=DESTRUCTIVE(기본 거부), dump_image/flash read_bank(호스트 파일 쓰기)=거부(→ openocd_dump_memory_start / openocd_flash_read_start 사용). 응답: output(capture 된 로그+결과), 실패면 ok=false, status='tcl_error', error, diagnosis. 긴 출력은 jtag/command-output-*.txt 로 저장된다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "command",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "timeout",
+      "type": "number",
+      "required": false,
+      "default": 30.0
+     },
+     {
+      "name": "max_output_chars",
+      "type": "integer",
+      "required": false,
+      "default": 20000
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_scan_chain",
+    "description": "JTAG 스캔체인 TAP 목록 (scan_chain 파싱): tap_name, enabled, idcode, expected(목록), irlen, ircap, irmask, mismatch, decoded(제조사 코드/이름, part, version, 유효성). IDCODE 가 0x00000000/0xffffffff 면 배선·전원 문제 힌트를 준다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_targets",
+    "description": "타깃 목록 (targets 파싱): index, current(*), name, type(arm926ejs/cortex_a/mips_m4k/mem_ap…), endian, tap_name, state(running/halted/reset/unknown/examine deferred/tap-disabled).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_halt",
+    "description": "타깃 CPU 정지 (halt, MODIFY). target 을 주면 그 타깃을 현재 타깃으로 바꾼 뒤 정지한다. messages 에 'target halted …, pc: …' 같은 OpenOCD 메시지, state 에 정지 후 상태.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "target",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "timeout",
+      "type": "number",
+      "required": false,
+      "default": 15.0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_resume",
+    "description": "타깃 CPU 실행 재개 (resume, MODIFY). address 를 주면 그 주소에서 실행. 실제 기기의 펌웨어가 다시 돌기 시작하므로 덤프/분석 중에는 주의.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "address",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "target",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_reset",
+    "description": "타깃 리셋 (MODIFY). mode: halt(리셋 직후 정지 — 부트 초기에 붙을 때), run(정상 부팅), init(reset-init 이벤트 스크립트 실행 후 정지). 리셋 라인(SRST)이 없으면 cfg 의 reset_config 에 따라 동작이 다르다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "mode",
+      "type": "string",
+      "required": false,
+      "default": "halt"
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "timeout",
+      "type": "number",
+      "required": false,
+      "default": 30.0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_read_registers",
+    "description": "레지스터 읽기 ('reg' 파싱). names 를 주면 'reg <name>' 으로 개별 조회(값을 타깃에서 읽음). names 가 없으면 전체 목록을 읽고, 타깃이 halted 이고 refresh=true 면 캐시 값이 없는 첫 레지스터 그룹(코어 레지스터)을 개별 조회로 채운다. 실행 중(running)인 타깃은 값이 없을 수 있으니 openocd_halt 먼저. 결과는 jtag/registers-<n>.json 으로 저장·등록된다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "names",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "target",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "refresh",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "max_refresh",
+      "type": "integer",
+      "required": false,
+      "default": 64
+     },
+     {
+      "name": "save",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_read_memory",
+    "description": "작은 메모리 범위 읽기 (read_memory; 0.11 은 md* 로 대체). width: 8|16|32|64, count*width/8 ≤ 4096 바이트 (큰 범위는 openocd_dump_memory_start). 값은 타깃 엔디언 정수(values), bytes_hex/hexdump 는 메모리 순서 바이트. target 을 주면 그 타깃으로 읽는다(예: Cortex-A SoC 의 mem_ap 타깃은 CPU 를 멈추지 않고 읽을 수 있음). MMIO 레지스터는 읽기만으로도 부작용이 있을 수 있으니 RAM/플래시 창 위주로 읽는다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "address",
+      "type": "integer/string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "count",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "width",
+      "type": "integer",
+      "required": false,
+      "default": 32
+     },
+     {
+      "name": "target",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "phys",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_dump_memory_start",
+    "description": "메모리 덤프 백그라운드 작업 시작 → job_id. 청크(chunk_size, 기본 64KiB)마다 dump_image 를 케이스 경로로만 실행해 jtag/<name>.part 에 이어 붙이고 .state.json 으로 재개 가능 (같은 output_name 으로 다시 호출하면 이어받음). OpenOCD 가 쓴 파일이 보이지 않으면(원격 OpenOCD) read_memory 방식으로 자동 전환. verify=true 면 청크마다 두 번 읽어 비교(시간 2배, 신호 품질이 의심될 때). 완료 시 jtag/<name>.bin + <name>.json(메타데이터) + sha256 + 아티팩트 등록. kind='flash-dump' 이면(메모리 맵 플래시 창을 읽는 경우) dumps/ 에 저장. 대부분의 코어는 먼저 openocd_halt 가 필요하다. 진행 확인: openocd_job_status(job_id, wait_seconds=30).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "address",
+      "type": "integer/string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "length",
+      "type": "integer/string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "output_name",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "chunk_size",
+      "type": "integer/string",
+      "required": false,
+      "default": 65536
+     },
+     {
+      "name": "target",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "method",
+      "type": "string",
+      "required": false,
+      "default": "auto"
+     },
+     {
+      "name": "verify",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "resume",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "kind",
+      "type": "string",
+      "required": false,
+      "default": "memory-dump"
+     },
+     {
+      "name": "retries",
+      "type": "integer",
+      "required": false,
+      "default": 2
+     },
+     {
+      "name": "chunk_timeout_s",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_flash_banks",
+    "description": "플래시 뱅크 목록 (flash banks 파싱 + flash list 의 타깃 정보): bank, name, driver, base, size, bus/chip width. probe=true 면 각 뱅크를 flash probe 후 다시 조회(크기가 0 인 SPI 뱅크), info=true 면 flash info 로 섹터/보호 상태까지. 카메라 SoC(HiSilicon/Ingenic/SigmaStar)의 SPI NOR 컨트롤러는 OpenOCD 드라이버가 없어 뱅크가 비어 있는 경우가 많다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "probe",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "info",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_flash_read_start",
+    "description": "플래시 뱅크 읽기 백그라운드 작업 → job_id. 청크마다 'flash read_bank <bank> {dumps/.이름.chunk} offset len' 을 실행해 dumps/<name>.part 에 이어 붙이고(.state.json 으로 재개), 완료 시 dumps/<name>.bin + .json + sha256 + flash-dump 아티팩트. bank 는 번호 또는 이름, offset 은 뱅크 시작 기준, length 생략 시 끝까지. verify=true 면 청크마다 flash verify_bank 로 재확인. OpenOCD 가 로컬에서 실행 중이어야 한다(원격 attach 는 불가).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "bank",
+      "type": "integer/string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string",
+      "required": false,
+      "default": 0
+     },
+     {
+      "name": "length",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "output_name",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "chunk_size",
+      "type": "integer/string",
+      "required": false,
+      "default": 65536
+     },
+     {
+      "name": "verify",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "resume",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "retries",
+      "type": "integer",
+      "required": false,
+      "default": 2
+     },
+     {
+      "name": "chunk_timeout_s",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_write_memory",
+    "description": "메모리 쓰기 (write_memory, DESTRUCTIVE — 기본 정책 거부). 임의 메모리/MMIO 쓰기는 플래시·eFuse·OTP 컨트롤러를 건드려 기기를 영구 손상시킬 수 있다. 정책이 approve 일 때만 사람 승인(pweh approve <id>) 후 같은 인자 + approval_id 로 1회 실행. values: 정수 또는 16진 문자열 목록(최대 1024개). verify=true 면 다시 읽어 비교.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "address",
+      "type": "integer/string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "values",
+      "type": "array",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "width",
+      "type": "integer",
+      "required": false,
+      "default": 32
+     },
+     {
+      "name": "target",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "phys",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "verify",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": true,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": {
+     "anthropic/requiresUserInteraction": true
+    }
+   },
+   {
+    "name": "openocd_flash_write",
+    "description": "플래시에 이미지 쓰기 (flash write_image [erase] [unlock] {파일} 주소 bin, DESTRUCTIVE — 기본 정책 거부). 기기를 벽돌로 만들 수 있다. path 는 케이스 디렉터리 안의 파일만 허용. 승인 지문에 파일 sha256 이 포함되어, 승인 후 파일이 바뀌면 실행되지 않는다. 정책이 approve 일 때만 사람 승인 후 approval_id 로 1회 실행. verify=true 면 verify_image 로 확인.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "address",
+      "type": "integer/string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "erase",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "unlock",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "verify",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "timeout",
+      "type": "number",
+      "required": false,
+      "default": 600.0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": true,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": {
+     "anthropic/requiresUserInteraction": true
+    }
+   },
+   {
+    "name": "openocd_list_configs",
+    "description": "OpenOCD scripts 디렉터리의 cfg 파일 목록 (interface|target|board|all). pattern 으로 부분 문자열 필터. 예: kind='interface', pattern='ftdi' → interface/ftdi/tigard.cfg 등. openocd_start 의 interface_cfg/target_cfg 에 그대로 쓴다.",
+    "params": [
+     {
+      "name": "kind",
+      "type": "string",
+      "required": false,
+      "default": "interface"
+     },
+     {
+      "name": "pattern",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "limit",
+      "type": "integer",
+      "required": false,
+      "default": 200
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_job_status",
+    "description": "백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "wait_seconds",
+      "type": "number",
+      "required": false,
+      "default": 0.0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_job_cancel",
+    "description": "실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "openocd_jobs",
+    "description": "이 서버 프로세스의 백그라운드 작업 목록.",
+    "params": [
+     {
+      "name": "active_only",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   }
+  ]
+ },
+ "pweh-sigrok": {
+  "module": "sigrok_mcp.server",
+  "tools": [
+   {
+    "name": "sigrok_version",
+    "description": "sigrok-cli / libsigrok / libsigrokdecode 버전, 실행 파일 경로, 지원 드라이버·디코더 수. sigrok-cli 가 없으면 설치 힌트와 함께 tool_missing 오류.",
+    "params": [],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "sigrok_list",
+    "description": "sigrok 지원 목록. kind: drivers | decoders | input-formats | output-formats | transforms | all. query 로 id/설명 부분 문자열 필터. drivers 에는 이 서버의 캡처 정책(capture_allowed, output_capable, reason)이 붙는다.",
+    "params": [
+     {
+      "name": "kind",
+      "type": "string",
+      "required": false,
+      "default": "drivers"
+     },
+     {
+      "name": "query",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "sigrok_decoder_help",
+    "description": "프로토콜 디코더 상세(sigrok-cli -P <id> --show 파싱): 필수/선택 채널, 옵션(값 목록·기본값), annotation 클래스/행, 바이너리 클래스, 문서. sigrok_decode 의 -P/-A 문자열을 만들 때 사용 (libsigrokdecode 버전마다 이름이 다르므로 하드코딩 금지).",
+    "params": [
+     {
+      "name": "decoder",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "sigrok_scan",
+    "description": "연결된 sigrok 장치 스캔. 인자 없으면 모든 드라이버로 USB 등 자동 탐지(읽기 전용 식별). driver 로 한정 가능. conn(시리얼 /dev/ttyACM0, USB 'bus.addr'/'VID.PID', 'tcp-raw/host/port') 을 주면 그 포트로 식별 질의를 보내므로 시리얼/네트워크 conn 은 case_id(소유/허가 증명)가 필요하다. 결과 각 장치에 capture_allowed 정책이 붙는다.",
+    "params": [
+     {
+      "name": "driver",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "conn",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "case_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "timeout_s",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "sigrok_device_info",
+    "description": "로직 애널라이저 상세(sigrok-cli -d <driver> --show 파싱): 드라이버 기능, 채널/채널 그룹, 지원 samplerate 목록 또는 범위, 지원 트리거 문자, 최대 샘플 수. 장치를 열기만 하고 설정은 바꾸지 않는다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "driver",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "conn",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "timeout_s",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "sigrok_capture",
+    "description": "로직 애널라이저 캡처 → cases/<id>/signals/<name>.sr (srzip) 저장 + 아티팩트 등록. 입력 전용(OBSERVE)이지만 케이스 소유/허가 증명이 필요. driver 필수(sigrok_scan 결과), samplerate 예 '1m'/'8MHz'/'24m'(소문자 m=MHz, 정수 Hz 로 변환), duration_ms 와 samples 중 정확히 하나. channels 예 ['D0','D1'] 또는 ['D0=RX','D1=TX'](0번부터 연속 선택 권장), triggers 예 'RX=f'(rename 후 이름, 문자 0/1/r/f/e), capture_ratio=트리거 전 비율(%), conn=장치 지정. 전원공급기 등 출력 장치와 samplerate/captureratio 외 config 는 거부. 예상 20초 초과 또는 트리거 사용 시 job 으로 실행되어 job_id 반환 → sigrok_job_status 로 폴링 (background 로 강제 가능). 부트 로그는 캡처를 먼저 시작한 뒤 사람이 대상 전원을 넣도록 안내한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "driver",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "samplerate",
+      "type": "string/integer",
+      "required": false,
+      "default": "1m"
+     },
+     {
+      "name": "duration_ms",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "samples",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "channels",
+      "type": "array/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "triggers",
+      "type": "array/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "output_name",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "conn",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "capture_ratio",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "background",
+      "type": "boolean/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "timeout_s",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "sigrok_decode",
+    "description": "sigrok-cli 로 신호 파일 디코드: -i <input_path> [-I input_format] -P <스택들> [-A annotations] [--protocol-decoder-samplenum]. 결과 전체는 signals/<입력>.<디코더>.txt 로 저장(아티팩트 signal-decode)하고 앞 max_lines 줄 미리보기와 줄 수/인스턴스별 개수를 반환. decoders 예 'uart:rx=D0:baudrate=115200' 또는 스택 'spi:clk=CLK:mosi=MOSI:miso=MISO:cs=CS,spiflash', 여러 스택은 목록. 채널 매핑은 필수이며 입력 파일의 채널 이름과 대조한다(sigrok 은 틀린 이름을 조용히 무시하므로 사전 거부). annotations 예 'uart=rx-data' (생략 시 모든 클래스 → 매우 장황). .vcd 는 input_format 자동 'vcd'. 큰 파일은 background=true(자동 판단)로 job 실행.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "input_path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "decoders",
+      "type": "string/array",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "annotations",
+      "type": "string/array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "input_format",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "samplenum",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "max_lines",
+      "type": "integer",
+      "required": false,
+      "default": 400
+     },
+     {
+      "name": "background",
+      "type": "boolean/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "timeout_s",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "output_name",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "sigrok_export",
+    "description": "신호 파일 형식 변환 (예: srzip(.sr) → vcd, vcd → srzip, csv). output_format 은 sigrok_list(kind='output-formats') 의 id (옵션 가능: 'csv:label=channel'). 결과는 signals/ 에 저장하고 아티팩트(signal-capture) 등록. .sr 에 아날로그 채널이 섞여 있고 로직 전용 형식(vcd 등)으로 변환하면 로직 채널만 선택해 출력이 오염되지 않게 한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "input_path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "output_format",
+      "type": "string",
+      "required": false,
+      "default": "vcd"
+     },
+     {
+      "name": "output_name",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "input_format",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "timeout_s",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "sigrok_file_info",
+    "description": "신호 파일 요약 (순수 Python, sigrok-cli 불필요 — srzip/VCD): 형식, samplerate, 채널, 샘플 수, 길이, 채널별 활동(에지 수, high 비율, 처음/끝 레벨). 어느 채널에 신호가 있는지(UART 후보) 고를 때 사용. 그 밖의 형식은 sigrok-cli 로 요약.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "input_path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "input_format",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "sigrok_estimate_baud",
+    "description": "순수 Python 오프라인 UART 보드레이트 추정 (.sr/.vcd, sigrok-cli 불필요). 펄스 폭 분포 → 비트 시간(근사 GCD) → 표준 보드레이트 (300~3000000, 1500000 포함)에 스냅, 8N1 프레임 검사로 T/2 모호성·idle 극성(반전 라인) 판정. 반환: baudrate, baudrate_raw, confidence(0~1), idle_level(1=정상, 0=반전→invert_rx=yes), candidates, samples_per_bit, frame_check, warnings(4배 미만 오버샘플링 등), segments(구간별 보드레이트 혼재), suggested_decoder. channel 생략 시 활동 채널을 모두 평가해 최선을 고른다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "input_path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "channel",
+      "type": "string/integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "data_bits",
+      "type": "integer",
+      "required": false,
+      "default": 8
+     },
+     {
+      "name": "parity",
+      "type": "string",
+      "required": false,
+      "default": "none"
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "sigrok_uart_autodecode",
+    "description": "UART 자동 디코드: sigrok_estimate_baud 로 보드레이트/idle 극성을 추정한 뒤(또는 baudrate 지정) sigrok-cli uart 디코더(format=hex, 반전 시 invert_rx=yes)로 디코드해 ASCII 미리보기(text_preview), 16진 미리보기, 프레임 오류 수, 부트 로그 힌트(U-Boot 배너, autoboot 프롬프트, 커널 버전/cmdline, mtdparts, login 등)와 uart_estimate(signal-capture 스키마용)를 반환. 디코드 텍스트(.txt)와 바이트(.bin)는 signals/ 에 저장·등록. engine: auto(sigrok-cli 있으면 사용, 없으면 순수 Python) | sigrok | python. 큰 입력은 background(자동 판단)로 job 실행.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "input_path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "channel",
+      "type": "string/integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "baudrate",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "data_bits",
+      "type": "integer",
+      "required": false,
+      "default": 8
+     },
+     {
+      "name": "parity",
+      "type": "string",
+      "required": false,
+      "default": "none"
+     },
+     {
+      "name": "max_preview_bytes",
+      "type": "integer",
+      "required": false,
+      "default": 4096
+     },
+     {
+      "name": "engine",
+      "type": "string",
+      "required": false,
+      "default": "auto"
+     },
+     {
+      "name": "background",
+      "type": "boolean/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "timeout_s",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "sigrok_job_status",
+    "description": "백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "wait_seconds",
+      "type": "number",
+      "required": false,
+      "default": 0.0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "sigrok_job_cancel",
+    "description": "실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "sigrok_jobs",
+    "description": "이 서버 프로세스의 백그라운드 작업 목록.",
+    "params": [
+     {
+      "name": "active_only",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   }
+  ]
+ },
+ "pweh-jtagulator": {
+  "module": "jtagulator_mcp.server",
+  "tools": [
+   {
+    "name": "jtagulator_connect",
+    "description": "JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 pyserial URL(socket://host:port). 포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽는다. 영속 모드(OpenOCD/로직 분석기)였다면 빠져나오며 경고한다. 연결할 때마다 서버의 전압 상태는 '미설정'으로 초기화된다. 세션 원시 기록은 jtag/jtagulator-<n>.log. 지원 펌웨어 1.10–1.12.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "port",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "baudrate",
+      "type": "integer",
+      "required": false,
+      "default": 115200
+     },
+     {
+      "name": "timeout_seconds",
+      "type": "number",
+      "required": false,
+      "default": 12.0
+     },
+     {
+      "name": "allow_untested_firmware",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_disconnect",
+    "description": "JTAGulator 연결 종료. 실행 중인 스캔이 있으면 먼저 중단(LF)하고 끝날 때까지 기다린 뒤 포트를 닫고 세션 기록을 등록한다. 권장 순서: 타깃 전원을 먼저 끈 다음 호출 (포트를 닫으면 DTR 리셋으로 VADJ 가 꺼질 수 있음).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_version",
+    "description": "JTAGulator 펌웨어 버전/배너 정보 (메인 메뉴 'I'). 지원 범위(1.10–1.12) 여부도 반환.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_status",
+    "description": "JTAGulator 연결 상태(장치 I/O 없음): 포트, 펌웨어, 현재 메뉴, 이 연결에서 확인된 전압, 실행 중 작업. case_id 생략 시 전체.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_set_voltage",
+    "description": "JTAGulator 타깃 I/O 전압(VADJ) 설정 — DESTRUCTIVE(기본 거부). 잘못된 전압은 타깃 I/O 를 손상시킬 수 있다. 사람이 멀티미터로 타깃 I/O 전압을 측정한 값만 사용한다(1.4–3.3 V, 0.1 V 단위; 0 = 끄기). status=approval_required 이면 사용자에게 측정값 확인과 `pweh approve <id>` 를 요청하고 같은 인자 + approval_id 로 재호출. 장치가 'New target I/O voltage set: x.y' 로 확인해야 스캔이 허용된다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "volts",
+      "type": "number",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": true,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": {
+     "anthropic/requiresUserInteraction": true
+    }
+   },
+   {
+    "name": "jtagulator_idcode_scan",
+    "description": "JTAG IDCODE 스캔(JTAG 메뉴 'I'): TDO/TCK/TMS(+TRST# 후보)와 Device ID 를 찾는다(TDI 는 찾지 못함 → bypass/jtag 스캔). IDCODE 는 JEP106 제조사로 해석. 순열 = n!/(n-3)!. 채널 번호는 JTAGulator 의 CH0–CH23. 스캔은 범위 안의 모든 채널을 출력 HIGH 로 구동한다(MODIFY) — 채널이 전원 레일·리셋·부트모드 핀에 물려 있지 않은지 확인. 이 연결에서 jtagulator_set_voltage 로 전압이 확인되어야 시작한다. pins_low=true 면 순열마다 채널을 LOW 로 pins_low_ms 동안 내렸다가 올리고 pins_high_ms 기다린다(타깃 리셋용, 훨씬 느려짐). job_id 를 반환하며 jtagulator_job_status 로 진행률/결과, jtagulator_job_cancel 로 중단. idle_timeout_seconds 동안 장치 출력이 없으면 중단, max_duration_seconds 를 주면 그 시간 뒤 중단. 결과: jtag/jtagulator-<n>-<scan>-<k>.json, 원시 출력 .log.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "start_channel",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "end_channel",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "pins_low",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "pins_low_ms",
+      "type": "integer",
+      "required": false,
+      "default": 100
+     },
+     {
+      "name": "pins_high_ms",
+      "type": "integer",
+      "required": false,
+      "default": 100
+     },
+     {
+      "name": "idle_timeout_seconds",
+      "type": "number",
+      "required": false,
+      "default": 120.0
+     },
+     {
+      "name": "max_duration_seconds",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_bypass_scan",
+    "description": "JTAG BYPASS 스캔(JTAG 메뉴 'B'): TDI/TDO/TCK/TMS(+TRST# 후보)와 체인 장치 수를 찾는다. IDCODE 미지원 타깃도 찾을 수 있다. known_pins 로 이미 아는 핀을 고정하면 훨씬 빠르다(예: IDCODE 스캔 결과 {\"tdo\":2,\"tck\":0,\"tms\":1} → TDI 만 탐색). 순열 = (n-k)!/(n-4)!, 24채널 전체는 255,024 순열로 매우 오래 걸린다. 채널 번호는 JTAGulator 의 CH0–CH23. 스캔은 범위 안의 모든 채널을 출력 HIGH 로 구동한다(MODIFY) — 채널이 전원 레일·리셋·부트모드 핀에 물려 있지 않은지 확인. 이 연결에서 jtagulator_set_voltage 로 전압이 확인되어야 시작한다. pins_low=true 면 순열마다 채널을 LOW 로 pins_low_ms 동안 내렸다가 올리고 pins_high_ms 기다린다(타깃 리셋용, 훨씬 느려짐). job_id 를 반환하며 jtagulator_job_status 로 진행률/결과, jtagulator_job_cancel 로 중단. idle_timeout_seconds 동안 장치 출력이 없으면 중단, max_duration_seconds 를 주면 그 시간 뒤 중단. 결과: jtag/jtagulator-<n>-<scan>-<k>.json, 원시 출력 .log.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "start_channel",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "end_channel",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "known_pins",
+      "type": "object/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "pins_low",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "pins_low_ms",
+      "type": "integer",
+      "required": false,
+      "default": 100
+     },
+     {
+      "name": "pins_high_ms",
+      "type": "integer",
+      "required": false,
+      "default": 100
+     },
+     {
+      "name": "idle_timeout_seconds",
+      "type": "number",
+      "required": false,
+      "default": 120.0
+     },
+     {
+      "name": "max_duration_seconds",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_jtag_scan",
+    "description": "JTAG Combined 스캔(JTAG 메뉴 'J', FW 1.8+): IDCODE 순열을 돌다 유효한 IDCODE 가 나오면 남은 채널로 TDI 를 BYPASS 시험한다. TDI/TDO/TCK/TMS 와 Device ID 를 한 번에 찾으며 BYPASS 스캔보다 훨씬 빠르다(IDCODE 를 지원하는 타깃). 채널 번호는 JTAGulator 의 CH0–CH23. 스캔은 범위 안의 모든 채널을 출력 HIGH 로 구동한다(MODIFY) — 채널이 전원 레일·리셋·부트모드 핀에 물려 있지 않은지 확인. 이 연결에서 jtagulator_set_voltage 로 전압이 확인되어야 시작한다. pins_low=true 면 순열마다 채널을 LOW 로 pins_low_ms 동안 내렸다가 올리고 pins_high_ms 기다린다(타깃 리셋용, 훨씬 느려짐). job_id 를 반환하며 jtagulator_job_status 로 진행률/결과, jtagulator_job_cancel 로 중단. idle_timeout_seconds 동안 장치 출력이 없으면 중단, max_duration_seconds 를 주면 그 시간 뒤 중단. 결과: jtag/jtagulator-<n>-<scan>-<k>.json, 원시 출력 .log.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "start_channel",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "end_channel",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "pins_low",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "pins_low_ms",
+      "type": "integer",
+      "required": false,
+      "default": 100
+     },
+     {
+      "name": "pins_high_ms",
+      "type": "integer",
+      "required": false,
+      "default": 100
+     },
+     {
+      "name": "idle_timeout_seconds",
+      "type": "number",
+      "required": false,
+      "default": 120.0
+     },
+     {
+      "name": "max_duration_seconds",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_uart_scan",
+    "description": "UART 핀아웃 스캔(UART 메뉴 'U'): (TXD,RXD) 순열마다 보드레이트 21개(300–307200)로 text 를 후보 RXD 로 보내고 응답(최대 16바이트)을 받는다. TXD = 타깃 송신 핀, RXD = 타깃 수신 핀. text 기본 '\\r'(CR), 최대 16바이트, 정확히 그 바이트만 송신(hex 입력, 백슬래시 이스케이프 \\r \\n \\xHH 해석 — 응답의 text_hex 로 실제 바이트 확인). text 는 대상 콘솔로 여러 번 전송되므로 콘솔 분류기로 검사한다(위험 명령 거부). known_pins={\"txd\":N} 로 TXD 고정 가능. delay_ms = 송신 후 응답 확인 전 대기(0–1000), printable_only=true 면 비출력 문자가 섞인 응답은 버림. 셸이 열린 기기에서는 jtagulator_uart_txd_scan(수동)을 먼저 쓰는 것이 안전. 채널 번호는 JTAGulator 의 CH0–CH23. 스캔은 범위 안의 모든 채널을 출력 HIGH 로 구동한다(MODIFY) — 채널이 전원 레일·리셋·부트모드 핀에 물려 있지 않은지 확인. 이 연결에서 jtagulator_set_voltage 로 전압이 확인되어야 시작한다. pins_low=true 면 순열마다 채널을 LOW 로 pins_low_ms 동안 내렸다가 올리고 pins_high_ms 기다린다(타깃 리셋용, 훨씬 느려짐). job_id 를 반환하며 jtagulator_job_status 로 진행률/결과, jtagulator_job_cancel 로 중단. idle_timeout_seconds 동안 장치 출력이 없으면 중단, max_duration_seconds 를 주면 그 시간 뒤 중단. 결과: jtag/jtagulator-<n>-<scan>-<k>.json, 원시 출력 .log.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "start_channel",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "end_channel",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "text",
+      "type": "string",
+      "required": false,
+      "default": "\r"
+     },
+     {
+      "name": "known_pins",
+      "type": "object/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "delay_ms",
+      "type": "integer",
+      "required": false,
+      "default": 10
+     },
+     {
+      "name": "printable_only",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "pins_low",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "pins_low_ms",
+      "type": "integer",
+      "required": false,
+      "default": 100
+     },
+     {
+      "name": "pins_high_ms",
+      "type": "integer",
+      "required": false,
+      "default": 100
+     },
+     {
+      "name": "idle_timeout_seconds",
+      "type": "number",
+      "required": false,
+      "default": 180.0
+     },
+     {
+      "name": "max_duration_seconds",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_uart_txd_scan",
+    "description": "UART TXD 전용 수동 스캔(UART 메뉴 'T', FW 1.10+): 채널을 입력으로만 두고 duration_seconds 동안 UART 활동을 감시해 TXD 채널과 보드레이트(측정값/표준값)를 찾는다. 타깃에 아무것도 보내지 않아 가장 안전한 첫 단계 — 스캔 중에 사람이 타깃 전원을 다시 넣어 부팅 로그가 나오게 하면 좋다. ignore_nonstandard=true 면 표준 보드레이트에 맞지 않는 측정값은 버림. 레벨 변환기를 켜므로 전압 설정이 필요하다. job 으로 실행되며 기간이 끝나면 자동으로 멈춘다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "start_channel",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "end_channel",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "duration_seconds",
+      "type": "number",
+      "required": false,
+      "default": 20.0
+     },
+     {
+      "name": "ignore_nonstandard",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "idle_timeout_seconds",
+      "type": "number",
+      "required": false,
+      "default": 60.0
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_get_device_ids",
+    "description": "핀아웃을 알 때 Device ID 읽기(JTAG 메뉴 'D'): TDO/TCK/TMS 를 지정해 체인의 IDCODE 를 상세(제조사/파트/버전)와 함께 읽는다. 주의: 펌웨어가 24채널 전부를 출력 HIGH 로 만든 뒤 실행한다(MODIFY). 전압 설정 필요. 결과는 jtag/jtagulator-<n>-device-ids-<k>.json.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "tdo",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "tck",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "tms",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_bypass_test",
+    "description": "핀아웃을 알 때 BYPASS 시험(JTAG 메뉴 'T'): TDI/TDO/TCK/TMS 로 체인 장치 수를 세고 32비트 무작위 패턴이 BYPASS 를 통해 그대로 돌아오는지(Match!) 확인한다 — 찾은 핀아웃 검증용. 주의: 24채널 전부를 출력 HIGH 로 만든 뒤 실행(MODIFY). 전압 설정 필요.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "tdi",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "tdo",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "tck",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "tms",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_gpio_read",
+    "description": "모든 채널의 논리 레벨 읽기(GPIO 메뉴 'R', 수동): 채널을 입력으로 두고 samples 번(간격 interval_ms) 읽어 채널별 레벨, LOW 로 고정된 채널, 표본 사이에 값이 바뀐(활동 있는) 채널을 보고한다. 타깃을 구동하지 않는 관찰 단계(레벨 변환기의 약한 풀업만). 전압 설정 필요. UART TXD 후보(유휴 HIGH, 송신 중 변화)나 GND/고정 신호를 빠르게 가늠할 때 쓴다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "samples",
+      "type": "integer",
+      "required": false,
+      "default": 1
+     },
+     {
+      "name": "interval_ms",
+      "type": "integer",
+      "required": false,
+      "default": 100
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_job_status",
+    "description": "백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "wait_seconds",
+      "type": "number",
+      "required": false,
+      "default": 0.0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_job_cancel",
+    "description": "실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "jtagulator_jobs",
+    "description": "이 서버 프로세스의 백그라운드 작업 목록.",
+    "params": [
+     {
+      "name": "active_only",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   }
+  ]
+ },
+ "pweh-fwtriage": {
+  "module": "fwtriage_mcp.server",
+  "tools": [
+   {
+    "name": "fwtriage_job_status",
+    "description": "백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "wait_seconds",
+      "type": "number",
+      "required": false,
+      "default": 0.0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fwtriage_job_cancel",
+    "description": "실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fwtriage_jobs",
+    "description": "이 서버 프로세스의 백그라운드 작업 목록.",
+    "params": [
+     {
+      "name": "active_only",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_identify",
+    "description": "펌웨어/플래시 덤프 시그니처 스캔(헤더 검증으로 오탐 억제): uImage(헤더·데이터 CRC), FIT/DTB, squashfs(v1~4, 벤더 매직), jffs2(노드 CRC), UBI/UBIFS(CRC, 볼륨 이름), cramfs/romfs/erofs/ext2·3·4, gzip/xz/lzma/bzip2(시험 해제로 정확한 크기), zstd/lz4(프레임 검증), ELF, cpio, ARM zImage, zip, PEM 키/인증서, U-Boot env(CRC), U-Boot·커널 버전 문자열, 'PWEH SYNTHETIC' 마커. offset 순 영역 목록(offset/kind/크기 추정/설명/신뢰도)과 0xFF/0x00 패딩 구간을 analysis/identify-NNN.json 에 저장. offset/length 로 일부만 스캔 가능(16진 문자열 '0x...' 허용). include_nested=true 면 컨테이너 안쪽 항목도 응답에 포함.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string",
+      "required": false,
+      "default": 0
+     },
+     {
+      "name": "length",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "max_results",
+      "type": "integer",
+      "required": false,
+      "default": 50
+     },
+     {
+      "name": "include_nested",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 120.0
+     },
+     {
+      "name": "background",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_entropy",
+    "description": "블록 Shannon 엔트로피(0~8) 계산. 높은 엔트로피 연속 구간을 압축/암호화 '후보'로 표시하고 카이제곱으로 균일(암호화·강한 압축) / 비균일(일반 압축)을 구분, annotate=true 면 알려진 시그니처와의 겹침도 표시(설명되지 않는 고엔트로피 = 암호화·난독화 의심). 낮은 엔트로피 구간(패딩), 한 줄 프로파일 문자열 포함. 전체 블록 값은 analysis/entropy-NNN.json.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "block_size",
+      "type": "integer/string",
+      "required": false,
+      "default": 65536
+     },
+     {
+      "name": "offset",
+      "type": "integer/string",
+      "required": false,
+      "default": 0
+     },
+     {
+      "name": "length",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "high_threshold",
+      "type": "number",
+      "required": false,
+      "default": 7.5
+     },
+     {
+      "name": "annotate",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "max_results",
+      "type": "integer",
+      "required": false,
+      "default": 50
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 120.0
+     },
+     {
+      "name": "background",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_uboot_env",
+    "description": "덤프/파티션에서 U-Boot 환경변수 블록 탐색 (pweh.formats.find_uboot_env: 후보 크기별 CRC 검증, redundant 플래그; 빅엔디안 CRC 보완). env 전체, 주요 변수(bootcmd/bootargs/mtdparts/ethaddr ...), mtdparts 해석(pweh.formats.parse_mtdparts, '-' 크기는 파일 끝까지), redundant 쌍의 활성본 추정, CRC 없는 기본 env(U-Boot 바이너리 내장) 후보와 이미지 속 'mtdparts=' 문자열을 반환. sizes 로 env 크기 후보 지정 가능(예: [16384, 65536]).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "sizes",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "align",
+      "type": "integer",
+      "required": false,
+      "default": 4096
+     },
+     {
+      "name": "include_default_env",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "max_results",
+      "type": "integer",
+      "required": false,
+      "default": 16
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_carve",
+    "description": "덤프를 파티션으로 분할: mtdparts 문자열(예: 'mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),-(rootfs)') 또는 partitions 목록([{name, offset, size}], 16진 문자열/크기 문자열 허용, size 생략 시 끝까지)을 사용. 둘 다 없으면 이미지 안의 U-Boot env(mtdparts/bootargs) → 기본 env → 'mtdparts=' 문자열 → DTB partition 노드 순으로 자동 결정. extract/<label>-NNN/<idx>-<name>.bin + index.json 생성(partitions[].path = 케이스 상대 경로, file 은 같은 값의 별칭), 각 파티션을 아티팩트(partition)로 등록하고 시작 위치의 형식(squashfs 등)을 판별. mtdparts 에 장치가 여럿이면 mtd_device 로 선택(기본 첫 장치).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "mtdparts",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "partitions",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "output_label",
+      "type": "string",
+      "required": false,
+      "default": "parts"
+     },
+     {
+      "name": "mtd_device",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "probe",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_uimage_info",
+    "description": "offset 의 legacy uImage 헤더 파싱(이름, load/entry 주소, OS/arch/type/압축, 헤더·데이터 CRC 검증, multi 이미지 크기표, 실제 페이로드 형식과 헤더 압축 표시 일치 여부) 또는 FIT/DTB 해석(images: type/arch/compression/load/entry/data 크기/해시, configurations; DTB 면 model/compatible/bootargs/partition 노드). 매직이 없으면 파일 안의 uImage/FIT 위치를 안내.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string",
+      "required": false,
+      "default": 0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_extract_squashfs",
+    "description": "squashfs 추출 (unsquashfs: 설정 tools.unsquashfs / PWEH_UNSQUASHFS / ~/pweh-tools/bin; 비표준 매직·v4 빅엔디안은 sasquatch 우선). superblock 을 먼저 검증하고, 'unsquashfs -lln' 목록으로 디렉터리 탈출(.., 링크 아래 항목)·비정상 줄·압축 폭탄(max_output_bytes)을 검사한 뒤 extract/<label>-NNN/ 에 비root 로 추출(장치 노드 생성 안 함, 시간 제한·디스크 사용량 감시). 원본 모드/소유자/setuid 는 extract/<label>-NNN.manifest.json 에 보존(fw_rootfs_audit 가 자동 사용). 도구가 없으면 tool_missing 오류와 설치 힌트.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string",
+      "required": false,
+      "default": 0
+     },
+     {
+      "name": "output_label",
+      "type": "string",
+      "required": false,
+      "default": "rootfs"
+     },
+     {
+      "name": "timeout_seconds",
+      "type": "number",
+      "required": false,
+      "default": 600.0
+     },
+     {
+      "name": "max_output_bytes",
+      "type": "integer/string",
+      "required": false,
+      "default": "2G"
+     },
+     {
+      "name": "engine",
+      "type": "string",
+      "required": false,
+      "default": "auto"
+     },
+     {
+      "name": "allow_listing_anomalies",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "background",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_elf_info",
+    "description": "순수 Python ELF 분석: class/엔디언/타입/e_machine, e_flags 해석(MIPS ISA·ABI(o32/n32/n64)·ASE, .MIPS.abiflags FP ABI, ARM EABI·float ABI), 인터프리터, DT_NEEDED/SONAME/RPATH, 임포트 심볼(섹션 헤더 없는 sstrip 바이너리도 PT_DYNAMIC 로), 보호기법(NX/RELRO/PIE/카나리/FORTIFY), 위험 임포트(system/popen/exec*/strcpy/sprintf/sscanf..., cctv-hunt-patterns.yaml function_heuristics 매칭, 폭 없는 %s/%[ sscanf 포맷). path 가 디렉터리면 모든 ELF 를 분석해 위험 점수 순위를 만든다 (analysis/elf-info-NNN.json).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "max_results",
+      "type": "integer",
+      "required": false,
+      "default": 50
+     },
+     {
+      "name": "max_files",
+      "type": "integer",
+      "required": false,
+      "default": 3000
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 180.0
+     },
+     {
+      "name": "background",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_rootfs_audit",
+    "description": "추출된 rootfs 감사: passwd/shadow(빈/약한 해시와 알고리즘, uid 0 추가 계정, 공개 하드코딩 해시, 내장 기본 비밀번호 오프라인 대조), inittab/init.d/rc/inetd/systemd/벤더 시작 스크립트(telnetd·-l /bin/sh, dropbear -B, nc -e 셸, getty 자동 로그인/콘솔 셸, remserial, 쓰기 가능한 영구 저장소 스크립트 실행, world-writable 시작 스크립트), 웹 서버/메인 앱 바이너리·설정·CGI, setuid(매니페스트 기준), 개인키/인증서(지문만), 설정/스크립트의 하드코딩 자격증명(마스킹), 영구 쓰기 가능 마운트, YAML credential_patterns/interesting_paths. 심볼릭 링크는 rootfs 안에서만 해석(호스트 파일을 읽지 않음). 결과: analysis/rootfs-audit-NNN.json (항목마다 파일/줄/발췌/category/severity).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "rootfs_dir",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "max_results",
+      "type": "integer",
+      "required": false,
+      "default": 50
+     },
+     {
+      "name": "crack_defaults",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "crack_seconds",
+      "type": "number",
+      "required": false,
+      "default": 30.0
+     },
+     {
+      "name": "max_file_size",
+      "type": "integer/string",
+      "required": false,
+      "default": "16M"
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 300.0
+     },
+     {
+      "name": "background",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_strings_hunt",
+    "description": "인증 우회/백도어/명령 주입/하드코딩 자격증명 문자열 휴리스틱 검색 (src/pweh/data/cctv-hunt-patterns.yaml 의 string_heuristics, scope: strings=바이너리의 ASCII·UTF-16LE 문자열, text=텍스트 파일 줄, raw=바이트). patterns='cctv'(전체) 또는 목록: 휴리스틱 id/category/vendor/severity 선택자, 'xm-*' 접두사, 're:<정규식>', 'raw:<바이트 정규식>', 'lit:<문자열>'. 파일/디렉터리 모두 가능. 히트마다 파일/오프셋(텍스트는 줄)/패턴 id/category/severity/문맥. checks 목록은 auth-hunt 스키마 checks[] 로 바로 쓸 수 있다. max_hits 는 저장 상한(패턴별 per_pattern_cap), 응답에는 max_results 개. 히트의 file 은 두 모드 모두 rootfs 절대 경로(rootfs 밖의 덤프·파티션 이미지는 null), path 는 케이스 상대 경로. 결과: analysis/strings-hunt-NNN.json",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path_or_dir",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "patterns",
+      "type": "string/array",
+      "required": false,
+      "default": "cctv"
+     },
+     {
+      "name": "max_hits",
+      "type": "integer",
+      "required": false,
+      "default": 500
+     },
+     {
+      "name": "max_results",
+      "type": "integer",
+      "required": false,
+      "default": 50
+     },
+     {
+      "name": "min_severity",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "include",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "min_length",
+      "type": "integer",
+      "required": false,
+      "default": 4
+     },
+     {
+      "name": "utf16",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "per_pattern_cap",
+      "type": "integer",
+      "required": false,
+      "default": 50
+     },
+     {
+      "name": "max_file_size",
+      "type": "integer/string",
+      "required": false,
+      "default": "128M"
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 240.0
+     },
+     {
+      "name": "background",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_hunt_patterns",
+    "description": "fw_strings_hunt / fw_rootfs_audit / fw_elf_info 가 쓰는 휴리스틱 목록(cctv-hunt-patterns.yaml: id/category/severity/scope/vendor, function_heuristics, web_server_binaries)과 패턴 파일 출처·해시·오류.",
+    "params": [
+     {
+      "name": "vendor",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "category",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_crack_hashes",
+    "description": "펌웨어에서 나온 비밀번호 해시를 공개 기본 비밀번호 사전(builtin-defaults: src/pweh/data/default-passwords.txt + YAML candidate_passwords)과 오프라인 대조 — 소유 기기 감사용, 네트워크 로그인 시도 없음. hashes: 'user:hash:...' 줄 / 순수 해시 / {user, hash, type} 목록, 또는 source_path(케이스 안의 passwd/shadow/htpasswd 파일). 지원: DES crypt, md5crypt($1$), apr1, sha256/512crypt($5$/$6$), XiongMai Sofia (hash_type='xm-sofia'), 솔트 없는 md5/sha1/sha256 hex; bcrypt/yescrypt 는 crypt 모듈 지원 시. 공개 하드코딩 해시(known hash)도 표시. wordlist 는 'builtin-defaults' 또는 케이스 안의 파일 경로. 평문은 기본 마스킹(reveal=true 로 응답에 표시), 전체는 analysis/crack-hashes-NNN.json.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "hashes",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "source_path",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "wordlist",
+      "type": "string",
+      "required": false,
+      "default": "builtin-defaults"
+     },
+     {
+      "name": "extra_words",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "hash_type",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 60.0
+     },
+     {
+      "name": "reveal",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "max_results",
+      "type": "integer",
+      "required": false,
+      "default": 50
+     },
+     {
+      "name": "background",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   }
+  ]
+ }
+}

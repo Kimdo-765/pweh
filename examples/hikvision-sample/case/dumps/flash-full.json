@@ -1,0 +1,511 @@
+{
+  "schema": "pweh.uart-dump/v1",
+  "method": "uboot-md",
+  "source": {
+    "type": "sf",
+    "flash_type": "spi-nor",
+    "flash_size": 16777216,
+    "offset": 0,
+    "length": 16777216,
+    "partition": null,
+    "ram_addr": "0x42000000",
+    "device_path": null
+  },
+  "output": {
+    "path": "dumps/flash-full.bin",
+    "sha256": "e95ae853526947b9d29011f61c4cb3b92ce6fdff8a368cd23eef14cd40c5c2a2",
+    "size": 16777216
+  },
+  "verification": {
+    "method": "crc32-chunks",
+    "detail": "청크마다 기기 crc32 와 호스트 crc32 비교",
+    "match": true,
+    "chunks_verified": 64,
+    "full_range": {
+      "device_crc32": "5a756bc0",
+      "host_crc32": "5a756bc0",
+      "match": true
+    }
+  },
+  "chunks": {
+    "size": 262144,
+    "count": 64,
+    "retries": 0,
+    "resumed_from": 0,
+    "checks": [
+      {
+        "offset": 0,
+        "length": 262144,
+        "host_crc32": "da7f82bb",
+        "method": "crc32",
+        "device_crc32": "da7f82bb"
+      },
+      {
+        "offset": 262144,
+        "length": 262144,
+        "host_crc32": "ce0cd485",
+        "method": "crc32",
+        "device_crc32": "ce0cd485"
+      },
+      {
+        "offset": 524288,
+        "length": 262144,
+        "host_crc32": "046561fc",
+        "method": "crc32",
+        "device_crc32": "046561fc"
+      },
+      {
+        "offset": 786432,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 1048576,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 1310720,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 1572864,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 1835008,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 2097152,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 2359296,
+        "length": 262144,
+        "host_crc32": "cb2fe3d9",
+        "method": "crc32",
+        "device_crc32": "cb2fe3d9"
+      },
+      {
+        "offset": 2621440,
+        "length": 262144,
+        "host_crc32": "3c70a4e4",
+        "method": "crc32",
+        "device_crc32": "3c70a4e4"
+      },
+      {
+        "offset": 2883584,
+        "length": 262144,
+        "host_crc32": "507f08aa",
+        "method": "crc32",
+        "device_crc32": "507f08aa"
+      },
+      {
+        "offset": 3145728,
+        "length": 262144,
+        "host_crc32": "ee60eac8",
+        "method": "crc32",
+        "device_crc32": "ee60eac8"
+      },
+      {
+        "offset": 3407872,
+        "length": 262144,
+        "host_crc32": "742dc994",
+        "method": "crc32",
+        "device_crc32": "742dc994"
+      },
+      {
+        "offset": 3670016,
+        "length": 262144,
+        "host_crc32": "8a6b2702",
+        "method": "crc32",
+        "device_crc32": "8a6b2702"
+      },
+      {
+        "offset": 3932160,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 4194304,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 4456448,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 4718592,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 4980736,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 5242880,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 5505024,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 5767168,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 6029312,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 6291456,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 6553600,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 6815744,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 7077888,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 7340032,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 7602176,
+        "length": 262144,
+        "host_crc32": "bffb7d4e",
+        "method": "crc32",
+        "device_crc32": "bffb7d4e"
+      },
+      {
+        "offset": 7864320,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 8126464,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 8388608,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 8650752,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 8912896,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 9175040,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 9437184,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 9699328,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 9961472,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 10223616,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 10485760,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 10747904,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 11010048,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 11272192,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 11534336,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 11796480,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 12058624,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 12320768,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 12582912,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 12845056,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 13107200,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 13369344,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 13631488,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 13893632,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 14155776,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 14417920,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 14680064,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 14942208,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 15204352,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 15466496,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 15728640,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 15990784,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 16252928,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      },
+      {
+        "offset": 16515072,
+        "length": 262144,
+        "host_crc32": "b7094978",
+        "method": "crc32",
+        "device_crc32": "b7094978"
+      }
+    ]
+  },
+  "baudrate": 115200,
+  "port": "/dev/pts/8",
+  "session_id": "console-001",
+  "duration_seconds": 39.69,
+  "duration_seconds_total": 39.69,
+  "runs": [
+    {
+      "started_at": "2026-10-18T17:39:11.440Z",
+      "resumed_from": 0,
+      "session_id": "console-001",
+      "port": "/dev/pts/8",
+      "baudrate": 115200,
+      "ram_addr": 1107296256,
+      "finished_at": "2026-10-18T17:39:50.465Z",
+      "duration_seconds": 39.69,
+      "status": "succeeded",
+      "completed_chunks": 64
+    }
+  ],
+  "started_at": "2026-10-18T17:39:11.440Z",
+  "finished_at": "2026-10-18T17:39:50.465Z",
+  "notes": [
+    "ram_addr 생략 → uboot_info 제안값 0x42000000 사용"
+  ],
+  "uboot_version": "U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)hi3516ev300"
+}

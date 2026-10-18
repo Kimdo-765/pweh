@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/auth-hunt.schema.json",
+  "title": "cctv-auth-bypass-hunt 요약 data",
+  "type": "object",
+  "required": ["vendor_family", "web_components", "checks", "finding_ids"],
+  "properties": {
+    "vendor_family": {"enum": ["hikvision-like", "dahua-like", "xiongmai-like", "hisilicon-oem", "ingenic-oem", "generic", "unknown"]},
+    "web_components": {"type": "array", "items": {"type": "object", "required": ["path"], "properties": {"path": {"type": "string"}, "role": {"type": "string"}, "arch": {"type": ["string", "null"]}}}},
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "result"],
+        "properties": {
+          "id": {"type": "string"},
+          "description": {"type": "string"},
+          "result": {"enum": ["match", "no-match", "not-applicable", "inconclusive"]},
+          "evidence_ref": {"type": ["string", "null"]},
+          "finding_id": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "finding_ids": {"type": "array", "items": {"type": "string"}},
+    "coverage_gaps": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

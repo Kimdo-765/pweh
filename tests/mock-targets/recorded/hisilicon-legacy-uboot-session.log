@@ -1,0 +1,70 @@
+
+
+System startup
+
+
+U-Boot 2010.06 (Mar 05 2018 - 10:12:41)
+
+Check Flash Memory Controller v100 ... Found
+SPI Nor(cs 0) ID: 0xc2 0x20 0x18
+Block:64KB Chip:16MB Name:"MX25L128XX"
+SPI Nor total size: 16MB
+In:    serial
+Out:   serial
+Err:   serial
+Hit any key to stop autoboot:  1  0 
+hisilicon # printenv
+bootargs=mem=40M console=ttyAMA0,115200 root=/dev/mtdblock3 rootfstype=squashfs mtdparts=hi_sfc:512k(boot),256k(env),3072k(kernel),8192k(rootfs),-(app)
+bootcmd=sf probe 0;sf read 0x82000000 0xc0000 0x300000;bootm 0x82000000
+bootdelay=1
+baudrate=115200
+ethaddr=00:00:23:34:45:66
+ipaddr=192.168.1.10
+serverip=192.168.1.2
+netmask=255.255.255.0
+bootfile="uImage"
+verify=n
+stdin=serial
+stdout=serial
+stderr=serial
+ver=U-Boot 2010.06 (Mar 05 2018 - 10:12:41)
+
+Environment size: 453/262140 bytes
+hisilicon # bdinfo
+arch_number = 0x00001F40
+env_t       = 0x00000000
+boot_params = 0x80000100
+DRAM bank   = 0x00000000
+-> start    = 0x80000000
+-> size     = 0x04000000
+ethaddr     = 00:00:23:34:45:66
+ip_addr     = 192.168.1.10
+baudrate    = 115200 bps
+hisilicon # version
+
+U-Boot 2010.06 (Mar 05 2018 - 10:12:41)
+hisilicon # sf probe 0
+16384 KiB hi_fmc at 0:0 is now current device
+hisilicon # sf read 0x82000000 0xc0000 0x10000
+
+hisilicon # md.b 0x82000000 0x40
+82000000: 27 05 19 56 50 8e 75 2e 5a 9c a5 ed 00 06 05 f6    '..VP.u.Z.......
+82000010: 80 00 80 00 80 00 80 00 c7 d5 83 a8 05 02 02 00    ................
+82000020: 4c 69 6e 75 78 2d 33 2e 34 2e 33 35 00 00 00 00    Linux-3.4.35....
+82000030: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00    ................
+hisilicon # 
+82000040: 00 00 a0 e1 00 00 00 00 00 00 00 00 00 00 00 00    ................
+82000050: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00    ................
+82000060: 00 00 00 00 18 28 6f 01 00 00 00 00 f6 05 06 00    .....(o.........
+82000070: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00    ................
+hisilicon # md.l 0x82000000 8
+82000000: 56190527 2e758e50 eda59c5a f6050600    '..VP.u.Z.......
+82000010: 00800080 00800080 a883d5c7 00020205    ................
+hisilicon # crc32 0x82000000 0x10000
+CRC32 for 82000000 ... 8200ffff ==> 129f5f9a
+hisilicon # pri bootcmd
+bootcmd=sf probe 0;sf read 0x82000000 0xc0000 0x300000;bootm 0x82000000
+hisilicon # xyzzy
+Unknown command 'xyzzy' - try 'help'
+hisilicon # <INTERRUPT>
+hisilicon # 

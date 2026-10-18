@@ -1,0 +1,31 @@
+{
+  "schema": "pweh.fwtriage.crack-hashes/v1",
+  "tool": "fw_crack_hashes",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-hikvision-sample",
+  "generated_at": "2026-10-18T17:39:55.294Z",
+  "input": {
+    "source_path": "extract/rootfs-001/etc/shadow",
+    "count": 1
+  },
+  "params": {
+    "wordlist": "<REPO>/src/pweh/data/default-passwords.txt",
+    "words": 128,
+    "hash_type": null,
+    "crypt_module": true
+  },
+  "results": [
+    {
+      "user": "root",
+      "hash": "$1$7Q21e26b$SpED8AKQ8mR9NBkV6s4hG/",
+      "source": "extract/rootfs-001/etc/shadow:1",
+      "algorithm": "md5crypt",
+      "note": "MD5-crypt (약함, GPU 로 빠르게 대입 가능)",
+      "status": "cracked",
+      "candidates_tried": 10,
+      "candidates_total": 129,
+      "password": "54***"
+    }
+  ],
+  "note": "평문 비밀번호가 포함되어 있습니다. 케이스 디렉터리 밖으로 반출하지 말고 보고서에는 마스킹하세요."
+}

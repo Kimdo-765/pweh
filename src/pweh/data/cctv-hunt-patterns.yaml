@@ -1,0 +1,1060 @@
+# cctv-hunt-patterns.yaml
+# 오프라인 펌웨어 트리아지(fwtriage-mcp)용 휴리스틱. 사람이 읽는 근거 문서: docs/references/cctv-vuln-patterns.md
+# 모든 정규식은 작은따옴표로 감싼 YAML 스칼라다(백슬래시는 그대로 전달되고, 작은따옴표는 '' 로 이스케이프).
+# 대상: 운영자가 소유하거나 서면 허가를 받은 장비의 펌웨어. 히트는 "조사 출발점"일 뿐 취약점 확정이 아니다.
+
+version: 1
+
+sources:
+  - 'https://cveawg.mitre.org/api/cve/'
+  - 'https://services.nvd.nist.gov/rest/json/cves/2.0'
+  - 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-7921'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-7923'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2021-36260'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2013-4975'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2013-4976'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2013-4977'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2014-4880'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2021-33044'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2021-33045'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2021-33046'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-7925'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-7927'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-6343'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2022-30563'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2022-30561'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2013-6117'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2013-3612'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2013-3615'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2019-3948'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-3223'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-8226'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-7577'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-16725'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2018-10088'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2018-17915'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2018-17917'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2018-17919'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2020-22253'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2021-41506'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2022-26259'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2022-45045'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2022-45460'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2024-3765'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2020-24214'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2020-24215'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2020-24216'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2020-24217'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2020-24218'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2020-24219'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2021-45039'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2019-20085'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2024-7339'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-8221'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-8222'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-8223'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-8224'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-8225'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2018-9995'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2020-25078'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2020-25079'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2024-8956'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2024-8957'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2018-6830'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2018-6831'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2018-6832'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-2849'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2017-17562'
+  - 'https://nvd.nist.gov/vuln/detail/CVE-2018-18778'
+  - 'https://www.cisa.gov/news-events/ics-advisories/icsa-17-124-01'
+  - 'https://www.cisa.gov/news-events/ics-advisories/icsa-17-124-02'
+  - 'https://www.cisa.gov/news-events/ics-advisories/icsa-17-341-01'
+  - 'https://www.cisa.gov/news-events/ics-advisories/icsa-18-282-06'
+  - 'https://www.kb.cert.org/vuls/id/800094'
+  - 'https://www.kb.cert.org/vuls/id/547255'
+  - 'https://www.kb.cert.org/vuls/id/896979'
+  - 'https://www.hikvision.com/en/support/cybersecurity/security-advisory/security-notification-command-injection-vulnerability-in-some-hikvision-products/'
+  - 'https://www.hikvision.com/us-en/support/cybersecurity/security-advisory/security-notification--privilege-escalating-vulnerability-in-cer'
+  - 'http://web.archive.org/web/20260209074212/https://www.hikvision.com/en/support/cybersecurity/security-advisory/security-notification--privilege-escalating-vulnerability-in-cer/'
+  - 'http://web.archive.org/web/20260604201155/https://www.hikvision.com/en/support/cybersecurity/security-advisory/security-notification-command-injection-vulnerability-in-some-hikvision-products/security-notification-command-injection-vulnerability-in-some-hikvision-products/'
+  - 'https://www.dahuasecurity.com/support/cybersecurity/details/957'
+  - 'http://web.archive.org/web/20230607233541/https://www.dahuasecurity.com/support/cybersecurity/details/957'
+  - 'https://www.dahuasecurity.com/support/cybersecurity/details/1017'
+  - 'http://web.archive.org/web/20230606230812/https://www.dahuasecurity.com/support/cybersecurity/details/1017'
+  - 'http://www.xiongmaitech.com/en/index.php/news/info/12/68'
+  - 'https://www.uniview.com/About_Us/Security/Notice/202112/920471_140493_0.htm'
+  - 'https://supportannouncement.us.dlink.com/announcement/publication.aspx?name=SAP10180'
+  - 'https://seclists.org/fulldisclosure/2017/Sep/23'
+  - 'https://watchfulip.github.io/2021/09/18/Hikvision-IP-Camera-Unauthenticated-RCE.html'
+  - 'https://github.com/rapid7/metasploit-framework/blob/master/modules/exploits/linux/http/hikvision_cve_2021_36260_blind.rb'
+  - 'https://github.com/mcw0/PoC/blob/master/CVE-2021-36260.py'
+  - 'https://seclists.org/bugtraq/2013/Aug/56'
+  - 'https://github.com/WormChickenWizard/hikvision-xor-decrypter'
+  - 'https://github.com/chrisjd20/hikvision_CVE-2017-7921_auth_bypass_config_decryptor'
+  - 'https://seclists.org/fulldisclosure/2021/Oct/13'
+  - 'https://github.com/mcw0/DahuaConsole'
+  - 'https://seclists.org/fulldisclosure/2017/Mar/7'
+  - 'https://github.com/mcw0/PoC/blob/master/dahua-backdoor-PoC.py'
+  - 'https://github.com/mcw0/PoC'
+  - 'https://nozominetworks.com/blog/vulnerability-in-dahua-s-onvif-implementation-threatens-ip-camera-security'
+  - 'https://seclists.org/bugtraq/2013/Nov/62'
+  - 'https://www.tenable.com/security/research/tra-2019-36'
+  - 'https://github.com/tothi/pwn-hisilicon-dvr'
+  - 'https://habr.com/en/post/486856/'
+  - 'https://github.com/Snawoot/hisilicon-dvr-telnet'
+  - 'https://vulncheck.com/blog/xiongmai-iot-exploitation'
+  - 'https://vulncheck.com/advisories/xiongmai-uri-overflow'
+  - 'https://seclists.org/bugtraq/2018/Oct/27'
+  - 'https://github.com/netsecfish/xiongmai_incorrect_access_control'
+  - 'https://kojenov.com/2020-09-15-hisilicon-encoder-vulnerabilities/'
+  - 'https://github.com/mcw0/PoC/blob/master/TVT_and_OEM_IPC_NVR_DVR_RCE_Backdoor_and_Information_Disclosure.txt'
+  - 'https://github.com/mcw0/PoC/blob/master/Uniview%20RCE%20PoC.txt'
+  - 'https://github.com/mcw0/PoC/blob/master/Herospeed-TelnetSwitch.py'
+  - 'https://ssd-disclosure.com/ssd-advisory--uniview-preauth-rce/'
+  - 'http://web.archive.org/web/20230928141452/https://ssd-disclosure.com/ssd-advisory--uniview-preauth-rce/'
+  - 'https://pierrekim.github.io/blog/2017-03-08-camera-goahead-0day.html'
+  - 'http://web.archive.org/web/20181206084221/https://blog.vdoo.com/2018/06/06/vdoo-has-found-major-vulnerabilities-in-foscam-cameras/'
+  - 'https://vulncheck.com/advisories/ptzoptics-insufficient-auth'
+  - 'https://vulncheck.com/advisories/ptzoptics-command-injection'
+  - 'https://raw.githubusercontent.com/nmap/nmap/master/nmap-service-probes'
+  - 'https://raw.githubusercontent.com/embedthis/goahead/master/src/http.c'
+  - 'https://raw.githubusercontent.com/mirror/busybox/master/examples/inittab'
+  - 'https://raw.githubusercontent.com/mirror/busybox/master/networking/telnetd.c'
+  - 'https://raw.githubusercontent.com/mirror/busybox/master/loginutils/getty.c'
+  - 'https://github.com/jgamblin/Mirai-Source-Code/blob/master/mirai/bot/scanner.c'
+  - 'https://ipcamtalk.com/goto/post?id=380970'
+
+# vendor -> 바이너리 이름 목록 (rootfs에서 파일명 일치로 찾는다). 웹 서버뿐 아니라 네트워크 대면 메인 앱·데몬 포함.
+web_server_binaries:
+  hikvision:
+    - 'davinci'        # (커뮤니티) IPCamTalk: 메인 앱 겸 웹 서버
+    - 'centaurus'      # (커뮤니티) 일부 최신 HiWatch 펌웨어에서 davinci 대체
+  dahua:
+    - 'sonia'          # CERT/CC VU#547255: /usr/bin/sonia = web interface and other services
+    - 'Challenge'      # bashis 2017 PoC 주석: Dahua main binaries 'Challenge' / 'Sonia'
+  xiongmai:
+    - 'Sofia'          # tothi: /var/Sofia (HTTP uc-httpd, RTSP, 34567 포함)
+    - 'dvrHelper'      # Yarmak/VulnCheck: 9527(2016), 9530 백도어 스레드
+    - 'macGuarder'     # Yarmak/VulnCheck: 9530 백도어
+  hisilicon_video_encoder:
+    - 'box.v400_hdmi'  # Kojenov: 장비마다 이름이 다를 수 있음(box.*)
+  tvt:
+    - 'NVMS9000'       # bashis 2018: TCP/4567 백엔드 프로세스 이름(실제 파일명 미확인)
+    - 'ConfigSyncProc' # bashis 2018: /mnt/mtd/ConfigSyncProc, TCP/80 -> TCP/4567 HTTP wrapper
+  uniview:
+    - 'main-cgi'       # bashis 2017: /cgi-bin/main-cgi
+    - 'maintain'       # SSD: /program/bin/maintain (UDP 7788)
+  foscam:
+    - 'lighttpd'
+    - 'CGIProxy.fcgi'
+    - 'webService'
+    - 'devMng'
+  herospeed:
+    - 'TelnetSwitch'   # bashis 2018: TCP/787 (실제 파일명 미확인)
+  generic:
+    - 'boa'
+    - 'goahead'
+    - 'lighttpd'
+    - 'thttpd'
+    - 'mini_httpd'
+    - 'uhttpd'
+    - 'httpd'
+    - 'nginx'
+
+# 추출된 rootfs 루트 기준 상대 glob (POSIX, '**' = 0개 이상 디렉터리; pathlib.Path.glob 의미)
+interesting_paths:
+  - 'etc/passwd'
+  - 'etc/passwd-'
+  - 'etc/shadow'
+  - 'etc/shadow-'
+  - 'etc/group'
+  - 'etc/inittab'
+  - 'etc/inetd.conf'
+  - 'etc/xinetd.d/*'
+  - 'etc/init.d/*'
+  - 'etc/init.d/rcS'
+  - 'etc/rc.d/**'
+  - 'etc/rc.local'
+  - 'etc/profile'
+  - 'etc/dropbear/*'
+  - 'etc/ssl/**'
+  - 'home/**'
+  - 'root/**'
+  - 'mnt/mtd/**'
+  - 'mnt/mtd/Config/**'
+  - 'mnt/custom/**'
+  - 'mnt/web/**'
+  - 'usr/bin/sonia'
+  - '**/Sofia'
+  - '**/dvrHelper'
+  - '**/macGuarder'
+  - '**/davinci*'
+  - '**/centaurus*'
+  - '**/ConfigSyncProc'
+  - '**/NVMS9000*'
+  - '**/TelnetSwitch*'
+  - 'program/bin/**'
+  - 'system/www/**'
+  - 'system/param/**'
+  - 'box/**'
+  - '**/box.ini'
+  - '**/InstallDesc'
+  - '**/doc/pages/scripts/*.js'
+  - '**/loginEx.js'
+  - '**/cgi-bin/**'
+  - '**/*.cgi'
+  - '**/*.fcgi'
+  - '**/*.ini'
+  - '**/*.conf'
+  - '**/*.cfg'
+  - '**/*.pem'
+  - '**/*.key'
+  - '**/*.crt'
+  - '**/*.p12'
+  - '**/*.sh'
+  - '**/www/**'
+  - '**/web/**'
+  - '**/webs/**'
+  - '**/html/**'
+
+credential_patterns:
+  - id: passwd-empty-password
+    files: ['etc/passwd', 'etc/passwd-', 'etc/shadow', 'etc/shadow-']
+    pattern: '^(?P<user>[^:#\s][^:\n]*)::'
+    category: hardcoded-credential
+    severity_hint: high
+    rationale: '비밀번호 필드가 비어 있는 계정. telnet/UART/login 경로에서 무비밀번호 로그인 가능성.'
+    references: []
+  - id: passwd-hash-in-passwd
+    files: ['etc/passwd', 'etc/passwd-']
+    pattern: '^(?P<user>[^:#\s][^:\n]*):(?!x:|\*|!)(?P<hash>[^:\n]{2,}):'
+    category: hardcoded-credential
+    severity_hint: medium
+    rationale: 'shadow 없이 /etc/passwd에 해시가 직접 들어간 형태. 카메라 펌웨어의 고정 root 해시가 흔히 이 형태(tothi, Kojenov, Pierre Kim 사례).'
+    references: [CVE-2017-8224, CVE-2020-24218]
+  - id: passwd-des-crypt
+    files: ['etc/passwd', 'etc/passwd-', 'etc/shadow', 'etc/shadow-']
+    pattern: '^(?P<user>[^:#\s][^:\n]*):(?P<hash>[./0-9A-Za-z]{13}):'
+    category: hardcoded-credential
+    severity_hint: high
+    rationale: '전통 DES crypt(13자, 비밀번호 8자 절단). 공개 사례: XiongMai absxcfbgXtb3o, 인코더 9yVwSCpfKcYJg와 qiYX370VaJ3u., TVT 해시 2종.'
+    references: [CVE-2020-24218]
+  - id: passwd-md5-crypt
+    files: ['etc/passwd', 'etc/passwd-', 'etc/shadow', 'etc/shadow-']
+    pattern: '^(?P<user>[^:#\s][^:\n]*):(?P<hash>\$1\$[./0-9A-Za-z]{0,8}\$[./0-9A-Za-z]{22}):'
+    category: hardcoded-credential
+    severity_hint: medium
+    rationale: 'MD5-crypt 해시. 펌웨어 고정 계정이면 모든 장비 공통 비밀번호일 수 있음.'
+    references: [CVE-2017-8224, CVE-2020-24218]
+  - id: passwd-extra-uid0
+    files: ['etc/passwd', 'etc/passwd-']
+    pattern: '^(?!root:)(?P<user>[^:#\s][^:\n]*):[^:\n]*:0:'
+    category: backdoor
+    severity_hint: high
+    rationale: 'root 외의 UID 0 계정.'
+    references: []
+  - id: known-hash-xm-root-xc3511
+    files: ['etc/passwd', 'etc/passwd-', 'etc/shadow', 'etc/shadow-']
+    pattern: '^root:absxcfbgXtb3o:'
+    category: hardcoded-credential
+    severity_hint: critical
+    rationale: 'XiongMai/HiSilicon DVR 고정 root DES 해시(tothi, 공개 평문 xc3511). Yarmak은 CVE-2021-41506 관련 백도어 활성화 후 유효 root 비밀번호 후보로 xc3511을 제시.'
+    references: [CVE-2021-41506]
+  - id: known-hash-tvt-root-a
+    files: ['etc/passwd', 'etc/passwd-', 'etc/shadow', 'etc/shadow-']
+    pattern: '^root:tsfhKsZ1p7nE2:'
+    category: hardcoded-credential
+    severity_hint: critical
+    rationale: 'TVT/OEM 하드코딩 root 해시(bashis 2018, CVE 미확인, 공개 평문 china123 — crypt(3)로 재확인): https://github.com/mcw0/PoC/blob/master/TVT_and_OEM_IPC_NVR_DVR_RCE_Backdoor_and_Information_Disclosure.txt'
+    references: []
+  - id: known-hash-tvt-root-b
+    files: ['etc/passwd', 'etc/passwd-', 'etc/shadow', 'etc/shadow-']
+    pattern: '^root:3kzd9/xqjB\.3k:'
+    category: hardcoded-credential
+    severity_hint: critical
+    rationale: 'TVT/OEM 하드코딩 root 해시(bashis 2018, CVE 미확인, 공개 평문 1001chin — crypt(3)로 재확인). 출처는 known-hash-tvt-root-a와 동일.'
+    references: []
+  - id: known-hash-hienc-root-unisheen
+    files: ['etc/passwd', 'etc/passwd-', 'etc/shadow', 'etc/shadow-', '**/passwd']
+    pattern: '^root:9yVwSCpfKcYJg:'
+    category: hardcoded-credential
+    severity_hint: critical
+    rationale: 'URayTech 인코더 root 해시(Kojenov, 공개 평문 unisheen).'
+    references: [CVE-2020-24218]
+  - id: known-hash-hienc-root-neworang
+    files: ['etc/passwd', 'etc/passwd-', 'etc/shadow', 'etc/shadow-', '**/passwd']
+    pattern: '^root:qiYX370VaJ3u\.:'
+    category: hardcoded-credential
+    severity_hint: critical
+    rationale: 'Kojenov 글의 경로 순회 예시 출력(인코더 /etc/passwd)에 나온 root DES 해시. crypt(3)로 재계산하면 neworang(= 백도어 비밀번호 neworange88888888의 앞 8자)과 일치한다(검증 2026-10-18). 웹 백도어 비밀번호가 root 비밀번호로도 설정된 사례.'
+    references: [CVE-2020-24218]
+  - id: known-hash-hienc-root-neworangetech
+    files: ['etc/passwd', 'etc/passwd-', 'etc/shadow', 'etc/shadow-', '**/passwd']
+    pattern: '^root:\$1\$/5bWggz/\$JkbAnqFTv7HwEWr3DFJiC0:'
+    category: hardcoded-credential
+    severity_hint: critical
+    rationale: 'J-Tech 인코더 펌웨어 root 해시(Kojenov, 공개 평문 neworangetech). VU#896979는 J-Tech를 CVE-2020-24218 Not Affected로 표기.'
+    references: [CVE-2020-24218]
+  - id: known-hash-wificam-root
+    files: ['etc/passwd', 'etc/passwd-', 'etc/shadow', 'etc/shadow-']
+    pattern: '^root:\$1\$ybdHbPDn\$ii9aEIFNiolBbM9QxW9mr0:'
+    category: backdoor
+    severity_hint: critical
+    rationale: 'WIFICAM(GoAhead 개조 OEM) 백도어 root 계정(Pierre Kim).'
+    references: [CVE-2017-8224]
+  - id: sofia-empty-password-hash
+    files: ['mnt/mtd/Config/**', '**/Account*']
+    pattern: '\btlJwpbo6\b'
+    category: hardcoded-credential
+    severity_hint: high
+    rationale: 'Sofia 해시(MD5 파생 8자)로 계산한 빈 비밀번호 값(tothi). NVD CVE-2022-45045 설명의 default admin:tlJwpbo6.'
+    references: [CVE-2022-45045]
+  - id: config-weak-password-value
+    files: ['**/*.ini', '**/*.conf', '**/*.cfg', '**/*.xml', '**/*.json', 'mnt/mtd/Config/**']
+    pattern: '(?i)\b(?:pass(?:word)?|pwd|passwd)[ \t]*[=:][ \t]*"?(?:admin|123456|12345|1234|888888|666666|password|default)?"?[ \t]*(?:[,;}<]|$)'
+    category: hardcoded-credential
+    severity_hint: medium
+    rationale: '설정 파일의 빈/약한 기본 비밀번호 값(일반 휴리스틱). XMeye admin 공란(SEC Consult SA-20181009-0, 별도 CVE 없음: https://seclists.org/bugtraq/2018/Oct/27) 같은 기본값 확인용. 숨은 default 계정(tluafed, CVE-2018-17919)은 xm-default-user-tluafed가 담당한다.'
+    references: []
+  - id: known-default-password-candidates
+    files: ['etc/passwd', 'etc/passwd-', 'etc/shadow', 'etc/shadow-', '**/passwd']
+    pattern: '^(?P<user>[^:#\s][^:\n]*):(?P<hash>\$1\$[./0-9A-Za-z]{0,8}\$[./0-9A-Za-z]{22}|[./0-9A-Za-z]{13}):'
+    category: hardcoded-credential
+    severity_hint: high
+    rationale: '추출한 crypt 해시를 아래 candidate_passwords로 오프라인 대조(crypt(3)). 출처: Mirai scanner.c(인코딩된 바이트를 XOR 0x22로 디코드한 값 기준. 주석 두 곳이 실제 값과 다르다: Administrator 항목의 실제 비밀번호는 meinsm, admin 항목 하나의 실제 값은 4321), Yarmak(XiongMai root 후보), Kojenov(인코더), bashis 2018(TVT root: china123, 1001chin). 벤더 매핑은 하지 않는다. DES crypt는 앞 8자만 유효.'
+    references: [CVE-2021-41506, CVE-2020-24218]
+    candidate_passwords:
+      - 'xc3511'
+      - 'xmhdipc'
+      - 'klv123'
+      - 'klv1234'
+      - 'jvbzd'
+      - 'hi3518'
+      - '123456'
+      - '54321'
+      - '12345'
+      - '1234'
+      - '1111'
+      - '888888'
+      - '666666'
+      - '00000000'
+      - 'vizxv'
+      - '7ujMko0admin'
+      - '7ujMko0vizxv'
+      - 'juantech'
+      - 'anko'
+      - 'zlxx.'
+      - 'Zte521'
+      - 'ikwb'
+      - 'dreambox'
+      - 'realtek'
+      - 'system'
+      - 'default'
+      - 'admin'
+      - 'root'
+      - 'pass'
+      - 'password'
+      - 'user'
+      - 'support'
+      - 'unisheen'
+      - 'neworang'
+      - 'neworangetech'
+      - 'meinsm'
+      - '4321'
+      - 'china123'
+      - '1001chin'
+
+string_heuristics:
+  # ---------------- Hikvision ----------------
+  - id: hik-handler-families
+    pattern: '/(?:ISAPI|PSIA|SDK)/[A-Za-z]'
+    category: auth-bypass
+    severity_hint: info
+    scope: any
+    vendor: hikvision
+    rationale: 'Hikvision API 핸들러 계열(ISAPI, PSIA, HikCGI, Genetec) 위치 앵커. 핸들러 간 인증 코드 비대칭(한 곳에만 존재하면 인증 생략 분기)이 CVE-2017-7921의 핵심.'
+    references: [CVE-2017-7921]
+  - id: hik-hikcgi-endpoints
+    pattern: '/(?:Security/users|System/configurationFile|onvif-http/snapshot)\b'
+    category: auth-bypass
+    severity_hint: medium
+    scope: any
+    vendor: hikvision
+    rationale: 'Monte Crypto FD가 예시한 HikCGI 엔드포인트. xref로 HikCGI 디스패처와 쿼리 파라미터 auth 처리(비밀번호 무시) 여부를 확인.'
+    references: [CVE-2017-7921]
+  - id: hik-sdk-weblanguage
+    pattern: '(?:/SDK/)?webLanguage\b'
+    category: command-injection
+    severity_hint: high
+    scope: any
+    vendor: hikvision
+    rationale: '/SDK/webLanguage(PUT, XML language 요소). language 값이 셸에서 평가됨(공개 PoC 동작). 정확한 싱크는 (추정): sprintf류 -> system/popen류.'
+    references: [CVE-2021-36260]
+  - id: hik-psia-configurationdata
+    pattern: '/PSIA/System/ConfigurationData\b'
+    category: info-leak
+    severity_hint: high
+    scope: any
+    vendor: hikvision
+    rationale: '저권한 계정이 설정 데이터(4바이트 반복 XOR)를 받아 admin 비밀번호 획득(Core CORE-2013-0708).'
+    references: [CVE-2013-4975]
+  - id: hik-configurationfile
+    pattern: '\bconfigurationFile\b'
+    category: info-leak
+    severity_hint: medium
+    scope: any
+    vendor: hikvision
+    rationale: '설정 백업 export. 사용자명과 평문 비밀번호 포함, 정적 키 암호화(FD: derived from the password "abcdefg").'
+    references: [CVE-2017-7923]
+  - id: hik-anonymous-hardcoded
+    pattern: 'anonymous:(?:\\177){6}'
+    category: hardcoded-credential
+    severity_hint: critical
+    scope: any
+    vendor: hikvision
+    rationale: '하드코딩 anonymous 자격증명. 백슬래시+177 여섯 번이 문자 그대로 들어간 ASCII 텍스트(34바이트 anonymous:\177\177\177\177\177\177)에 매칭. Core CORE-2013-0708: login.js DoLogin()의 리터럴이며, Core가 제시한 쿠키 값도 base64 디코드하면 이 34바이트 텍스트다(0x7F 바이트 아님). Core는 "several references to those hardcoded credentials in the cgis"라고 썼으므로 바이너리(strings)도 검사한다(scope any).'
+    references: [CVE-2013-4976]
+  - id: hik-anonymous-hardcoded-raw
+    pattern: 'anonymous:\x7f{6}'
+    category: hardcoded-credential
+    severity_hint: high
+    scope: raw
+    vendor: hikvision
+    rationale: '같은 자격증명이 바이너리에 실제 0x7F(DEL) 바이트로 저장된 경우를 가정한 패턴(미확인). 1차 출처(Core)의 쿠키 값은 백슬래시 텍스트 형태이므로 hik-anonymous-hardcoded가 우선.'
+    references: [CVE-2013-4976]
+  - id: hik-config-aes-key-raw
+    pattern: '\x27\x99\x77\xf6\x2f\x6c\xfd\x2d\x91\xcd\x75\xb8\x89\xce\x0c\x9a'
+    category: crypto
+    severity_hint: high
+    scope: raw
+    vendor: hikvision
+    rationale: '설정 백업 복호화용 AES-128-ECB 키(제3자 복호화 도구 기준, 벤더 미확인). 히트 시 xref로 export/import 루틴 확인.'
+    references: [CVE-2017-7923]
+  - id: hik-config-aes-key-hex
+    pattern: '(?i)279977f62f6cfd2d91cd75b889ce0c9a'
+    category: crypto
+    severity_hint: high
+    scope: any
+    vendor: hikvision
+    rationale: '같은 키가 hex 문자열로 저장된 경우.'
+    references: [CVE-2017-7923]
+
+  # ---------------- Dahua ----------------
+  - id: dh-login-netkeyboard
+    pattern: '\bNetKeyboard\b'
+    category: auth-bypass
+    severity_hint: medium
+    scope: any
+    vendor: dahua
+    rationale: 'global.login의 clientType NetKeyboard 분기. 기능 미지원 장비에서 비밀번호 검증 없이 성공하는지 디컴파일로 확인.'
+    references: [CVE-2021-33044]
+  - id: dh-login-loopback-local
+    pattern: '\bLoopback\b'
+    category: auth-bypass
+    severity_hint: low
+    scope: any
+    vendor: dahua
+    rationale: 'loginType Loopback(+ clientType Local, 클라이언트가 쓴 ipAddr 127.0.0.1) 신뢰 분기. 일반 단어이므로 dh-login-fields와 같은 바이너리에서 날 때만 의미.'
+    references: [CVE-2021-33045]
+  - id: dh-login-fields
+    pattern: '\b(?:clientType|loginType|authorityType|passwordType)\b'
+    category: auth-bypass
+    severity_hint: info
+    scope: any
+    vendor: dahua
+    rationale: 'Dahua 로그인 분기 키. 값마다 검증 경로를 표로 작성(cctv-vuln-patterns.md 3.2).'
+    references: [CVE-2021-33044, CVE-2021-33045]
+  - id: dh-rpc2-endpoints
+    pattern: '/RPC2(?:_Login)?\b|\bglobal\.login\b'
+    category: auth-bypass
+    severity_hint: info
+    scope: any
+    vendor: dahua
+    rationale: 'JSON-RPC 로그인 진입점(HTTP /RPC2_Login, DHIP 공용 로직).'
+    references: [CVE-2021-33044, CVE-2021-33045]
+  - id: dh-current-config
+    pattern: '/current_config/'
+    category: info-leak
+    severity_hint: high
+    scope: any
+    vendor: dahua
+    rationale: '/current_config/ <-> /mnt/mtd/Config/ 매핑. 사용자 DB(passwd, Account1) 무인증 다운로드와 pass-the-hash(bashis 2017, ICSA-17-124-02).'
+    references: [CVE-2017-7925, CVE-2017-7927]
+  - id: dh-public-config-allowlist
+    pattern: '\b(?:WebCapConfig|preLanguage)\b'
+    category: auth-bypass
+    severity_hint: low
+    scope: any
+    vendor: dahua
+    rationale: '의도적 공개 파일. 응급 수정이 이 두 파일만 허용하는 하드코딩 allowlist였음(bashis). 같은 디렉터리의 민감 파일 노출 여부 확인.'
+    references: [CVE-2017-7925]
+  - id: dh-loginex-js
+    pattern: '\bloginEx\.js\b'
+    category: auth-bypass
+    severity_hint: info
+    scope: any
+    vendor: dahua
+    rationale: '888888 계정의 로컬 전용 제한이 클라이언트 JS에서만 검사됨(bashis PoC 주석, CVE 미확인): https://github.com/mcw0/PoC/blob/master/dahua-backdoor-PoC.py'
+    references: []
+  - id: dh-videotalk
+    pattern: '/videotalk\b'
+    category: auth-bypass
+    severity_hint: medium
+    scope: any
+    vendor: dahua
+    rationale: '인증 없는 /videotalk HTTP 엔드포인트(Tenable TRA-2019-36).'
+    references: [CVE-2019-3948]
+
+  # ---------------- XiongMai ----------------
+  - id: xm-opentelnet-cmd
+    pattern: '\b(?:OpenTelnet|Telnet):OpenOnce\b'
+    category: backdoor
+    severity_hint: critical
+    scope: any
+    vendor: xiongmai
+    rationale: 'TCP 9530 telnetd 활성화 명령 문자열(Yarmak). macGuarder/dvrHelper.'
+    references: [CVE-2020-22253, CVE-2021-41506]
+  - id: xm-opentelnet-handshake
+    pattern: '\brandNum:|\bverify:(?:OK|ERROR)\b|\bOpen:OK\b'
+    category: backdoor
+    severity_hint: high
+    scope: any
+    vendor: xiongmai
+    rationale: '9530 challenge-response 응답 문자열(Yarmak).'
+    references: [CVE-2020-22253, CVE-2021-41506]
+  - id: xm-telnetoempasswd
+    pattern: '\bTelnetOEMPasswd\b'
+    category: backdoor
+    severity_hint: critical
+    scope: any
+    vendor: xiongmai
+    rationale: '9530 백도어 PSK 파일 /mnt/custom/TelnetOEMPasswd(Yarmak).'
+    references: [CVE-2020-22253, CVE-2021-41506]
+  - id: xm-default-psk
+    pattern: '\b2wj9fsa2\b'
+    category: hardcoded-credential
+    severity_hint: critical
+    scope: any
+    vendor: xiongmai
+    rationale: 'TelnetOEMPasswd가 없을 때 쓰는 기본 PSK(Yarmak).'
+    references: [CVE-2020-22253, CVE-2021-41506]
+  - id: xm-backdoor-daemons
+    pattern: '\b(?:macGuarder|dvrHelper)\b'
+    category: debug-interface
+    severity_hint: high
+    scope: any
+    vendor: xiongmai
+    rationale: '9527/9530 리스너 데몬 이름(VulnCheck netstat, Yarmak). init 스크립트나 BusyBox applet 목록에서 기동 여부 확인.'
+    references: [CVE-2021-41506]
+  - id: xm-universal-password
+    pattern: '\bI0TO5Wv9\b'
+    category: backdoor
+    severity_hint: critical
+    scope: any
+    vendor: xiongmai
+    rationale: 'Sofia 인증 함수의 만능 비밀번호 리터럴, 해시 비교 전에 검사(tothi 2017, CVE 미확인): https://github.com/tothi/pwn-hisilicon-dvr'
+    references: []
+  - id: xm-empty-password-hash
+    pattern: '\btlJwpbo6\b'
+    category: hardcoded-credential
+    severity_hint: high
+    scope: any
+    vendor: xiongmai
+    rationale: '빈 비밀번호의 Sofia 해시. 기본 admin 공란이나 해시 수락(pass-the-hash) 경로 단서(tothi).'
+    references: [CVE-2022-45045]
+  - id: xm-upgrade-descriptor
+    pattern: '\b(?:UpgradeCommand|InstallDesc)\b'
+    category: command-injection
+    severity_hint: high
+    scope: any
+    vendor: xiongmai
+    rationale: '업데이트 기술자의 Shell 명령 실행(Script -> system). 서명 없는 업데이트(SEC Consult)와 34567 업그레이드 RCE(VulnCheck).'
+    references: [CVE-2022-45045]
+  - id: xm-upgrade-skipcheck
+    pattern: '\bSkipCheck\b'
+    category: crypto
+    severity_hint: medium
+    scope: any
+    vendor: xiongmai
+    rationale: '업그레이드 호환성/CRC 검사를 생략시키는 특수값(VulnCheck). 무결성 검증 우회 분기.'
+    references: [CVE-2022-45045]
+  - id: xm-default-user-tluafed
+    pattern: '\btluafed\b'
+    category: hardcoded-credential
+    severity_hint: high
+    scope: any
+    vendor: xiongmai
+    rationale: '문서화되지 않은 default 계정의 비밀번호(SEC Consult SA-20181009-0).'
+    references: [CVE-2018-17919]
+  - id: xm-upgrade-server
+    pattern: '\bupgrade\.secu100\.net\b'
+    category: crypto
+    severity_hint: medium
+    scope: any
+    vendor: xiongmai
+    rationale: '평문 업데이트 채널의 업데이트 서버(SEC Consult). 서버 사칭 위험.'
+    references: [CVE-2018-17915]
+
+  # ---------------- HiSilicon hi3520d 기반 비디오 인코더 ----------------
+  - id: hienc-backdoor-password
+    pattern: '\bneworange8{8}\b'
+    category: backdoor
+    severity_hint: critical
+    scope: any
+    vendor: hisilicon_video_encoder
+    rationale: 'box_Authenticate의 하드코딩 비밀번호 리터럴(Kojenov).'
+    references: [CVE-2020-24215]
+  - id: hienc-box-ini-password
+    pattern: '\bhtml_password\b'
+    category: info-leak
+    severity_hint: medium
+    scope: any
+    vendor: hisilicon_video_encoder
+    rationale: '/box/box.ini의 평문 admin 비밀번호 키(Kojenov). 경로 순회로 유출.'
+    references: [CVE-2020-24219]
+
+  # ---------------- TVT ----------------
+  - id: tvt-4567-handshake-guid
+    pattern: '\{D79E94C5-70F0-46BD-965B-E17497CCB598\}'
+    category: backdoor
+    severity_hint: critical
+    scope: any
+    vendor: tvt
+    rationale: 'TCP/4567 하드코딩 인증 GUID, requestSystemConfig로 평문 자격증명 획득(bashis 2018, CVE 미확인): https://github.com/mcw0/PoC/blob/master/TVT_and_OEM_IPC_NVR_DVR_RCE_Backdoor_and_Information_Disclosure.txt'
+    references: []
+  - id: tvt-hardcoded-web-password
+    pattern: '\{12213BD1-69C7-4862-843D-260500D1DA40\}'
+    category: hardcoded-credential
+    severity_hint: critical
+    scope: any
+    vendor: tvt
+    rationale: '하드코딩 admin/root 웹 비밀번호(bashis 2018, CVE 미확인). 출처는 tvt-4567-handshake-guid와 동일.'
+    references: []
+  - id: tvt-nvms-anchors
+    pattern: '\b(?:NVMS-?9000|ConfigSyncProc|requestSystemConfig)\b'
+    category: debug-interface
+    severity_hint: medium
+    scope: any
+    vendor: tvt
+    rationale: 'NVMS9000 백엔드(4567)가 loopback이 아닌 모든 인터페이스에서 리슨(bashis 2018, CVE 미확인).'
+    references: []
+  - id: tvt-querydevinfo
+    pattern: '/queryDevInfo\b'
+    category: info-leak
+    severity_hint: medium
+    scope: any
+    vendor: tvt
+    rationale: '장비 정보 노출 엔드포인트(VulDB CNA).'
+    references: [CVE-2024-7339]
+
+  # ---------------- Uniview ----------------
+  - id: unv-maintain-daemon
+    pattern: '/program/bin/maintain\b'
+    category: debug-interface
+    severity_hint: high
+    scope: any
+    vendor: uniview
+    rationale: 'UDP 7788 독자 TLV 서비스, 폭 없는 sscanf %[^:] 스택 오버플로 -> telnetd root/123456(SSD).'
+    references: [CVE-2021-45039]
+  - id: unv-uvsh
+    pattern: '\buvsh\b'
+    category: debug-interface
+    severity_hint: low
+    scope: any
+    vendor: uniview
+    rationale: '제한 셸 uvsh(ECHO로 우회 보고).'
+    references: [CVE-2021-45039]
+  - id: unv-main-cgi-json
+    pattern: '\bmain-cgi\b|\bu32UserLoginHandle\b'
+    category: auth-bypass
+    severity_hint: medium
+    scope: any
+    vendor: uniview
+    rationale: 'json cmd 번호 디스패치에서 일부 cmd(설정 export, 패킷 캡처)를 세션 검증 없이 처리(bashis 2017, CVE 미확인): https://github.com/mcw0/PoC/blob/master/Uniview%20RCE%20PoC.txt'
+    references: []
+
+  # ---------------- WIFICAM (GoAhead 개조 OEM) ----------------
+  - id: wificam-loginuse-loginpas
+    pattern: '\bloginuse\b|\bloginpas\b'
+    category: auth-bypass
+    severity_hint: high
+    scope: any
+    vendor: wificam
+    rationale: 'URI 자격증명 파라미터. .ini 경로는 빈 값으로 우회됨(경로 유형별 인증 비대칭).'
+    references: [CVE-2017-8225]
+  - id: wificam-ini-credential-files
+    pattern: '\b(?:system|factory|network)(?:-b)?\.ini\b|\bfactoryparam\.ini\b'
+    category: info-leak
+    severity_hint: medium
+    scope: any
+    vendor: wificam
+    rationale: '웹 루트에 심볼릭 링크된 자격증명 포함 설정 파일.'
+    references: [CVE-2017-8225]
+  - id: wificam-push-key
+    pattern: '/system/www/pem/ck\.pem\b'
+    category: crypto
+    severity_hint: high
+    scope: any
+    vendor: wificam
+    rationale: 'Apple Push 인증서와 RSA 개인키 내장.'
+    references: [CVE-2017-8222]
+  - id: wificam-ftp-cgi
+    pattern: '\b(?:set_ftp|ftptest)\.cgi\b'
+    category: command-injection
+    severity_hint: medium
+    scope: any
+    vendor: wificam
+    rationale: 'FTP 설정값이 셸에서 평가됨(인증 필요, Pierre Kim, CVE 미확인): https://pierrekim.github.io/blog/2017-03-08-camera-goahead-0day.html'
+    references: []
+  - id: wificam-rtsp-av0
+    pattern: '\btcp/av0_[01]\b'
+    category: auth-bypass
+    severity_hint: medium
+    scope: any
+    vendor: wificam
+    rationale: 'RTSP 10554 무인증 스트림 경로.'
+    references: [CVE-2017-8223]
+
+  # ---------------- 기타 벤더 ----------------
+  - id: tbk-device-rsp
+    pattern: '\bdevice\.rsp\b'
+    category: auth-bypass
+    severity_hint: medium
+    scope: any
+    vendor: tbk
+    rationale: 'Cookie uid 값으로 신원 결정, 사용자 목록이 JSON으로 자격증명 반환(NVD 설명).'
+    references: [CVE-2018-9995]
+  - id: dlink-config-getuser
+    pattern: '/config/getuser\b'
+    category: info-leak
+    severity_hint: high
+    scope: any
+    vendor: dlink
+    rationale: '인증 없는 관리자 비밀번호 노출 엔드포인트(KEV).'
+    references: [CVE-2020-25078]
+  - id: dlink-ddns-enc
+    pattern: '\bddns_enc\.cgi\b'
+    category: command-injection
+    severity_hint: medium
+    scope: any
+    vendor: dlink
+    rationale: '인증된 명령 주입(KEV).'
+    references: [CVE-2020-25079]
+  - id: ptz-param-cgi
+    pattern: '/cgi-bin/param\.cgi\b'
+    category: auth-bypass
+    severity_hint: medium
+    scope: any
+    vendor: ptzoptics
+    rationale: 'Authorization 헤더가 없으면 인증을 적용하지 않음(KEV).'
+    references: [CVE-2024-8956]
+  - id: ptz-ntp-addr
+    pattern: '\bntp_addr\b'
+    category: command-injection
+    severity_hint: medium
+    scope: any
+    vendor: ptzoptics
+    rationale: 'ntp_addr 값이 ntp_client 기동 시 명령으로 실행(KEV).'
+    references: [CVE-2024-8957]
+  - id: foscam-uri-substring-delete
+    pattern: '/(?:snapPic|configs/export)/'
+    category: auth-bypass
+    severity_hint: medium
+    scope: any
+    vendor: foscam
+    rationale: 'URI 부분 문자열 검색 뒤 strncat + access + remove로 무인증 경로 순회 파일 삭제(VDOO).'
+    references: [CVE-2018-6830]
+  - id: foscam-ntp-server
+    pattern: '\b(?:ntpServer|setSystemTime)\b'
+    category: command-injection
+    severity_hint: medium
+    scope: any
+    vendor: foscam
+    rationale: 'setSystemTime ntpServer 명령 주입(CVE-2017-2849의 불완전 수정).'
+    references: [CVE-2018-6831, CVE-2017-2849]
+  - id: herospeed-telnetswitch
+    pattern: '\bTelnetSwitch\b'
+    category: debug-interface
+    severity_hint: high
+    scope: any
+    vendor: herospeed
+    rationale: 'TCP/787 telnetd 활성화 데몬(bashis 2018, CVE 미확인): https://github.com/mcw0/PoC/blob/master/Herospeed-TelnetSwitch.py'
+    references: []
+
+  # ---------------- 일반(벤더 무관) ----------------
+  - id: gen-telnetd-launch
+    pattern: '(?:^|[\s;&|(/])telnetd(?=$|[\s;&|)])'
+    category: debug-interface
+    severity_hint: medium
+    scope: text
+    vendor: generic
+    rationale: '부팅 스크립트나 inittab의 telnetd 무조건 기동. 기본 실행, 비활성화 불가 사례 있음.'
+    references: [CVE-2017-8224, CVE-2020-24218]
+  - id: gen-telnetd-login-shell
+    pattern: 'telnetd\b[^\n]*[ \t]-l[ \t]*/bin/(?:sh|ash|bash)\b'
+    category: backdoor
+    severity_hint: high
+    scope: any
+    vendor: generic
+    rationale: 'BusyBox telnetd -l LOGIN(Exec LOGIN on connect)에 셸을 지정하면 인증 없이 셸 제공.'
+    references: []
+  - id: gen-inittab-console-shell
+    pattern: '^[^#:\n]*:[^:\n]*:(?:respawn|askfirst):-?/bin/(?:sh|ash|bash)(?:[ \t]+-[-A-Za-z]+)*[ \t\r]*$'
+    category: debug-interface
+    severity_hint: high
+    scope: text
+    vendor: generic
+    rationale: 'BusyBox inittab(<id>:<runlevels>:<action>:<process>)에서 getty/login 없이 대화형 셸 실행(예제 파일의 ::askfirst:-/bin/sh). UART 무비밀번호 root 셸. action은 respawn/askfirst만, process는 셸 경로와 옵션(-l, --login 등)만 허용해 ::sysinit:/bin/sh /etc/init.d/rcS 같은 정상 스크립트 실행 줄은 제외한다.'
+    references: []
+  - id: gen-getty-autologin
+    pattern: 'getty\b[^\n]*[ \t]-l[ \t]*/bin/(?:sh|ash|bash)\b'
+    category: debug-interface
+    severity_hint: high
+    scope: text
+    vendor: generic
+    rationale: 'getty -l LOGIN(Invoke LOGIN instead of /bin/login)에 셸 지정. -n과 함께면 프롬프트도 없음.'
+    references: []
+  - id: gen-inetd-telnet
+    pattern: '^[ \t]*(?:telnet|23)[ \t]+stream[ \t]+tcp6?[ \t]+(?:no)?wait\S*[ \t]+root\b'
+    category: debug-interface
+    severity_hint: medium
+    scope: text
+    vendor: generic
+    rationale: 'inetd.conf의 telnet 서비스(BusyBox telnetd usage 예: 23 stream tcp wait root telnetd telnetd -w10).'
+    references: []
+  - id: gen-shell-cmd-template
+    pattern: '\b(?:ntpdate|ntpd|ntpclient|ping|tcpdump|ftpput|ftpget|wget|tftp|msmtp|sendmail|nslookup|ifconfig|route|iptables|png2bmp|date\s+-s)\b[^\n]{0,80}%s'
+    category: command-injection
+    severity_hint: medium
+    scope: strings
+    vendor: generic
+    rationale: '설정값을 %s로 끼워 넣는 셸 명령 템플릿(NTP, FTP, ping, tcpdump, 이미지 변환). system/popen 싱크와 연결되는지 추적.'
+    references: [CVE-2018-6831, CVE-2017-2849, CVE-2024-8957, CVE-2020-24217]
+  - id: gen-sh-c-template
+    pattern: '\b(?:/bin/)?sh\s+-c\s+[^\n]{0,60}%s'
+    category: command-injection
+    severity_hint: medium
+    scope: strings
+    vendor: generic
+    rationale: 'sh -c 명령 템플릿에 포맷 인자 삽입.'
+    references: []
+  - id: gen-hardcoded-basic-auth
+    pattern: 'Authorization:\s*Basic\s+[A-Za-z0-9+/]{8,}={0,2}'
+    category: hardcoded-credential
+    severity_hint: high
+    scope: any
+    vendor: generic
+    rationale: '포맷 지정자 없이 base64 자격증명이 박힌 Authorization 헤더(내장 자격증명).'
+    references: []
+  - id: gen-private-key-pem
+    pattern: '-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY-----'
+    category: crypto
+    severity_hint: high
+    scope: any
+    vendor: generic
+    rationale: '펌웨어 내장 개인키(모든 장비 공통일 가능성).'
+    references: [CVE-2017-8222]
+  - id: gen-mtd-config-accounts
+    pattern: '/mnt/mtd/Config/(?:Account[0-9]*|passwd|Config1)\b'
+    category: info-leak
+    severity_hint: medium
+    scope: any
+    vendor: generic
+    rationale: 'Dahua/XiongMai 계열 사용자 DB와 설정 경로. 웹 서빙 경로나 무인증 핸들러와 연결되는지 확인.'
+    references: [CVE-2017-7925, CVE-2017-8226]
+  - id: gen-onvif-wsse-anchors
+    pattern: '\b(?:PasswordDigest|wsse:Nonce|wsu:Created|UsernameToken)\b'
+    category: auth-bypass
+    severity_hint: info
+    scope: any
+    vendor: generic
+    rationale: 'ONVIF WS-UsernameToken 처리 앵커(접두사 붙은 이름 wsse:Nonce, wsu:Created 기준. 실제 Dahua 펌웨어에 이 문자열이 그대로 있는지는 미확인이며, 접두사 없는 Nonce/Created만 있을 수도 있다). nonce 캐시와 Created 신선도(5분 가이드) 검사 유무 확인.'
+    references: [CVE-2022-30563]
+  - id: gen-static-digest-nonce
+    pattern: 'Digest\s+[^\n%]*nonce="[^"%]+"'
+    category: crypto
+    severity_hint: medium
+    scope: any
+    vendor: generic
+    rationale: '포맷 지정자 없는 고정 Digest nonce(Kojenov 관찰: nonce="tick"). 재전송 가능한 Digest 인증.'
+    references: []
+  - id: gen-backdoor-keywords
+    pattern: '(?i)\b(?:backdoor|super_?pass(?:word)?|master_?pass(?:word)?|debug_?pass(?:word)?|factory_?pass(?:word)?|default_?pass(?:word)?)\b'
+    category: hardcoded-credential
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '일반 키워드 휴리스틱(오탐 많음). 히트 주변 비교 상수를 확인.'
+    references: []
+  - id: gen-debug-telnet-keywords
+    pattern: '(?i)\b(?:open_?telnet|telnet_?(?:enable|open|on|switch)|enable_?telnet|start_?telnetd?|debug_?shell)\b'
+    category: debug-interface
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: 'telnet 활성화나 디버그 셸 기능명 휴리스틱(OpenTelnet, TelnetSwitch 계열 포괄).'
+    references: []
+  - id: gen-loopback-trust-anchors
+    pattern: '(?i)\b(?:is_?local_?(?:client|request|ip)|local_?client|from_?local(?:host)?|trust_?local)\b'
+    category: auth-bypass
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '로컬 요청 신뢰 판정 함수명 휴리스틱. 판정 근거가 소켓 peer 주소인지 요청 본문 값인지 확인.'
+    references: [CVE-2021-33045]
+  - id: comp-goahead-version
+    pattern: '(?i)\bgoahead[-_ /]?(?:webs|webserver|http)?[-_ /]?v?(\d+\.\d+(?:\.\d+)?)\b'
+    category: command-injection
+    severity_hint: medium
+    scope: strings
+    vendor: generic
+    rationale: 'GoAhead 버전 캡처. 3.6.5 미만이면서 CGI 활성, 동적 링크 CGI면 환경 변수 주입 RCE(KEV 2021-12-10). 현행 Embedthis 소스(src/http.c)는 Server 헤더로 버전 없는 GoAhead-http를 보내고 CGI 환경 변수 SERVER_SOFTWARE를 GoAhead/<ME_VERSION>으로 설정한다. nmap probe에는 GoAhead-Webs/<ver> 형식도 있다. 3.x 바이너리의 버전 문자열 형식은 (미확인).'
+    references: [CVE-2017-17562]
+  - id: comp-mini-httpd-version
+    pattern: '\bmini_httpd/(\d+\.\d+)'
+    category: info-leak
+    severity_hint: medium
+    scope: strings
+    vendor: generic
+    rationale: 'mini_httpd 버전 캡처(nmap 배너 형식 mini_httpd/<ver>). 1.30 미만이면 임의 파일 읽기.'
+    references: [CVE-2018-18778]
+
+function_heuristics:
+  - id: fn-command-exec
+    category: command-injection
+    severity_hint: high
+    pattern_class: P11
+    functions: [system, popen, execl, execle, execlp, execv, execve, execvp, execvpe, posix_spawn, posix_spawnp]
+    wrapper_name_regex: '(?i)(?:^|_)(?:do_?)?(?:system|shell|run_?cmd|exec_?cmd|cmd_?exec)(?:_|$)'
+    what_to_check: '요청 핸들러(HTTP, CGI, DVRIP/DHIP, 업그레이드 파서)에서 이 함수들까지 가는 경로를 찾는다. 인자가 요청 값으로 만든 문자열인지, 사이에 화이트리스트나 메타문자 필터가 있는지 확인.'
+    rationale: '설정값 -> 셸 싱크. 업그레이드 Script -> system()은 VulnCheck 디컴파일, Foscam devMng system()/popen()은 VDOO.'
+    references: [CVE-2021-36260, CVE-2022-45045, CVE-2018-6831, CVE-2024-8957, CVE-2020-25079]
+  - id: fn-command-build
+    category: command-injection
+    severity_hint: high
+    pattern_class: P11
+    functions: [sprintf, snprintf, vsprintf, vsnprintf, asprintf, strcat, strncat]
+    what_to_check: '출력 버퍼가 fn-command-exec 인자로 흐르는지, 포맷 인자에 요청 유래 값(파일명, NTP 서버, 언어 코드, NIC 이름)이 들어가는지.'
+    rationale: 'png2bmp 파일명(Kojenov), language 값(CVE-2021-36260, 싱크는 추정), tcpdump NIC 이름(bashis Uniview).'
+    references: [CVE-2021-36260, CVE-2020-24217]
+  - id: fn-unsafe-copy
+    category: memory-safety
+    severity_hint: high
+    pattern_class: P12
+    functions: [strcpy, stpcpy, strcat, sprintf, vsprintf, gets, memcpy, strncpy, wcscpy]
+    what_to_check: 'URI, 헤더(CSeq, Range, Authorization), 로그인 username/password, base64 디코드 결과를 고정 크기 스택이나 전역 버퍼로 복사하는 호출. 바이너리 NX, 카나리, PIE 상태도 함께 기록.'
+    rationale: 'strcpy 로그인 필드(VulnCheck, CVE-2018-10088), long URI -> sprintf(CVE-2022-45460), CSeq -> sprintf(CVE-2020-24214), password 길이 무검증(CVE-2017-3223), RTSP 헤더(CVE-2013-4977, CVE-2014-4880).'
+    references: [CVE-2018-10088, CVE-2022-45460, CVE-2020-24214, CVE-2017-3223, CVE-2013-4977, CVE-2014-4880, CVE-2017-16725]
+  - id: fn-unbounded-scanf
+    category: memory-safety
+    severity_hint: high
+    pattern_class: P12
+    functions: [sscanf, fscanf, scanf, vsscanf, vfscanf]
+    format_regex: '%(?![0-9*])(?:s|\[)'
+    what_to_check: '포맷 문자열에 폭 지정 없는 %s나 %[ 가 있고 목적지가 스택 버퍼인 호출.'
+    rationale: 'Uniview /program/bin/maintain: __isoc99_sscanf(param_3 + local_1c + 2, "%[^:]:%hu", auStack336, &local_3a)(SSD 디컴파일).'
+    references: [CVE-2021-45039]
+  - id: fn-auth-literal-compare
+    category: auth-bypass
+    severity_hint: high
+    pattern_class: P4/P5
+    functions: [strcmp, strncmp, strcasecmp, strncasecmp, memcmp, bcmp, strstr, strcasestr, 'std::string::compare', 'std::operator==']
+    what_to_check: '인증·로그인 함수 안에서 한쪽 인자가 .rodata 문자열 상수이고 다른 쪽이 요청 값인 비교. 성공 시 정상 검증을 건너뛰는지, 파라미터 "존재"만으로 인증을 생략하는지, clientType/loginType 같은 요청 값 분기가 성공으로 직행하는지.'
+    rationale: 'neworange88888888 리터럴(Kojenov), I0TO5Wv9(tothi), HikCGI auth 존재 시 인증 생략(Monte Crypto), NetKeyboard/Loopback 분기(bashis), anonymous 하드코딩(Core).'
+    references: [CVE-2020-24215, CVE-2017-7921, CVE-2021-33044, CVE-2021-33045, CVE-2013-4976]
+  - id: fn-login-hash-compare
+    category: auth-bypass
+    severity_hint: high
+    pattern_class: P7
+    functions: [MD5_Init, MD5_Update, MD5_Final, MD5, strcmp, strcasecmp, memcmp]
+    what_to_check: '로그인 검증이 평문에서 다이제스트를 계산하는지, 저장 해시를 클라이언트 값과 직접 비교하는지(pass-the-hash). 서버 생성 일회성 난수(challenge)가 입력에 들어가는지.'
+    rationale: 'Dahua Generation 2/3 pass-the-hash(bashis), MD5 Admin Hash 로그인(nullku7), Sofia가 해시를 비밀번호로 수락(tothi).'
+    references: [CVE-2017-7927, CVE-2017-6343]
+  - id: fn-uri-substring-match
+    category: auth-bypass
+    severity_hint: high
+    pattern_class: P1
+    functions: [strstr, strcasestr, strncmp, strncasecmp, memmem, strrchr, 'std::string::find']
+    what_to_check: '인증 함수 호출보다 앞서 URI를 확장자나 접두사 리터럴과 비교해 무인증 경로(정적 파일, 업로드)로 분기하는 코드. 부분 문자열이 경로 어디에나 있어도 매칭되는지, 정규화 이전 원문에 대해 검사하는지, Content-Type(multipart/form-data)만으로 인증 전에 분기하는지.'
+    rationale: 'find() 부분 문자열(Kojenov), /snapPic/ 검색(VDOO), .ini만 인증 오류(Pierre Kim), multipart가 인증 이전(Kojenov).'
+    references: [CVE-2020-24219, CVE-2018-6830, CVE-2017-8225, CVE-2020-24217]
+  - id: fn-path-ops-unnormalized
+    category: path-traversal
+    severity_hint: high
+    pattern_class: P2
+    functions: [open, open64, fopen, fopen64, opendir, stat, lstat, access, remove, unlink, rename, sendfile]
+    what_to_check: '웹 루트와 URI를 문자열로 결합한 경로가 realpath 검증이나 .. 제거 없이 이 함수들로 전달되는지. 디렉터리 목록(Index of) 템플릿 존재 여부.'
+    rationale: 'uc-httpd /mnt/web/../../(tothi), TVT GET /..(CVE-2019-20085), Foscam remove()(VDOO), mini_httpd.'
+    references: [CVE-2017-7577, CVE-2019-20085, CVE-2018-6830, CVE-2020-24219, CVE-2018-18778]
+  - id: fn-cgi-env-from-request
+    category: command-injection
+    severity_hint: high
+    pattern_class: P11
+    functions: [setenv, putenv, execve]
+    what_to_check: 'CGI 실행 전 요청 파라미터 이름이나 값을 환경 변수로 설정할 때 LD_PRELOAD 등 위험 변수 필터가 있는지.'
+    rationale: 'GoAhead cgiHandler 환경 변수 초기화(CVE-2017-17562).'
+    references: [CVE-2017-17562]
+  - id: fn-hardcoded-crypto-key
+    category: crypto
+    severity_hint: high
+    pattern_class: P8/P10
+    functions: [AES_set_decrypt_key, AES_set_encrypt_key, AES_ecb_encrypt, AES_decrypt, DES_set_key, DES_set_key_unchecked, DES_ecb_encrypt, DES_ecb3_encrypt, EVP_DecryptInit_ex, EVP_EncryptInit_ex, EVP_CipherInit_ex, mbedtls_aes_setkey_dec, mbedtls_aes_setkey_enc, mbedtls_des_setkey_dec, mbedtls_des3_set2key_dec]
+    what_to_check: '키 인자가 상수 주소나 상수 문자열에서 파생되는지. 업데이트 경로에 서명 검증(RSA/ECDSA verify) 호출이 있는지와 호출 순서.'
+    rationale: 'Hikvision 설정 정적 키(FD), XiongMai 9530 3DES 변형과 평문 PSK(Yarmak).'
+    references: [CVE-2017-7923, CVE-2021-41506]
+  - id: fn-debug-listener-ports
+    category: debug-interface
+    severity_hint: high
+    pattern_class: P6
+    functions: [socket, bind, listen, accept, recvfrom, htons]
+    port_constants:
+      '23': '0x0017'
+      '787': '0x0313'
+      '4567': '0x11D7'
+      '5000': '0x1388'
+      '6789': '0x1A85'
+      '7788': '0x1E6C'
+      '9527': '0x2537'
+      '9530': '0x253A'
+      '34567': '0x8707'
+      '37777': '0x9391'
+    what_to_check: 'bind()나 htons()에 위 상수(호스트 바이트 순서, 네트워크 순서면 바이트 반전)가 쓰이는 데몬과 recv 루프의 명령 문자열 비교. loopback 전용이어야 할 서비스가 0.0.0.0에 바인드되는지.'
+    rationale: 'XiongMai 9527/9530(Yarmak, VulnCheck), Dahua 37777/5000/6789(Depth, bashis), TVT 4567, Uniview 7788, Herospeed 787.'
+    references: [CVE-2020-22253, CVE-2021-41506, CVE-2021-45039, CVE-2013-6117]
+  - id: fn-weak-token-generation
+    category: session-token
+    severity_hint: medium
+    pattern_class: P7
+    functions: [time, gettimeofday, rand, srand, random, srandom, rand_r]
+    what_to_check: '세션 ID나 nonce를 time()/rand()로 만드는지, Digest nonce가 상수인지, WS-Security nonce 캐시와 Created 시간창 비교가 없는지, 로그인에 서버 challenge가 없어 재전송되는지.'
+    rationale: 'ONVIF 재전송(Nozomi), 웹 로그인 재전송, MAC 파생 Cloud ID(SEC Consult), nonce="tick"(Kojenov).'
+    references: [CVE-2022-30563, CVE-2022-30561, CVE-2018-17917]
+  - id: fn-base64-auth-decode
+    category: auth-bypass
+    severity_hint: medium
+    pattern_class: P4/P12
+    functions: []
+    wrapper_name_regex: '(?i)b(?:ase)?64_?decode'
+    what_to_check: 'Authorization 헤더나 쿼리 파라미터의 base64 디코드 결과가 고정 버퍼로 복사되는지(오버플로), 디코드한 user:pass에서 비밀번호 비교를 생략하는지(사칭).'
+    rationale: 'HikCGI auth 파라미터(Monte Crypto), TVT ConfigSyncProc Base64 Authorization 스택 오버플로(bashis 2018, CVE 미확인).'
+    references: [CVE-2017-7921]
+
+notes:
+  - '검증일 2026-10-18. CVE 사실은 CVE.org 레코드와 NVD API 2.0으로, KEV 여부는 CISA KEV feed catalogVersion 2026.10.16으로 확인. 사람이 읽는 근거와 해설은 docs/references/cctv-vuln-patterns.md.'
+  - '정규식 방언: Python re. 기본 대소문자 구분, (?i)가 붙은 패턴만 무시. ASCII 기준으로 작성. 컴파일 시 re.MULTILINE 권장(^, $를 줄 단위로).'
+  - 'scope 의미: strings = 바이너리에서 추출한 인쇄 가능 ASCII 문자열(strings -n 4 상당)의 각 줄; text = 텍스트 파일(스크립트, 설정, JS, HTML)의 각 줄; raw = 파일 전체 바이트를 latin-1로 디코드한 문자열(또는 pattern.encode("latin-1")로 만든 bytes 정규식), \xHH 이스케이프 사용; any = strings + text.'
+  - 'credential_patterns.files와 interesting_paths는 추출된 rootfs 루트 기준 상대 POSIX glob. * 는 한 경로 요소 안, ** 는 0개 이상 디렉터리(pathlib.Path.glob / glob.glob(recursive=True) 의미). 선행 / 는 쓰지 않는다.'
+  - 'severity_hint 어휘: critical(공개 백도어나 하드코딩 비밀번호와 정확히 일치), high(무인증 경로나 고위험 싱크의 강한 앵커), medium(조사 필요 앵커), low(오탐 많은 키워드), info(위치 파악용 앵커). 히트는 확정이 아니므로 REA(search_strings -> xrefs -> procedure_pseudo_code)로 확인한 뒤 finding으로 승격.'
+  - 'string_heuristics.category는 auth-bypass, backdoor, hardcoded-credential, command-injection, debug-interface, crypto, info-leak 중 하나. credential_patterns도 같은 어휘. function_heuristics.category는 여기에 memory-safety, path-traversal, session-token을 더해 쓴다. pattern_class는 cctv-vuln-patterns.md 5절 P1-P12.'
+  - 'references는 검증된 CVE ID만 담는다. 검증된 CVE가 없으면 빈 목록이고, 원문 URL을 rationale에 적었다.'
+  - 'case-mcp 연동: finding.schema.json의 category와 매핑할 때 crypto -> weak-crypto(업데이트 무결성은 insecure-update), memory-safety -> memory-corruption, path-traversal -> info-leak(또는 auth-bypass), session-token -> auth-bypass(또는 weak-crypto), 빈 기본 비밀번호 -> insecure-default. 나머지는 같은 이름. severity_hint 어휘는 finding.severity와 동일.'
+  - 'auth-hunt.schema.json의 vendor_family 매핑: web_server_binaries의 hikvision -> hikvision-like, dahua -> dahua-like, xiongmai -> xiongmai-like, hisilicon_video_encoder -> hisilicon-oem, 그 외 -> generic. checks[].id에는 이 파일의 휴리스틱 id를 그대로 쓸 수 있다.'
+  - 'web_server_binaries는 웹 서버뿐 아니라 네트워크 대면 메인 앱과 데몬 이름을 포함. hikvision의 davinci와 centaurus는 커뮤니티(IPCamTalk) 출처로 1차 확인 불가. NVMS9000과 TelnetSwitch는 프로세스·데몬 이름이며 실제 파일명은 미확인.'
+  - '서버 배너와 핑거프린트(벤더 식별 보조, 취약점 아님): "Server: App-webs/" = Hikvision IP camera httpd, "Server: Hikvision-Webs" = Hikvision DVR/camera httpd, "Server: DNVRS-Webs" = Hikvision NVR(nmap-service-probes); "Server: uc-httpd 1.0.0" = XiongMai Sofia HTTP(tothi 응답 원문, VulnCheck); RTSP "Server: H264DVR <ver>" = XiongMai RTSP(nmap-service-probes 규칙. VulnCheck가 인용한 "H264DVR rtspd 1.0"은 nmap 표시명(product H264DVR rtspd + version)이지 펌웨어/응답 문자열이 아니다. tothi의 nmap은 같은 계열의 554를 "LuxVision or Vacron DVR rtspd"로 표시했으므로 펌웨어마다 다를 수 있다); "Server: box", "Welcome to HiLinux." = HiSilicon 인코더(Kojenov), 인코더 RTSP 응답 "Server: Server Version 9.0.6"(Kojenov); "Server: GoAhead-Webs", "Server: GoAhead-Webs/<ver>", "Server: mini_httpd/<ver>"(nmap-service-probes); "Server: GoAhead-http"(현행 Embedthis GoAhead 소스 src/http.c, 버전 없음).'
+  - '포트 지표: Dahua 37777/37778(DVRIP), 5000(DHIP), 37810/udp(탐색), 6789(구 디버그); XiongMai 80, 554, 9527(콘솔), 9530(OpenTelnet), 34567(+34599, 34568/udp, 34569/udp), 2021 펌웨어 23000/30100; HiSilicon 인코더 23, 80, 8086, 554, 8554, 1935, 5150(remserial), 9588(nginx); TVT 80 -> 4567; Uniview 7788/udp; WIFICAM 23, 10554; Foscam 88; Herospeed 787.'
+  - '정정 1: CVE-2020-24214부터 24219까지는 Kojenov의 hi3520d 비디오 인코더(URayTech 등) 취약점이며, CERT VU#896979는 HiSilicon을 Not Affected로 분류. Yarmak의 9530 백도어는 CVE-2020-22253과 CVE-2021-41506(Xiongmai 소프트웨어).'
+  - '정정 2: CVE-2017-16725(NetSurveillance Web)와 CVE-2018-10088(uc-httpd)은 버퍼 오버플로이며 하드코딩 자격증명 CVE가 아니다.'
+  - '정정 3: SEC Consult SA-20181009-0은 CVE-2018-17915와 17917의 설명이 서로 바뀌어 있다. CVE/NVD/ICSA-18-282-06 기준으로 17915 = 암호화 누락(CWE-311), 17917 = MAC 기반 Cloud ID 예측(CWE-341).'
+  - 'Hikvision 설정 AES 키 279977f62f6cfd2d91cd75b889ce0c9a와 XOR 키 73 8B 55 44는 제3자 복호화 도구(WormChickenWizard, chrisjd20)에서 확인한 값이다. 벤더 독립적인 1차 사실은 FD의 "static encryption key, which is derived from the password abcdefg"뿐이다. XOR 4바이트 키는 오탐이 많아 raw 시그니처로 넣지 않았다.'
+  - '이 파일에는 exploit payload, 요청 본문, 매직 파라미터가 포함된 URL, 쿠키 값이 없다. 패턴은 펌웨어 쪽 지표(문자열, 핸들러 이름, 비교 상수, 키 상수, 경로)만 대상으로 한다.'

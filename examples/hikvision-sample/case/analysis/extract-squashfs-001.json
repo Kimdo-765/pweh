@@ -1,0 +1,85 @@
+{
+  "schema": "pweh.fwtriage.extract-squashfs/v1",
+  "tool": {
+    "name": "unsquashfs",
+    "version": "4.5"
+  },
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-hikvision-sample",
+  "generated_at": "2026-10-18T17:39:52.598Z",
+  "input": {
+    "path": "extract/parts-001/03-rootfs.bin",
+    "size": 5242880,
+    "size_human": "5.00 MiB"
+  },
+  "params": {
+    "offset": 0,
+    "engine": "auto",
+    "max_output_bytes": 2147483648
+  },
+  "status": "complete",
+  "output_dir": "extract/rootfs-001",
+  "manifest_path": "extract/rootfs-001.manifest.json",
+  "artifact_id": "A-0025",
+  "superblock": {
+    "version": "4.0",
+    "endianness": "little",
+    "magic": "hsqs",
+    "compression": "xz",
+    "block_size": 131072,
+    "inodes": 180,
+    "fragments": 1,
+    "ids": 1,
+    "bytes_used": 1284938,
+    "mkfs_time": 1584947441,
+    "mkfs_time_iso": "2020-03-23T07:10:41Z",
+    "flags": [
+      "duplicates_removed",
+      "exportable"
+    ],
+    "flags_raw": "0xc0",
+    "truncated": false,
+    "nonstandard": false
+  },
+  "listing": {
+    "entries": 180,
+    "counts": {
+      "dir": 27,
+      "symlink": 125,
+      "file": 26,
+      "chardev": 2
+    },
+    "total_file_bytes": 11339437,
+    "setuid": [],
+    "setgid": [],
+    "world_writable_files": 0
+  },
+  "extracted": {
+    "files": 26,
+    "dirs": 26,
+    "symlinks": 125,
+    "other": 0,
+    "disk_bytes": 11530240,
+    "logical_bytes": 11447478
+  },
+  "attempts": [
+    {
+      "tool": "unsquashfs",
+      "path": "/usr/bin/unsquashfs",
+      "version": "4.5",
+      "stage": "extract",
+      "returncode": 2,
+      "timed_out": false,
+      "killed_reason": null,
+      "elapsed_seconds": 0.212,
+      "stderr_tail": [
+        "create_inode: could not create character device <CASE_DIR>/extract/rootfs-001/dev/console, because you're not superuser!",
+        "create_inode: could not create character device <CASE_DIR>/extract/rootfs-001/dev/null, because you're not superuser!"
+      ]
+    }
+  ],
+  "warnings": [
+    "장치 노드 2개는 만들지 않았습니다 (비root 추출, 의도된 동작). 목록 정보는 매니페스트에 있습니다."
+  ],
+  "offset_hex": "0x0"
+}

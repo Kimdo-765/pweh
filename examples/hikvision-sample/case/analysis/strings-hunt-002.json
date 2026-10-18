@@ -1,0 +1,271 @@
+{
+  "schema": "pweh.fwtriage.strings-hunt/v1",
+  "tool": "fw_strings_hunt",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-hikvision-sample",
+  "generated_at": "2026-10-18T17:40:09.486Z",
+  "input": {
+    "path": "extract/rootfs-001/usr/bin/davinci",
+    "size": 1757612,
+    "size_human": "1.68 MiB"
+  },
+  "params": {
+    "patterns": [
+      "hikvision",
+      "lit:127.0.0.1"
+    ],
+    "min_severity": null,
+    "include": null,
+    "max_hits": 500,
+    "per_pattern_cap": 50,
+    "pattern_source": "<REPO>/src/pweh/data/cctv-hunt-patterns.yaml",
+    "pattern_sha256": "476f3c5099cdc3df422a0f719985534bb229b5a4a8a8ca2af7fdbac65e24f68e"
+  },
+  "hits": [
+    {
+      "file": "/usr/bin/davinci",
+      "path": "extract/rootfs-001/usr/bin/davinci",
+      "offset": 3281,
+      "offset_hex": "0xcd1",
+      "pattern_id": "hik-sdk-weblanguage",
+      "category": "command-injection",
+      "finding_category": "command-injection",
+      "severity": "high",
+      "vendor": "hikvision",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/SDK/webLanguage",
+      "context": "/SDK/webLanguage"
+    },
+    {
+      "file": "/usr/bin/davinci",
+      "path": "extract/rootfs-001/usr/bin/davinci",
+      "offset": 3074,
+      "offset_hex": "0xc02",
+      "pattern_id": "hik-hikcgi-endpoints",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "medium",
+      "vendor": "hikvision",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/Security/users",
+      "context": "/Security/users"
+    },
+    {
+      "file": "/usr/bin/davinci",
+      "path": "extract/rootfs-001/usr/bin/davinci",
+      "offset": 3054,
+      "offset_hex": "0xbee",
+      "pattern_id": "hik-handler-families",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "hikvision",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/SDK/a",
+      "context": "/SDK/activateStatus"
+    },
+    {
+      "file": "/usr/bin/davinci",
+      "path": "extract/rootfs-001/usr/bin/davinci",
+      "offset": 3105,
+      "offset_hex": "0xc21",
+      "pattern_id": "hik-handler-families",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "hikvision",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/ISAPI/S",
+      "context": "/ISAPI/System/deviceInfo"
+    },
+    {
+      "file": "/usr/bin/davinci",
+      "path": "extract/rootfs-001/usr/bin/davinci",
+      "offset": 3130,
+      "offset_hex": "0xc3a",
+      "pattern_id": "hik-handler-families",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "hikvision",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/PSIA/S",
+      "context": "/PSIA/System/deviceInfo"
+    },
+    {
+      "file": "/usr/bin/davinci",
+      "path": "extract/rootfs-001/usr/bin/davinci",
+      "offset": 3281,
+      "offset_hex": "0xcd1",
+      "pattern_id": "hik-handler-families",
+      "category": "auth-bypass",
+      "finding_category": "auth-bypass",
+      "severity": "info",
+      "vendor": "hikvision",
+      "scope": "strings",
+      "encoding": "ascii",
+      "match": "/SDK/w",
+      "context": "/SDK/webLanguage"
+    }
+  ],
+  "summary": {
+    "files_scanned": 1,
+    "bytes_scanned": 1757612,
+    "hits_total": 6,
+    "hits_stored": 6,
+    "by_severity": {
+      "info": 4,
+      "medium": 1,
+      "high": 1
+    },
+    "patterns_matched": 3,
+    "patterns_selected": 10,
+    "vendor_scores": {
+      "hikvision": 3
+    },
+    "vendor_family_guess": "hikvision-like",
+    "skipped_large_files": 0,
+    "truncated": false,
+    "rootfs_dirs": [
+      "extract/rootfs-001"
+    ]
+  },
+  "by_pattern": {
+    "hik-sdk-weblanguage": {
+      "count": 1,
+      "files": 1,
+      "severity": "high",
+      "category": "command-injection",
+      "vendor": "hikvision"
+    },
+    "hik-hikcgi-endpoints": {
+      "count": 1,
+      "files": 1,
+      "severity": "medium",
+      "category": "auth-bypass",
+      "vendor": "hikvision"
+    },
+    "hik-handler-families": {
+      "count": 4,
+      "files": 1,
+      "severity": "info",
+      "category": "auth-bypass",
+      "vendor": "hikvision"
+    }
+  },
+  "top_files": [
+    {
+      "file": "/usr/bin/davinci",
+      "path": "extract/rootfs-001/usr/bin/davinci",
+      "score": 11,
+      "patterns": [
+        "hik-sdk-weblanguage",
+        "hik-hikcgi-endpoints",
+        "hik-handler-families"
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "id": "hik-handler-families",
+      "description": "Hikvision API 핸들러 계열(ISAPI, PSIA, HikCGI, Genetec) 위치 앵커. 핸들러 간 인증 코드 비대칭(한 곳에만 존재하면 인증 생략 분기)이 CVE-2017-7921의 핵심.",
+      "result": "match",
+      "evidence_ref": "/usr/bin/davinci@0xbee",
+      "count": 4,
+      "severity": "info",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-hikcgi-endpoints",
+      "description": "Monte Crypto FD가 예시한 HikCGI 엔드포인트. xref로 HikCGI 디스패처와 쿼리 파라미터 auth 처리(비밀번호 무시) 여부를 확인.",
+      "result": "match",
+      "evidence_ref": "/usr/bin/davinci@0xc02",
+      "count": 1,
+      "severity": "medium",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-sdk-weblanguage",
+      "description": "/SDK/webLanguage(PUT, XML language 요소). language 값이 셸에서 평가됨(공개 PoC 동작). 정확한 싱크는 (추정): sprintf류 -> system/popen류.",
+      "result": "match",
+      "evidence_ref": "/usr/bin/davinci@0xcd1",
+      "count": 1,
+      "severity": "high",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-psia-configurationdata",
+      "description": "저권한 계정이 설정 데이터(4바이트 반복 XOR)를 받아 admin 비밀번호 획득(Core CORE-2013-0708).",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-configurationfile",
+      "description": "설정 백업 export. 사용자명과 평문 비밀번호 포함, 정적 키 암호화(FD: derived from the password \"abcdefg\").",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "medium",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-anonymous-hardcoded",
+      "description": "하드코딩 anonymous 자격증명. 백슬래시+177 여섯 번이 문자 그대로 들어간 ASCII 텍스트(34바이트 anonymous:\\177\\177\\177\\177\\177\\177)에 매칭. Core CORE-2013-0708: login.js DoLogin()의 리터럴이며, Core가 제…",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "critical",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-anonymous-hardcoded-raw",
+      "description": "같은 자격증명이 바이너리에 실제 0x7F(DEL) 바이트로 저장된 경우를 가정한 패턴(미확인). 1차 출처(Core)의 쿠키 값은 백슬래시 텍스트 형태이므로 hik-anonymous-hardcoded가 우선.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-config-aes-key-raw",
+      "description": "설정 백업 복호화용 AES-128-ECB 키(제3자 복호화 도구 기준, 벤더 미확인). 히트 시 xref로 export/import 루틴 확인.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "hik-config-aes-key-hex",
+      "description": "같은 키가 hex 문자열로 저장된 경우.",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "high",
+      "vendor": "hikvision"
+    },
+    {
+      "id": "custom-lit-ebb56da9",
+      "description": "사용자 지정 리터럴: 127.0.0.1",
+      "result": "no-match",
+      "evidence_ref": null,
+      "count": 0,
+      "severity": "info",
+      "vendor": "custom"
+    }
+  ],
+  "commented_hits": [],
+  "commented_hit_count": 0,
+  "skipped_large_files": [],
+  "errors": [],
+  "notes": [],
+  "elapsed_seconds": 0.044
+}

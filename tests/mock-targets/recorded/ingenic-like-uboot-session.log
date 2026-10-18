@@ -1,0 +1,114 @@
+
+
+U-Boot SPL 2013.07 (Dec 09 2020 - 11:32:38)
+Timer init
+CLK stop
+PLL init
+pll_init:366
+nf=116 nr = 1 od0 = 1 od1 = 2
+cppcr is 07405100
+CPM_CPAPCR 0750510d
+nf=99 nr = 1 od0 = 1 od1 = 2
+cppcr is 06305100
+CPM_CPMPCR 0630510d
+cppcr 0x9a7b5510
+apll_freq 1392000000
+mpll_freq 1188000000
+ddr sel mpll, cpu sel apll
+ddrfreq 594000000
+cclk  1392000000
+l2clk 696000000
+h0clk 237600000
+h2clk 237600000
+pclk  118800000
+CLK init
+SDRAM init
+sdram init start
+DDR clk rate 594000000
+sdram init finished
+SDRAM init ok
+board_init_r
+image entry point: 0x80100000
+
+
+U-Boot 2013.07 (Dec 09 2020 - 11:32:38)
+
+Board: ISVP (Ingenic XBurst T31 SoC)
+DRAM:  64 MiB
+Top of RAM usable for U-Boot at: 84000000
+Reserving 446k for U-Boot at: 83f90000
+Reserving 32784k for malloc() at: 81f8c000
+Reserving 32 Bytes for Board Info at: 81f8bfe0
+Reserving 124 Bytes for Global Data at: 81f8bf60
+Reserving 128k for boot params() at: 81f6bf60
+Stack Pointer at: 81f6bf48
+Now running in RAM - U-Boot at: 83f90000
+MMC:   msc: 0
+the manufacturer 68
+SF: Detected BY25Q128AS
+
+In:    serial
+Out:   serial
+Err:   serial
+Net:   ====>PHY not found!Jz4775-9161
+Hit any key to stop autoboot:  1  0 
+isvp_t31# printenv
+baudrate=115200
+bootargs=console=ttyS1,115200n8 mem=42M@0x0 rmem=22M@0x2a00000 init=/linuxrc rootfstype=squashfs root=/dev/mtdblock3 rw mtdparts=jz_sfc:256k(boot),64k(env),2048k(kernel),4096k(rootfs),9920k(appfs)
+bootcmd=sf probe;sf read 0x80600000 0x50000 0x200000; bootm 0x80600000
+bootdelay=1
+ethaddr=00:d0:d0:00:95:27
+gatewayip=193.169.4.1
+ipaddr=193.169.4.81
+loads_echo=1
+netmask=255.255.255.0
+serverip=193.169.4.2
+stderr=serial
+stdin=serial
+stdout=serial
+
+Environment size: 488/65532 bytes
+isvp_t31# bdinfo
+boot_params = 0x81F6BF60
+memstart    = 0x80000000
+memsize     = 0x04000000
+flashstart  = 0x00000000
+flashsize   = 0x00000000
+flashoffset = 0x00000000
+ethaddr     = 00:d0:d0:00:95:27
+ip_addr     = 193.169.4.81
+baudrate    = 115200 bps
+isvp_t31# version
+
+U-Boot 2013.07 (Dec 09 2020 - 11:32:38)
+mips-linux-gnu-gcc (Ingenic r2.3.3 2016.12) 4.7.2
+GNU ld (Ingenic r2.3.3 2016.12) 2.24.51.20140512
+isvp_t31# sf probe 0
+the manufacturer 68
+SF: Detected BY25Q128AS
+
+--->probe spend 4 ms
+isvp_t31# sf read 0x80600000 0x50000 0x10000
+SF: 65536 bytes @ 0x50000 Read: OK
+--->read spend 9 ms
+isvp_t31# md.b 0x80600000 0x40
+80600000: 27 05 19 56 e9 ed 7b bd 5f d0 49 b8 00 06 16 fa    '..V..{._.I.....
+80600010: 80 01 00 00 80 40 95 20 78 d0 68 49 05 05 02 03    .....@. x.hI....
+80600020: 4c 69 6e 75 78 2d 33 2e 31 30 2e 31 34 5f 5f 69    Linux-3.10.14__i
+80600030: 73 76 70 5f 73 77 61 6e 5f 31 2e 30 5f 5f 00 00    svp_swan_1.0__..
+isvp_t31# 
+80600040: 5d 00 00 80 00 ff ff ff ff ff ff ff ff 00 19 18    ]...............
+80600050: 40 0a e2 51 98 85 a3 ed 8f 2a da db e0 45 86 ed    @..Q.....*...E..
+80600060: 7b 48 37 17 42 23 eb e3 24 bf 15 2b 9d 11 fa 8f    {H7.B#..$..+....
+80600070: 51 de ba 3f e2 59 36 8b 13 be ba ea 5c 44 7c 06    Q..?.Y6.....\D|.
+isvp_t31# md.l 0x80600000 8
+80600000: 56190527 bd7bede9 b849d05f fa160600    '..V..{._.I.....
+80600010: 00000180 20954080 4968d078 03020505    .....@. x.hI....
+isvp_t31# crc32 0x80600000 0x10000
+CRC32 for 80600000 ... 8060ffff ==> 14ab8260
+isvp_t31# pri bootcmd
+bootcmd=sf probe;sf read 0x80600000 0x50000 0x200000; bootm 0x80600000
+isvp_t31# xyzzy
+Unknown command 'xyzzy' - try 'help'
+isvp_t31# <INTERRUPT>
+isvp_t31# 

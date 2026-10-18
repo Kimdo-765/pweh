@@ -1,0 +1,93 @@
+
+
+System startup
+
+Uncompress Ok!
+
+U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)hi3516ev300
+
+DRAM:  64 MiB
+Relocation Offset is: 0379e000
+Relocating to 43f9e000, new gd at 43f5dee0, sp at 43f5ded0
+SPI Nor:  Check Flash Memory Controller v100 ... Found
+SPI Nor ID Table Version 1.0
+SPI Nor(cs 0) ID: 0xef 0x40 0x18
+Block:64KB Chip:16MB Name:"W25Q128(B/F)V"
+SPI Nor total size: 16MB
+NAND:  0 MiB
+MMC:
+In:    serial
+Out:   serial
+Err:   serial
+Net:   eth0
+Hit any key to stop autoboot:  2  0 
+hisilicon # printenv
+arch=arm
+baudrate=115200
+board=hi3516ev300
+board_name=hi3516ev300
+bootargs=mem=40M console=ttyAMA0,115200 root=/dev/mtdblock3 rootfstype=squashfs init=linuxrc mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)
+bootcmd=sf probe 0; sf read 0x42000000 0x50000 0x200000; bootm 0x42000000
+bootdelay=2
+bootfile=uImage
+cpu=armv7
+ethaddr=00:00:23:34:45:66
+ipaddr=192.168.1.10
+netmask=255.255.255.0
+serverip=192.168.1.2
+soc=hi3516ev300
+stderr=serial
+stdin=serial
+stdout=serial
+vendor=hisilicon
+verify=n
+
+Environment size: 553/65532 bytes
+hisilicon # bdinfo
+arch_number = 0x00000000
+boot_params = 0x40000100
+DRAM bank   = 0x00000000
+-> start    = 0x40000000
+-> size     = 0x04000000
+eth0name    = eth0
+ethaddr     = 00:00:23:34:45:66
+current eth = eth0
+ip_addr     = 192.168.1.10
+baudrate    = 115200 bps
+TLB addr    = 0x43FF0000
+relocaddr   = 0x43F9E000
+reloc off   = 0x0379E000
+irq_sp      = 0x43F5DEE0
+sp start    = 0x43F5DED0
+Early malloc usage: 1a8 / 2000
+hisilicon # version
+
+U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)hi3516ev300
+arm-himix100-linux-gcc (HC&C V100R002C00B027_20200302) 6.3.0
+GNU ld (GNU Binutils) 2.26.20160125
+hisilicon # sf probe 0
+SF: Detected W25Q128(B/F)V with page size 256 Bytes, erase size 64 KiB, total 16 MiB
+hisilicon # sf read 0x42000000 0x50000 0x10000
+
+SF: 65536 bytes @ 0x50000 Read: OK
+hisilicon # md.b 0x42000000 0x40
+42000000: 27 05 19 56 bc c7 36 75 5e 78 60 f1 00 06 06 07    '..V..6u^x`.....
+42000010: 40 00 80 00 40 00 80 00 f4 5d c0 f8 05 02 02 00    @...@....]......
+42000020: 4c 69 6e 75 78 2d 34 2e 39 2e 33 37 00 00 00 00    Linux-4.9.37....
+42000030: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00    ................
+hisilicon # 
+42000040: 00 00 a0 e1 00 00 00 00 00 00 00 00 00 00 00 00    ................
+42000050: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00    ................
+42000060: 00 00 00 00 18 28 6f 01 00 00 00 00 07 06 06 00    .....(o.........
+42000070: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00    ................
+hisilicon # md.l 0x42000000 8
+42000000: 56190527 7536c7bc f160785e 07060600    '..V..6u^x`.....
+42000010: 00800040 00800040 f8c05df4 00020205    @...@....]......
+hisilicon # crc32 0x42000000 0x10000
+CRC32 for 42000000 ... 4200ffff ==> bf0ad0d4
+hisilicon # pri bootcmd
+bootcmd=sf probe 0; sf read 0x42000000 0x50000 0x200000; bootm 0x42000000
+hisilicon # xyzzy
+Unknown command 'xyzzy' - try 'help'
+hisilicon # <INTERRUPT>
+hisilicon # 

@@ -1,0 +1,204 @@
+{
+  "schema": "pweh.fwtriage.elf-info/v1",
+  "tool": "fw_elf_info",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-dahua-sample",
+  "generated_at": "2026-10-18T17:41:13.395Z",
+  "input": {
+    "path": "extract/rootfs-001/usr/bin/sonia",
+    "size": 1728492,
+    "size_human": "1.65 MiB",
+    "sha256": "4332cdd45fe48da704a91046543c4aec4f243e2d5f94cb760edd39ce7503354a"
+  },
+  "params": {},
+  "elf": {
+    "class": 32,
+    "endianness": "little",
+    "osabi": "SYSV",
+    "type": "EXEC",
+    "machine": "arm",
+    "machine_code": 40,
+    "flags": {
+      "raw": "0x05000200",
+      "eabi_version": 5,
+      "flags": [
+        "soft-float"
+      ],
+      "summary": "EABI5, soft-float"
+    },
+    "entry": "0x21a80",
+    "summary": "32-bit LSB EXEC, arm (EABI5, soft-float)",
+    "segments": {
+      "count": 7,
+      "loads": 3
+    },
+    "sections": {
+      "count": 23,
+      "names": [
+        ".ARM.exidx",
+        ".ARM.extab",
+        ".rodata",
+        ".text",
+        ".tbss",
+        ".data",
+        ".bss",
+        ".debug_loc",
+        ".debug_abbrev",
+        ".debug_info",
+        ".debug_str",
+        ".comment",
+        ".ARM.attributes",
+        ".debug_frame",
+        ".debug_line",
+        ".debug_ranges",
+        ".debug_aranges",
+        ".debug_pubnames",
+        ".debug_pubtypes",
+        ".symtab",
+        ".shstrtab",
+        ".strtab"
+      ]
+    },
+    "interpreter": null,
+    "static": true,
+    "needed": [],
+    "soname": null,
+    "rpath": null,
+    "runpath": null,
+    "symbol_source": null,
+    "imports": [],
+    "import_count": 0,
+    "export_count": 0,
+    "stripped": false,
+    "defined_function_count": 263,
+    "hardening": {
+      "nx": true,
+      "nx_note": null,
+      "relro": "none",
+      "pie": false,
+      "shared_library": false,
+      "stack_canary": false,
+      "fortify": [],
+      "textrel": false,
+      "rpath": null,
+      "runpath": null
+    },
+    "libc_guess": null,
+    "warnings": []
+  },
+  "risk": {
+    "builtin": {
+      "unbounded-scanf": {
+        "severity": "medium",
+        "functions": [
+          "sscanf",
+          "vfscanf",
+          "vsscanf"
+        ]
+      },
+      "network-server": {
+        "severity": "info",
+        "functions": [
+          "accept",
+          "bind",
+          "listen"
+        ]
+      }
+    },
+    "heuristics": {
+      "fn-command-build": {
+        "category": "command-injection",
+        "severity_hint": "high",
+        "pattern_class": "P11",
+        "functions": [
+          "snprintf",
+          "vsnprintf"
+        ]
+      },
+      "fn-unsafe-copy": {
+        "category": "memory-safety",
+        "severity_hint": "high",
+        "pattern_class": "P12",
+        "functions": [
+          "memcpy"
+        ]
+      },
+      "fn-unbounded-scanf": {
+        "category": "memory-safety",
+        "severity_hint": "high",
+        "pattern_class": "P12",
+        "functions": [
+          "sscanf",
+          "vfscanf",
+          "vsscanf"
+        ]
+      },
+      "fn-auth-literal-compare": {
+        "category": "auth-bypass",
+        "severity_hint": "high",
+        "pattern_class": "P4/P5",
+        "functions": [
+          "bcmp",
+          "strcmp",
+          "strncasecmp",
+          "strncmp",
+          "strstr"
+        ]
+      },
+      "fn-login-hash-compare": {
+        "category": "auth-bypass",
+        "severity_hint": "high",
+        "pattern_class": "P7",
+        "functions": [
+          "strcmp"
+        ]
+      },
+      "fn-uri-substring-match": {
+        "category": "auth-bypass",
+        "severity_hint": "high",
+        "pattern_class": "P1",
+        "functions": [
+          "strncasecmp",
+          "strncmp",
+          "strstr"
+        ]
+      },
+      "fn-path-ops-unnormalized": {
+        "category": "path-traversal",
+        "severity_hint": "high",
+        "pattern_class": "P2",
+        "functions": [
+          "fopen",
+          "open"
+        ]
+      },
+      "fn-debug-listener-ports": {
+        "category": "debug-interface",
+        "severity_hint": "high",
+        "pattern_class": "P6",
+        "functions": [
+          "accept",
+          "bind",
+          "htons",
+          "listen",
+          "socket"
+        ]
+      }
+    },
+    "wrapper_name_matches": {},
+    "unbounded_scanf_formats": [
+      "/mnt/mtd/Config/%s",
+      "\"%s\"",
+      "{\"result\":true,\"session\":\"%s\",\"params\":{\"user\":\"%s\"}}",
+      "%s [%s]",
+      "HTTP/1.1 %d %s",
+      "Server: %s",
+      "Content-Type: %s",
+      "Server: %s",
+      "2Z%["
+    ],
+    "network_facing_hint": true,
+    "score": 15.0,
+    "basis": "static-symbols"
+  }
+}

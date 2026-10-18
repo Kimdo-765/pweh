@@ -1,0 +1,237 @@
+{
+  "schema": "pweh.fwtriage.elf-info/v1",
+  "tool": "fw_elf_info",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-hikvision-sample",
+  "generated_at": "2026-10-18T17:39:55.394Z",
+  "input": {
+    "path": "extract/rootfs-001/usr/sbin/httpd",
+    "size": 1803704,
+    "size_human": "1.72 MiB",
+    "sha256": "4b733ee710d74675528e64465a8fddc07f65f495ddbce2c6f071d15aa2ea896a"
+  },
+  "params": {},
+  "elf": {
+    "class": 32,
+    "endianness": "little",
+    "osabi": "SYSV",
+    "type": "EXEC",
+    "machine": "arm",
+    "machine_code": 40,
+    "flags": {
+      "raw": "0x05000200",
+      "eabi_version": 5,
+      "flags": [
+        "soft-float"
+      ],
+      "summary": "EABI5, soft-float"
+    },
+    "entry": "0x21d78",
+    "summary": "32-bit LSB EXEC, arm (EABI5, soft-float)",
+    "segments": {
+      "count": 7,
+      "loads": 3
+    },
+    "sections": {
+      "count": 23,
+      "names": [
+        ".ARM.exidx",
+        ".ARM.extab",
+        ".rodata",
+        ".text",
+        ".tbss",
+        ".data",
+        ".bss",
+        ".debug_loc",
+        ".debug_abbrev",
+        ".debug_info",
+        ".debug_str",
+        ".comment",
+        ".ARM.attributes",
+        ".debug_frame",
+        ".debug_line",
+        ".debug_ranges",
+        ".debug_aranges",
+        ".debug_pubnames",
+        ".debug_pubtypes",
+        ".symtab",
+        ".shstrtab",
+        ".strtab"
+      ]
+    },
+    "interpreter": null,
+    "static": true,
+    "needed": [],
+    "soname": null,
+    "rpath": null,
+    "runpath": null,
+    "symbol_source": null,
+    "imports": [],
+    "import_count": 0,
+    "export_count": 0,
+    "stripped": false,
+    "defined_function_count": 330,
+    "hardening": {
+      "nx": true,
+      "nx_note": null,
+      "relro": "none",
+      "pie": false,
+      "shared_library": false,
+      "stack_canary": false,
+      "fortify": [],
+      "textrel": false,
+      "rpath": null,
+      "runpath": null
+    },
+    "libc_guess": null,
+    "warnings": []
+  },
+  "risk": {
+    "builtin": {
+      "command-exec": {
+        "severity": "high",
+        "functions": [
+          "execve",
+          "posix_spawn",
+          "system"
+        ]
+      },
+      "unbounded-scanf": {
+        "severity": "medium",
+        "functions": [
+          "sscanf",
+          "vfscanf",
+          "vsscanf"
+        ]
+      },
+      "network-server": {
+        "severity": "info",
+        "functions": [
+          "accept",
+          "bind",
+          "listen"
+        ]
+      }
+    },
+    "heuristics": {
+      "fn-command-exec": {
+        "category": "command-injection",
+        "severity_hint": "high",
+        "pattern_class": "P11",
+        "functions": [
+          "execve",
+          "posix_spawn",
+          "system"
+        ]
+      },
+      "fn-command-build": {
+        "category": "command-injection",
+        "severity_hint": "high",
+        "pattern_class": "P11",
+        "functions": [
+          "snprintf",
+          "vsnprintf"
+        ]
+      },
+      "fn-unsafe-copy": {
+        "category": "memory-safety",
+        "severity_hint": "high",
+        "pattern_class": "P12",
+        "functions": [
+          "memcpy",
+          "strncpy"
+        ]
+      },
+      "fn-unbounded-scanf": {
+        "category": "memory-safety",
+        "severity_hint": "high",
+        "pattern_class": "P12",
+        "functions": [
+          "sscanf",
+          "vfscanf",
+          "vsscanf"
+        ]
+      },
+      "fn-auth-literal-compare": {
+        "category": "auth-bypass",
+        "severity_hint": "high",
+        "pattern_class": "P4/P5",
+        "functions": [
+          "bcmp",
+          "strcmp",
+          "strncasecmp",
+          "strncmp",
+          "strstr"
+        ]
+      },
+      "fn-login-hash-compare": {
+        "category": "auth-bypass",
+        "severity_hint": "high",
+        "pattern_class": "P7",
+        "functions": [
+          "strcmp"
+        ]
+      },
+      "fn-uri-substring-match": {
+        "category": "auth-bypass",
+        "severity_hint": "high",
+        "pattern_class": "P1",
+        "functions": [
+          "strncasecmp",
+          "strncmp",
+          "strrchr",
+          "strstr"
+        ]
+      },
+      "fn-path-ops-unnormalized": {
+        "category": "path-traversal",
+        "severity_hint": "high",
+        "pattern_class": "P2",
+        "functions": [
+          "fopen",
+          "open"
+        ]
+      },
+      "fn-cgi-env-from-request": {
+        "category": "command-injection",
+        "severity_hint": "high",
+        "pattern_class": "P11",
+        "functions": [
+          "execve"
+        ]
+      },
+      "fn-debug-listener-ports": {
+        "category": "debug-interface",
+        "severity_hint": "high",
+        "pattern_class": "P6",
+        "functions": [
+          "accept",
+          "bind",
+          "htons",
+          "listen",
+          "socket"
+        ]
+      }
+    },
+    "wrapper_name_matches": {
+      "fn-base64-auth-decode": [
+        "base64_decode"
+      ]
+    },
+    "unbounded_scanf_formats": [
+      "%s%s",
+      "uptime=%s",
+      "%s/index.html",
+      "%s [%s]",
+      "HTTP/1.0 %d %s",
+      "Server: %s",
+      "Content-Type: %s",
+      "Server: %s",
+      "Content-Type: %s",
+      "2Z%["
+    ],
+    "network_facing_hint": true,
+    "score": 28.5,
+    "basis": "static-symbols"
+  }
+}

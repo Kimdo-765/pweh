@@ -1,0 +1,360 @@
+{
+  "schema": "pweh.fwtriage.identify/v1",
+  "tool": "fw_identify",
+  "producer": "fwtriage-mcp 0.1.0",
+  "case_id": "example-hikvision-sample",
+  "generated_at": "2026-10-18T17:39:51.338Z",
+  "input": {
+    "path": "dumps/flash-full.bin",
+    "size": 16777216,
+    "size_human": "16.00 MiB",
+    "sha256": "e95ae853526947b9d29011f61c4cb3b92ce6fdff8a368cd23eef14cd40c5c2a2"
+  },
+  "params": {
+    "offset": 0,
+    "length": null,
+    "include_nested": false
+  },
+  "summary": {
+    "scanned_range": [
+      "0x0",
+      "0x1000000"
+    ],
+    "region_count": 9,
+    "nested_count": 2,
+    "kinds": {
+      "uboot-version": 1,
+      "pweh-synthetic-marker": 3,
+      "uboot-env": 1,
+      "uimage": 1,
+      "linux-version": 1,
+      "squashfs": 2
+    },
+    "coverage_ratio": 0.1041,
+    "arch_hints": [
+      "arm"
+    ],
+    "uboot_versions": [
+      "U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)hi3516ev300"
+    ],
+    "linux_versions": [
+      "Linux version 4.9.37 (pweh@synthetic-build) (gcc version 6.3.0 (HC&C V100R002C00B027_20200302) ) #1 Mon Mar 23 15:03:32 CST 2020"
+    ],
+    "synthetic_marker": true,
+    "padding_bytes": 14856192,
+    "timed_out": false
+  },
+  "regions": [
+    {
+      "offset": 163904,
+      "offset_hex": "0x28040",
+      "kind": "uboot-version",
+      "size": 56,
+      "end_hex": "0x28078",
+      "size_basis": "header",
+      "confidence": "high",
+      "description": "U-Boot 버전 문자열: U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)hi3516ev300",
+      "details": {
+        "text": "U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)hi3516ev300"
+      }
+    },
+    {
+      "offset": 163961,
+      "offset_hex": "0x28079",
+      "kind": "pweh-synthetic-marker",
+      "size": 46,
+      "end_hex": "0x280a7",
+      "size_basis": "header",
+      "confidence": "high",
+      "description": "PWEH 합성(테스트/시뮬레이터) 펌웨어 마커: PWEH SYNTHETIC TEST FIRMWARE - NOT VENDOR CODE",
+      "details": {
+        "text": "PWEH SYNTHETIC TEST FIRMWARE - NOT VENDOR CODE"
+      }
+    },
+    {
+      "offset": 262144,
+      "offset_hex": "0x40000",
+      "kind": "uboot-env",
+      "size": 65536,
+      "end_hex": "0x50000",
+      "size_basis": "header",
+      "confidence": "high",
+      "description": "U-Boot 환경변수 블록 (크기 65536 bytes, 변수 16개, CRC little)",
+      "details": {
+        "redundant": false,
+        "flags": null,
+        "crc": "0x241e7df0",
+        "crc_endian": "little",
+        "variables": 16,
+        "has_bootargs": true,
+        "has_mtdparts": true,
+        "bootcmd": "sf probe 0; sf read 0x42000000 0x50000 0x200000; bootm 0x42000000"
+      }
+    },
+    {
+      "offset": 327680,
+      "offset_hex": "0x50000",
+      "kind": "uimage",
+      "size": 394822,
+      "end_hex": "0xb0646",
+      "size_basis": "header",
+      "confidence": "high",
+      "description": "uImage 'Linux-4.9.37' linux/arm kernel, 압축=none, load=0x40008000 entry=0x40008000, 데이터 394758 bytes",
+      "details": {
+        "magic": "0x27051956",
+        "header_crc": "0x4db64d04",
+        "header_crc_ok": true,
+        "timestamp": 1584947441,
+        "data_size": 394758,
+        "load_address": "0x40008000",
+        "entry_point": "0x40008000",
+        "data_crc": "0x5c755fb6",
+        "data_crc_ok": true,
+        "os": "linux",
+        "arch": "arm",
+        "type": "kernel",
+        "compression": "none",
+        "name": "Linux-4.9.37",
+        "total_size": 394822,
+        "timestamp_iso": "2020-03-23T07:10:41Z",
+        "payload": {
+          "kind": "zimage",
+          "description": "ARM Linux zImage (크기 394758 bytes)",
+          "size": 394758
+        }
+      }
+    },
+    {
+      "offset": 721154,
+      "offset_hex": "0xb0102",
+      "kind": "linux-version",
+      "size": 128,
+      "end_hex": "0xb0182",
+      "size_basis": "header",
+      "confidence": "medium",
+      "description": "리눅스 커널 버전 문자열 (비압축 커널): Linux version 4.9.37 (pweh@synthetic-build) (gcc version 6.3.0 (HC&C V100R002C00B027_20200302) ) #1 Mon Mar 23 15:03:32 CST 2020",
+      "parent_offset": 327808,
+      "parent_kind": "gzip",
+      "details": {
+        "text": "Linux version 4.9.37 (pweh@synthetic-build) (gcc version 6.3.0 (HC&C V100R002C00B027_20200302) ) #1 Mon Mar 23 15:03:32 CST 2020"
+      }
+    },
+    {
+      "offset": 721283,
+      "offset_hex": "0xb0183",
+      "kind": "pweh-synthetic-marker",
+      "size": 174,
+      "end_hex": "0xb0231",
+      "size_basis": "header",
+      "confidence": "high",
+      "description": "PWEH 합성(테스트/시뮬레이터) 펌웨어 마커: PWEH SYNTHETIC TEST FIRMW\\xed\\xceKJ\\xc3`\\x14\\x05`\\xc7Y\\xc5\\xa5\\x10\\xd0\\x81. 3\\xe9cRl\\xa0\\x96\\xceK\\xf3+\\xc1<$\\x0f\\xa1\\xbb7\\xea\\x12\\x9c~\\xdf\\xf8\\xdes\\xce\\xf3q\\x1b\\x8fq(Oq\\xde\\x1e6\\xe51\\xd6\\xe5f\\x9b\\xed\\xd3\\xd0\\xa5&\\xae}\\xdb^\\xba*\\x9a\\xbaKE\\xe4c\\xb6\\x1e\\xd2e\\xaa\\xbb\\xf7\\xc8\\xabx9m\\xe2\\xf32L\\xf5\\xb4\\x0c\\x1dci_\\xe5\\xe3\\xaa\\xc8\\xce\\xbb\\xd7b\\x193wS\\xaab\\xe8\\xfb)\\xee\\xf31\\xde\\xea&\\x8d\\xb7qJ\\xedC\\xfe{\\\\xa5\\xaf\\xfa\\x9a\"\\x9f\\x8b|~\\xcavCJ?\\xb9",
+      "parent_offset": 327808,
+      "parent_kind": "gzip",
+      "details": {
+        "text": "PWEH SYNTHETIC TEST FIRMW\\xed\\xceKJ\\xc3`\\x14\\x05`\\xc7Y\\xc5\\xa5\\x10\\xd0\\x81. 3\\xe9cRl\\xa0\\x96\\xceK\\xf3+\\xc1<$\\x0f\\xa1\\xbb7\\xea\\x12\\x9c~\\xdf\\xf8\\xdes\\xce\\xf3q\\x1b\\x8fq(Oq\\xde\\x1e6\\xe51\\xd6\\xe5f\\x9b\\xed\\xd3\\xd0\\xa5&\\xae}\\xdb^\\xba*\\x9a\\xbaKE\\xe4c\\xb6\\x1e\\xd2e\\xaa\\xbb\\xf7\\xc8\\xabx9m\\xe2\\xf32L\\xf5\\xb4\\x0c\\x1dci_\\xe5\\xe3\\xaa\\xc8\\xce\\xbb\\xd7b\\x193wS\\xaab\\xe8\\xfb)\\xee\\xf31\\xde\\xea&\\x8d\\xb7qJ\\xedC\\xfe{\\\\xa5\\xaf\\xfa\\x9a\"\\x9f\\x8b|~\\xcavCJ?\\xb9"
+      }
+    },
+    {
+      "offset": 2424832,
+      "offset_hex": "0x250000",
+      "kind": "squashfs",
+      "size": 1284938,
+      "end_hex": "0x389b4a",
+      "size_basis": "header",
+      "confidence": "high",
+      "description": "SquashFS v4.0 little endian, xz, 블록 131072, inode 180, 크기 1284938 bytes, 생성 2020-03-23T07:10:41Z",
+      "details": {
+        "version": "4.0",
+        "endianness": "little",
+        "magic": "hsqs",
+        "compression": "xz",
+        "block_size": 131072,
+        "inodes": 180,
+        "fragments": 1,
+        "ids": 1,
+        "bytes_used": 1284938,
+        "mkfs_time": 1584947441,
+        "mkfs_time_iso": "2020-03-23T07:10:41Z",
+        "flags": [
+          "duplicates_removed",
+          "exportable"
+        ],
+        "flags_raw": "0xc0",
+        "nonstandard": false
+      }
+    },
+    {
+      "offset": 7667712,
+      "offset_hex": "0x750000",
+      "kind": "squashfs",
+      "size": 629,
+      "end_hex": "0x750275",
+      "size_basis": "header",
+      "confidence": "high",
+      "description": "SquashFS v4.0 little endian, xz, 블록 131072, inode 6, 크기 629 bytes, 생성 2020-03-23T07:10:41Z",
+      "details": {
+        "version": "4.0",
+        "endianness": "little",
+        "magic": "hsqs",
+        "compression": "xz",
+        "block_size": 131072,
+        "inodes": 6,
+        "fragments": 1,
+        "ids": 1,
+        "bytes_used": 629,
+        "mkfs_time": 1584947441,
+        "mkfs_time_iso": "2020-03-23T07:10:41Z",
+        "flags": [
+          "duplicates_removed",
+          "exportable"
+        ],
+        "flags_raw": "0xc0",
+        "nonstandard": false
+      }
+    },
+    {
+      "offset": 7667808,
+      "offset_hex": "0x750060",
+      "kind": "pweh-synthetic-marker",
+      "size": 46,
+      "end_hex": "0x75008e",
+      "size_basis": "header",
+      "confidence": "high",
+      "description": "PWEH 합성(테스트/시뮬레이터) 펌웨어 마커: PWEH SYNTHETIC TEST FIRMWARE - NOT VENDOR CODE",
+      "parent_offset": 7667712,
+      "parent_kind": "squashfs",
+      "details": {
+        "text": "PWEH SYNTHETIC TEST FIRMWARE - NOT VENDOR CODE"
+      }
+    }
+  ],
+  "nested_regions": [
+    {
+      "offset": 327744,
+      "offset_hex": "0x50040",
+      "kind": "zimage",
+      "size": 394758,
+      "end_hex": "0xb0646",
+      "size_basis": "header",
+      "confidence": "medium",
+      "description": "ARM Linux zImage (크기 394758 bytes)",
+      "parent_offset": 327680,
+      "parent_kind": "uimage",
+      "details": {
+        "endianness": "little",
+        "start": "0x0",
+        "end": "0x60606",
+        "nop_sled": false,
+        "efi_stub": false
+      }
+    },
+    {
+      "offset": 327808,
+      "offset_hex": "0x50080",
+      "kind": "gzip",
+      "size": 394694,
+      "end_hex": "0xb0646",
+      "size_basis": "stream",
+      "confidence": "high",
+      "description": "gzip 압축 데이터 (압축 394694 bytes -> 해제 1442116 bytes)",
+      "parent_offset": 327744,
+      "parent_kind": "zimage",
+      "details": {
+        "os": "unknown",
+        "mtime": 1584947441,
+        "mtime_iso": "2020-03-23T07:10:41Z",
+        "decompressed_bytes": 1442116
+      }
+    }
+  ],
+  "padding_runs": [
+    {
+      "offset": 167936,
+      "offset_hex": "0x29000",
+      "size": 94208,
+      "kind": "erased-0xff"
+    },
+    {
+      "offset": 724992,
+      "offset_hex": "0xb1000",
+      "size": 1699840,
+      "kind": "erased-0xff"
+    },
+    {
+      "offset": 3710976,
+      "offset_hex": "0x38a000",
+      "size": 3956736,
+      "kind": "erased-0xff"
+    },
+    {
+      "offset": 7671808,
+      "offset_hex": "0x751000",
+      "size": 9105408,
+      "kind": "erased-0xff"
+    }
+  ],
+  "stats": {
+    "uimage": {
+      "candidates": 1,
+      "validated": 1,
+      "rejected": 0,
+      "skipped_nested": 0
+    },
+    "squashfs": {
+      "candidates": 2,
+      "validated": 2,
+      "rejected": 0,
+      "skipped_nested": 0
+    },
+    "gzip": {
+      "candidates": 1,
+      "validated": 1,
+      "rejected": 0,
+      "skipped_nested": 0
+    },
+    "xz": {
+      "candidates": 45,
+      "validated": 0,
+      "rejected": 0,
+      "skipped_nested": 45
+    },
+    "lzma": {
+      "candidates": 18,
+      "validated": 0,
+      "rejected": 2,
+      "skipped_nested": 16
+    },
+    "zimage": {
+      "candidates": 1,
+      "validated": 1,
+      "rejected": 0,
+      "skipped_nested": 0
+    },
+    "uboot-env": {
+      "candidates": 0,
+      "validated": 1,
+      "rejected": 0,
+      "skipped_nested": 0
+    },
+    "uboot-version": {
+      "candidates": 0,
+      "validated": 1,
+      "rejected": 0,
+      "skipped_nested": 0
+    },
+    "linux-version": {
+      "candidates": 0,
+      "validated": 1,
+      "rejected": 0,
+      "skipped_nested": 0
+    },
+    "pweh-synthetic-marker": {
+      "candidates": 0,
+      "validated": 3,
+      "rejected": 0,
+      "skipped_nested": 0
+    }
+  },
+  "notes": [],
+  "elapsed_seconds": 0.235
+}

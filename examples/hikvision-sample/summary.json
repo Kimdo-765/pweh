@@ -1,0 +1,60 @@
+{
+ "name": "hikvision-sample",
+ "profile": "hikvision-like",
+ "case_id": "example-hikvision-sample",
+ "rea_used": true,
+ "rea_error": null,
+ "image_sha256": "e95ae853526947b9d29011f61c4cb3b92ce6fdff8a368cd23eef14cd40c5c2a2",
+ "dump_sha256": "e95ae853526947b9d29011f61c4cb3b92ce6fdff8a368cd23eef14cd40c5c2a2",
+ "dump_size": 16777216,
+ "findings": 8,
+ "planted": {
+  "PWEH-PLANT-01": [
+   "fw_strings_hunt#58",
+   "trace_feature#68",
+   "procedure_pseudo_code#73"
+  ],
+  "PWEH-PLANT-02": [
+   "procedure_pseudo_code#76",
+   "fw_strings_hunt#97"
+  ],
+  "PWEH-PLANT-03": [
+   "fw_strings_hunt#58",
+   "trace_feature#67",
+   "procedure_pseudo_code#72"
+  ],
+  "PWEH-PLANT-04": [
+   "fw_strings_hunt#58",
+   "trace_feature#66",
+   "procedure_pseudo_code#71",
+   "procedure_pseudo_code#77"
+  ],
+  "PWEH-PLANT-05": [
+   "fw_rootfs_audit#57",
+   "fw_strings_hunt#58",
+   "fw_rootfs_audit#93"
+  ],
+  "PWEH-PLANT-06": [
+   "fw_crack_hashes#59"
+  ],
+  "PWEH-HIK-01": [
+   "fw_strings_hunt#58",
+   "fw_strings_hunt#95",
+   "trace_feature#103",
+   "procedure_pseudo_code#111",
+   "procedure_pseudo_code#119"
+  ],
+  "PWEH-HIK-02": [
+   "fw_strings_hunt#58",
+   "fw_strings_hunt#95",
+   "trace_feature#102",
+   "trace_feature#107",
+   "procedure_pseudo_code#110",
+   "procedure_pseudo_code#115"
+  ]
+ },
+ "destructive_events": 0,
+ "calls": 132,
+ "elapsed_s": 78.5,
+ "command": ".venv/bin/python scripts/run_example.py --profile hikvision-like --name hikvision-sample"
+}

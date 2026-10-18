@@ -1,0 +1,370 @@
+# pweh.mocktarget 시뮬레이터 프로필 — "dahua-like" 벤더 스타일 합성 카메라 (예제·e2e 테스트용)
+#
+# PWEH SYNTHETIC TEST FIRMWARE - NOT VENDOR CODE
+# 하드웨어·부트로더·커널 출력은 hisilicon-like 프로필(HiSilicon V4 유사, U-Boot 2016.11 포크)을 그대로 복사했다
+# (load_profile 에 extends 가 없어 전체를 복사함). 달라진 것은 rootfs 의 벤더 스타일 구성요소뿐이다.
+# - 메인 서비스 /usr/bin/sonia, 설정 경로 /mnt/mtd/Config/(Account1), JSON-RPC 로그인 어휘(/RPC2_Login, global.login,
+#   clientType/loginType/ipAddr), /current_config/ 매핑은 docs/references/cctv-vuln-patterns.md §3.2·§4.2 의
+#   공개된 "펌웨어 쪽 지표"만 빌렸다.
+# - 코드(vendor_src/sonia_like.c)는 새로 쓴 합성 코드다. 실제 벤더 코드·키·자격증명·요청 형식은 없다.
+# - 심은 취약점(정답)은 firmware.extra_planted_issues 에 있고 빌드 매니페스트 planted_issues 에 합쳐진다.
+#   공통 합성 httpd 의 PWEH-PLANT-01..06 도 그대로 들어 있다.
+# 한계: 리눅스 셸 흉내(linux.py)는 rootfs.build_tree 로 파일 화면을 만들므로 /usr/bin/sonia 나 rcS 추가 줄이
+#       ls/cat 에 보이지 않는다. /dev/mtd* 읽기(dd/md5sum/hexdump)는 실제 플래시 바이트라 정확하다.
+name: dahua-like
+description: >-
+  Dahua 스타일 합성 IP 카메라 (hisilicon-like 하드웨어 + /usr/bin/sonia 형 메인 서비스, JSON-RPC 로그인,
+  /mnt/mtd/Config). 정적 분석 예제용 합성 데이터이며 실제 벤더 펌웨어가 아니다.
+aliases: [mock-dahua]
+pipeline_profile: dahua-ipc
+arch: arm
+endianness: little
+baud: 115200
+
+flash:
+  type: spi-nor
+  model: "W25Q128(B/F)V"
+  jedec_id: [0xef, 0x40, 0x18]
+  size: 16MiB
+  page_size: 256
+  erase_size: 64KiB
+  mtdparts: "hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)"
+  # FMC 메모리 매핑 읽기 창 (md 로 플래시를 직접 볼 수 있음, 쓰기 불가)
+  memory_window: 0x14000000
+
+dram:
+  base: 0x40000000
+  size: 64MiB
+
+uart:
+  rx_fifo: 32            # PL011 RX FIFO
+  linux_rx_buffer: 4096  # N_TTY_BUF_SIZE
+
+uboot:
+  dialect: hisilicon-2016
+  version: "U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)"
+  version_tag: "hi3516ev300"
+  prompt: "hisilicon # "
+  hush_ps2: "> "
+  maxargs: 32
+  cbsize: 1024
+  loadaddr: 0x42000000
+  text_base: 0x40800000
+  cc_version: "arm-himix100-linux-gcc (HC&C V100R002C00B027_20200302) 6.3.0"
+  ld_version: "GNU ld (GNU Binutils) 2.26.20160125"
+  autoboot:
+    delay: 2
+    keys: null           # null = 아무 키 (CONFIG_AUTOBOOT_KEYED is not set)
+    zero_check: true
+  bdinfo:
+    arch_number: 0x00000000
+    boot_params: 0x40000100
+    tlb_addr: 0x43ff0000
+    relocaddr: 0x43f9e000
+    reloc_off: 0x0379e000
+    irq_sp: 0x43f5dee0
+    sp_start: 0x43f5ded0
+    early_malloc: "1a8 / 2000"
+  env:
+    arch: arm
+    baudrate: "115200"
+    board: hi3516ev300
+    board_name: hi3516ev300
+    bootargs: "mem=40M console=ttyAMA0,115200 root=/dev/mtdblock3 rootfstype=squashfs init=linuxrc mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)"
+    bootcmd: "sf probe 0; sf read 0x42000000 0x50000 0x200000; bootm 0x42000000"
+    bootdelay: "2"
+    bootfile: uImage
+    cpu: armv7
+    ethaddr: "00:00:23:34:45:66"
+    ipaddr: 192.168.1.10
+    netmask: 255.255.255.0
+    serverip: 192.168.1.2
+    soc: hi3516ev300
+    vendor: hisilicon
+    verify: "n"
+  # CRC 가 깨졌을 때 쓰는 컴파일 시점 기본 env (CONFIG_BOOTCOMMAND/CONFIG_BOOTARGS 등)
+  default_env:
+    arch: arm
+    baudrate: "115200"
+    board: hi3516ev300
+    board_name: hi3516ev300
+    bootargs: "mem=40M console=ttyAMA0,115200"
+    bootcmd: "bootm 0x42000000"
+    bootdelay: "2"
+    bootfile: uImage
+    cpu: armv7
+    ethaddr: "00:00:23:34:45:66"
+    ipaddr: 192.168.1.10
+    netmask: 255.255.255.0
+    serverip: 192.168.1.2
+    soc: hi3516ev300
+    vendor: hisilicon
+  runtime_env:
+    stdin: serial
+    stdout: serial
+    stderr: serial
+  commands: ["?", base, bdinfo, boot, bootd, bootm, cmp, coninfo, cp, crc32, echo, env, "false", go, help,
+             iminfo, loop, md, mm, mtest, mw, nm, ping, printenv, reset, run, saveenv, setenv, sf, sleep,
+             test, tftpboot, "true", version]
+  net:
+    eth_name: eth0
+    # 합성: 링크가 없는 상태의 드라이버 메시지 (SIMULATED)
+    link_down:
+      - "eth0 : phy status change : LINK=DOWN : DUPLEX=FULL : SPEED=100M"
+  timings:
+    bootrom: 0.25
+    banner_line: 0.004
+    relocate: 0.05
+    flash_read_bps: 12000000
+    flash_erase_block: 0.03
+    flash_program_bps: 400000
+    kernel_line: 0.012
+    userspace: 0.6
+  banner: |
+
+
+    System startup
+
+    Uncompress Ok!
+
+    {version}{version_tag}
+
+    DRAM:  64 MiB
+    Relocation Offset is: 0379e000
+    Relocating to 43f9e000, new gd at 43f5dee0, sp at 43f5ded0
+    SPI Nor:  Check Flash Memory Controller v100 ... Found
+    SPI Nor ID Table Version 1.0
+    SPI Nor(cs 0) ID: 0xef 0x40 0x18
+    Block:64KB Chip:16MB Name:"W25Q128(B/F)V"
+    SPI Nor total size: 16MB
+    NAND:  0 MiB
+    MMC:
+    {env_warning}In:    serial
+    Out:   serial
+    Err:   serial
+    Net:   eth0
+
+kernel:
+  version: "4.9.37"
+  image_name: "Linux-4.9.37"
+  load_addr: 0x40008000
+  entry: 0x40008000
+  compression: none
+  zimage_banner: true
+  machine: armv7l
+  build: "#1 Mon Mar 23 15:03:32 CST 2020"
+  version_line: "Linux version 4.9.37 (pweh@synthetic-build) (gcc version 6.3.0 (HC&C V100R002C00B027_20200302) ) #1 Mon Mar 23 15:03:32 CST 2020"
+  rootdev_major: 31
+  boot_log: |
+    Booting Linux on physical CPU 0x0
+    {version_line}
+    CPU: ARMv7 Processor [410fc075] revision 5 (ARMv7), cr=10c5387d
+    CPU: div instructions available: patching division code
+    CPU: PIPT / VIPT nonaliasing data cache, VIPT aliasing instruction cache
+    OF: fdt:Machine model: Hisilicon HI3516EV300 DEMO Board
+    Memory policy: Data cache writeback
+    CPU: All CPU(s) started in SVC mode.
+    Built 1 zonelists in Zone order, mobility grouping on.  Total pages: 10160
+    Kernel command line: {cmdline}
+    PID hash table entries: 256 (order: -2, 1024 bytes)
+    Dentry cache hash table entries: 8192 (order: 3, 32768 bytes)
+    Inode-cache hash table entries: 4096 (order: 2, 16384 bytes)
+    Memory: 35204K/40960K available (3790K kernel code, 158K rwdata, 1012K rodata, 152K init, 207K bss, 5756K reserved, 0K cma-reserved)
+    Virtual kernel memory layout:
+        vector  : 0xffff0000 - 0xffff1000   (   4 kB)
+        fixmap  : 0xffc00000 - 0xfff00000   (3072 kB)
+        vmalloc : 0xc3000000 - 0xff800000   ( 968 MB)
+        lowmem  : 0xc0000000 - 0xc2800000   (  40 MB)
+        modules : 0xbf000000 - 0xc0000000   (  16 MB)
+          .text : 0xc0008000 - 0xc03bbd34   (3792 kB)
+          .init : 0xc04b0000 - 0xc04d6000   ( 152 kB)
+          .data : 0xc04d6000 - 0xc04fdb58   ( 159 kB)
+           .bss : 0xc04ffd5c - 0xc0533a10   ( 208 kB)
+    SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+    NR_IRQS:16 nr_irqs:16 16
+    clocksource: arm,sp804: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 637086815595 ns
+    sched_clock: 32 bits at 3000kHz, resolution 333ns, wraps every 715827882841ns
+    Console: colour dummy device 80x30
+    Calibrating delay loop... 1987.37 BogoMIPS (lpj=9936896)
+    pid_max: default: 32768 minimum: 301
+    Mount-cache hash table entries: 1024 (order: 0, 4096 bytes)
+    Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes)
+    CPU: Testing write buffer coherency: ok
+    Setting up static identity map for 0x40008200 - 0x40008258
+    devtmpfs: initialized
+    VFP support v0.3: implementor 41 architecture 2 part 30 variant 7 rev 5
+    clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604462750000 ns
+    pinctrl core: initialized pinctrl subsystem
+    NET: Registered protocol family 16
+    DMA: preallocated 256 KiB pool for atomic coherent allocations
+    Serial: AMBA PL011 UART driver
+    12040000.uart: ttyAMA0 at MMIO 0x12040000 (irq = 23, base_baud = 0) is a PL011 rev2
+    console [ttyAMA0] enabled
+    12041000.uart: ttyAMA1 at MMIO 0x12041000 (irq = 24, base_baud = 0) is a PL011 rev2
+    SCSI subsystem initialized
+    usbcore: registered new interface driver usbfs
+    usbcore: registered new interface driver hub
+    usbcore: registered new device driver usb
+    clocksource: Switched to clocksource arm,sp804
+    NET: Registered protocol family 2
+    TCP established hash table entries: 1024 (order: 0, 4096 bytes)
+    TCP bind hash table entries: 1024 (order: 0, 4096 bytes)
+    TCP: Hash tables configured (established 1024 bind 1024)
+    UDP hash table entries: 256 (order: 0, 4096 bytes)
+    UDP-Lite hash table entries: 256 (order: 0, 4096 bytes)
+    NET: Registered protocol family 1
+    workingset: timestamp_bits=30 max_order=14 bucket_order=0
+    squashfs: version 4.0 (2009/01/31) Phillip Lougher
+    jffs2: version 2.2. (NAND) (SUMMARY)  © 2001-2006 Red Hat, Inc.
+    io scheduler noop registered (default)
+    io scheduler deadline registered
+    io scheduler cfq registered
+    brd: module loaded
+    hisi-sfc hisi_spi_nor.0: SPI Nor ID Table Version 1.0
+    hisi-sfc hisi_spi_nor.0: SPI Nor(cs 0) ID: 0xef 0x40 0x18
+    hisi-sfc hisi_spi_nor.0: Block:64KB Chip:16MB Name:"W25Q128(B/F)V"
+    {mtd_partitions}
+    libphy: Fixed MDIO Bus: probed
+    libphy: hisi_femac_mii_bus: probed
+    hisi-femac 10040000.ethernet: using random MAC address 3e:9a:2f:7d:5e:3b
+    usbcore: registered new interface driver usb-storage
+    i2c /dev entries driver
+    hibvt_rtc 120e0000.rtc: rtc core: registered 120e0000.rtc as rtc0
+    NET: Registered protocol family 17
+    hibvt_rtc 120e0000.rtc: setting system clock to 1970-01-01 00:00:00 UTC (0)
+    VFS: Mounted root (squashfs filesystem) readonly on device {rootdev}.
+    devtmpfs: mounted
+    Freeing unused kernel memory: 152K
+    This architecture does not have kernel memory protection.
+  cpuinfo: |
+    processor	: 0
+    model name	: ARMv7 Processor rev 5 (v7l)
+    BogoMIPS	: 1987.37
+    Features	: half thumb fastmult vfp edsp neon vfpv3 tls vfpv4 idiva idivt vfpd32 lpae
+    CPU implementer	: 0x41
+    CPU architecture: 7
+    CPU variant	: 0x0
+    CPU part	: 0xc07
+    CPU revision	: 5
+
+    Hardware	: Generic DT based system
+    Revision	: 0000
+    Serial		: 0000000000000000
+  meminfo:
+    MemTotal: 35356
+    MemFree: 18232
+    MemAvailable: 24396
+    Buffers: 0
+    Cached: 7364
+
+linux:
+  hostname: "(none)"
+  busybox_banner: "BusyBox v1.26.2 (2020-03-23 15:10:41 CST)"
+  login:
+    username: root
+    password: "1111"
+    motd: ""
+  shell_prompt: "# "
+  askfirst: true
+  rcs_output: |
+    mount: mounting none on /proc/bus/usb failed: No such file or directory
+    Starting telnetd...
+    ipcam: starting synthetic httpd on port 80
+  applets: ["[", "[[", addgroup, adduser, ash, base64, basename, cat, chgrp, chmod, chown, chroot, clear,
+            cmp, cp, cut, date, dd, delgroup, deluser, devmem, df, dirname, dmesg, du, echo, egrep, env,
+            expr, "false", fdisk, fgrep, find, flash_eraseall, flash_lock, flash_unlock, flashcp, free, fuser,
+            getty, grep, gunzip, gzip, halt, hd, head, hexdump, hostname, hwclock, id, ifconfig, init, insmod,
+            ip, kill, killall, klogd, linuxrc, ln, login, logread, ls, lsmod, md5sum, mdev, mkdir, mknod,
+            mktemp, more, mount, mv, nc, netstat, nslookup, passwd, pidof, ping, pivot_root, poweroff, printf,
+            ps, pwd, reboot, rm, rmdir, rmmod, route, sed, seq, sh, sleep, sort, stat, stty, su, sync, sysctl,
+            syslogd, tail, tar, tee, telnetd, test, tftp, time, top, touch, tr, "true", udhcpc, umount, uname,
+            uptime, usleep, vi, watchdog, wc, wget, which, xargs, "yes", zcat]
+  processes:
+    - [1, root, 1600, "S", "init"]
+    - [2, root, 0, "SW", "[kthreadd]"]
+    - [3, root, 0, "SW", "[ksoftirqd/0]"]
+    - [5, root, 0, "SW<", "[kworker/0:0H]"]
+    - [7, root, 0, "SW", "[rcu_preempt]"]
+    - [10, root, 0, "SW<", "[lru-add-drain]"]
+    - [11, root, 0, "SW", "[kdevtmpfs]"]
+    - [12, root, 0, "SW<", "[netns]"]
+    - [139, root, 0, "SW<", "[kblockd]"]
+    - [215, root, 0, "SW", "[kswapd0]"]
+    - [298, root, 0, "SW", "[spi0]"]
+    - [492, root, 1600, "S", "syslogd"]
+    - [494, root, 1600, "S", "klogd"]
+    - [528, root, 1596, "S", "/usr/sbin/telnetd"]
+    - [533, root, 2448, "S", "/usr/sbin/httpd -p 80 -h /var/www"]
+    - [541, root, 8904, "S", "/usr/bin/sonia -p 8080"]
+  mounts:
+    - ["/dev/root", "/", "squashfs", "ro,relatime"]
+    - ["devtmpfs", "/dev", "devtmpfs", "rw,relatime,size=17344k,nr_inodes=4336,mode=755"]
+    - ["proc", "/proc", "proc", "rw,relatime"]
+    - ["sysfs", "/sys", "sysfs", "rw,relatime"]
+    - ["tmpfs", "/tmp", "tmpfs", "rw,relatime"]
+    - ["/dev/mtdblock4", "/app", "squashfs", "ro,relatime"]
+  interfaces:
+    eth0:
+      hwaddr: "00:00:23:34:45:66"
+      inet: 192.168.1.10
+      bcast: 192.168.1.255
+      mask: 255.255.255.0
+      flags: "UP BROADCAST MULTICAST"
+      mtu: 1500
+      txqueuelen: 1000
+  listening:
+    - [tcp, "0.0.0.0:80"]
+    - [tcp, "0.0.0.0:23"]
+    - [tcp, "0.0.0.0:554"]
+    - [tcp, "0.0.0.0:8080"]
+    - [udp, "0.0.0.0:3702"]
+
+
+firmware:
+  build_date: "2020-03-23 15:10:41"
+  epoch: 1584947441
+  web_server: /usr/sbin/httpd
+  zig_target: arm-linux-musleabi
+  squashfs_comp: xz
+  app_mount: /app
+  # --- 벤더 스타일 추가 구성 (pweh.mocktarget.firmware 가 rootfs 트리에 더한다) ---
+  # extra_binaries: profiles/ 기준 상대 경로의 C 소스를 zig 로 빌드해 dest 에 넣는다 (빠른 빌드/zig 없음 → 생략).
+  extra_binaries:
+    - source: vendor_src/sonia_like.c
+      dest: /usr/bin/sonia
+  # /mnt/mtd 는 런타임에 설정 파티션이 붙는 자리 (rootfs 에는 빈 디렉터리만 있다)
+  extra_dirs: [/mnt/mtd/Config]
+  extra_files:
+    - path: /etc/init.d/rcS
+      append: |
+
+        # dahua-like (synthetic): main service
+        echo "ipcam: starting synthetic main service"
+        /usr/bin/sonia -p 8080 &
+  # 정답(ground truth). file 이 빌드된 트리에 있을 때만 매니페스트 planted_issues 에 들어간다.
+  # indicators: 정적 분석 도구 출력에서 이 문제를 가리키는 문자열 (테스트 정답 대조용).
+  extra_planted_issues:
+    - id: PWEH-DH-01
+      category: auth-bypass
+      title: 로그인의 '로컬 요청' 신뢰를 클라이언트가 보낸 loginType/ipAddr 값으로 판정 (비밀번호 검증 생략)
+      severity: critical
+      file: /usr/bin/sonia
+      function: is_local_request
+      pattern: >-
+        rpc_global_login: is_local_request(&l) — strcmp(l->login_type, "Loopback") == 0 && strcmp(l->ip_addr, "127.0.0.1") == 0
+        이면 send_login_result(fd, 1, user) (verify_password 생략). 소켓 peer 주소(peer_loopback/getpeername)는 판정에 쓰지 않는다.
+      pattern_class: P4
+      modelled_on: CVE-2021-33045
+      indicators: ["Loopback", "is_local_request"]
+    - id: PWEH-DH-02
+      category: info-leak
+      title: 세션 확인 전 /current_config/ 요청을 /mnt/mtd/Config/ 파일로 내려줌 (계정 DB 노출)
+      severity: high
+      file: /usr/bin/sonia
+      function: serve_config_file
+      pattern: >-
+        http_dispatch: strncmp(path, "/current_config/", 16) == 0 → serve_config_file(name) 가 session_valid 보다 먼저 실행,
+        CONFIG_DIR "/mnt/mtd/Config/" 에 계정 DB Account1 이 있다 ('/' 와 ".." 는 거부 — 경로 순회 아님).
+      pattern_class: P1/P8
+      modelled_on: CVE-2017-7925
+      indicators: ["/current_config/"]

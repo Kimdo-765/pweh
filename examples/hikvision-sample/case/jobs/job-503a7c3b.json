@@ -1,0 +1,71 @@
+{
+  "job_id": "job-503a7c3b",
+  "kind": "uart-uboot-dump",
+  "description": "U-Boot 덤프 sf 0x50000+0x10000 → dumps/probe-kernel-head.bin",
+  "server": "uart-mcp",
+  "case_id": "example-hikvision-sample",
+  "status": "succeeded",
+  "progress": 1.0,
+  "done": 65536,
+  "total": 65536,
+  "message": "청크 1/1 @0x50000 검증 crc32 — 전체 100.0%, 남은 시간 약 0s",
+  "created_at": "2026-10-18T17:39:10.812Z",
+  "started_at": "2026-10-18T17:39:10.812Z",
+  "finished_at": "2026-10-18T17:39:11.415Z",
+  "elapsed_seconds": 0.6,
+  "meta": {
+    "session_id": "console-001",
+    "output": "dumps/probe-kernel-head.bin",
+    "source": "sf",
+    "exclusive_key": "uart:/dev/pts/8",
+    "partial_result": {
+      "status": "running",
+      "part_path": "dumps/probe-kernel-head.bin.part",
+      "state_path": "dumps/probe-kernel-head.state.json",
+      "completed_chunks": 1,
+      "total_chunks": 1,
+      "completed_bytes": 65536,
+      "resume_hint": "같은 인자로 uboot_dump_start 를 다시 부르면 이어서 받습니다 (resume=true)."
+    },
+    "overall_done_bytes": 65536,
+    "overall_total_bytes": 65536,
+    "overall_progress": 1.0,
+    "eta_seconds_estimate": 0
+  },
+  "result": {
+    "path": "dumps/probe-kernel-head.bin",
+    "path_abs": "<CASE_DIR>/dumps/probe-kernel-head.bin",
+    "sha256": "b6f2e962ba93c66ede13e70169701414a72530c57bf0ce4b186d97022dfef230",
+    "size": 65536,
+    "metadata_path": "dumps/probe-kernel-head.json",
+    "method": "uboot-md",
+    "verification": {
+      "method": "crc32-chunks",
+      "detail": "청크마다 기기 crc32 와 호스트 crc32 비교",
+      "match": true,
+      "chunks_verified": 1,
+      "full_range": {
+        "device_crc32": "f96c08fa",
+        "host_crc32": "f96c08fa",
+        "match": true
+      }
+    },
+    "chunks": {
+      "size": 65536,
+      "count": 1,
+      "retries": 0,
+      "resumed_from": 0
+    },
+    "duration_seconds": 0.57,
+    "duration_seconds_total": 0.57,
+    "runs": 1,
+    "artifact_id": "A-0005",
+    "notes": [
+      "ram_addr 생략 → uboot_info 제안값 0x42000000 사용"
+    ]
+  },
+  "log_tail": [
+    "2026-10-18T17:39:10.825Z U-Boot 덤프 시작: sf 0x50000+0x10000, 청크 0x10000 × 1, 시작 청크 0",
+    "2026-10-18T17:39:11.402Z 덤프 완료: dumps/probe-kernel-head.bin sha256=b6f2e962ba93c66ede13e70169701414a72530c57bf0ce4b186d97022dfef230"
+  ]
+}

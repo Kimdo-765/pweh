@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/uart-recon.schema.json",
+  "title": "uart-shell-acquisition 요약 data",
+  "type": "object",
+  "required": ["port", "baudrate", "console_type", "access_level"],
+  "properties": {
+    "port": {"type": "string"},
+    "baudrate": {"type": "integer", "minimum": 50},
+    "framing": {"type": "string", "default": "8N1"},
+    "baud_detection": {
+      "type": "object",
+      "properties": {
+        "method": {"enum": ["auto-scan", "profile", "manual", "logic-analyzer"]},
+        "candidates": {"type": "array"},
+        "score": {"type": ["number", "null"]}
+      }
+    },
+    "console_type": {"enum": ["uboot", "linux-shell", "linux-login", "boot-log-only", "silent", "unknown"]},
+    "access_level": {"enum": ["none", "boot-log", "uboot", "login-required", "user-shell", "root-shell"]},
+    "uboot": {
+      "type": ["object", "null"],
+      "properties": {
+        "version": {"type": ["string", "null"]},
+        "prompt": {"type": ["string", "null"]},
+        "autoboot": {"type": ["object", "null"], "properties": {"message": {"type": "string"}, "interrupt_keys": {"type": "array"}, "bootdelay": {"type": ["integer", "null"]}}},
+        "env": {"type": "object", "additionalProperties": {"type": "string"}},
+        "bootargs": {"type": ["string", "null"]},
+        "bootcmd": {"type": ["string", "null"]},
+        "mtdparts": {"type": ["string", "null"]},
+        "partitions": {"type": "array", "items": {"type": "object", "required": ["name", "offset", "size"]}},
+        "flash": {"type": ["object", "null"], "properties": {"type": {"type": "string"}, "model": {"type": "string"}, "size_bytes": {"type": ["integer", "null"]}}},
+        "ram_load_addr": {"type": ["string", "null"]},
+        "commands": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "linux": {
+      "type": ["object", "null"],
+      "properties": {
+        "kernel_version": {"type": ["string", "null"]},
+        "cmdline": {"type": ["string", "null"]},
+        "cpu": {"type": ["string", "null"]},
+        "mtd": {"type": "array", "items": {"type": "object", "required": ["dev", "size", "erasesize", "name"]}},
+        "user": {"type": ["string", "null"]},
+        "busybox": {"type": ["string", "null"]},
+        "login_required": {"type": ["boolean", "null"]}
+      }
+    },
+    "device_info": {"type": "object"},
+    "session_log": {"type": ["string", "null"], "description": "케이스 상대 경로 (uart/*.log)"},
+    "notes": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

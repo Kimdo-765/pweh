@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/case.schema.json",
+  "title": "PWEH 케이스 메타데이터 (case.json)",
+  "type": "object",
+  "required": ["schema", "id", "title", "status", "created_at", "profile", "target", "phases", "artifacts", "steps"],
+  "properties": {
+    "schema": {"const": "pweh.case/v1"},
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"},
+    "title": {"type": "string", "minLength": 1},
+    "status": {"enum": ["open", "closed"]},
+    "created_at": {"type": "string"},
+    "updated_at": {"type": "string"},
+    "profile": {"type": "string"},
+    "target": {
+      "type": "object",
+      "description": "대상 기기 식별 정보 (알려진 것만)",
+      "properties": {
+        "vendor": {"type": "string"},
+        "model": {"type": "string"},
+        "serial": {"type": "string"},
+        "hardware_rev": {"type": "string"},
+        "firmware_version": {"type": "string"},
+        "soc": {"type": "string"},
+        "flash": {"type": "string"},
+        "notes": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "authorization": {
+      "type": ["object", "null"],
+      "required": ["basis", "owner", "statement", "attested_at"],
+      "properties": {
+        "basis": {"enum": ["owned", "written-authorization"]},
+        "owner": {"type": "string", "minLength": 1},
+        "statement": {"type": "string", "minLength": 1},
+        "scope": {"type": "string"},
+        "document_ref": {"type": ["string", "null"]},
+        "attested_by": {"type": "string"},
+        "attested_via": {"type": "string"},
+        "attested_at": {"type": "string"}
+      }
+    },
+    "phases": {"type": "object", "additionalProperties": {"type": "object", "properties": {"status": {"enum": ["pending", "in-progress", "done", "partial", "failed", "skipped", "blocked"]}}}},
+    "artifacts": {"type": "array", "items": {"type": "object", "required": ["path", "kind", "producer"]}},
+    "steps": {"type": "array", "items": {"type": "object", "required": ["seq", "file", "skill", "step", "status"]}},
+    "notes": {"type": "array"}
+  },
+  "additionalProperties": true
+}

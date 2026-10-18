@@ -1,0 +1,188 @@
+{
+  "schema": "pweh.step-result/v1",
+  "case_id": "example-hikvision-sample",
+  "skill": "uart-shell-acquisition",
+  "step": "summary",
+  "status": "success",
+  "summary": "UART 115200 8N1(/dev/pts/8): U-Boot 진입('hisilicon # ', Ctrl-C), env·플래시·safe RAM 0x42000000 확보",
+  "started_at": null,
+  "finished_at": "2026-10-18T17:39:10.464Z",
+  "data": {
+    "port": "/dev/pts/8",
+    "baudrate": 115200,
+    "framing": "8N1",
+    "baud_detection": {
+      "method": "profile",
+      "candidates": [
+        115200
+      ],
+      "score": null
+    },
+    "console_type": "uboot",
+    "access_level": "uboot",
+    "uboot": {
+      "version": "U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)hi3516ev300",
+      "prompt": "hisilicon # ",
+      "autoboot": {
+        "message": "Hit any key to stop autoboot:  2",
+        "interrupt_keys": [
+          "ctrl-c"
+        ],
+        "bootdelay": 2
+      },
+      "env": {
+        "arch": "arm",
+        "baudrate": "115200",
+        "board": "hi3516ev300",
+        "board_name": "hi3516ev300",
+        "bootargs": "mem=40M console=ttyAMA0,115200 root=/dev/mtdblock3 rootfstype=squashfs init=linuxrc mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)",
+        "bootcmd": "sf probe 0; sf read 0x42000000 0x50000 0x200000; bootm 0x42000000",
+        "bootdelay": "2",
+        "bootfile": "uImage",
+        "cpu": "armv7",
+        "ethaddr": "00:00:23:34:45:66",
+        "ipaddr": "192.168.1.10",
+        "netmask": "255.255.255.0",
+        "serverip": "192.168.1.2",
+        "soc": "hi3516ev300",
+        "stderr": "serial",
+        "stdin": "serial",
+        "stdout": "serial",
+        "vendor": "hisilicon",
+        "verify": "n"
+      },
+      "bootargs": "mem=40M console=ttyAMA0,115200 root=/dev/mtdblock3 rootfstype=squashfs init=linuxrc mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)",
+      "bootcmd": "sf probe 0; sf read 0x42000000 0x50000 0x200000; bootm 0x42000000",
+      "mtdparts": "mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)",
+      "partitions": [
+        {
+          "name": "boot",
+          "offset": 0,
+          "size": 262144
+        },
+        {
+          "name": "env",
+          "offset": 262144,
+          "size": 65536
+        },
+        {
+          "name": "kernel",
+          "offset": 327680,
+          "size": 2097152
+        },
+        {
+          "name": "rootfs",
+          "offset": 2424832,
+          "size": 5242880
+        },
+        {
+          "name": "app",
+          "offset": 7667712,
+          "size": 9109504
+        }
+      ],
+      "flash": {
+        "type": "spi-nor",
+        "model": "W25Q128(B/F)V",
+        "size_bytes": 16777216
+      },
+      "ram_load_addr": "0x42000000",
+      "commands": [
+        "?",
+        "base",
+        "bdinfo",
+        "boot",
+        "bootd",
+        "bootm",
+        "cmp",
+        "coninfo",
+        "cp",
+        "crc32",
+        "echo",
+        "env",
+        "false",
+        "go",
+        "help",
+        "iminfo",
+        "loop",
+        "md",
+        "mm",
+        "mtest",
+        "mw",
+        "nm",
+        "ping",
+        "printenv",
+        "reset",
+        "run",
+        "saveenv",
+        "setenv",
+        "sf",
+        "sleep",
+        "test",
+        "tftpboot",
+        "true",
+        "version"
+      ]
+    },
+    "linux": {
+      "kernel_version": "4.9.37",
+      "cmdline": "mem=40M console=ttyAMA0,115200 root=/dev/mtdblock3 rootfstype=squashfs init=linuxrc mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)",
+      "cpu": null,
+      "mtd": [],
+      "user": null,
+      "busybox": null,
+      "login_required": true
+    },
+    "device_info": {
+      "bdinfo": {
+        "banks": [
+          {
+            "bank": 0,
+            "start": 1073741824,
+            "size": 67108864
+          }
+        ],
+        "dram_start": "0x40000000",
+        "dram_size": 67108864,
+        "relocaddr": "0x43f9e000",
+        "reloc_off": "0x379e000",
+        "sp_start": "0x43f5ded0",
+        "irq_sp": "0x43f5dee0",
+        "tlb_addr": "0x43ff0000",
+        "boot_params": "0x40000100",
+        "arch_number": "0x0",
+        "baudrate": 115200
+      },
+      "safe_ram_addr": "0x42000000",
+      "console": "ttyAMA0,115200",
+      "flash_write_warnings": []
+    },
+    "session_log": "uart/console-001.log",
+    "boot_log": "uart/console-001-boot-01.log",
+    "contexts_reached": [
+      "uboot"
+    ],
+    "login_method": "not-attempted",
+    "session": {
+      "session_id": "console-001",
+      "kept_open": true,
+      "context_at_end": "uboot"
+    },
+    "notes": [
+      "보드레이트는 프로필 후보 하나(115200)로 바로 접속, 부팅 로그가 읽혀 확정 (baud_detection profile)",
+      "부팅 로그: prompt:askfirst:login — 로그인 프롬프트까지 부팅됨, 리눅스 4.9.37",
+      "autoboot 를 Ctrl-C 로 중단, <INTERRUPT> 로 U-Boot 문맥 확정. 빈 Enter 는 보내지 않음 (master-prompt §1-4)",
+      "PTY 시뮬레이터 포트라 uart_list_ports 목록에는 나오지 않는다 (사람이 경로를 알려 줌)",
+      "영구 변경 없음 (saveenv/setenv 보내지 않음). 세션은 firmware-dump-via-uart 를 위해 열어 둔다"
+    ]
+  },
+  "artifacts": [
+    "uart/console-001.log",
+    "uart/console-001-boot-01.log"
+  ],
+  "next_actions": [
+    "firmware-dump-via-uart: 세션 재사용, U-Boot md.b 덤프 (crc32 검증)"
+  ],
+  "blockers": [],
+  "seq": 1
+}

@@ -1,0 +1,159 @@
+# PWEH — Play With Every Hardware
+
+**에이전트 주도 임베디드 기기 하드웨어 분석 파이프라인** (CCTV / IP 카메라 / DVR·NVR / IoT)
+
+사람은 배선·프로브·전원 같은 **물리 작업**만 한다. AI 에이전트(Claude Code / Codex / Cursor)는 MCP 서버와 Skill 을 통해
+UART 콘솔, 로직 애널라이저, JTAG, 펌웨어 분석(REA + Ghidra)을 주도한다. 결과는 증거가 달린 구조화된 보고서로 남는다.
+
+> ⚠️ **소유한 기기 또는 서면 허가를 받은 기기만** 분석한다. 모든 하드웨어 도구는 케이스에 소유/허가 증명이 있어야 동작한다.
+> 플래시 쓰기·삭제, `saveenv`, 전압 인가 같은 위험 작업은 서버 측 안전 게이트가 기본으로 거부한다.
+> 허용하더라도 사람이 에이전트 밖에서 승인해야 한다. 분석 결과는 연구·방어 목적으로만 쓴다. → [안전 가이드](docs/safety.md)
+
+## 구조
+
+```
+[사람]  배선 · 프로브 · 전원 재투입 · 위험 작업 승인 (pweh approve)
+   │
+[에이전트]  orchestrator/master-prompt.md  +  skills/*/SKILL.md
+   │
+   ├─ pweh-case        케이스 · 단계 결과 · 발견사항 · 보고서 · 프로필 · 승인 상태
+   ├─ pweh-uart        UART: 포트/세션, U-Boot 진입, Linux 셸, md.b/dd 덤프(job, crc32/md5 검증, 재개)
+   ├─ pweh-sigrok      로직 애널라이저: 스캔, 캡처, 디코딩, 보드레이트 추정
+   ├─ pweh-openocd     OpenOCD: 스캔체인, 레지스터/메모리, 플래시 읽기(job)
+   ├─ pweh-jtagulator  JTAGulator: JTAG/UART 핀아웃 스캔 (선택)
+   ├─ pweh-fwtriage    오프라인 트리아지: 시그니처, 엔트로피, U-Boot env, mtdparts 분할, rootfs 감사, 문자열 휴리스틱
+   └─ rea              REA(rea-agents): binwalk/unblob 추출, Ghidra 디컴파일, 참조 추적, 신호 디코딩
+            │
+      [대상 기기]  (또는 pweh-mock-device 시뮬레이터)
+```
+
+공통 코어(`src/pweh/`)는 모든 서버가 쓰는 계약을 구현한다.
+- **케이스 작업공간**: Skill 사이의 데이터 전달.
+- **JSON 스키마**: 단계 결과·발견사항 검증.
+- **안전 게이트**: 명령 위험도 분류, 정책, 사람 승인.
+- **백그라운드 job**: 장시간 작업.
+- **보고서 생성기**.
+
+자세한 계약은 [docs/architecture.md](docs/architecture.md) 에 있다.
+
+## 파이프라인
+
+| 단계 | Skill | 하는 일 | 산출물 (cases/<id>/) |
+|---|---|---|---|
+| 0 | `pweh-start` | 접수: 기기 정보, **소유/허가 확인**, 장비 확인, 프로필 선택, 케이스 생성 | `case.json` |
+| A | `uart-shell-acquisition` | 포트 탐색, 보드레이트 탐지, 부팅 로그, U-Boot 인터럽트, 셸 획득, 기본 정보 수집 | `uart/*.log`, `steps/*` |
+| A′ | `logic-analyzer-protocol-decode` | 핀/보드레이트 모를 때 캡처·디코딩, SPI/I2C 관찰 | `signals/*` |
+| B | `firmware-dump-via-uart` | U-Boot `sf read`+`md.b`(+crc32) 또는 셸 `dd`(+md5) 덤프, 재개 가능 | `dumps/*.bin` + 메타데이터 |
+| C | `firmware-static-analysis` | fwtriage 1차 분석 → REA 추출/Ghidra 디컴파일 → 인증·하드코딩·백도어 후보 | `extract/`, `analysis/`, `findings.json` |
+| D | `cctv-auth-bypass-hunt` | Hikvision/Dahua/XiongMai 스타일 공개 취약점 패턴 중심 집중 탐색 | `findings.json` |
+| E | — | `report_generate` | `report.md` |
+
+각 Skill 은 끝날 때 스키마에 맞는 `summary` 를 케이스에 저장한다 (`schemas/*.schema.json`).
+다음 Skill 은 그 요약을 읽어서 이어서 진행한다. 세션이 끊겨도 케이스만 있으면 이어서 할 수 있다.
+
+## 빠른 시작
+
+```bash
+# 1. 설치 (Python 3.10+)
+cd ~/pweh
+python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+
+# 2. 외부 도구 (이 머신에는 ~/pweh-tools 에 설치되어 있음: sigrok-cli, OpenOCD, binwalk, unblob, Ghidra, JDK, Zig …)
+. ~/pweh-tools/env.sh
+.venv/bin/pweh doctor
+
+# 3. 테스트 (하드웨어 없이, 시뮬레이터 사용. 외부 도구가 없으면 일부 skip)
+.venv/bin/pytest -q
+.venv/bin/pytest -q -m "not slow"     # 빠르게: 전체 플래시 덤프 e2e 같은 slow 테스트 제외
+# (선택) 실제 에이전트(Claude Code 헤드리스)가 시뮬레이터 카메라를 끝까지 분석하는지 확인 — Claude 계정 사용량을 쓴다
+.venv/bin/python scripts/run_agent_e2e.py --profile hikvision-like --out <결과 디렉터리>
+
+# 4. 에이전트 연결
+.venv/bin/pweh mcp-config --client claude --write --force   # .mcp.json (이미 포함됨)
+.venv/bin/pweh skills install --target claude-project       # .claude/skills 링크 (이미 포함됨)
+claude                                                      # 프로젝트 MCP 서버 승인 → /mcp 로 확인
+```
+
+Claude Code 에서 시작:
+```
+/pweh-start 책상 위의 내 IP 카메라 (HiSilicon Hi3518 기반으로 보임). UART 패드 4개 확인, CP2102 어댑터 있음
+```
+
+Codex 는 `$pweh-start` 로 시작한다 (설정은 `pweh mcp-config --client codex`). Cursor 는 `/pweh-start` 로 시작한다.
+
+실제 에이전트가 `/pweh-start` 와 이런 짧은 기기 설명만으로 끝까지 가는지는 시뮬레이터로 확인했다. 결과는 [examples/README.md](examples/README.md#실제-에이전트-실행-기록-agent-run-) 에 있다.
+`agent-run-hikvision` 과 `agent-run-dahua` 두 실행 모두 다음을 통과했다.
+- 기준 C1–C7 전부
+- 심어 둔 문제 8/8 을 발견사항으로 기록
+- 덤프 sha256 이 플래시 이미지와 일치
+- 파괴 이벤트 0
+→ [MCP 설정 가이드](docs/mcp-setup.md)
+
+### 하드웨어 없이 체험하기
+
+```bash
+.venv/bin/pweh-mock-device --profile hisilicon-like --pty
+# {"pty": "/dev/pts/N", ...} → 에이전트에게 "이 포트가 내 카메라 UART" 라고 알려 주면 된다
+# 시뮬레이터 표준입력에 power-cycle 을 입력하면 "전원 재투입"이 된다
+```
+
+## 위험 작업 승인 흐름
+
+1. 에이전트가 위험 도구를 호출한다 → 서버가 `status: approval_required` 와 `approval_id` 를 돌려준다.
+   클라이언트가 지원하면 elicitation 확인 폼이 대신 뜬다.
+2. 사람이 **별도 터미널**에서 `.venv/bin/pweh approve <approval_id>` 를 실행하고, 내용 확인 후 확인 코드를 입력한다.
+3. 에이전트가 같은 인자 + `approval_id` 로 재시도하면 **한 번만** 실행된다. 승인은 정확한 작업에 묶이고 만료된다.
+
+기본 정책은 `destructive_policy: deny` 라서 위 흐름 자체가 일어나지 않는다. 사람이
+`orchestrator/pipeline-config.yaml` 에서 `approve` 로 바꿔야만 가능하다.
+
+## 디렉터리
+
+```
+pweh/
+├── README.md, project.md(명세), AGENTS.md, CLAUDE.md
+├── pyproject.toml                  하나의 패키지로 코어 + 6개 서버 설치
+├── src/pweh/                       공통 코어 (config, case, safety, jobs, mcpkit, report, cli, formats, schemas, mocktarget)
+├── mcp-servers/
+│   ├── case-mcp/  uart-mcp/  openocd-mcp/  sigrok-mcp/  jtagulator-mcp/  fwtriage-mcp/
+├── skills/                         pweh-start + 5개 Skill (.claude/skills, .agents/skills 에 링크)
+├── orchestrator/
+│   ├── master-prompt.md            파이프라인 전체 지침 (이 하나로 시작)
+│   └── pipeline-config.yaml        안전 정책, 도구 경로, 대상 기기 프로필
+├── schemas/                        JSON Schema (→ src/pweh/schemas)
+├── scripts/                        mcp-launch.sh(MCP 서버 런처, env.sh 자동 로드), dump_tool_catalog.py(도구 카탈로그·권한 검사),
+│                                   run_example.py(스크립트 흐름 예제), run_agent_e2e.py(실제 에이전트 e2e, 옵트인)
+├── examples/                       시뮬레이터 예제: 스크립트 흐름 2개 + 실제 Claude Code 에이전트 실행 기록 2개
+├── docs/                           safety, hardware-setup, mcp-setup, architecture, references/
+├── tests/                          pytest (core, servers, uart, fwtriage, mocktarget, e2e) + mock-targets/
+└── cases/                          실제 분석 케이스 (git 제외)
+```
+
+## 기존 공개 MCP 서버와의 관계
+
+명세는 기존 공개 서버를 최대한 재사용하라고 한다. 조사 결과와 판단은 다음과 같다.
+- **REA**: 그대로 재사용한다 (펌웨어 영역·추출·Ghidra·신호 디코딩).
+- **UART** ([mcserial](https://git.supported.systems/rsp2k/mcserial), [es617/serial-mcp-server](https://www.remoteopenclaw.com/mcp/es617/serial-mcp-server),
+  [AdolphNB/uart-mcp](https://github.com/AdolphNB/uart-mcp) 등): 범용 시리얼 도구라서 다음 기능이 없다. 그래서 새로 작성했다.
+  - U-Boot 문맥 인식, 명령 위험도 게이트.
+  - 검증·재개 가능한 md.b 덤프.
+  - 케이스 기반 로그.
+- **OpenOCD** ([mcjtag](https://pypi.org/project/mcjtag/), [microhenrio/openocd-mcp](https://glama.ai/mcp/servers/microhenrio/openocd-mcp)):
+  mcjtag 는 Python 3.11+ 요구, 둘 다 위험 명령 게이트가 없다. 같은 안전 계층을 쓰는 얇은 TCL RPC 래퍼로 작성했다.
+  필요하면 위 서버를 함께 등록해도 된다 (그 서버들의 동작은 PWEH 게이트 밖이다).
+- **sigrok** ([kenosinc/sigrok-mcp-server](https://mcpservers.org/servers/kenosinc/sigrok-mcp-server), [mcp-sigrok](https://pypi.org/project/mcp-sigrok/)):
+  디코딩은 REA 의 `decode_signal_recording` 과 겹친다. PWEH 서버는 REA 에 없는 기능에 집중한다.
+  - 캡처(취득).
+  - 출력 장치(전원공급기 등) 차단.
+  - 순수 Python 보드레이트 추정.
+
+## 문서
+- [안전 가이드](docs/safety.md) — 법적 범위, 전기 안전, 게이트, 승인, 위협 모델, 비상 정지, 백업
+- [하드웨어 셋업](docs/hardware-setup.md) — 장비, UART 패드 찾기, 배선, WSL usbipd, 로직 애널라이저, JTAG, SPI 클립
+- [MCP 설정](docs/mcp-setup.md) — Claude Code / Codex / Cursor 등록, REA 연동, 타임아웃
+- [아키텍처와 계약](docs/architecture.md) — 서버별 도구, 케이스 구조, 안전 모델, 코딩·테스트 규칙
+- [MCP 도구 카탈로그](docs/references/pweh-mcp-tools.md) — 서버가 실제로 내보내는 도구·인자·annotation (`scripts/dump_tool_catalog.py` 로 자동 생성)
+- [참고 자료](docs/references/) — U-Boot/부트 콘솔, OpenOCD TCL RPC, sigrok-cli, JTAGulator 프로토콜, CCTV 공개 취약점 패턴, 에이전트 클라이언트
+
+## 라이선스
+MIT (외부 도구와 REA 는 각자의 라이선스를 따른다).

@@ -1,0 +1,70 @@
+{
+  "schema": "pweh.uart-dump/v1",
+  "method": "uboot-md",
+  "source": {
+    "type": "sf",
+    "flash_type": "spi-nor",
+    "flash_size": 16777216,
+    "offset": 327680,
+    "length": 65536,
+    "partition": null,
+    "ram_addr": "0x42000000",
+    "device_path": null
+  },
+  "output": {
+    "path": "dumps/probe-kernel-head.bin",
+    "sha256": "b6f2e962ba93c66ede13e70169701414a72530c57bf0ce4b186d97022dfef230",
+    "size": 65536
+  },
+  "verification": {
+    "method": "crc32-chunks",
+    "detail": "청크마다 기기 crc32 와 호스트 crc32 비교",
+    "match": true,
+    "chunks_verified": 1,
+    "full_range": {
+      "device_crc32": "f96c08fa",
+      "host_crc32": "f96c08fa",
+      "match": true
+    }
+  },
+  "chunks": {
+    "size": 65536,
+    "count": 1,
+    "retries": 0,
+    "resumed_from": 0,
+    "checks": [
+      {
+        "offset": 327680,
+        "length": 65536,
+        "host_crc32": "f96c08fa",
+        "method": "crc32",
+        "device_crc32": "f96c08fa"
+      }
+    ]
+  },
+  "baudrate": 115200,
+  "port": "/dev/pts/8",
+  "session_id": "console-001",
+  "duration_seconds": 0.57,
+  "duration_seconds_total": 0.57,
+  "runs": [
+    {
+      "started_at": "2026-10-18T17:39:10.818Z",
+      "resumed_from": 0,
+      "session_id": "console-001",
+      "port": "/dev/pts/8",
+      "baudrate": 115200,
+      "ram_addr": 1107296256,
+      "finished_at": "2026-10-18T17:39:11.391Z",
+      "duration_seconds": 0.57,
+      "status": "succeeded",
+      "completed_chunks": 1
+    }
+  ],
+  "started_at": "2026-10-18T17:39:10.818Z",
+  "finished_at": "2026-10-18T17:39:11.391Z",
+  "notes": [
+    "ram_addr 생략 → uboot_info 제안값 0x42000000 사용"
+  ],
+  "uboot_version": "U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)hi3516ev300"
+}

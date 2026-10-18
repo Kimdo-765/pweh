@@ -1,0 +1,110 @@
+{
+  "schema": "pweh.step-result/v1",
+  "case_id": "example-hikvision-sample",
+  "skill": "firmware-dump-via-uart",
+  "step": "summary",
+  "status": "success",
+  "summary": "U-Boot md.b 덤프 16777216 bytes (전체 플래시 (백업·복구·분석 겸용)). 청크 64개 crc32 일치, 전체 crc32 5a756bc0 일치, kernel 앞부분 교차 확인 일치",
+  "started_at": null,
+  "finished_at": "2026-10-18T17:39:51.082Z",
+  "data": {
+    "method": "uboot-md",
+    "source": {
+      "type": "sf",
+      "flash_type": "spi-nor",
+      "flash_model": "W25Q128(B/F)V",
+      "flash_size": 16777216,
+      "offset": 0,
+      "length": 16777216,
+      "partition": null,
+      "ram_addr": "0x42000000",
+      "device_path": null
+    },
+    "output": {
+      "path": "dumps/flash-full.bin",
+      "sha256": "e95ae853526947b9d29011f61c4cb3b92ce6fdff8a368cd23eef14cd40c5c2a2",
+      "size": 16777216
+    },
+    "verification": {
+      "method": "crc32-chunks",
+      "match": true,
+      "expected": "5a756bc0",
+      "actual": "5a756bc0",
+      "chunks_verified": 64,
+      "full_range": {
+        "device_crc32": "5a756bc0",
+        "host_crc32": "5a756bc0",
+        "match": true
+      },
+      "cross_check": {
+        "region": "kernel 앞 0x50000+0x10000",
+        "dump": "dumps/probe-kernel-head.bin",
+        "method": "시험 덤프(기본 64k 청크) ↔ 본 덤프를 fw_carve 로 자른 같은 영역",
+        "sha256": "b6f2e962ba93c66ede13e70169701414a72530c57bf0ce4b186d97022dfef230",
+        "reference": "extract/xcheck-001/00-xcheck.bin",
+        "match": true
+      },
+      "content_checks": [
+        "fw_identify: U-Boot env @0x40000 CRC 정상 (변수 16개)",
+        "fw_identify: uImage 'Linux-4.9.37' @0x50000 header_crc_ok=True data_crc_ok=True",
+        "fw_identify: squashfs @0x250000 xz 1284938 bytes",
+        "fw_identify: squashfs @0x750000 xz 629 bytes"
+      ]
+    },
+    "chunks": {
+      "size": 262144,
+      "count": 64,
+      "retries": 0,
+      "resumed_from": 0
+    },
+    "partitions": [
+      {
+        "name": "boot",
+        "offset": 0,
+        "size": 262144
+      },
+      {
+        "name": "env",
+        "offset": 262144,
+        "size": 65536
+      },
+      {
+        "name": "kernel",
+        "offset": 327680,
+        "size": 2097152
+      },
+      {
+        "name": "rootfs",
+        "offset": 2424832,
+        "size": 5242880
+      },
+      {
+        "name": "app",
+        "offset": 7667712,
+        "size": 9109504
+      }
+    ],
+    "mtdparts": "mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),5120k(rootfs),-(app)",
+    "duration_seconds": 39.69,
+    "baudrate": 115200,
+    "metadata_path": "dumps/flash-full.json",
+    "bootloader": "U-Boot 2016.11 (Mar 23 2020 - 14:58:03 +0800)hi3516ev300",
+    "notes": [
+      "범위: 전체 플래시 (백업·복구·분석 겸용)",
+      "청크 256k (시뮬레이터 시간 단축용), 청크마다 기기 crc32 ↔ 호스트 crc32",
+      "ram_addr 생략 → uboot_info safe_ram_addr 0x42000000",
+      "sf read → md.b 만 사용 (읽기 전용, 플래시 쓰기·saveenv 없음)",
+      "시뮬레이터 실행 값: duration 39.69초. 실제 115200 bps 기기는 훨씬 오래 걸린다"
+    ]
+  },
+  "artifacts": [
+    "dumps/flash-full.bin",
+    "dumps/flash-full.json",
+    "dumps/probe-kernel-head.bin"
+  ],
+  "next_actions": [
+    "firmware-static-analysis: dumps/flash-full.bin 분석 (env 의 mtdparts 로 fw_carve 자동 분할)"
+  ],
+  "blockers": [],
+  "seq": 4
+}
