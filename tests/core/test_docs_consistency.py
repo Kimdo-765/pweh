@@ -1,11 +1,12 @@
 """문서·권한 설정이 실제 MCP 도구 카탈로그와 맞는지 검사하는 회귀 테스트.
 
-하드웨어·외부 도구 없이 돈다.
+하드웨어·외부 도구 없이 돈다. 서버·도구 목록은 하드코딩하지 않고 카탈로그와 pweh.cli.SERVERS 에서 얻는다(정책 상수는 아래 한곳에).
 - docs/references/pweh-mcp-tools.json 이 서버의 실제 list_tools 결과(이름·인자·annotation·_meta·설명)와 같다
-- .claude/settings.json: allow = pweh-case/pweh-fwtriage 전체 + 나머지 pweh 서버의 readOnlyHint 도구 + REA 정적 분석,
+- 서버 목록이 카탈로그 = pweh.cli.SERVERS = dump_tool_catalog.SERVERS = .mcp.json(+ rea) 로 같고, 서버 이름·모듈·디렉터리가 맞는다
+- .claude/settings.json: allow = FULL_ALLOW_SERVERS 전체 + 나머지 pweh 서버의 readOnlyHint 도구 + REA 정적 분석,
   ask ⊇ 원시/기기 변경 도구 + requiresUserInteraction 도구, allow/ask 중복 없음
-- requiresUserInteraction 도구 목록이 safety.md / mcp-setup.md 에 적힌 목록과 같다
-- docs/architecture.md §6 에 모든 도구가 있고, §6.1·§6.2 시그니처에는 모든 인자가 있다
+- requiresUserInteraction 도구 = destructiveHint 도구(카탈로그)이고, safety.md / mcp-setup.md 에 적힌 목록과 같다
+- docs/architecture.md §6 에 모든 서버의 절과 모든 도구가 있고, FULL_SIGNATURE_SERVERS 의 시그니처에는 모든 인자가 있다
 - 문서의 상대 링크·백틱 저장소 경로가 실제로 있다
 - 문서의 `pweh <명령>` 이 실제 CLI 파서로 해석된다
 - 문서가 주장하는 분류 결과(예시 명령 → 위험도·규칙 id)가 실제 분류기와 같고, 문서에 적힌 규칙 id 가 코드에 있다
@@ -15,6 +16,7 @@
 
 from __future__ import annotations
 
+import argparse
 import ast
 import importlib.util
 import json
@@ -39,9 +41,33 @@ RAW_ASK = {
 REA_RUNTIME_ASK = {"gdb_console", "cutter_command", "load_frida_script", "resume_frida_session", "start_gdb_session", "execute_rizin_command",
                    "start_frida_session", "instrument_with_frida", "rizin_debug_command", "push_adb_file", "install_adb_package"}
 
+# --- 정책 상수 (서버·도구 목록 자체는 카탈로그에서 얻는다. 새 서버는 아래 상수에 해당할 때만 적는다) ---
+#: .claude/settings.json 에서 서버 전체(`mcp__<server>__*`)를 자동 허용하는 서버(기기에 닿지 않는 서버).
+#: 나머지 pweh 서버는 카탈로그에서 readOnlyHint 인 도구만 allow 에 있다.
+FULL_ALLOW_SERVERS = ("pweh-case", "pweh-fwtriage")
+#: architecture §6 에 시그니처(모든 인자)까지 적어야 하는 서버. 다른 서버는 도구 이름만 있으면 된다.
+FULL_SIGNATURE_SERVERS = ("pweh-uart", "pweh-case")
+#: 서버 이름 → mcp-servers/ 아래 디렉터리. 기본 규칙('pweh-esp' → 'esp-mcp')을 벗어나는 서버만 적는다.
+SERVER_DIR_OVERRIDES: dict[str, str] = {}
+#: 문서에 백틱으로 적는 안전 규칙 id 의 접두(`linux.exec-nonsystem`, `esp.cmd.flash-write` 등). 분류기가 새 접두를 쓰면 여기에 더한다.
+RULE_ID_PREFIXES = ("linux", "uboot", "uart", "openocd", "sigrok", "console", "jtagulator", "esp")
+
 
 def _catalog() -> dict:
     return json.loads(CATALOG.read_text(encoding="utf-8"))
+
+
+def _cli_servers() -> dict:
+    """pweh.cli.SERVERS (mcp-config 가 .mcp.json 을 만드는 기준)."""
+    sys.path.insert(0, str(REPO / "src"))
+    from pweh.cli import SERVERS
+
+    return SERVERS
+
+
+def _server_dir(server: str) -> str:
+    """서버 이름 → mcp-servers/ 아래 디렉터리 ('pweh-esp' → 'esp-mcp')."""
+    return SERVER_DIR_OVERRIDES.get(server) or f"{server.removeprefix('pweh-')}-mcp"
 
 
 def _load_dump_module():
@@ -70,14 +96,33 @@ def test_catalog_matches_live_servers():
                 assert t[key] == st[name][key], f"{server}.{name}.{key} 가 카탈로그와 다름 → scripts/dump_tool_catalog.py 실행"
 
 
+def test_server_lists_agree():
+    """서버 목록은 한 기준을 따른다: 카탈로그 = pweh.cli.SERVERS(mcp-config) = dump_tool_catalog.SERVERS = .mcp.json - rea.
+    서버 이름 'pweh-<x>' 의 모듈은 '<x>_mcp.server', 디렉터리는 mcp-servers/<x>-mcp (예외는 SERVER_DIR_OVERRIDES)."""
+    cat = _catalog()
+    cli = _cli_servers()
+    assert set(cat) == set(cli) == set(_load_dump_module().SERVERS), "서버를 더하면 cli.SERVERS·dump_tool_catalog.SERVERS·카탈로그를 함께"
+    mcp = json.loads((REPO / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
+    assert set(mcp) == set(cli) | {"rea"}, ".mcp.json 은 pweh mcp-config 로 다시 만든다"
+    assert set(FULL_ALLOW_SERVERS) <= set(cat) and set(FULL_SIGNATURE_SERVERS) <= set(cat)
+    for server, info in cat.items():
+        d = _server_dir(server)
+        package = info["module"].split(".")[0]
+        assert package == d.replace("-", "_"), f"{server}: 모듈 {info['module']} 와 디렉터리 {d} 가 맞지 않음 (SERVER_DIR_OVERRIDES)"
+        assert (REPO / "mcp-servers" / d / package).is_dir(), f"{server}: mcp-servers/{d}/{package} 없음"
+
+
 def test_settings_permissions_follow_catalog_rule():
     cat = _catalog()
     rea = {t["name"]: t for t in json.loads(REA.read_text(encoding="utf-8"))}
     settings = json.loads((REPO / ".claude" / "settings.json").read_text(encoding="utf-8"))
     allow, ask = settings["permissions"]["allow"], settings["permissions"]["ask"]
-    expected = {"mcp__pweh-case__*", "mcp__pweh-fwtriage__*"}
-    for server in ("pweh-uart", "pweh-openocd", "pweh-sigrok", "pweh-jtagulator", "pweh-esp"):
-        for t in cat[server]["tools"]:
+    assert set(FULL_ALLOW_SERVERS) <= set(cat)
+    expected = {f"mcp__{server}__*" for server in FULL_ALLOW_SERVERS}
+    for server, info in cat.items():
+        if server in FULL_ALLOW_SERVERS:
+            continue
+        for t in info["tools"]:
             if (t.get("annotations") or {}).get("readOnlyHint"):
                 expected.add(f"mcp__{server}__{t['name']}")
     assert {r for r in allow if r.startswith("mcp__pweh-")} == expected
@@ -97,9 +142,12 @@ def test_settings_permissions_follow_catalog_rule():
 
 def test_requires_user_interaction_claims_match():
     cat = _catalog()
-    rui = sorted(t["name"] for info in cat.values() for t in info["tools"]
-                 if (t.get("meta") or {}).get("anthropic/requiresUserInteraction"))
-    assert rui == ["jtagulator_set_voltage", "openocd_flash_write", "openocd_write_memory"]
+    tools = {t["name"]: t for info in cat.values() for t in info["tools"]}
+    rui = sorted(n for n, t in tools.items() if (t.get("meta") or {}).get("anthropic/requiresUserInteraction"))
+    destructive = sorted(n for n, t in tools.items() if (t.get("annotations") or {}).get("destructiveHint"))
+    # 정책(pweh.mcpkit.META_REQUIRE_HUMAN): 항상 파괴적인 도구(ANN_DESTRUCTIVE)에만, 그리고 그런 도구에는 빠짐없이 붙인다.
+    # 한쪽만 빠지면(메타를 지우거나, 파괴적 도구를 새로 만들며 메타를 잊음) 여기서 걸린다.
+    assert rui and rui == destructive, f"requiresUserInteraction {rui} ≠ destructiveHint {destructive}"
     for doc in ("safety.md", "mcp-setup.md"):
         items: list[str] = []
         for line in (REPO / "docs" / doc).read_text(encoding="utf-8").splitlines():
@@ -108,12 +156,13 @@ def test_requires_user_interaction_claims_match():
             else:
                 items[-1] += " " + line
         para = next(p for p in items if "requiresUserInteraction" in p)
-        assert sorted(set(re.findall(r"`((?:openocd|jtagulator|uart|sigrok|fw|case)_[a-z_]+)`", para))) == rui, doc
+        named = sorted({n for n in re.findall(r"`([a-z][a-z0-9_]*)`", para) if n in tools})  # 카탈로그의 도구 이름만
+        assert named == rui, doc
 
 
 def _arch_sections() -> dict[str, str]:
     arch = (REPO / "docs" / "architecture.md").read_text(encoding="utf-8")
-    heads = list(re.finditer(r"^### 6\.\d (pweh-[a-z]+)", arch, re.M))
+    heads = list(re.finditer(r"^### 6\.\d+ (pweh-[a-z][a-z0-9-]*)", arch, re.M))
     out = {}
     for i, m in enumerate(heads):
         end = heads[i + 1].start() if i + 1 < len(heads) else arch.index("## 7.")
@@ -125,10 +174,11 @@ def test_architecture_lists_every_tool_and_full_uart_signatures():
     cat = _catalog()
     sections = _arch_sections()
     for server, info in cat.items():
+        assert server in sections, f"architecture §6 에 '### 6.N {server}' 절 없음"
         sec = sections[server]
         for t in info["tools"]:
             assert f"`{t['name']}(" in sec or f"`{t['name']}`" in sec, f"architecture §6 {server}: {t['name']} 없음"
-            if server not in ("pweh-uart", "pweh-case"):
+            if server not in FULL_SIGNATURE_SERVERS:
                 continue
             m = re.search(r"`" + re.escape(t["name"]) + r"\(([^`]*)\)", sec)
             if not m or "…" in m.group(1):
@@ -140,13 +190,11 @@ def test_architecture_lists_every_tool_and_full_uart_signatures():
 
 def test_server_readmes_exist_and_list_tools():
     cat = _catalog()
-    dirs = {"pweh-case": "case-mcp", "pweh-uart": "uart-mcp", "pweh-openocd": "openocd-mcp", "pweh-sigrok": "sigrok-mcp",
-            "pweh-jtagulator": "jtagulator-mcp", "pweh-fwtriage": "fwtriage-mcp",
-            "pweh-esp": "esp-mcp"}
     for server, info in cat.items():
-        readme = (REPO / "mcp-servers" / dirs[server] / "README.md").read_text(encoding="utf-8")
+        d = _server_dir(server)
+        readme = (REPO / "mcp-servers" / d / "README.md").read_text(encoding="utf-8")
         for t in info["tools"]:
-            assert f"`{t['name']}(" in readme or f"`{t['name']}`" in readme, f"{dirs[server]}/README.md: {t['name']} 없음"
+            assert f"`{t['name']}(" in readme or f"`{t['name']}`" in readme, f"{d}/README.md: {t['name']} 없음"
 
 
 def test_doc_links_and_repo_paths_resolve():
@@ -176,7 +224,11 @@ def test_documented_pweh_commands_parse():
     from pweh.cli import build_parser
 
     parser = build_parser()
-    cmd_re = re.compile(r"\bpweh ((?:doctor|approve|deny|approvals|case|report|audit|mcp-config|skills)\b[^`#|>&;)]*)")
+    # 하위 명령 목록은 파서에서 얻는다(새 하위 명령의 문서 예시도 검사 대상이 된다)
+    subcommands = next(a.choices for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    assert {"doctor", "approve", "deny", "case", "mcp-config"} <= set(subcommands)
+    alternation = "|".join(re.escape(c) for c in sorted(subcommands, key=len, reverse=True))
+    cmd_re = re.compile(r"\bpweh ((?:" + alternation + r")\b[^`#|>&;)]*)")
     for f in DOCS:
         for line in f.read_text(encoding="utf-8").splitlines():
             for m in cmd_re.finditer(line):
@@ -425,7 +477,7 @@ def test_documented_rule_ids_exist_in_code():
     sources = [REPO / "src" / "pweh" / "safety" / "classifiers.py", *sorted(REPO.glob("mcp-servers/*/*_mcp/*.py"))]
     code = "\n".join(_text(p) for p in sources)
     config = _text(REPO / "orchestrator" / "pipeline-config.yaml")
-    pat = re.compile(r"`((?:linux|uboot|uart|openocd|sigrok|console|jtagulator|esp)\.[A-Za-z0-9_.\-]+)`")
+    pat = re.compile(r"`((?:" + "|".join(map(re.escape, RULE_ID_PREFIXES)) + r")\.[A-Za-z0-9_.\-]+)`")
     missing = []
     for doc in (SAFETY, ARCH, *sorted(REPO.glob("mcp-servers/*/README.md"))):
         for m in pat.finditer(_text(doc)):
@@ -463,7 +515,8 @@ def test_ram_only_init_sh_needs_explicit_consent_everywhere():
     safety = _text(SAFETY)
     rule7 = safety[safety.index("\n7. "):safety.index("\n8. ")]
     master = _text(REPO / "orchestrator" / "master-prompt.md")
-    rule3 = master[master.index("\n3. "):master.index("\n4. ")]
+    rules = master[master.index("\n## 1."):master.index("\n## 2.")]  # §1 절대 규칙 안의 규칙 3 만 (다른 절의 번호 목록과 섞지 않는다)
+    rule3 = rules[rules.index("\n3. "):rules.index("\n4. ")]
     for where, text in (("uboot-and-boot-console.md §12", s12), ("uboot-and-boot-console.md 범위", scope),
                         ("safety.md §4 규칙 7", rule7), ("master-prompt.md §1 규칙 3", rule3)):
         assert "init=/bin/sh" in text and "동의" in text and "RAM" in text, where

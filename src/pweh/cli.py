@@ -5,6 +5,9 @@
   pweh approve <id>                 위험 작업 승인 (대화형 터미널에서 사람이 확인 코드를 입력해야 함)
   pweh deny <id>                    위험 작업 거부
   pweh approvals [--all]            승인 요청 목록
+  pweh attest <id>                  사람 증명 (대화형 터미널에서 사람이 항목마다 직접 답함 — 소유/허가 증명은 `pweh case attest`)
+  pweh attest --list [--all]        사람 증명 요청 목록 (대화형 터미널 전용)
+  pweh attest --revoke <id>         사람 증명 철회 (대화형 터미널 전용)
   pweh case new|list|show|attest    케이스 관리
   pweh report <case_id>             보고서 생성
   pweh mcp-config [--client ...]    MCP 클라이언트 설정 생성 (Claude Code / Codex / Cursor)
@@ -158,6 +161,199 @@ def cmd_deny(args: argparse.Namespace) -> int:
     rt.approvals.decide(args.approval_id, approve=False, code=None, via="cli")
     rt.audit({"event": "approval_denied", "approval_id": args.approval_id}, rec.get("case_id"))
     print("거부했습니다.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# attest (사람 증명 — `pweh case attest`(소유/허가 증명)와 다른 명령)
+# ---------------------------------------------------------------------------
+
+_YES = ("y", "yes", "예", "네")
+_NO = ("n", "no", "아니오", "아니요")
+
+
+def _attest_user() -> str:
+    """결정한 사람의 OS 계정 이름(실제 uid 기준 — 환경 변수 $USER 로 바꿀 수 없다)."""
+    from .safety.attestations import os_user
+
+    return os_user()
+
+
+def _attest_confirm_code() -> bool:
+    """승인이 될 답을 기록하기 전에 화면의 무작위 확인 코드를 입력받는다(`pweh approve` 와 같은 수준 — 답을 미리 흘려 넣는 것만으로는 기록되지 않게)."""
+    import secrets
+
+    from .safety.attestations import ELICIT_CODE_ALPHABET
+
+    code = "".join(secrets.choice(ELICIT_CODE_ALPHABET) for _ in range(4))
+    print(f"    위 답으로 증명을 기록하려면 확인 코드를 그대로 입력하세요: {code}")
+    try:
+        typed = input("  (취소: Enter) 확인 코드> ").strip().upper()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return False
+    return typed == code
+
+
+def _attest_refuse_without_tty() -> int | None:
+    """approve 와 같은 TTY 검사. TTY 가 아니면 종료 코드 2 (아무것도 보여 주거나 바꾸지 않는다)."""
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        return None
+    print(
+        "오류: `pweh attest` 는 사람이 대화형 터미널에서 직접 실행해야 합니다 (stdin/stdout 이 TTY 가 아님).\n"
+        "AI 에이전트는 이 명령을 실행하면 안 됩니다. 증명은 에이전트가 확인할 수 없는 사실을 사람이 직접 답하는 기록입니다.",
+        file=sys.stderr,
+    )
+    return 2
+
+
+def _show_attestation(r: dict[str, Any]) -> None:
+    from .safety.attestations import ATTESTATION_KINDS
+
+    req = r.get("requested_by") or {}
+    print("=" * 72)
+    print(f" 사람 증명 요청 {r['id']}  (상태: {r['status']})")
+    print("=" * 72)
+    print(f" 종류      : {r.get('kind')} — {ATTESTATION_KINDS.get(r.get('kind'), '(알 수 없는 종류)')}")
+    print(f" 요약      : {r.get('summary')}")
+    print(f" 케이스    : {r.get('case_id')}")
+    print(f" 요청 서버 : {req.get('server')} / {req.get('tool')}")
+    print(f" 바인딩    : {json.dumps(r.get('binding'), ensure_ascii=False)}")
+    validity = r.get("valid_seconds")
+    print(f" 생성/만료 : {r.get('created_at')} / {r.get('expires_at') or '철회할 때까지'}"
+          + (f"  (승인 뒤 유효 {validity}초)" if validity and r.get("status") == "pending" else ""))
+    print(" 대상(subject):")
+    for line in json.dumps(r.get("subject"), ensure_ascii=False, indent=2).splitlines():
+        print(f"   {line}")
+    print(" 확인 항목:")
+    for i, q in enumerate(r.get("questions") or [], 1):
+        kind = "예/아니오" if q.get("type") == "yesno" else "값 입력"
+        need = ", '예'여야 증명됨" if q.get("expected") == "yes" else ""
+        print(f"   {i}. [{kind}{need}] {q.get('text')}")
+    if r.get("answers"):
+        print(f" 답        : {json.dumps(r.get('answers'), ensure_ascii=False)}")
+    if r.get("decided_at"):
+        print(f" 결정      : {r.get('decided_at')} by {r.get('decided_by')} via {r.get('decided_via')}")
+    if r.get("revoked_at"):
+        print(f" 철회      : {r.get('revoked_at')} by {r.get('revoked_by')}")
+    print("-" * 72)
+
+
+def _ask_attest_question(i: int, n: int, q: dict[str, Any]) -> str | None:
+    """질문 하나. yesno → 'yes'/'no', value → 입력값. 빈 입력·EOF·Ctrl-C 는 None(취소)."""
+    yesno = q.get("type") == "yesno"
+    print(f"[{i}/{n}] {q.get('text')}")
+    hint = "y/n" if yesno else "직접 확인한 값"
+    while True:
+        try:
+            typed = input(f"  ({hint}, 취소: Enter) 답> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if not typed:
+            return None
+        if not yesno:
+            return typed
+        low = typed.lower()
+        if low in _YES:
+            return "yes"
+        if low in _NO:
+            return "no"
+        print("  y 또는 n 으로 답하세요.")
+
+
+def _attest_list(rt: Any, show_all: bool) -> int:
+    recs = rt.attestations.list(None if show_all else "pending")
+    if not recs:
+        print("대기 중인 증명 요청이 없습니다." if not show_all else "증명 기록이 없습니다.")
+        return 0
+    for r in recs:
+        print(f"{r['id']}  [{r['status']}]  {r.get('kind', ''):<17} case={r.get('case_id')}  만료={r.get('expires_at') or '철회할 때까지'}")
+        print(f"    {r.get('summary')}")
+    return 0
+
+
+def _attest_revoke(rt: Any, attestation_id: str) -> int:
+    rec = rt.attestations.get(attestation_id)
+    _show_attestation(rec)
+    if rec["status"] not in ("pending", "approved"):
+        print(f"이 증명은 철회할 수 없는 상태입니다: {rec['status']}")
+        return 1
+    try:
+        typed = input("이 증명을 철회하려면 y 를 입력하세요 (취소: Enter) 답> ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\n취소했습니다.")
+        return 1
+    if typed not in _YES:
+        print("취소했습니다.")
+        return 1
+    by = _attest_user()
+    out = rt.attestations.revoke(attestation_id, by=by)
+    rt.audit({"event": "attestation_revoked", "attestation_id": attestation_id, "kind": out.get("kind"), "revoked_by": by,
+              "via": "cli-tty"}, out.get("case_id"))
+    print("철회했습니다. 이 증명에 기대던 서버 동작은 다시 증명을 요청합니다.")
+    return 0
+
+
+def cmd_attest(args: argparse.Namespace) -> int:
+    refused = _attest_refuse_without_tty()
+    if refused is not None:
+        return refused
+    rt = _runtime()
+    if args.list:
+        if args.attestation_id:
+            print("--list 와 증명 id 를 함께 줄 수 없습니다.", file=sys.stderr)
+            return 2
+        return _attest_list(rt, args.all)
+    if args.revoke:
+        if args.attestation_id:
+            print("--revoke 와 증명 id 를 함께 줄 수 없습니다.", file=sys.stderr)
+            return 2
+        return _attest_revoke(rt, args.revoke)
+    if not args.attestation_id:
+        print("증명 id, --list, --revoke <id> 중 하나가 필요합니다.", file=sys.stderr)
+        return 2
+    rec = rt.attestations.get(args.attestation_id)
+    _show_attestation(rec)
+    if rec["status"] != "pending":
+        print(f"이 요청은 답할 수 없는 상태입니다: {rec['status']}")
+        return 1
+    print("⚠️  아래 항목은 에이전트가 확인할 수 없는 사실입니다. 직접 확인한 경우에만 '예(y)'로 답하세요.")
+    print("    값 항목에는 직접 측정·확인한 값을 입력하세요. 빈 입력(Enter)은 취소입니다(요청은 대기 상태로 남습니다).")
+    questions = rec.get("questions") or []
+    answers: dict[str, str] = {}
+    for i, q in enumerate(questions, 1):
+        ans = _ask_attest_question(i, len(questions), q)
+        if ans is None:
+            print("취소했습니다 (요청은 대기 상태로 남습니다).")
+            return 1
+        answers[q["id"]] = ans
+        if q.get("type") == "yesno" and q.get("expected") == "yes" and ans == "no":
+            print("이 항목이 '예'가 아니면 증명할 수 없습니다 → 증명하지 않음(거부)으로 기록합니다.")
+            break
+    from .safety.attestations import answers_satisfy, normalize_answers, normalize_questions
+
+    try:
+        would_approve, _ = answers_satisfy(normalize_questions(questions), normalize_answers(normalize_questions(questions), answers))
+    except PwehError as exc:
+        print(f"기록 실패: {exc}")
+        return 1
+    if would_approve and not _attest_confirm_code():
+        print("확인 코드가 다르거나 입력하지 않았습니다 — 취소했습니다 (요청은 대기 상태로 남습니다).")
+        return 1
+    by = _attest_user()
+    try:
+        out = rt.attestations.decide(args.attestation_id, answers, via="cli-tty", by=by)
+    except PwehError as exc:
+        print(f"기록 실패: {exc}")
+        return 1
+    rt.audit({"event": "attestation_decided", "attestation_id": args.attestation_id, "kind": out.get("kind"),
+              "status": out["status"], "decided_by": by, "decided_via": "cli-tty"}, out.get("case_id"))
+    if out["status"] == "approved":
+        print(f"증명을 기록했습니다 ({args.attestation_id}, 만료: {out.get('expires_at') or '철회할 때까지'}). "
+              "에이전트가 같은 작업을 다시 호출하면 서버가 이 증명을 찾아 사용합니다.")
+    else:
+        print("증명하지 않음(거부)으로 기록했습니다. 서버는 이 작업을 진행하지 않습니다.")
     return 0
 
 
@@ -542,6 +738,13 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--json", action="store_true")
     ap.set_defaults(fn=cmd_approvals)
+    at = sub.add_parser("attest", help="사람 증명: 항목마다 직접 답하기·목록·철회 (사람이 대화형 터미널에서 실행. 소유/허가 증명은 `pweh case attest`)")
+    at.add_argument("attestation_id", nargs="?", help="증명 요청 id (att-…)")
+    atg = at.add_mutually_exclusive_group()
+    atg.add_argument("--list", action="store_true", help="증명 요청 목록 (기본: 대기 중만)")
+    atg.add_argument("--revoke", metavar="ATTESTATION_ID", help="증명 철회")
+    at.add_argument("--all", action="store_true", help="--list 에서 모든 상태 표시")
+    at.set_defaults(fn=cmd_attest)
 
     c = sub.add_parser("case", help="케이스 관리")
     csub = c.add_subparsers(dest="case_cmd", required=True)

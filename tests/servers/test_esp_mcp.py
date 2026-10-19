@@ -2045,3 +2045,141 @@ def test_real_esptool_loads_only_server_config(workspace, tmp_path, monkeypatch)
         ran += 1
     if not ran:
         pytest.skip("실제 esptool(리눅스/Windows)이 없음")
+
+
+# ---------------------------------------------------------------------------
+# 출처 원장 훅 (pweh.provenance): 성공한 덤프 = device-read, 칩·보안 정보 = device-fact
+# ---------------------------------------------------------------------------
+
+
+async def test_provenance_records_dump_reads_and_device_facts(fake):
+    from esp_mcp.server import server
+    from pweh.runtime import get_runtime
+
+    cid = make_case()
+    async with Client(server) as c:
+        chip = await call(c, "esp_chip_info", case_id=cid, port="COM3")
+        sec = await call(c, "esp_security_info", case_id=cid, port="COM3")
+        r = await call(c, "esp_read_flash_start", case_id=cid, port="COM3")
+        st = await _wait_job(c, r["job_id"])
+    assert chip["ok"] and chip["provenance"] == {"recorded": True, "kind": "device-fact", "fact_kind": "esp-chip-info", "seq": 1}, chip
+    assert sec["provenance"] == {"recorded": True, "kind": "device-fact", "fact_kind": "esp-security-info", "seq": 2}, sec
+    assert st["status"] == "succeeded", st
+    res = st["result"]
+    assert res["provenance"]["recorded"] is True and res["provenance"]["kind"] == "device-read"
+    assert [e["path"] for e in res["provenance"]["entries"]] == ["dumps/esp-flash.bin", "dumps/esp-flash.read2.bin"]
+    assert [e["sha256"] for e in res["provenance"]["entries"]] == [res["sha256"], res["sha256_read2"]]
+    rt = get_runtime("esp-mcp")
+    case = rt.cases.get(cid)
+    for rel, role in (("dumps/esp-flash.bin", "primary"), ("dumps/esp-flash.read2.bin", "verification-read")):
+        v = rt.provenance.verify(case, rel)
+        assert v["trusted"] is True and v["kind"] == "device-read", (rel, v)
+        src = v["record"]["source"]
+        assert src["server"] == "esp-mcp" and src["tool"] == "esp_read_flash_start" and src["port"] == "COM3"
+        assert src["chip"] == "ESP32-S3" and src["mac"] == "f4:12:fa:12:34:56" and src["esptool_version"] == "5.4.0"
+        assert src["backend"] == "windows" and src["verify"] == "double-read" and src["match"] is True
+        assert v["record"]["extra"]["role"] == role and v["record"]["extra"]["job_id"] == r["job_id"]
+    facts = {f["fact_kind"]: f for f in rt.provenance.facts(case)}
+    cf, sf = facts["esp-chip-info"], facts["esp-security-info"]
+    assert cf["data"]["status"] == "ok" and cf["data"]["chip"] == "ESP32-S3" and cf["data"]["mac"] == "f4:12:fa:12:34:56"
+    assert cf["data"]["flash"]["size_bytes"] == 262144 and cf["source"]["tool"] == "esp_chip_info"
+    assert cf["source"]["log_path"] == chip["log_path"] and cf["source"]["port"] == "COM3"
+    assert sf["data"]["status"] == "ok" and sf["data"]["flash_encryption"] is False and sf["data"]["secure_boot"] is False
+    assert sf["data"]["secure_download_mode"] is False and sf["data"]["read_flash_possible"] is True
+    assert sf["data"]["key_blocks"][0] == {"block": "BLOCK_KEY0", "purpose": "USER/EMPTY"} and sf["source"]["tool"] == "esp_security_info"
+    # 덤프를 고치면 더는 기기에서 읽은 것으로 신뢰하지 않는다
+    p = case.dir / "dumps" / "esp-flash.bin"
+    data = bytearray(p.read_bytes())
+    data[0] ^= 0xFF
+    os.chmod(p, 0o644)
+    p.write_bytes(bytes(data))
+    assert rt.provenance.verify(case, "dumps/esp-flash.bin")["reason"] == "sha256-mismatch"
+    assert rt.provenance.verify(case, "dumps/esp-flash.json")["reason"] == "not-recorded"  # 서버가 만든 메타데이터는 기기 읽기가 아니다
+
+
+async def test_provenance_security_facts_for_encrypted_sdm_and_unsupported(fake):
+    from esp_mcp.server import server
+    from pweh.runtime import get_runtime
+
+    cid = make_case()
+    async with Client(server) as c:
+        fake.mode("encrypted")
+        assert (await call(c, "esp_security_info", case_id=cid, port="COM3"))["provenance"]["recorded"]
+        fake.mode("sdm")
+        sdm = await call(c, "esp_chip_info", case_id=cid, port="COM3")
+        assert sdm["status"] == "secure_download_mode" and sdm["provenance"]["recorded"]
+        fake.mode("normal", chip="esp32")
+        uns = await call(c, "esp_security_info", case_id=cid, port="COM3")
+        assert uns["status"] == "unsupported" and uns["provenance"]["recorded"]
+    facts = get_runtime("esp-mcp").provenance.facts(get_runtime("esp-mcp").cases.get(cid))
+    assert [(f["fact_kind"], f["data"]["status"]) for f in facts] == [
+        ("esp-security-info", "ok"), ("esp-chip-info", "secure_download_mode"), ("esp-security-info", "unsupported")]
+    enc, sdm_f, uns_f = (f["data"] for f in facts)
+    assert enc["flash_encryption"] is True and enc["secure_boot"] is True and enc["ciphertext_expected"] is True
+    assert sdm_f["secure_download_mode"] is True and sdm_f["read_flash_possible"] is False and sdm_f["flash"] is None
+    assert uns_f["flash_encryption"] is None and uns_f["read_flash_possible"] is None and uns_f["chip"] in ("ESP32", "ESP32-D0WDQ6")
+
+
+async def test_provenance_only_for_fully_succeeded_dumps(fake, monkeypatch):
+    """실패(Secure Download Mode)·취소(1차만 보존)한 덤프는 device-read 로 기록하지 않는다. 불일치(match=false)도 성공한 덤프면 match 와 함께 기록하지만
+    verify 는 신뢰하지 않는다(device-read-mismatch)."""
+    from esp_mcp.server import server
+    from pweh.runtime import get_runtime
+
+    cid = make_case()
+    rt = get_runtime("esp-mcp")
+    async with Client(server) as c:
+        fake.mode("sdm")
+        st = await _wait_job(c, (await call(c, "esp_read_flash_start", case_id=cid, port="COM3"))["job_id"])
+        assert st["status"] == "failed", st
+        assert rt.provenance.entries(rt.cases.get(cid), "device-read") == []
+        # 2차 읽기 도중 취소 → 1차 읽기는 보존되지만 기기 읽기로 기록하지 않는다
+        fake.mode("slow")
+        monkeypatch.setenv("FAKE_ESPTOOL_SLOW_CALL", "2")
+        monkeypatch.setenv("FAKE_ESPTOOL_DELAY", "0.3")
+        (fake.tmp / "fake.count").unlink(missing_ok=True)  # 읽기 호출 번호를 1부터 다시 센다 (2 = 이 덤프의 2차 읽기)
+        n0 = len(fake.calls("read-flash"))
+        r = await call(c, "esp_read_flash_start", case_id=cid, port="COM3")
+        for _ in range(400):
+            if len(fake.calls("read-flash")) >= n0 + 2:
+                break
+            await anyio.sleep(0.05)
+        await anyio.sleep(0.5)
+        await call(c, "esp_job_cancel", job_id=r["job_id"])
+        st = await _wait_job(c, r["job_id"])
+        assert st["status"] == "cancelled" and st["result"]["path"] == "dumps/esp-flash.bin", st
+        assert st["result"]["provenance"]["recorded"] is False and "cancelled" in st["result"]["provenance"]["reason"]
+        case = rt.cases.get(cid)
+        assert rt.provenance.entries(case, "device-read") == []
+        assert rt.provenance.verify(case, "dumps/esp-flash.bin")["reason"] == "not-recorded"
+        monkeypatch.delenv("FAKE_ESPTOOL_SLOW_CALL")
+        fake.mode("mismatch")
+        (fake.tmp / "fake.count").unlink(missing_ok=True)  # 짝수 번째 읽기가 달라진다 → 이 덤프의 2차 읽기
+        st = await _wait_job(c, (await call(c, "esp_read_flash_start", case_id=cid, port="COM3"))["job_id"])
+    assert st["status"] == "succeeded" and st["result"]["match"] is False, st
+    prov = st["result"]["provenance"]
+    assert prov["recorded"] is True and len(prov["entries"]) == 2
+    for e in rt.provenance.entries(case, "device-read"):
+        assert e["source"]["match"] is False and e["source"]["verify"] == "double-read"
+        # 기록은 하지만 이중 읽기가 어긋난 덤프는 출처 확인에서 신뢰하지 않는다 (출처 ≠ 무결성)
+        v = rt.provenance.verify(case, e["path"])
+        assert v["trusted"] is False and v["reason"] == "device-read-mismatch", v
+
+
+async def test_provenance_failure_never_fails_the_dump(fake):
+    """원장이 깨져 있으면 덤프는 그대로 끝나고 provenance.recorded=false + 경고만 남는다(깨진 원장에는 덧붙이지 않음)."""
+    from esp_mcp.server import server
+
+    cid = make_case()
+    ledger = fake.workspace["state_dir"] / "provenance" / f"{cid}.jsonl"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    ledger.write_text('{"seq": 1}\n', encoding="utf-8")
+    async with Client(server) as c:
+        chip = await call(c, "esp_chip_info", case_id=cid, port="COM3")
+        st = await _wait_job(c, (await call(c, "esp_read_flash_start", case_id=cid, port="COM3", verify="none", size="64K"))["job_id"])
+    assert chip["ok"] and chip["provenance"]["recorded"] is False and "provenance_ledger_broken" in chip["provenance"]["reason"]
+    assert st["status"] == "succeeded", st
+    res = st["result"]
+    assert res["provenance"]["recorded"] is False and any("출처 원장" in w for w in res["warnings"])
+    assert (case_dir(cid) / "dumps" / "esp-flash.bin").stat().st_size == 65536
+    assert ledger.read_text(encoding="utf-8") == '{"seq": 1}\n'

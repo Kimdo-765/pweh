@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .case import PIPELINE_PHASES, SEVERITY_ORDER, Case
+from .case import PIPELINE_PHASES, SEVERITY_ORDER, Case, phase_sort_key
 from .fsutil import atomic_write_text, read_json, sha256_file, utcnow_iso
 
 _SEV_LABEL = {"critical": "치명", "high": "높음", "medium": "중간", "low": "낮음", "info": "정보"}
@@ -27,6 +27,13 @@ _PHASE_LABEL = {
     "firmware-static-analysis": "펌웨어 정적 분석",
     "cctv-auth-bypass-hunt": "CCTV 인증 우회 탐색",
     "report": "보고서",
+    # 선택 단계(case.OPTIONAL_PHASES): 상태나 요약이 기록된 케이스에서만 §4 '선택 단계' 에 보인다
+    "game-save-unlock-analysis": "게임 세이브·해금 분석",
+    "nfc-behavior-analysis": "NFC 동작 분석",
+    "game-play-automation": "게임 플레이 자동화",
+    "flipper-rf-analysis": "Flipper·RF 분석",
+    "sd-card-forensics": "SD 카드 포렌식",
+    "espprobe": "ESP32 계측기(espprobe)",
 }
 
 
@@ -40,6 +47,23 @@ def _code(text: str, lang: str = "") -> str:
     while fence in text:
         fence += "`"
     return f"{fence}{lang}\n{text.rstrip()}\n{fence}"
+
+
+def _phase_row(phase: str, entry: dict[str, Any]) -> str:
+    return f"| {_PHASE_LABEL.get(phase, phase)} | {entry.get('status', 'pending')} | {entry.get('updated_at', '')} |"
+
+
+def _summary_block(s: dict[str, Any], heading: str) -> list[str]:
+    """단계 요약 한 개 (상태·요약·차단 요인·다음 조치·산출물). data 는 싣지 않는다(비밀값 마스킹은 Skill 별 절이 맡는다)."""
+    out = [f"{heading} {_PHASE_LABEL.get(s.get('skill'), s.get('skill'))} — {s.get('status')}", "", s.get("summary", ""), ""]
+    if s.get("blockers"):
+        out.append("- 차단 요인: " + "; ".join(s["blockers"]))
+    if s.get("next_actions"):
+        out.append("- 다음 조치: " + "; ".join(s["next_actions"]))
+    if s.get("artifacts"):
+        out.append("- 산출물: " + ", ".join(f"`{a}`" for a in s["artifacts"]))
+    out.append("")
+    return out
 
 
 def _audit_stats(case: Case) -> dict[str, Any]:
@@ -139,30 +163,38 @@ def render_report(case: Case) -> str:
     add("")
     add("| 단계 | 상태 | 갱신 |")
     add("|---|---|---|")
-    phases = meta.get("phases", {})
+    phases = meta.get("phases") or {}
     for p in PIPELINE_PHASES:
-        e = phases.get(p, {})
-        add(f"| {_PHASE_LABEL.get(p, p)} | {e.get('status', 'pending')} | {e.get('updated_at', '')} |")
+        add(_phase_row(p, phases.get(p) or {}))
     add("")
     # 스킬별 최신 summary 만 사용 (같은 스킬의 요약을 다시 저장해도 보고서가 중복되지 않게)
     latest: dict[str, dict[str, Any]] = {}
     for st in case.steps(load=True):
         if st.get("step") == "summary":
             latest[st.get("skill")] = st
-    order = {p: i for i, p in enumerate(PIPELINE_PHASES)}
-    summaries = sorted(latest.values(), key=lambda st: (order.get(st.get("skill"), 99), st.get("seq", 0)))
+    # 순서: 파이프라인 단계 → 선택 단계(레지스트리 순서) → 그 밖의 Skill (같은 순위에서는 기록 순서)
+    summaries = sorted(latest.values(), key=lambda st: (phase_sort_key(str(st.get("skill") or "")), st.get("seq", 0)))
     for s in summaries:
-        add(f"### {_PHASE_LABEL.get(s.get('skill'), s.get('skill'))} — {s.get('status')}")
+        if s.get("skill") in PIPELINE_PHASES:
+            lines.extend(_summary_block(s, "###"))
+    # 선택 단계: 파이프라인 밖의 단계(목표별 Skill 등). 상태나 요약이 기록된 것만 싣고, 없으면 아무것도 쓰지 않는다
+    # (선택 단계를 쓰지 않는 기존 케이스의 보고서는 그대로)
+    extra_phases = sorted((p for p in phases if p not in PIPELINE_PHASES), key=phase_sort_key)
+    extra_summaries = [s for s in summaries if s.get("skill") not in PIPELINE_PHASES]
+    if extra_phases or extra_summaries:
+        add("### 선택 단계")
         add("")
-        add(s.get("summary", ""))
+        add("보안 분석 파이프라인 밖의 단계(목표별 Skill). 상태나 요약이 기록된 단계만 싣는다.")
         add("")
-        if s.get("blockers"):
-            add("- 차단 요인: " + "; ".join(s["blockers"]))
-        if s.get("next_actions"):
-            add("- 다음 조치: " + "; ".join(s["next_actions"]))
-        if s.get("artifacts"):
-            add("- 산출물: " + ", ".join(f"`{a}`" for a in s["artifacts"]))
-        add("")
+        if extra_phases:
+            add("| 단계 | 상태 | 갱신 |")
+            add("|---|---|---|")
+            for p in extra_phases:
+                entry = phases.get(p)
+                add(_phase_row(p, entry if isinstance(entry, dict) else {}))
+            add("")
+        for s in extra_summaries:
+            lines.extend(_summary_block(s, "####"))
 
     # 5. 인터페이스
     if recon:

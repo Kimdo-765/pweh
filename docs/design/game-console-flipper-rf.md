@@ -1,0 +1,310 @@
+# 설계안: 게임 콘솔 분석 + Flipper Zero·RF(주파수) 분석
+
+> 상태: **제안 (구현 전 검토용, 2차 개정)**. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
+> 여러 서버가 함께 쓰는 기반(포트 라우팅, 증명, 출처 기록, 비밀 마스킹, 안전 설정 위치)은 [common-core.md](common-core.md), 환경 감지·포트 라우팅의 상세는 [port-routing.md](port-routing.md) 에 있다.
+> 1차 초안을 네 관점(안전·법, 기술 실현성, PWEH 구조 적합성, 요구사항 충족)으로 적대적 검토한 결과(지적 59건, 반박 0건)를 반영했다.
+> 근거: 공식 Flipper 펌웨어 **1.5.1** 소스, ChameleonUltra v2.2.0 소스, esptool·ESP-IDF NVS 형식, rtl-sdr-blog v1.4.0·rtl_433 25.12,
+> 전파법·시행령·고시 제2026-9호/제2026-10호, 통신비밀보호법 원문(2026-10-19 조사). **하드웨어 실측은 아직 없다**(§9).
+
+## 1. 목표와 범위
+
+### 1.1 요구와 이 설계의 답
+
+| 요구 | 답 | 단계 |
+|---|---|---|
+| 1a. NFC 태그를 댔을 때 콘솔 동작 | ① 내 태그 읽기 → 사람이 실제 태그를 콘솔에 댐 → 다시 읽기 → 페이지 비교(+UART 로그·사진). ② 에뮬레이션해 콘솔이 쓴 내용(.shd)·주고받은 프레임(CU 스니프) 기록 | ① 1b, ② 2a |
+| 1b. 숨은 게임 해금 조건 | 펌웨어·세이브 정적 분석(카운터·날짜·치트 입력·디버그 메뉴·내 태그 분기) + 세이브 스냅샷 비교 + 동적 확인(1a 흐름, 화면 증거) | 1a(ESP32), 1b |
+| 1c. 하이 스코어 — 저장값 수정 | 세이브 위치·인코딩·체크섬을 찾아 **패치 이미지**를 만든다. 쓰기는 §10 결정(기본: 사람이 쓰고 PWEH 가 검증) | 1a |
+| 1c. 하이 스코어 — 플레이 자동화 | 입력 브리지(게임패드 전용) + 화면 인식 + 계획 승인 플레이 job | 2b·2c |
+| 3. 콘솔 밖 하드웨어·주파수 분석 | Flipper(Sub-GHz OOK 수신, IR 수신, 비자격증명 125 kHz/iButton 읽기, GPIO 읽기, UART 브리지, SPI Mem 가져오기) + 선택적 RTL-SDR(수신 전용) | 1b |
+
+### 1.2 콘솔 종류별 가능 범위 (기대치)
+
+| 대상 | 1a NFC | 1b 해금 조건 | 1c 저장값 | 1c 플레이 | 필요한 것 |
+|---|---|---|---|---|---|
+| ESP32 장난감·휴대기 | 가능 | 가능(정적·동적) | **가능(NVS 만)** — FAT/SPIFFS/LittleFS 는 파일 시스템 해석 전까지 분석만 | 가능 | pweh-esp(이미 있음), Flipper/CU |
+| STM32 등 MCU + EEPROM | 가능 | 가능(덤프가 있으면) | 제한: 사람이 가져온 원시 덤프의 영역 패치(§3.5 raw-region) | 가능 | SPI/I2C 덤프(사람·JTAG) |
+| 리눅스 휴대기(SD 세이브) | 가능 | 가능 | 제한: 세이브 파일 패치(사람이 SD 로 되돌림) | 가능 | UART 셸 또는 SD 이미지 |
+| 시판 콘솔(Switch/PS/Xbox) | 가능(태그 쪽만) | 정적 분석 불가(암호화) | **불가** — 세이브가 암호화·서명돼 있어 수정은 복제 방지 우회 경계를 넘는다 | 가능(입력 경로가 맞으면) | 캡처 카드, 입력 방식 |
+| 아케이드 기판 | 해당 없음이 많음 | 가능(덤프가 있으면) | 제한(NVRAM 원시 영역) | 가능(free-play 설정, 동전 라인 금지) | JAMMA 접점 |
+
+### 1.3 범위 밖 (항상 거부 — 코드 규칙으로 만든다)
+
+- 사용자 소유(또는 서면 허가) 기기만. 결과는 로컬에만: 온라인 리더보드·대회·계정 제출 금지, 나중에 동기화되지 않게 안내.
+- 결제·교통·출입·호텔·신분 자격증명: 14443-4 계열 NFC, 출입용 125 kHz·iButton 계열(§6.2). 남의 태그·피규어 복제, 다운로드한 덤프 에뮬레이션.
+- 복제 방지·저작권 보호 우회: amiibo 류 콘솔 키 기반 태그 암호(복호·재암호·재서명), 따로 파는 토큰·DLC·온라인 구매로 여는 콘텐츠(entitlement), 온라인 동기화되는 서명·HMAC 위조. 플랫폼·DRM 키는 존재만 보고(값 마스킹, 내보내기·복호 금지).
+- 키 복구(darkside/nested/hardnested/사전/mfkey32 'Detect Reader')와 PWD 무차별 대입·UID 기반 PWD 생성기, 매직 UID 태그 쓰기, 실물 태그 쓰기.
+- **송신 축소(사용자 경계보다 좁힘)**: 사용자는 "허용 대역에서 승인 시 송신"을 허락했지만, 이 설계는 **Sub-GHz·IR·LF 에뮬레이션 송신을 넣지 않는다**.
+  이유: 전파법 시행령 제25조 4호의 신고 불요 무선국은 적합성평가(KC)를 받은 기기를 요구하고, 공식 Flipper 의 KR 송신 창(312.000–315.250, 920.500–923.500 MHz)과 KR 특정소출력 표가 겹치는 곳은
+  920.5–923.3 MHz(LBT/FHSS, 채널당 3/10/25 mW)뿐이다. Flipper KR 펌웨어는 315 MHz 도 송신하지만 KR 표에는 없으므로 기기 지역 잠금은 근거가 될 수 없다. 재생 위험은 수신 증거로 판정한다(§5).
+- 재밍·연속 반송파·송신 스윕, 롤링코드 재생·RollJam·브루트포스, 남의 기기로 송신, 지역 잠금 해제 펌웨어 — 향후에도 거부.
+
+### 1.4 숨은 콘텐츠의 범위 (긍정 정의)
+
+해금 조건 탐색과 패치는 **기기 안의 조건**으로 열리는 콘텐츠만: 카운터, 날짜, 치트 입력, 디버그 메뉴, 이 케이스에서 인벤토리에 올린 **사용자 소유 태그**.
+모든 발견사항과 패치 연산은 `unlock_source`(in-device / owned-tag / sold-token / online-purchase / unknown)를 가진다. sold-token·online-purchase 면 **보고만**(패치·합성 태그 없음).
+패치 연산은 목적(score / progress / in-device-unlock)을 선언하고 manifest 에 보인다.
+
+## 2. 구조
+
+```
+pweh-flipper (신규)  Flipper Zero 한 대의 모든 앱. 1b 는 CLI 만, RPC 는 2a(.shd 캡처)부터
+pweh-nfc     (신규)  ChameleonUltra(모델이 Ultra 일 때) + 오프라인 NFC 분석(.nfc/.shd 해석·비교·프레임 해석)
+pweh-sdr     (신규)  RTL-SDR 수신 전용(1b). HackRF 는 보유 시 나중에 수신만
+pweh-play    (신규)  입력 브리지 + 화면 인식 + 플레이 job (2b·2c)
+pweh-fwtriage(확장)  ESP 파티션·앱 이미지·NVS, 세이브 비교, 체크섬, 패치 빌드, 쓰기 검증, 게임 패턴 팩
+pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브리지·일반 USB-UART 어댑터를 usbipd 없이 (port-routing.md §5.2)
+공통 코어            환경 감지(hostenv)·포트 라우팅(ports)·winserial·wininterop·portlock·증명·출처 원장·비밀 마스킹·safety.rf·nfc·rf 파서 (common-core)
+```
+
+기기 단위 서버인 이유: MCP 서버끼리는 서로 부를 수 없고 한 포트는 한 프로세스만 연다. Flipper 의 모든 앱은 pweh-flipper 가, CU 는 pweh-nfc 가 맡는다.
+오프라인 NFC 분석은 장치가 없어도 쓰므로 pweh-nfc 에 둔다(Flipper 가 만든 파일도 해석). 화면 캡처와 입력은 한 루프에서 돌아야 하므로 pweh-play 한 프로세스다.
+
+## 3. 서버별 동작 (도구 목록은 부록 A)
+
+### 3.1 pweh-flipper
+
+- **지원 펌웨어**: 공식 1.5.1 에서 확인한 동작만 보장한다(1.4.2~1.5.0 은 경고와 함께 읽기 전용, 포크는 "신뢰 안 함"으로 읽기만).
+- **연결 확인**: 포트는 Windows PnP 의 부모 장치(`USB\VID_0483&PID_5740\flip_*`)와 자식 인터페이스(`&MI_00`=CLI, `&MI_02`=브리지)로 식별한다(VID/PID 만으로는 안 된다 — 0483:5740 은 ST 범용).
+  연결 직후에는 **아무것도 보내지 않고** CLI 배너(`Welcome to Flipper Zero Command Line Interface!`)와 `>: ` 프롬프트를 수동으로 확인한 뒤에야 쓴다
+  (UART 브리지가 USB 채널 0 이면 같은 포트가 대상 기기 콘솔이 되므로, Ctrl-C 나 CR 이 대상 U-Boot 에 들어가지 않게).
+  CLI 명령 전에는 `loader info` 로 열린 앱이 없는지 확인한다(라디오 CLI 는 SD 플러그인이고 loader 잠금을 쓴다). ANSI 코드는 걸러 낸다.
+- **NFC 읽기 순서**(1.5.1 `scanner` 는 프로토콜 이름만 찍고 UID/SAK 는 주지 않는다):
+  ① `/ext/pweh/<case>/` 를 만들고 `dump -p 14_3a -f …/probe-<n>.nfc`(anticollision·SELECT 만 — 페이지 READ 없음, NTAG 카운터 증가 없음) → 파일을 가져와 UID/ATQA/SAK 해석
+  → ② SAK 로 계열 판정(§6.2) → 14443-A 가 응답하지 않을 때만 `scanner`(B/V/F 계열 판정) → ③ 허용·증명 계열만 `dump -p mfu`(또는 증명 후 `-p mfc`)로 전체 읽기.
+  거부 계열의 probe 파일은 지운다. NTAG21x 는 PWD/PACK 페이지를 항상 00h 로 돌려주므로 PWD 보호 태그 덤프에는 PWD 가 없다(결과에 표시).
+- **Sub-GHz 수신은 OOK 만**: `subghz rx` 는 OOK 650 kHz, `rx_raw` 는 OOK 270 kHz 프리셋 고정이고 프리셋·RSSI 인자가 없다.
+  KR 의 FSK 전용 채널(424.7000–424.9500, 447.8625–447.9875 MHz 등)은 대상이 되면 거부하거나 경고하고, 대체 경로는 ① SDR(rtl_433 은 FSK 해석) ② 사람이 GUI Read RAW(2-FSK 프리셋)로 저장 → 가져오기(기기 지역이 프로비저닝돼 있어야 GUI 가 수신을 연다).
+  수신 도구도 SDR 과 같은 **내용 대역·시간 한도·대상 등록**(§6.1)을 따른다.
+- **주파수 찾기**: SDR 스윕이 기본. SDR 이 없으면 ① 사람이 Sub-GHz → Frequency Analyzer 를 열고 에이전트는 `log debug` 를 정해진 시간 동안 읽어 `=:<Hz>:<dBm>` 줄을 해석(입력 주입·sysctl 불필요)
+  ② 앱이 열려 있지 않을 때 `sysctl debug 1` → 후보 주파수마다 `subghz rx_carrier` → `finally` 에서 `sysctl debug 0`(되돌리기 실패면 세션 종료, fail closed).
+- **SD 파일**: 가져오기는 기본적으로 `/ext/pweh/<case_id>/` 와 SPI Mem Manager 디렉터리만. 사용자 기존 폴더(`/ext/nfc`, `/ext/lfrfid`, `/ext/ibutton`, `/ext/subghz`)는
+  파일마다 출처 증명 + 계열 판정을 먼저 하고, 거부 계열은 저장하지 않는다. 올리기는 **`.nfc` 만**(2a 에뮬레이션 캡처용, 출처 원장 확인) — `.sub/.ir/.rfid` 는 GUI 에서 송신·에뮬레이션할 수 있으므로 올리지 않는다.
+- **RPC**(2a 부터): 허용 목록만 — `app_start('NFC','RPC')`, `/ext/pweh/<case_id>/` 의 `.nfc` 에 대한 `app_load_file`, `app_exit`, `app_lock_status`, storage read/list/md5, 화면 프레임.
+  다른 앱의 `app_start`, `app_button_press`/`press_release`/`release`/`data_exchange` 는 정책 거부(Sub-GHz RPC 의 버튼 이벤트는 송신이다).
+  RPC→CLI 복귀: `StopSession` 뒤 1바이트를 보내 `>: ` 를 기다리고, 시간이 지나면 헬퍼를 다시 띄워(DTR 해제) 동기화한다. 앱 종료 확인은 RPC 안에서 `app_lock_status` 로.
+- **UART 브리지 안내**: 사람에게 Config → **USB Channel = 1**, Flow pins = None 을 먼저 설정하게 하고, 브리지를 켜기 전에 pweh-flipper 세션을 닫는다(RPC 중이면 거부 — USB 잠금 중 브리지를 켜면 Flipper 가 멈춘다).
+  PnP 에서 MI_02 가 나타난 것을 확인한 뒤 그 포트를 portlock 의 역할 표지("bridge" — port-routing.md §6.5)로 기록해 pweh-uart(winserial 헬퍼)에 넘긴다.
+- **정책 거부(승인 경로 없음)**: 송신 전부(`subghz tx/tx_from_file/chat/tx_carrier`, `ir tx/universal`, `rfid emulate/write/raw_emulate`, `ikey emulate/write`, `bt tx_*`),
+  `/int/**`(지역 데이터 포함)·`/ext/subghz/assets/**`·`/ext/apps/**`·`/ext/update/**`·`/ext/badusb/**`·`/ext/apps_data/cli/plugins/**` 쓰기, `storage format/extract`, 허용 루트 밖 삭제·이름 변경,
+  `factory_reset`, `update`, `power reboot2dfu`, `crypto`, `js`, Bad USB·U2F, `.fap` 경로·허용 목록 밖 앱의 `loader open`, 일반 입력 주입(`input send`, RPC GUI 이벤트),
+  외장 CC1101 송신(device 1 — 수신은 1번 핀 5 V 배선 증명이 있을 때만), `qFlipper-cli`.
+
+### 3.2 pweh-nfc
+
+- **ChameleonUltra**(Ultra 모델·v2.2.0 이상, 사용자가 가졌을 때만 1b 에 포함): 문서화된 USB 프레임 프로토콜을 직접 구현(GPL 코드 미사용), 명령 ID 허용 목록.
+  - 연결 시 현재 모드·활성 슬롯을 스냅샷한다. 슬롯 전환(SET_ACTIVE_SLOT)은 이전 슬롯 RAM 을 플래시에 저장하므로, 운영자가 지정한 슬롯만 쓰고 덮어쓰기 전에 형식별(MF0/MF1) 백업을 케이스에 남긴다.
+  - **스니프는 창 단위로 초기화된다**: 매 2020 호출이 슬롯을 플래시에서 다시 읽으므로 창 N 의 콘솔 쓰기는 창 N+1 시작에서 사라진다 → 캡처 하나는 창 하나로 설계(≤30 s, 호스트에서 제한, 시리얼 타임아웃 = 창 + 여유).
+    버퍼 3800 B 를 넘으면 조용히 잘리므로 ~3700 B 이상이면 "잘렸을 수 있음" 표시. 창 진행 중에는 취소할 수 없다.
+  - `nfc_emulation_stop` 의 기본은 **슬롯 내용을 백업으로 복원(또는 지우기)하고 확인**까지다(CU 는 연결을 끊어도 응답하므로 덤프·PWD 가 남지 않게).
+- **MIFARE Classic**(증명 계열): 사용자가 준 키만, 섹터·키 종류마다 정확히 그 키로 `MF1_AUTH_ONE_KEY_BLOCK`(2007)/`MF1_READ_ONE_BLOCK`(2008) — 반복 없음.
+  키 탐색 명령(2001–2006, 2012–2015, 2017, 4004–4006)은 거부. Flipper 쪽은 `/ext/nfc/.cache/<UID>.keys` 가 GUI 키 복구 결과로 채워지므로, 기존 캐시는 "사용자 키"라는 사람 증명이 있을 때만 쓴다.
+  CU 의 MFC 에뮬레이션(4000/4008/4009/4016/4017)은 1차 범위 밖("나중").
+- **PWD 보호 태그**: 기본은 거부 — 에뮬레이션은 콘솔의 PWD_AUTH 에서 멈추고 그대로 보고한다. 대안(§10 결정): 같은 케이스·같은 UID 에뮬레이션 중 **콘솔이 보낸** 비밀번호로 실물 태그에 PWD_AUTH 한 번(사람 증명, ACCESS/AUTHLIM 을 먼저 읽을 수 있을 때).
+- **오프라인 분석**: `.nfc`(v2~v4)/`.shd`/CU 덤프 해석, 페이지 비교(잠금·CFG 쓰기 표시), 방향별 패리티를 고려한 프레임 해석. 오프라인 도구도 계열 판정을 적용한다.
+  로직 애널라이저 버스 해석(`nfc_bus_interpret`: NCI·PN532·MFRC522)은 실제 캡처가 생길 때까지 미룬다(사람이 Windows 에서 캡처 → `case_import_file` → `sigrok_decode` 경로는 문서로).
+
+### 3.3 pweh-sdr (RTL-SDR, 수신 전용)
+
+- Windows 공식 빌드(rtl-sdr-blog v1.4.0 `rtl_power.exe`/`rtl_sdr.exe`/`rtl_eeprom.exe`, `rtl_433_64bit_static.exe` 25.12)를 interop 으로. WinUSB 드라이버(Zadig)는 **Windows 관리자 권한**이 필요한 사람 단계다.
+  HackRF 는 Windows 릴리스 zip 이 없어(radioconda·로그인 필요한 CI 산출물) 1b 에서 제외.
+- **argv 는 도구별 허용 목록으로 서버가 조립한다**(금지 목록 glob 이 아니라): rtl_433 은 `-d -f -s -g -T(필수) -R(허용 목록) -M -F json:- -r` 만. `-t biastee`·`-F http|mqtt|influx|syslog|trigger|rtl_tcp` 거부
+  (`-F http` 는 기본 0.0.0.0 — Windows LAN 에 열린다). 바이어스 티는 도구별로: `rtl_power/rtl_fm -T`, `rtl_biast`, `rtl_433 -t biastee`. 장치 정보는 `rtl_eeprom`(인자 없음, 읽기 전용).
+- **내용 수신 규칙**: 디코드·IQ 는 KR 소출력·ISM 표 안에서만, 그리고 **캡처 폭 전체** `[fc − fs/2, fc + fs/2]` 가 허용 대역 안이어야 한다(RTL2832U 최저 샘플레이트 약 225 kS/s 라 좁은 채널 대역에서는 IQ 녹음을 거부하거나 채널화 후 저장).
+  rtl_433 출력은 stdout 으로 받아 서버가 대상만 남기고 비대상은 모델별 개수만(또는 job 마다 버리는 무작위 키 HMAC) 디스크에 쓴다.
+- IQ 를 `\\wsl.localhost` 에 바로 쓰는 처리량은 미확인 → 대체: Windows 로컬 임시 폴더에 쓰고 sha256·크기 확인 후 가져오기, 샘플 누락 감지.
+
+### 3.4 pweh-play (입력 브리지 + 화면 인식)
+
+- **입력은 세션 단위로 묶는다**: `input_connect` 는 사람 증명(콘솔 오프라인, 결제 수단 제거 또는 구매 PIN, 배선 = 채널 라벨, 게임패드 프로필)을 요구하고 세션을 그 증명에 묶는다.
+  즉석 입력(`input_press`/`input_sequence`/`input_axis`)도 `safety.play_policy`(기본 approve) 아래 **세션 예산**(최대 누름 수·시간, 허용 채널, 매핑 해시)을 사람이 승인해야 한다.
+  화면 세션이 묶여 있으면 사람이 준 금지 템플릿(시스템 메뉴·상점·계정·세이브 삭제·온라인/리더보드 화면)이 보이는 동안 입력을 거부한다(보조 수단). HOME·시스템 버튼은 즉석 사용 시 호출마다 승인.
+- **채널 위험도**: 절연 접점·HID = MODIFY. **전원·리셋·꺼내기 채널은 절연과 무관하게 DESTRUCTIVE**(호출마다 승인, 플레이 스크립트 사용 불가, 펌웨어도 명시 플래그 없이는 거부).
+  매핑은 모든 채널의 기능을 선언해야 하고 선언 없는 채널은 전원/리셋으로 본다. 비절연 구동(콘솔 라인 직접)은 DESTRUCTIVE(승인 지문에 사람이 잰 전압).
+  coin/credit/payout/service/test/tilt 채널과 액세서리 인증 프로필은 정책 거부.
+- **브리지 펌웨어**(PWEH 가 작성·배포, MIT — ESP32 계측기와 `firmware/common` 의 프로토콜·빌드·매니페스트·고정 흐름을 공유, esp32-instrument.md. 전송은 보드 USB-UART, 하트비트 300 ms 그대로): **게임패드 전용 HID 디스크립터만**(키보드·마우스·consumer·vendor·대용량 저장·composite 금지 — 키보드는 Bad USB 와 같다). HELLO 가 디스크립터 해시를 보고하고 다르면 거부.
+  부팅 시 출력 해제, 300 ms 하트비트 끊기면 해제, 물리 비상정지, 호스트가 바꿀 수 없는 한도, µs 타임스탬프 보고, 1200 baud 리셋 비활성. PC 대상은 PWEH 를 돌리는 호스트와 다른 기계여야 한다(사람 증명).
+- **브리지 식별**: 설정 때 사람이 기록·증명한 USB iSerial 로 열기 전에 고정한다(고유 시리얼이 없는 CH340 류는 거부). 열 때 DTR·RTS 를 모두 내린다(DevKit 은 DTR/RTS 가 EN·부트 핀에 연결).
+  HELLO 는 고정된 포트에만, uart 세션이 쥔 포트가 아닐 때만 보낸다. 기본 보드: ESP32-S3-DevKitC-1(네이티브 USB=콘솔용, 보드 USB-UART=PC 용). 대안: RP2040 + Raspberry Pi Debug Probe(2e8a:000c).
+- **입력 방식**: USB HID(인증 없는 유선 패드를 받는 기기 — Switch 는 커뮤니티 보고, §9 확인), 접근성 컨트롤러 잭(**PS5 Access 컨트롤러·Xbox Adaptive 만**, Access 는 3.5 mm 포트 4개), 정품 컨트롤러 PCB 접점(PS4 포함 모든 기기).
+- **화면 인식**: Windows `ffmpeg.exe`(DirectShow) → rawvideo 파이프. **영상만 녹화(`-an`, DirectShow 오디오 장치를 열지 않음)**. HDMI 캡처를 열거나 녹화할 때 소스 종류 증명(콘솔 자체 설정으로 HDCP 끔·스트리퍼 없음 / HDMI 아님)이 필요하고 플레이 job 은 묶인 화면 세션의 증명을 물려받는다.
+  숫자 인식은 순수 파이썬 템플릿(합성 벤치마크 0.25 ms/프레임 — 실제 캡처 경로에서 다시 검증). "비정상 OCR"은 지속적 불일치로 정의한다(N-of-M 시간 투표, 단조 증가 점수 모델, 신뢰 여유). OpenCV 는 넣지 않는다.
+- **플레이 job**: 계획 전체를 한 번 승인(스크립트·매핑·브리지 시리얼·펌웨어·채널·한도·정지 조건·감지기 해시·증명). architecture §4 의 job 규칙 예외로 명시하고,
+  job 안에서 매 동작을 계획과 대조(`job_command_denied`), 주기적으로 케이스 승인 재확인(`authorization_required`), 브리지·캡처 배타 키를 쓴다. fail closed 규칙(모르는 화면 → 즉시 해제, 정지·검은 화면·캡처 끊김·하트비트 끊김 → 해제 + 정지, 저장 표시 중 전원·리셋 금지).
+
+### 3.5 pweh-fwtriage 확장 (오프라인 세이브·해금 분석)
+
+- ESP: `fw_esp_partitions`(쓰기 후보는 **NVS 와 원시 사용자 데이터만** — fat/spiffs/littlefs 는 "파일 시스템 수준 분석 필요"로 보고), `fw_esp_image_info`, `fw_esp_to_elf`, `fw_esp_nvs`.
+- 공통: `fw_save_diff`, `fw_checksum_find`, `fw_patch_build`, `fw_verify_writeback`.
+  - `fw_patch_build` 의 대상: ESP NVS 파티션(파티션 전체 이미지) 또는 **raw-region**(사람이 가져온 원시 덤프·세이브 파일의 `{offset, length}` 또는 파일 전체 — EEPROM/FRAM/NVRAM/SD 세이브). 파일 시스템 내부 원시 패치는 거부.
+  - **base 는 검증된 이중 읽기만**: ESP 는 `verify="double"`·`match=true` 이고 마지막 읽기가 `after="no-reset-stub"` 인 `esp_read_flash_start` 덤프, 출처 원장 기록이 있는 espprobe 이중 읽기 덤프(esp32-instrument.md), 그 밖은 sha256 이 같은 두 번의 가져오기(safety.md §4 규칙 6).
+  - manifest 에 `write_plan`: 백업(같은 범위 이중 읽기, base 와 sha256 같아야 함) → 네트워크 차단 확인(사람 증명) → 정확한 쓰기 명령(Windows esptool 경로·COMn·오프셋·UNC 패치 경로, 파티션 범위만, `erase-flash`·`--force` 없음) → 다시 읽기 → `fw_verify_writeback`.
+    쓰기 명령은 백업 확인과 증명이 끝난 뒤에만 보여 주고 감사 로그에 남긴다. 업로드·동기화 경로가 읽는다는 증거가 있는 키는 거부하고, 기기·게임마다 online-capable(예/아니오/모름)을 기록한다.
+- 게임 패턴 팩은 데이터 파일(`src/pweh/data/game-hunt-patterns.yaml`)로 두고 `fw_strings_hunt(patterns="game")` 로 쓴다. `fw_hunt_patterns` 는 목록 도구로 남기고 선택 인자 `pack` 만 더한다. CCTV 기본 팩과 섞지 않는다.
+- 디컴파일: 먼저 `fw_esp_to_elf` 결과(e_machine 94 Xtensa / 243 RISC-V)를 REA `open_binary` 에 넣어 본다(REA 는 Ghidra 기반). 거부될 때만 Ghidra headless 대체(`fw_ghidra_decompile`, 백그라운드 job, Ghidra 없으면 ToolMissing,
+  architecture §6.6 의 "외부 프로그램은 unsquashfs/sasquatch 뿐" 문구 개정).
+
+## 4. 게임 콘솔 분석 흐름
+
+1. **접수**: 목표 "게임 콘솔 분석" 선택(master-prompt Phase 0 목표 분기, common-core §7) → 소유 증명·케이스 생성 → 장비 확인(콘솔 모델, MCU, Flipper/CU, 캡처 카드, 브리지) → 보드 사진.
+2. **펌웨어 확보**: ESP32 면 esp32-flash-dump, 그 밖은 기존 UART/JTAG/SPI 경로(WSL2 에서는 USB-UART 가 winserial 헬퍼, 로직 애널라이저·JTAG 어댑터는 usbipd 또는 Windows 판 도구 — port-routing.md §9).
+3. **정적 분석**: firmware-static-analysis + ESP 도구 + 게임 패턴 → 해금 조건 후보(카운터·날짜·버튼 시퀀스·NFC 페이지/UID 비교)와 세이브 위치를 발견사항(`unlock_source` 포함)으로.
+4. **NFC 동작(1b)**: 내 태그 probe → 계열 판정 → 인증 없이 읽기 → [사람] 실제 태그를 콘솔에 댐 → 다시 읽기 → `nfc_diff_dumps`(콘솔 쓰기·카운터·잠금/CFG 변화) + UART 로그·사진 → 정적 분석 분기와 대조.
+   한계: `-k` 없이는 AUTH0/PROT=1 뒤 페이지를 못 읽고, NTAG 카운터 변화에는 PWEH 자신의 읽기도 들어간다. 에뮬레이션 캡처(.shd·CU 스니프)는 2a.
+5. **세이브 스냅샷**: 점수·진행이 바뀔 때마다 덤프(≥3회) → `fw_save_diff` → 인코딩·위치 → `fw_checksum_find` → 디컴파일로 확인.
+6. **값 수정(선택)**: `fw_patch_build`(목적·unlock_source 선언) → write_plan 대로 사람이 백업·네트워크 차단·쓰기 → 다시 읽기 → `fw_verify_writeback` → 오프라인 상태에서 화면 확인.
+7. **플레이 자동화(선택, 2b·2c)**: 배선(사람) → 증명 → 점수 숫자·상태 화면 모델 학습·검증 → 선언형 스크립트 → 계획 승인 → 플레이 job → 점수 시계열·입력 로그·키프레임을 케이스에.
+8. 각 Skill 은 `case_record_step(step="summary")` 로 끝내고 결과는 로컬 보고서에만.
+
+## 5. RF·하드웨어 분석 흐름 (콘솔 밖)
+
+1. 대상 확인: 라벨·FCC ID·설명서 → `sdr_band_lookup`(KR 대역·FSK 전용 여부).
+2. **대상 등록**: 사람이 대상 기기 버튼을 수신기 가까이(가능하면 차폐함)에서 누르고, 서버가 프로토콜·ID 를 기록한다. 디코드 도구는 등록된 대상만 값으로 남긴다.
+3. 스펙트럼: `sdr_sweep_start`(전력값만) 또는 SDR 이 없으면 §3.1 의 주파수 찾기.
+4. 수신·디코드: OOK 는 Flipper `rx_raw`/`rx_decode` 또는 SDR, FSK 는 SDR 또는 사람의 GUI Read RAW → 가져오기.
+5. 오프라인: `sdr_import_flipper_sub`(.sub → .ook) → `sdr_analyze`(rtl_433 -r, 펄스 분석) → 고정코드/롤링코드 판정. 고정코드도 값은 마스킹("고정코드, n비트").
+6. 재생 위험은 **수신 증거로만**: 같은 버튼 3~5회 프레임 동일, 롤링코드 디코더 적중 없음 → "재생 공격 가능성 높음" + verification_plan(확인 방법만, safety.md §1).
+7. IR 수신, 비자격증명 125 kHz/iButton 읽기, GPIO 읽기, UART 브리지(→ uart-shell-acquisition), SPI Mem 가져오기(→ firmware-static-analysis).
+
+## 6. 안전 규칙 (이 기능 고유분 — 공통 규칙은 common-core §3~§6)
+
+### 6.1 RF 수신 (pweh.safety.rf)
+
+- `safety.rf.region`(기본 KR)은 사람이 정한다. 송신 대역표는 설정으로 좁히기만 되고, 수신 내용 대역의 확장(`safety.rf.rx_extra_bands`)은 운영자만 넓힐 수 있는 명시 설정이다.
+- 수신 분류: 스윕 = OBSERVE. 디코드·IQ = 내용 수신 → 대역(캡처 폭 전체)·시간·크기 한도 안에서만, 대상 등록 필수.
+- **통신비밀보호법**: 감청은 내용의 지득·채록 자체다(제2조7호, 제3조). 마스킹은 공개를 줄일 뿐이므로 **수집을 최소화**한다 — 대상 등록, stdout 필터링 후 저장, 비대상은 개수만, 전사 기록도 같은 마스킹, 짧게·가까이.
+  남는 위험이 있고 법률 자문이 아님을 문서에 적는다.
+- 장비 보호: 바이어스 티 거부, HackRF 앰프(`-a 1`)·강제(`-F`, hackrf 만)는 설정이 허용할 때만. 송신기와 안테나 1 m 이상, 케이블 연결은 30–40 dB 감쇠.
+- NFC·125 kHz 리더 필드도 자계유도식 무선 방사(고시 제3조의2)다. Flipper·CU 리더 기능의 KC/개인 수입 상태는 **열린 법적 질문**(README §결정·사실 확인)으로 둔다. 에뮬레이션(부하 변조)은 별도.
+
+### 6.2 태그 계열 정책 (서버 자신의 스캔 결과로만 판정)
+
+| 계열 | 판정 |
+|---|---|
+| NTAG21x (T2T, SAK 0x00, GET_VERSION 으로 확인) | 허용 |
+| MIFARE Ultralight/UL-C/EV1 (교통·행사 티켓에도 쓰임) | 증명 후 허용 |
+| MIFARE Classic Mini/1K/TNP3xxx (SAK 0x09/0x08/0x01), ISO15693/SLIX | 증명 후 허용 — 증명 문구는 **목적+소유**: "이 케이스의 콘솔과 쓰는 게임·장난감 태그이고 결제·교통·출입·호텔·신분 자격증명이 아님" |
+| SAK bit 0x20(14443-4: EMV·DESFire·SEOS·JCOP), Classic 4K/2K(0x18/0x19)·Plus, 14443-B, FeliCa(아케이드 계정 카드 포함), ST25TB, Type 4 | 거부 — 더 조작하지 않고 probe 파일 삭제 |
+| 125 kHz 출입 계열: EM4100/EM-Marin, HID Prox(H10301), Indala, AWID, ioProx, Paradox, Keri, Gallagher, Nexwatch, PAC/Stanley, Viking, Pyramid, Jablotron | 거부(ID 마스킹). 예외: ID 마다 "장난감·동물·시험용 태그" 사람 증명 |
+| iButton DS1990A, Cyfral, Metakom (현관·인터폰 키) | 거부(같은 예외) |
+
+- 가져온 태그 덤프는 이 케이스에서 실제로 스캔·인벤토리에 올린 태그와 UID/ATQA/SAK 가 같을 때만 받는다(소유 증명, 다운로드 덤프 차단).
+- 에뮬레이션 입력은 인벤토리 태그 읽기 또는 그 읽기에 콘솔이 쓴 `.shd` 와 **sha256 이 같아야** 한다(편집·합성 이미지 금지 — 파생 변형은 §10 결정, 기본 없음). 출처는 출처 원장으로 확인한다(common-core §4).
+- 키·비밀번호(콘솔 PWD_AUTH, MIFARE 키)·롤링코드는 케이스 파일에만 두고 응답·보고서·게이트 action·감사 기록에는 솔트 다이제스트만.
+
+### 6.3 세이브 수정·플레이
+
+- 오프라인 쓰기 경로도 safety.md §4 규칙 6(케이스 안의 검증된 전체 백업 없이 쓰기를 제안하지 않음)을 지킨다 — §3.5 write_plan.
+- 첫 부팅 전 네트워크 차단(사람 증명) — ESP32 는 NVS 에 Wi-Fi 정보가 있어 바로 재연결될 수 있다.
+- NOR 쓰기 횟수 한도: 케이스당 쓰기 예산(사람 설정), 자동 쓰기 반복 금지.
+- 플레이: §3.4 (세션 증명, play_policy, 금지 템플릿, 전원/리셋 DESTRUCTIVE, 게임패드 전용).
+
+## 7. 케이스·스키마·Skill
+
+- 디렉터리: `rf/`(스윕·디코드·IQ·Flipper 신호), `nfc/`(`tags/`, `sessions/NNN/`, `cu-backup/`, `probe/`), `play/`(`<session>.events.jsonl`, `vision/frames|models|recordings`, `runs/`), `patches/`(이미지 + manifest),
+  Flipper 전사 기록은 `rf/flipper/<session>.log`. `STANDARD_DIRS`, `case_paths`, `case_import_file` 허용 목록에 추가. 태그 인벤토리는 서버가 쓰는 `nfc/inventory.json`(권위 기록은 `.pweh/state` 의 증명·원장, 케이스 파일은 사본).
+- 아티팩트 kind: 처음에는 `other` + `extra.type`(`rf-sweep`, `rf-iq`, `rf-capture`, `nfc-tag-dump`, `nfc-session`, `screen-frame`, `input-log`, `save-patch`).
+- 스키마는 Skill 과 **같은 단계**에 등록(SKILL_DATA_SCHEMAS = master-prompt §5 표):
+
+| 단계 | Skill | 요약 스키마 |
+|---|---|---|
+| 1a | `game-save-unlock-analysis` | `save-analysis` |
+| 1b | `flipper-rf-analysis` | `rf-analysis` |
+| 1b | `nfc-behavior-analysis`(읽기·비교 부분) | `nfc-analysis` |
+| 2c | `game-play-automation` | `play-run` |
+
+- firmware-dump `method` 에 `flipper-spi-mem-manager` 추가. 발견사항 카테고리 후보: `unlock-condition`, `save-integrity`, `hidden-content`, `rf-replay-risk`(아니면 `other` + 태그 — §10).
+- master-prompt: Phase 0 목표 분기(보안 분석 / 게임 콘솔 / RF·하드웨어 / SD 포렌식), 목표별 결정 트리·장비 체크리스트·완료 기준(게임: 가설 기록 + 검증된 패치 또는 플레이 요약, RF: rf-analysis 요약). pweh-start 설명과 `PIPELINE_PHASES`, report 표시(패치 manifest·플레이 요약) 갱신.
+
+## 8. 단계 계획
+
+| 단계 | 내용 | 전제 | 하드웨어 없이 검증 |
+|---|---|---|---|
+| 0 | 공통 기반(common-core): 환경 감지·포트 라우팅(port-routing.md P0–P1), wininterop, portlock, 증명·출처 원장·비밀 마스킹, safety 설정 위치, 테스트 파서 정리 | 없음 | 단위 테스트, 가짜 PnP·가짜 헬퍼 |
+| **1a** | ESP32 세이브·해금 오프라인 트랙: fwtriage ESP·세이브 도구, 게임 패턴 팩, REA ELF 확인/Ghidra 대체, `game-save-unlock-analysis` | 새 전송 없음(기존 esp_read_flash_start) | 합성 NVS·파티션·체크섬 이미지 |
+| **1b** | **헬퍼 실기 점검(진행/중단 관문)**: DTR → `>: `, `info device`, 1 MB storage md5 왕복, CU GET_APP_VERSION. 실패하면 즉시 대체(PowerShell SerialPort 또는 usbipd).<br>통과하면: pweh-uart winserial, pweh-flipper(CLI 만), pweh-nfc(오프라인 + CU 읽기는 Ultra 보유 시), pweh-sdr(RTL-SDR), NFC 읽기·비교 흐름, `flipper-rf-analysis`, `nfc-behavior-analysis`(읽기·비교) | 사용자 Flipper/CU 연결 | 가짜 Flipper CLI(배너·loader·브리지 모드 포함), 가짜 CU, 가짜 `rtl_*`, 합성 `.sub`/`.nfc` |
+| 2a | NFC 에뮬레이션 캡처: Flipper RPC(.shd), CU 스니프(단일 창), 필수 정리 | 1b | 가짜 Flipper RPC 상태 기계, 가짜 CU 창 초기화 |
+| 2b | 자동화 MVP: 화면 OBSERVE 도구, 보드 하나의 브리지 펌웨어(빌드·배포·플래시 절차 — ESP32 계측기 1c 의 `firmware/common`·빌드·고정 흐름 재사용), 세션 예산 안 즉석 입력 | 1b + §10 보드 결정 | 브리지 시뮬레이터(하트비트·한도·디스크립터 해시), 합성 프레임 |
+| 2c | 선언형 플레이 job(최대 2시간, play_policy) + `game-play-automation` | 2b | 합성 프레임 시퀀스, 시뮬레이터 |
+| 3 | 선택: `pweh-esp-write`(별도 서버), SRAM 한정 `openocd_ram_patch`(같은 목적·entitlement 경계), 단일 IR 신호 송신(DESTRUCTIVE, 내 리모컨의 같은 케이스 캡처만). Sub-GHz 송신·RFID 에뮬레이션은 계획 없음 | 사용자 opt-in | 가짜 esptool 쓰기·MD5 모델, "검증 전 앱 부팅 없음" 테스트 |
+
+각 단계의 끝: 도구 카탈로그 재생성, architecture §6 표, `.claude/settings.json`, `.mcp.json`, `pyproject` 스크립트, README, 스키마·Skill 일관성 테스트, 전체 테스트, 적대적 검토.
+
+## 9. 하드웨어로 확인할 것
+
+- Flipper: 펌웨어·포크·지역 프로비저닝, SD 의 CLI 플러그인(`cli_nfc`, `cli_subghz`, `cli_onewire`, `cli_ir`, `cli_lfrfid`), Windows PnP 모습(단일·이중 CDC, 부모 시리얼, Manufacturer), 헬퍼를 통한 열기 시 DTR/RTS, 이중 CDC 전환 때 COM 번호 변화·재열거,
+  interop 프로세스를 끝냈을 때 COM 핸들 해제, RPC→CLI 복귀(1바이트 vs DTR 해제), `dump -p 14_3a` 출력과 `[nfc]` 프롬프트, 실제 RF 환경의 rx_raw 손실, Frequency Analyzer 로그 형식.
+- ChameleonUltra: 모델·펌웨어, PnP 모습(composite 여부), 창 초기화가 쓰기 모드마다 이전 쓰기를 지우는지, 배터리 에뮬레이션 지속.
+- 콘솔별 에뮬레이션 충실도(READ_SIG·PACK·타이밍·안테나 위치), 콘솔이 PWEH HID 디스크립터를 받는지.
+- 입력: S3 DevKit 의 VBUS 경로(콘솔과 PC 동시 연결), 열기 시 리셋 여부, 접근성 잭 전기 사양, 캡처 카드 DirectShow·MJPEG 720p60, 실제 지연(LED 시험).
+- SDR: Zadig 드라이버, `\\wsl.localhost` IQ 처리량, `rtl_433 -r` 의 `.ook` 해석(실제 Flipper 캡처).
+- 헬퍼: 파이프 자체 시험(256 바이트 값 전부 + EOF 종료, external) 과 USB-UART 루프백(TX–RX, `@pytest.mark.hardware`).
+
+## 부록 A. 도구 목록
+
+위험도: OBSERVE < INTERACT(계측기 상태만) < MODIFY(휘발성 변화·계측기의 서버 소유 영역 지속 변화, 기본 허용) < DESTRUCTIVE(기본 거부, 사람 승인). 연결 도구는 INTERACT, 정리 도구(`*_close`, `*_disconnect`, `nfc_emulation_stop`)는 게이트·승인 확인 없음(uart_close 원칙).
+
+**pweh-flipper** (1b: CLI 만)
+
+| 도구 | 위험 | 비고 |
+|---|---|---|
+| `flipper_version()`, `flipper_list_ports()` | OBSERVE | 부모 장치·MI 자식 해석, 포트를 열지 않음 |
+| `flipper_connect(case_id, port)` / `flipper_close(case_id)` | INTERACT / 정리 | 수동 배너·프롬프트 확인 뒤에만 쓰기, MI_02·브리지 역할 포트 거부 |
+| `flipper_device_info(case_id)`, `flipper_region_policy(case_id)` | OBSERVE | 지역·포크·플러그인 |
+| `flipper_storage_list(case_id, path)`, `flipper_storage_pull_start(case_id, flipper_path, dest_name)` | OBSERVE(·job) | 기본 루트 `/ext/pweh/<case>`·SPI Mem, 그 밖은 증명+계열 판정 |
+| `flipper_subghz_rx_raw_start(case_id, frequency_hz, duration_s, name, target)` / `flipper_subghz_rx_decode_start(...)` | OBSERVE · job | OOK 만, 내용 대역·대상 등록 |
+| `flipper_subghz_rssi_probe_start(case_id, frequencies_hz, dwell_s)` / `flipper_freq_analyzer_log_start(case_id, duration_s)` | MODIFY(sysctl) / OBSERVE · job | §3.1 주파수 찾기 |
+| `flipper_ir_rx_start(case_id, duration_s, raw=False)` | OBSERVE · job | |
+| `flipper_rfid_read(case_id, timeout_s)` | INTERACT | 계열 판정·마스킹 |
+| `flipper_nfc_probe(case_id, label)` / `flipper_nfc_read_start(case_id, label, expect_uid)` | INTERACT(·job) | probe → 계열 판정 → `-p mfu`/`-p mfc` |
+| `flipper_ibutton_read(case_id)`, `flipper_onewire_search(case_id)` | MODIFY + 배선 증명 | 5 V·버스 구동 |
+| `flipper_gpio_read(case_id, pins)` | INTERACT | 입력 모드만 |
+| `flipper_i2c_scan(case_id)` | MODIFY + 배선 증명 | |
+| `flipper_uart_bridge_guide(case_id)`, `flipper_spi_dump_import(case_id, flipper_path, read_index)` | OBSERVE | 채널 1·세션 종료 확인, SPI Mem 설치 확인 |
+| `flipper_storage_push(case_id, artifact, name)` (2a) | MODIFY | `.nfc` 만, 출처 원장 |
+| `flipper_nfc_emulate_capture_start(case_id, artifact, duration_s)` (2a) | MODIFY(게이트 호출 안에서 시작), job 은 대기·읽기·정지 | RPC 허용 목록 |
+| `flipper_screenshot(case_id)` (2a) | OBSERVE | |
+| `flipper_job_status/cancel/jobs` | — | 취소 = Ctrl-C 후 프롬프트 확인 |
+
+**pweh-nfc**
+
+| 도구 | 위험 | 비고 |
+|---|---|---|
+| `nfc_version()`, `nfc_list_ports()` | OBSERVE | |
+| `nfc_cu_connect(case_id, port)` / `nfc_cu_disconnect(case_id, session_id)` | INTERACT / 정리 | 스냅샷 |
+| `nfc_cu_scan`, `nfc_cu_read_start` | INTERACT | T2T 프레임, MFC 는 증명+사용자 키 |
+| `nfc_cu_slot_load(case_id, session_id, artifact, write_mode)` (2a) | MODIFY | 지정 슬롯만, 백업 먼저 |
+| `nfc_cu_sniff_start(case_id, session_id, artifact, window_s≤30)` (2a) | MODIFY(호출마다 한 창) | |
+| `nfc_emulation_stop(case_id, session_id)` | 정리 | 슬롯 복원·확인 |
+| `nfc_tag_inventory_add(case_id, scan_ref, label)` | 증명 | 계열은 서버 스캔 결과 |
+| `nfc_parse_file`, `nfc_diff_dumps`, `nfc_decode_frames` | OBSERVE(오프라인) | 계열 판정 적용 |
+| `nfc_job_status/cancel/jobs` | — | 취소 시 정리 실행 |
+
+**pweh-sdr** (1b: RTL-SDR)
+
+| 도구 | 위험 | 비고 |
+|---|---|---|
+| `sdr_version()`, `sdr_list_devices()` | OBSERVE | VID/PID PnP 조회 |
+| `sdr_device_info(case_id, device)` | OBSERVE | `rtl_eeprom` |
+| `sdr_band_lookup(frequency_hz, bandwidth_hz=None)` | OBSERVE | FSK 전용 표시 |
+| `sdr_target_enroll(case_id, ...)` | INTERACT | 대상 등록 |
+| `sdr_sweep_start`, `sdr_decode_start(..., target)`, `sdr_iq_capture_start` | OBSERVE · job | 캡처 폭·내용 대역 |
+| `sdr_analyze`, `sdr_import_flipper_sub`, `sdr_peaks` | OBSERVE(오프라인) | |
+| `sdr_job_status/cancel/jobs` | — | |
+
+**pweh-play** (2b·2c)
+
+| 도구 | 위험 | 비고 |
+|---|---|---|
+| `input_list_ports`, `bridge_info` | OBSERVE | |
+| `input_connect(case_id, port, mapping, ...)` | INTERACT + 증명 | 고정 시리얼, 디스크립터 해시 |
+| `input_press`, `input_sequence`, `input_axis` | MODIFY, play_policy 세션 예산(전원·리셋 채널은 DESTRUCTIVE) | 금지 템플릿 |
+| `input_release_all`, `input_disconnect` | 정리 | |
+| `vision_list_sources`, `vision_open`, `vision_close`, `vision_capture_frame`, `vision_view`, `vision_record_start/stop` | OBSERVE(HDMI 는 소스 증명) | `-an` |
+| `vision_define_roi`, `vision_label_frames`, `vision_train_digits`, `vision_ocr_region`, `vision_template_add/match`, `vision_validate` | 기기 I/O 없음 | |
+| `vision_watch_start` | OBSERVE · job | |
+| `input_script_validate`, `input_script_start` | MODIFY · job(계획 승인, §4 예외) | |
+| `play_job_status/cancel/jobs` | — | 취소 = 전부 해제 |
+
+**pweh-fwtriage 추가**: `fw_esp_partitions`, `fw_esp_image_info`, `fw_esp_to_elf`, `fw_esp_nvs`, `fw_save_diff`, `fw_checksum_find`, `fw_patch_build`, `fw_verify_writeback`, `fw_find_seq_tables`,
+`fw_ghidra_decompile`(job, REA 가 거부할 때만), `fw_strings_hunt(patterns="game")`, `fw_hunt_patterns(pack=...)` — 모두 오프라인.

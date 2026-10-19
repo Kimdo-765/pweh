@@ -7,7 +7,7 @@
 ## 1. 전체 구조
 
 ```
-[사람]  물리 연결(UART 케이블, 프로브, 로직 애널라이저 클립), 전원 껐다 켜기, 위험 작업 승인(pweh approve)
+[사람]  물리 연결(UART 케이블, 프로브, 로직 애널라이저 클립), 전원 껐다 켜기, 위험 작업 승인(pweh approve), 사람 증명(pweh attest)
    │
 [에이전트]  Claude Code / Codex / Cursor — orchestrator/master-prompt.md + skills/*/SKILL.md 를 따른다
    │
@@ -23,13 +23,13 @@
       [대상 기기]  (또는 테스트용 pweh.mocktarget 시뮬레이터)
 ```
 
-공통 코어 패키지 `pweh` (`src/pweh/`) 가 설정, 케이스 저장소, 안전 게이트, 작업(job) 관리, MCP 헬퍼를 제공한다.
+공통 코어 패키지 `pweh` (`src/pweh/`) 가 설정, 케이스 저장소, 안전 게이트, 사람 증명·출처 원장·비밀값 마스킹(§4), 작업(job) 관리, MCP 헬퍼를 제공한다.
 
 ## 2. 저장소 레이아웃
 
 | 경로 | 내용 |
 |---|---|
-| `src/pweh/` | 공통 코어: `config.py`, `case.py`, `safety/`, `jobs.py`, `runtime.py`, `mcpkit.py`, `report.py`, `cli.py`, `audit.py`, `errors.py`, `fsutil.py`, `formats.py`(mtdparts·uImage·U-Boot env·md.b/crc32 출력 파서), `schemas/`, `mocktarget/`, `data/` |
+| `src/pweh/` | 공통 코어: `config.py`, `case.py`, `safety/`(분류기·게이트·승인·사람 증명·비밀값 마스킹), `provenance.py`(출처 원장), `jobs.py`, `runtime.py`, `mcpkit.py`, `report.py`, `cli.py`, `audit.py`, `errors.py`, `fsutil.py`, `formats.py`(mtdparts·uImage·U-Boot env·md.b/crc32 출력 파서), `schemas/`, `mocktarget/`, `data/` |
 | `mcp-servers/<name>-mcp/<name>_mcp/` | 서버 패키지 (`server.py` 에 `server` 객체와 `main()`), `mcp-servers/<name>-mcp/README.md` |
 | `skills/<skill>/SKILL.md` | 에이전트용 워크플로 (`.claude/skills/` 에 심볼릭 링크) |
 | `orchestrator/` | `master-prompt.md`, `pipeline-config.yaml` |
@@ -38,7 +38,7 @@
 | `examples/` | 실제 실행(시뮬레이터)으로 만든 예제 케이스 |
 | `tests/` | pytest. `tests/mock-targets/` 는 녹화 로그와 그 생성 스크립트(시뮬레이터 프로필·합성 펌웨어 빌더는 `src/pweh/mocktarget/`) |
 | `cases/` | 실제 분석 케이스 (git 제외) |
-| `.pweh/state/` | 승인 레코드, 전역 감사 로그 (git 제외) |
+| `.pweh/state/` | 승인 레코드(`approvals/`), 사람 증명(`attestations/`), 출처 원장(`provenance/<case>.jsonl`), 마스킹 솔트(`salts/<case>.key`), 전역 감사 로그(`audit.jsonl`) (git 제외, 에이전트 수정 금지. 모두 처음 쓸 때 만든다) |
 
 패키징: 루트 `pyproject.toml` 하나로 모든 패키지를 설치한다 (`pip install -e ".[dev]"`).
 콘솔 스크립트: `pweh`, `pweh-case-mcp`, `pweh-uart-mcp`, `pweh-openocd-mcp`, `pweh-sigrok-mcp`,
@@ -70,6 +70,8 @@ cases/<case_id>/
   notes/               보드 사진 같은 사람 자료 (case_import_file(dest_subdir="notes")). case_add_note 메모는 case.json 에 저장
   findings.json        발견사항 목록 (각 항목은 schemas/finding.schema.json)
   report.md            report_generate 결과
+  attestations.json    사람 증명의 읽기 전용 사본(0400, 그 케이스의 증명 레코드가 바뀔 때 다시 만든다. 사람이 보는 용도 — 보고서 생성기는 아직 읽지 않는다).
+                       권위 기록은 .pweh/state/attestations/ — 서버는 이 파일을 증거로 읽지 않는다
 ```
 
 규칙:
@@ -91,6 +93,21 @@ cases/<case_id>/
   `esp32-flash-dump` Skill 은 따로 요약 스키마를 두지 않고 이 규칙을 따른다: `method` `esptool-read-flash`, `verification.method` `double-read`
   (`expected`/`actual` = 두 읽기의 sha256, `match`). 값은 `esp_read_flash_start` job `result.summary_hint` 에 그대로 있다(§6.7).
 - ESP32 덤프용 스키마 값: firmware-dump `method` 의 `esptool-read-flash`, static-analysis `firmware.source` 의 `esptool-dump`.
+
+단계(phase) 상태 — `case.json` 의 `phases` (코드: `src/pweh/case.py`):
+- **파이프라인 단계**(`PIPELINE_PHASES`, 보안 분석 목표): `uart-shell-acquisition`, `firmware-dump-via-uart`, `logic-analyzer-protocol-decode`,
+  `firmware-static-analysis`, `cctv-auth-bypass-hunt`, `report`. `case_create` 가 모두 `pending` 으로 만든다.
+- **선택 단계**(`OPTIONAL_PHASES`, 다른 목표·계측기용 Skill 에 예약한 이름): `game-save-unlock-analysis`, `nfc-behavior-analysis`, `game-play-automation`,
+  `flipper-rf-analysis`, `sd-card-forensics`, `espprobe`. 미리 만들지 않는다. 그 Skill 이 summary 를 기록하거나 `case_set_phase` 로 상태를 정할 때 처음 생기므로,
+  그 목표를 쓰지 않는 케이스의 `case.json`·보고서는 그대로다. 이 Skill 들은 아직 없다(에이전트용 문서 — master-prompt·Skill — 에는 이 이름을 적지 않는다).
+  Skill 을 만들 때 `SKILL_DATA_SCHEMAS`·master-prompt §5 표·`report._PHASE_LABEL` 에 함께 등록한다.
+- 상태 값: `pending`, `in-progress`, `done`, `partial`, `failed`, `skipped`, `blocked`. summary 의 status 는 `success` → `done`, `in-progress` → `in-progress`,
+  나머지(`partial`·`failed`·`blocked`·`skipped`)는 같은 이름으로 옮긴다(`SUMMARY_PHASE_STATUS`).
+  두 목록에 없는 Skill 의 summary 는 단계 상태를 만들지 않는다(예: `esp32-flash-dump` 는 요약을 `firmware-dump-via-uart` 로 기록한다). `case_set_phase` 는 단계 이름을 검사하지 않는다.
+- 보고서(`report_generate`) §4 는 파이프라인 단계 표와 그 요약 뒤에, 상태나 요약이 기록된 파이프라인 밖 단계가 있을 때만 `### 선택 단계` 를 붙인다
+  (표 + `####` 단계별 요약. 선택 단계는 레지스트리 순서, 등록되지 않은 Skill 은 기록 순서). 요약의 `data` 는 싣지 않는다. 그런 단계가 없으면 보고서는 전과 같다.
+- 분석 목표(보안 분석 / 게임 콘솔 분석 / RF·하드웨어 분석 / SD 카드 포렌식)는 `case.json` 필드가 아니다. master-prompt Phase 0 이 `case_create` 의 `notes` 에 적는다
+  (보안 분석만 지원, 나머지는 준비 중 — master-prompt §3·§3.1·§9).
 
 아티팩트 kind 어휘: `uart-log`, `uart-raw`, `uart-events`, `flash-dump`, `memory-dump`, `partition`,
 `firmware-image`, `extracted-tree`, `signal-capture`, `signal-decode`, `jtag-dump`, `jtag-scan`, `triage-report`,
@@ -242,6 +259,76 @@ if not decision.allowed:
 - 이 분류기는 협조적이지만 성급한 에이전트의 실수를 막기 위한 것이며 적대적 우회를 완벽히 막는 샌드박스가 아니다.
   강한 격리가 필요하면 MCP 서버를 별도 OS 계정으로 실행한다 (docs/safety.md).
 
+게이트 밖의 공통 안전 기능 셋(사람 증명·출처 원장·비밀값 마스킹)은 코어에 있고, 아래처럼 쓴다.
+
+- **사람 증명(attestation)** — `src/pweh/safety/attestations.py`. 사람만 확인할 수 있는 사실(콘솔 오프라인, 결제 수단 제거, 배선 = 채널 라벨과 잰 전압,
+  태그의 목적·소유, 쓰기 방지 장치, 가져온 파일의 출처 …)이나 물리 부작용이 있는 MODIFY 의 전제 조건을 에이전트가 스스로 채우지 못하게 한다.
+  승인(1회 소비, 짧은 만료)과 달리 **소비되지 않고** 대상·바인딩·만료에 묶여 재사용된다.
+  **아직 증명을 요구하는 도구는 없다.** 코어(저장소, `rt().attest`, `pweh attest`)만 있고, 그런 사실이 필요한 서버를 만들 때 쓴다.
+  - 레코드: `.pweh/state/attestations/att-<16진 10자>.json`(`pweh.attestation/v1`). `kind` 는 닫힌 집합이다(`tag-purpose`, `wiring`, `console-offline`,
+    `payment-locked`, `hdmi-source`, `bridge-serial`, `write-blocker`, `provenance-import`, `instrument-pin`, `radio-target`, `module-kc` — 코드에서만 늘린다).
+    `subject`(서버가 만든 정규화 JSON + `subject_sha256`), `binding{scope: case|connection|job|instrument, case_id|connection_id|job_id|instrument_id}`, `fingerprint`,
+    `questions[{id, text, type: yesno|value, expected?: yes}]`, `answers`(y/n 과 사람이 직접 입력한 값), `status`(pending|approved|denied|revoked|expired),
+    `valid_seconds`, `expires_at`, `decided_via`(cli-tty|elicitation), `decided_by`, `decided_at`, `revoked_at`, `requested_by{server, tool}`, `created_at`.
+    지문 = sha256(정규화 JSON `{kind, subject, binding}`). `expired` 는 읽을 때 계산하는 상태다(파일은 바꾸지 않는다).
+  - 서버 사용법 (async 도구 안에서):
+
+    ```python
+    from pweh.safety import attestation_response
+
+    dec = await rt().attest("console-offline", {"console": serial}, {"scope": "case", "case_id": case.id}, questions,
+                            case.id, ctx, "콘솔 오프라인 확인", tool="input_connect")
+    if not dec.satisfied:
+        return attestation_response(dec)    # ok=false, status=attestation_required|denied, attestation_id, kind, questions, how, message
+    ```
+
+    `rt().attest` 는 `AttestationDecision` 을 돌려준다(충족이면 `dec.record` 가 증명 레코드).
+    안에서 `require(kind, subject, binding, questions=…)` 로 승인·미만료·미철회 레코드를 찾는다(소비하지 않음. 서버가 지금 묻는 질문을 모두 받은 레코드만).
+    없으면 pending 을 만들고(같은 지문에 같거나 더 많은 질문을 묻는 pending 은 재사용), 클라이언트가 지원하면 elicitation 폼(항목마다 답 + 4자리 확인 코드)을 띄운다.
+    그 밖에는 `attestation_required` → 사람이 별도 터미널에서 `pweh attest <id>`(TTY 전용) → 에이전트가 같은 인자로 다시 호출한다(증명 id 를 넘기지 않는다).
+    확인 경로는 `safety.approval_methods` 를 따른다(새 설정 키 없음). 두 경로를 모두 쓸 수 없거나 사람이 폼을 거절·취소하면(확인 코드가 틀려도) `denied` 다.
+    폼 표시 자체가 실패하면(오류·시간 초과) pending 그대로 CLI 경로로 넘어간다(`cli` 가 켜져 있을 때).
+    pending 은 `approval_ttl_seconds` 뒤 만료된다. 승인 뒤 유효 기간은 범위별 코드 기본값이다
+    (case 7일, connection 12시간, job 24시간, instrument 는 철회할 때까지. 서버가 `valid_seconds` 로 60초~90일을 줄 수 있다).
+    `valid_seconds` 는 **새로 만드는 레코드**에만 적용된다 — 같은 지문의 기존 레코드(승인·대기)는 그 레코드의 만료를 따르므로, 더 최근의 확인이 필요하면 바인딩을 좁힌다(연결 토큰·job).
+  - 확인 항목: `expected: "yes"` 가 없는 yesno 는 정보 항목이라 '아니오'여도 승인된다. 값 항목은 비어 있지 않으면 충족이고 범위·형식은 검사하지 않는다
+    — 서버가 `dec.record["answers"]` 로 직접 검사한다.
+  - 증거는 `.pweh/state/attestations/` 의 레코드뿐이다. subject 는 서버 자신의 스캔·측정 결과로 만든다. 에이전트가 넘긴 `attested_*` 인자, 케이스 파일,
+    `cases/<id>/attestations.json`(사람이 보는 읽기 전용 사본 — 보고서 생성기는 아직 읽지 않는다), 승인 id(`ap-…`)는 증거가 아니다. subject·binding 의 최상위 `attested*` 키는 지문에서 빠진다
+    (`ignored_agent_fields`). `require` 는 후보마다 schema·id 형식·파일 이름·kind·지문(다시 계산)·상태·만료·철회·`decided_via`·답을 다시 확인한다.
+  - 무효화: 만료, 사람의 철회(`pweh attest --revoke <id>`), 바인딩 변화(연결 토큰·job·케이스가 바뀌면 지문이 다르다), 서버가 질문을 늘림.
+  - 사람 쪽 명령: `pweh attest <id>`(항목마다 답), `pweh attest --list`(기본 대기 중만, `--all` 이면 모든 상태), `pweh attest --revoke <id>`.
+    모두 대화형 터미널 전용이다(TTY 가 아니면 아무것도 보여 주지 않고 종료 코드 2). 승인이 되는 답이면 기록하기 전에 화면의 4자리 확인 코드를 입력받는다(`pweh approve` 와 같은 수준).
+    결정은 `decided_via: "cli-tty"`, `decided_by` = OS 계정 이름(실제 uid 기준, `$USER` 가 아님)으로 남는다(폼으로 답하면 `elicitation`·`client-user`).
+    증명을 결정하거나 조회하는 MCP 도구는 없다(`approval_status` 는 승인 `ap-…` 만 본다). 이름이 비슷한 `pweh case attest <case_id>` 는 케이스 소유/허가 증명이다.
+- **출처 원장(provenance)** — `src/pweh/provenance.py`, `.pweh/state/provenance/<case_id>.jsonl`(0600). 한 줄 = 정규화 JSON
+  `{schema, seq, ts, case_id, kind, path, sha256, size, source{server, tool, 장치 식별…}, attestation_id, extra | fact_kind + data, prev}`.
+  `prev` 는 앞 줄 정규화 JSON 의 sha256 이다(첫 줄은 케이스 id 에 묶인 시작값). 여러 서버 프로세스가 파일 잠금 안에서 체인을 검증한 뒤 덧붙인다(깨진 원장에는 덧붙이지 않는다).
+  출처 확인은 `case.json` 아티팩트의 `producer`(에이전트가 자유롭게 넘기는 값)를 보지 않고 이 원장만 본다.
+  - kind 와 기록하는 곳: `device-read`(기기 읽기 코드 경로만 — 지금은 `esp_read_flash_start` 가 끝까지 성공(`succeeded`)한 덤프의 읽기 파일. 이중 읽기면 두 파일이고,
+    실패·취소 때 보존한 1차 읽기는 기록하지 않는다), `device-fact`(`esp_chip_info`·`esp_security_info` 결과. data 를 원장에 그대로 둔다), `imported-unattested`(`case_import_file`).
+  - `verify(case, path)` → `{trusted, kind, record, reason, path, sha256}`: 체인 전체를 검증하고(하나라도 깨지면 모두 불신 — `ledger-chain-broken`), 그 경로의 마지막 항목과
+    지금 파일의 sha256 을 맞춘다(`sha256-mismatch`. 그 밖의 불신 이유는 `not-recorded`, `file-missing`). `device-read` 는 신뢰하고, `imported-unattested` 는 `provenance-import` 증명
+    (같은 sha256·같은 케이스 — `provenance_import_target`, `PROVENANCE_IMPORT_QUESTIONS`)이 있을 때만 신뢰한다(`imported-attested`).
+    `device-read` 는 출처(기기에서 읽음)이지 무결성이 아니다 — 이중 읽기가 어긋난 덤프(`source.match=false`)는 기록하지만 `verify` 는 신뢰하지 않는다(`device-read-mismatch`).
+    검증하지 않은 단일 읽기(`match=null`)는 출처로 신뢰하므로, 무결성이 필요한 쪽(패치 base 등)은 `record.source.verify` 를 따로 확인한다.
+  - 확인과 사용 사이에 에이전트가 케이스 파일을 바꿀 수 있다. 쓰는 쪽은 `verify` 가 돌려준 sha256 을 승인 지문·job 인자에 묶고, 실행 직전 같은 sha256 인지 다시 해시하거나 확인한 바이트를 그대로 쓴다.
+    **아직 `verify` 를 부르는 도구는 없다.** 출처가 중요한 작업(에뮬레이션·올리기·패치 base·계측기 플래시 절차)을 만드는 서버가 이 함수로 확인한다.
+  - 기록 실패는 기기 결과를 막지 않는다. 응답의 `provenance: {recorded: false, reason}` 로 알리고(덤프는 job `result.warnings` 에도), 원장에 없는 파일은 불신이다(fail closed).
+  - 한계: 해시 체인과 증명 레코드의 재확인에는 비밀 키가 없다. 실수와 단순 변조를 드러낼 뿐, 같은 OS 계정의 프로세스가 원장 전체를 일관되게 다시 쓰거나,
+    올바른 `prev` 로 끝에 줄을 덧붙이거나, 레코드를 처음부터 위조하는 것은 막지 못한다(docs/safety.md §3.5). 보호 상태는 케이스 id 로만 묶인다
+    — 사람이 `cases/<id>` 를 지운 뒤 같은 id 로 케이스를 다시 만들면 예전 원장·증명·솔트를 이어받는다.
+  - `case_import_file` 은 state_dir 안의 파일을 가져오지 않는다(보호 상태를 케이스로 복사해 읽어 내지 못하게). 대상은 `O_EXCL` 로 새로 만든다(같은 이름의 파일·링크가 있으면 거부).
+- **비밀값 마스킹** — `src/pweh/safety/masking.py`. 게이트 `action` 과 `classification.matched` 에는 원문 대신 `rt().secret_digest(case_id, 값)`
+  (`sha256:` + sha256(케이스 솔트 ‖ 값)의 앞 16 hex) 또는 `<given>` 만 넣는다. 그러면 승인 지문·감사 로그·승인 레코드·`approval_status` 응답에 원문이 남지 않는다.
+  같은 케이스의 같은 값은 늘 같은 다이제스트라 재시도 지문이 맞고, 케이스가 다르면 달라진다. 증명 subject 에 비밀이 들어가야 할 때도 다이제스트를 쓴다.
+  응답·보고서에는 `mask_secret(값)` 을 쓴다(16자 이상은 앞뒤 2자와 길이, 10–15자는 앞뒤 1자와 길이, 더 짧은 값과 바이트는 길이만).
+  솔트는 `.pweh/state/salts/<case_id>.key`(32 바이트, 0600, 처음 쓸 때 만들고 바꾸지 않는다)다.
+  게이트 `action` 에 비밀을 넣도록 설계된 도구는 `shell_login`(비밀번호 → `<given>`) 하나이고, 다이제스트를 쓰는 도구는 아직 없다.
+  비밀번호 프롬프트에 `uart_send_command` 로 입력하면 원문이 게이트 작업 내용과 감사 로그에 남는다 — 로그인은 `shell_login` 으로 한다.
+  - 한계: 솔트는 같은 OS 계정의 에이전트가 읽을 수 있다(파일 도구, 자동 허용된 REA `open_binary` + `read_bytes`). 다이제스트는 보고서·감사 로그를 읽는
+    제3자에게서 원문을 가리지만, 에이전트에게서 낮은 엔트로피 값(짧은 PIN, 32비트 PWD_AUTH, 24–32비트 ID)을 가리지는 못한다 — 그런 값은 게이트에 넣지 않는다(`<given>`).
+
 ## 5. 코딩 규칙
 
 - Python 3.10 호환 (`match` 문 사용 금지 아님, 하지만 `typing.Self`, `tomllib` 사용 금지). 외부 의존성은 `mcp`, `pyserial`, `PyYAML`, `jsonschema` 와 표준 라이브러리만.
@@ -275,6 +362,10 @@ if not decision.allowed:
 
 - `case_hash_file` 은 케이스 안 파일(또는 `offset`/`length` 구간, 정수 또는 `"0x50000"`·`"64k"`)의 해시를 계산한다. 덤프 교차 검증용이다:
   tftpput·SPI 클립으로 받은 파일과 UART 덤프의 같은 구간 비교, 기기 측 `md5sum`/`crc32` 값과 대조.
+- `case_import_file` 은 가져온 파일을 출처 원장에 `imported-unattested` 로 기록하고 응답에 `provenance{recorded, kind: "imported-unattested", seq, sha256, note}` 를 붙인다(§4).
+  기록에 실패하면 `recorded: false` 와 `reason` 이고 가져오기는 그대로 된다. 이 서버에는 기기 읽기(`device-read`)로 기록하는 경로가 없다.
+- `case_set_phase` 는 단계 이름을 검사하지 않는다(파이프라인 단계와 선택 단계 — §3).
+- 사람 증명(`att-…`)을 결정하거나 조회하는 도구는 없다. `approval_status`·`approvals_pending` 은 승인만 본다(증명은 사람이 `pweh attest` 로 — §4).
 - 도구별 설명과 기본값 전체: `mcp-servers/case-mcp/README.md`, `docs/references/pweh-mcp-tools.md`.
 
 ### 6.2 pweh-uart
@@ -495,16 +586,19 @@ esptool v5 는 하이픈 이름(`read-flash`), v4 는 밑줄 이름(`read_flash`
 |---|---|
 | `esp_version()` | OBSERVE(기기 미접촉). `backends.windows`·`backends.linux` 마다 `{available, path, source, version, major, error}`(windows 에는 `wsl`, `interop` 도. v4 미만이면 `warning`), `recommended`(`windows`/`linux`/`null`), `hints`. 버전은 `esptool version` 출력으로 정하고 실행 파일 경로·mtime·크기별로 캐시한다 |
 | `esp_list_ports()` | OBSERVE(포트를 열지 않음). `windows{available, ports[{port, name, pnp_device_id, vid, pid, serial_number, usb_id, kind, description_ko}], note}`: powershell.exe 로 Win32_PnPEntity 를 조회한 결과(이름에 `(COMn)` 이 있는 장치만). `linux{ports, hidden_legacy_ports}`: pyserial 목록 + `in_use_by`(그 tty 를 연 다른 프로세스 PID), sysfs 정보가 없는 레거시 `/dev/ttyS*` 는 숨기고 센다. 그 밖에 `count`, `hints`. 알려진 USB ID: `303a:1001` = ESP 내장 USB-Serial/JTAG, `303a:0009`·`303a:0002` = ESP32-S3·S2 ROM USB-OTG 다운로드 모드, CP210x·CH340·CH343·CH9102·FTDI. `hints` 는 종류별이다(USB-Serial/JTAG = esptool 의 USB-JTAG 리셋, ROM USB-OTG = `before="no-reset"`·`after="no-reset"`(서버가 `no-reset-stub` 으로 실행)과 끝난 뒤 사람의 RESET). interop 이나 powershell 이 없으면 `windows.available=false` 와 `note` |
-| `esp_chip_info(case_id, port, chip="auto", baud=None, before="default-reset", after="hard-reset", no_stub=False, timeout_s=None, approval_id=None)` | MODIFY(`flash-id`). `chip`, `chip_description`, `chip_revision`, `features`, `crystal_mhz`, `usb_mode`, `mac`, `flash{manufacturer_id, manufacturer, device_id, size, size_bytes, type_efuse, voltage, voltage_source}`, `base_mac`(늘 6바이트), `mac_ext`(EUI-64 확장 2~8바이트), `secure_download_mode`, `stub`, `log_path`(`uart/esptool-chip-info-NNN.log`), `backend`, `port`, `esptool_version`, `command`, `classification`, `after`(실제로 쓴 값), `after_requested`(`no-reset` 을 바꿨을 때만), `warnings`(플래시 크기 미감지 → 덤프에 `size` 명시, 플래시 ID `ff`/`00` → 배선·전원·스트래핑), `notes`, `next_steps`. `mac` 은 esptool 이 찍은 값(ESP32-C6·H2 는 8바이트 EUI-64). Secure Download Mode 면 ROM 이 flash-id 를 거부하므로 오류 대신 `status: "secure_download_mode"`, `read_flash_possible: false` 와 칩 종류만 돌려준다 |
-| `esp_security_info(case_id, port, chip="auto", baud=None, before="default-reset", after="hard-reset", no_stub=False, timeout_s=None, approval_id=None)` | MODIFY(`get-security-info`). `status`(`"ok"`/`"unsupported"`), `secure_boot`, `flash_encryption`(SPI_BOOT_CRYPT_CNT 의 1 비트 수가 홀수면 켜짐), `crypt_cnt`, `secure_download_mode`(플래그 비트 2), `read_flash_possible`(= Secure Download Mode 꺼짐), `ciphertext_expected`(= 플래시 암호화 켜짐), `jtag_hard_disabled`, `jtag_soft_disabled`, `usb_disabled`, `download_dcache_disabled`, `download_icache_disabled`, `key_blocks[{block, purpose}]`, `flags_hex`, `parsed_flags`, `raw_fields`, `chip_id`, `api_version`, `assessment`(한국어 판단), `log_path`(`uart/esptool-security-info-NNN.log`), `after`, `after_requested`, `warnings`, `notes`. Secure Download Mode 에서도 동작한다. `read_flash_possible=false` 면 덤프하지 않고 우회 없이 사용자에게 보고한다. 원조 ESP32·ESP8266 은 get-security-info 를 지원하지 않는다 → 오류 대신 `ok: true, status: "unsupported"`, `chip`, `chip_description`, 보안 필드(`secure_boot`·`flash_encryption`·`crypt_cnt`·`secure_download_mode`·`read_flash_possible`·`ciphertext_expected`·`jtag_*`·`usb_disabled`·`key_blocks`·`raw_fields`·`flags_hex`·`parsed_flags`·`chip_id`·`api_version` 등)는 모두 `null`, `assessment` ['보안 상태 미확인 …'], `error`(esptool 문구), 첫 note 는 '미확인'으로 기록하고 진행하라는 안내(감사 이벤트 `esp_security_summary` 에도 `status`) |
+| `esp_chip_info(case_id, port, chip="auto", baud=None, before="default-reset", after="hard-reset", no_stub=False, timeout_s=None, approval_id=None)` | MODIFY(`flash-id`). `chip`, `chip_description`, `chip_revision`, `features`, `crystal_mhz`, `usb_mode`, `mac`, `flash{manufacturer_id, manufacturer, device_id, size, size_bytes, type_efuse, voltage, voltage_source}`, `base_mac`(늘 6바이트), `mac_ext`(EUI-64 확장 2~8바이트), `secure_download_mode`, `stub`, `log_path`(`uart/esptool-chip-info-NNN.log`), `backend`, `port`, `esptool_version`, `command`, `classification`, `after`(실제로 쓴 값), `after_requested`(`no-reset` 을 바꿨을 때만), `warnings`(플래시 크기 미감지 → 덤프에 `size` 명시, 플래시 ID `ff`/`00` → 배선·전원·스트래핑), `notes`, `next_steps`. `mac` 은 esptool 이 찍은 값(ESP32-C6·H2 는 8바이트 EUI-64). Secure Download Mode 면 ROM 이 flash-id 를 거부하므로 오류 대신 `status: "secure_download_mode"`, `read_flash_possible: false` 와 칩 종류만 돌려준다. 모든 성공 응답에 `provenance{recorded, kind: "device-fact", fact_kind: "esp-chip-info", seq}`(출처 원장의 기기 사실, §4. `status: "secure_download_mode"` 결과도 기록한다. 기록에 실패하면 `recorded: false`, `reason`) |
+| `esp_security_info(case_id, port, chip="auto", baud=None, before="default-reset", after="hard-reset", no_stub=False, timeout_s=None, approval_id=None)` | MODIFY(`get-security-info`). `status`(`"ok"`/`"unsupported"`), `secure_boot`, `flash_encryption`(SPI_BOOT_CRYPT_CNT 의 1 비트 수가 홀수면 켜짐), `crypt_cnt`, `secure_download_mode`(플래그 비트 2), `read_flash_possible`(= Secure Download Mode 꺼짐), `ciphertext_expected`(= 플래시 암호화 켜짐), `jtag_hard_disabled`, `jtag_soft_disabled`, `usb_disabled`, `download_dcache_disabled`, `download_icache_disabled`, `key_blocks[{block, purpose}]`, `flags_hex`, `parsed_flags`, `raw_fields`, `chip_id`, `api_version`, `assessment`(한국어 판단), `log_path`(`uart/esptool-security-info-NNN.log`), `after`, `after_requested`, `warnings`, `notes`. Secure Download Mode 에서도 동작한다. `read_flash_possible=false` 면 덤프하지 않고 우회 없이 사용자에게 보고한다. 원조 ESP32·ESP8266 은 get-security-info 를 지원하지 않는다 → 오류 대신 `ok: true, status: "unsupported"`, `chip`, `chip_description`, 보안 필드(`secure_boot`·`flash_encryption`·`crypt_cnt`·`secure_download_mode`·`read_flash_possible`·`ciphertext_expected`·`jtag_*`·`usb_disabled`·`key_blocks`·`raw_fields`·`flags_hex`·`parsed_flags`·`chip_id`·`api_version` 등)는 모두 `null`, `assessment` ['보안 상태 미확인 …'], `error`(esptool 문구), 첫 note 는 '미확인'으로 기록하고 진행하라는 안내(감사 이벤트 `esp_security_summary` 에도 `status`). 두 경우 모두 `provenance{recorded, kind: "device-fact", fact_kind: "esp-security-info", seq}`(출처 원장의 기기 사실 — `unsupported` 면 보안 필드 null = 미확인으로 기록) |
 | `esp_read_flash_start(case_id, port, chip="auto", offset=0, size="all", output_name=None, baud=921600, verify="double", before="default-reset", after="hard-reset", no_stub=False, timeout_s=None, approval_id=None)` | MODIFY · job(`read-flash`). 시작 응답 `status: "started"`, `job_id`, `planned_path`(`dumps/<name>.bin`), `planned_read2_path`, `metadata_path`, `reads`(1 또는 2), `backend`, `port`, `esptool_version`, `after`(마지막 읽기에 쓸 값), `after_requested`(바꿨을 때만), `read1_after`(이중 읽기면 `"no-reset-stub"`, 아니면 `null`), `read1_baud`(이중 읽기의 1차 baud, 아니면 `null`), `timeout_s_per_read`, `classification`, `notes`. `offset` 은 정수 또는 `"0x10000"`, `size` 는 `"all"`(감지한 플래시 크기, `offset=0` 일 때만)·정수·`"0x400000"`·`"4M"`·`"16MB"`·`"512K"`, `output_name` 을 생략하면 `esp-flash`, `esp-flash-002` … 순서로 정한다(`.bin` 자동). `verify="double"` 은 같은 범위를 두 번 읽어 sha256 을 비교한다: 1차는 `--after no-reset-stub` 으로 칩을 다운로드 모드에 둬 앱이 실행되지 않게 하고(NVS 변경 방지), 마지막 읽기 뒤에 요청한 `after` 를 쓴다(`no-reset` 은 `no-reset-stub` 으로). `before="no-reset"`(수동 다운로드 모드)의 이중 읽기는 1차를 min(baud, 115200)으로 읽는다(esptool 은 연결을 115200 으로 맞추므로 1차 뒤 칩이 그 속도에 남아야 2차 연결이 된다. 계획 note 와 gate 의 `read1_baud`). `"none"` 은 한 번 읽는다. 기존 파일은 덮어쓰지 않는다(시작 때 같은 이름이 있으면 `case_error`, 심볼릭 링크인 `dumps/` 도 `case_error`). Secure Download Mode 면 job 이 `esp_secure_download_mode` 로 실패한다 |
-| `esp_job_status(job_id, wait_seconds=0)`, `esp_job_cancel(job_id)`, `esp_jobs(active_only=False)` | `register_job_tools(..., "esp")`. 진행률은 esptool 출력의 % 로 계산한다(두 번 읽으면 읽기마다 절반). 끝난 job 의 `result`: `status`(`succeeded`/`cancelled`/`failed`), `path`, `read2_path`, `metadata_path`, `size`, `sha256`, `sha256_read2`, `match`, `verification`, `source`, `backend`, `port`, `esptool_version`, `log_paths`, `artifacts{primary, read2, metadata}`, `warnings`, `notes`, `summary_hint`. 취소하면 esptool 프로세스 그룹을 SIGTERM, 이어서 SIGKILL 로 끝낸다. Windows esptool.exe 는 PyInstaller onefile 이라 interop 프로세스를 끝내도 자식이 COM 포트를 잡은 채 남으므로(실측), 명령줄 표식(덤프는 UNC 출력 경로)으로 Windows 프로세스를 찾아 자식부터 끝내고(부트로더가 `%TEMP%\_MEI*` 를 지우고 끝남) 남은 것이 없을 때만 `cancelled` 다. 남으면 job 은 `failed`(`error.code` `esp_orphan_process`, `data.pids`)이고 예약 파일은 그 프로세스가 끝날 때까지 남는다. 시간 초과도 같다 |
+| `esp_job_status(job_id, wait_seconds=0)`, `esp_job_cancel(job_id)`, `esp_jobs(active_only=False)` | `register_job_tools(..., "esp")`. 진행률은 esptool 출력의 % 로 계산한다(두 번 읽으면 읽기마다 절반). 끝난 job 의 `result`: `status`(`succeeded`/`cancelled`/`failed`), `path`, `read2_path`, `metadata_path`, `size`, `sha256`, `sha256_read2`, `match`, `verification`, `source`, `backend`, `port`, `esptool_version`, `log_paths`, `artifacts{primary, read2, metadata}`, `warnings`, `notes`, `summary_hint`, `provenance{recorded, kind: "device-read", entries[{path, seq, sha256}]}`(끝까지 성공한(`succeeded`) 덤프의 읽기 파일만 기록 — 이중 읽기면 두 파일, `verify="none"` 이면 한 파일. 실패·취소 때 보존한 1차 읽기는 `recorded: false` 이고, 원장 기록에 실패해도 덤프는 그대로 `succeeded` 이며 `recorded: false`·`reason` 과 `warnings` 가 붙는다 — §4). 취소하면 esptool 프로세스 그룹을 SIGTERM, 이어서 SIGKILL 로 끝낸다. Windows esptool.exe 는 PyInstaller onefile 이라 interop 프로세스를 끝내도 자식이 COM 포트를 잡은 채 남으므로(실측), 명령줄 표식(덤프는 UNC 출력 경로)으로 Windows 프로세스를 찾아 자식부터 끝내고(부트로더가 `%TEMP%\_MEI*` 를 지우고 끝남) 남은 것이 없을 때만 `cancelled` 다. 남으면 job 은 `failed`(`error.code` `esp_orphan_process`, `data.pids`)이고 예약 파일은 그 프로세스가 끝날 때까지 남는다. 시간 초과도 같다 |
 
 - 결과 파일(케이스):
   - `dumps/<name>.bin`: 1차 읽기(대표 덤프). `flash-dump` 아티팩트(`extra.role="primary"`, `extra.metadata`).
   - `dumps/<name>.read2.bin`: 2차 읽기(`verify="double"`). `flash-dump` 아티팩트(`extra.role="verification-read"`).
   - `dumps/<name>.json`: 메타데이터. `other` 아티팩트(`extra.type="dump-metadata"`).
   - `uart/esptool-chip-info-NNN.log`, `uart/esptool-security-info-NNN.log`, `uart/esptool-<name>-readN-NNN.log`: esptool 출력 로그(헤더에 명령·백엔드·버전·종료 코드. 빈 줄과 ANSI 코드는 빼고 진행률 줄은 5% 단위만). `other` 아티팩트(`extra.type="esptool-log"`).
+- 출처 원장(§4, 케이스 밖 `.pweh/state/provenance/<case_id>.jsonl`): 끝까지 성공한 덤프의 읽기 파일을 `device-read` 로, `esp_chip_info`·`esp_security_info` 결과를 `device-fact`
+  (`fact_kind` `esp-chip-info`·`esp-security-info`, source 에 포트·백엔드·칩·MAC·esptool 버전)로 기록한다. 덤프는 워커가 esptool 이 쓴 직후 계산한 sha256 을 넘기고,
+  공개한 파일이 그사이 바뀌었으면 기록하지 않는다. 메타데이터를 쓴 뒤에 기록하므로 원장 기록 실패 경고는 job `result.warnings` 에만 있고 `dumps/<name>.json` 에는 없다.
 - esptool 은 모든 데이터를 받은 뒤에만 출력 파일을 쓴다. 그래서 읽는 동안에는 숨은 예약 파일만 둔다: esptool 이 쓰는 `dumps/.<name>.readN.partial`, 소유 표식 `dumps/.<name>.owner.partial`
   (JSON: server, pid, start_ticks, boot_id, host, created_at, job_id. Windows 백엔드는 첫 esptool.exe 를 띄우기 전에 windows_tokens(출력 UNC 경로)·windows_images,
   Windows 프로세스가 남으면 windows_pids·released_at 도), 잠깐 쓰는 `dumps/.<name>.meta.partial`.
@@ -585,6 +679,14 @@ esptool v5 는 하이픈 이름(`read-flash`), v4 는 밑줄 이름(`read_flash`
   실제 하드웨어가 필요한 테스트는 `@pytest.mark.hardware` 이고 기본 skip 이다(`--run-hardware` 또는 `PWEH_HARDWARE=1` 일 때만 실행, `tests/conftest.py`).
 - 문서·권한 규칙·Skill 이 실제 도구 카탈로그와 코드(분류기, 서버 반환값)와 맞는지는 `tests/core/test_docs_consistency.py`, `tests/core/test_skills_consistency.py` 가 검사한다.
   도구를 바꾸면 `scripts/dump_tool_catalog.py` 로 카탈로그를 다시 만든 뒤 이 두 파일을 돌린다.
+- 서버·도구 목록은 테스트에 적지 않는다: `tests/core/test_docs_consistency.py` 는 카탈로그(`docs/references/pweh-mcp-tools.json`)와 `pweh.cli.SERVERS` 에서 얻고,
+  카탈로그 = `pweh.cli.SERVERS` = `scripts/dump_tool_catalog.py` 의 SERVERS = `.mcp.json`(+ rea) 인지 검사한다. 새 서버를 더할 때 고칠 것은 파일 맨 위의 정책 상수뿐이다:
+  `FULL_ALLOW_SERVERS`(서버 전체 자동 허용), `FULL_SIGNATURE_SERVERS`(§6 시그니처 전체), `SERVER_DIR_OVERRIDES`(디렉터리가 'pweh-<x>' → '<x>-mcp' 규칙을 벗어날 때), `RULE_ID_PREFIXES`(규칙 id 접두).
+  `anthropic/requiresUserInteraction` 은 `destructiveHint` 도구와 정확히 같아야 한다(`ANN_DESTRUCTIVE` 도구에는 `META_REQUIRE_HUMAN` 을 붙이고 safety.md·mcp-setup.md 목록에도 적는다).
+  문서의 `pweh <명령>` 예시는 `pweh.cli.build_parser()` 로 해석되어야 한다(하위 명령 목록도 파서에서 얻는다).
+- 사람 증명·출처 원장·마스킹 테스트(`tests/core/test_attestations.py`, `tests/core/test_provenance.py`, `tests/core/test_masking.py`)는 `workspace` fixture 의
+  격리된 상태 디렉터리만 쓴다. `pweh attest` 는 하위 프로세스로 실행해 TTY 가 아닐 때의 거부를, 가상 터미널(pty)로 대화형 답·목록·철회를 시험한다.
+  작업 공간의 실제 `.pweh/state` 는 건드리지 않는다.
 - 테스트 파일 위치: `tests/servers/test_<server>.py`, `tests/core/`, `tests/uart/`(uart-mcp 파서·분류·문맥 단위), `tests/fwtriage/`(합성 입력 빌더),
   `tests/mocktarget/`, `tests/e2e/`.
 - `tests/e2e/` 의 에이전트는 Skill 순서를 스크립트로 고정한 것이다. 실제 모델이 마스터 프롬프트·Skill 만 보고 끝까지 가는지는

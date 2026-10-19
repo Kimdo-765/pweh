@@ -12,7 +12,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
 ## 구조
 
 ```
-[사람]  배선 · 프로브 · 전원 재투입 · 위험 작업 승인 (pweh approve)
+[사람]  배선 · 프로브 · 전원 재투입 · 위험 작업 승인 (pweh approve) · 사람 증명 (pweh attest)
    │
 [에이전트]  orchestrator/master-prompt.md  +  skills/*/SKILL.md
    │
@@ -31,7 +31,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
 공통 코어(`src/pweh/`)는 모든 서버가 쓰는 계약을 구현한다.
 - **케이스 작업공간**: Skill 사이의 데이터 전달.
 - **JSON 스키마**: 단계 결과·발견사항 검증.
-- **안전 게이트**: 명령 위험도 분류, 정책, 사람 승인.
+- **안전 게이트**: 명령 위험도 분류, 정책, 사람 승인. 게이트 밖의 공통 안전 기능으로 사람 증명(attestation), 출처 원장(provenance), 비밀값 마스킹.
 - **백그라운드 job**: 장시간 작업.
 - **보고서 생성기**.
 
@@ -41,7 +41,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
 
 | 단계 | Skill | 하는 일 | 산출물 (cases/<id>/) |
 |---|---|---|---|
-| 0 | `pweh-start` | 접수: 기기 정보, **소유/허가 확인**, 장비 확인, 프로필 선택, 케이스 생성 | `case.json` |
+| 0 | `pweh-start` | 접수: **목표 선택**(보안 분석 / 게임 콘솔·RF·하드웨어·SD 카드 포렌식은 준비 중), 기기 정보, **소유/허가 확인**, 장비 확인, 프로필 선택, 케이스 생성 | `case.json` |
 | A | `uart-shell-acquisition` | 포트 탐색, 보드레이트 탐지, 부팅 로그, U-Boot 인터럽트, 셸 획득, 기본 정보 수집 | `uart/*.log`, `steps/*` |
 | A′ | `logic-analyzer-protocol-decode` | 핀/보드레이트 모를 때 캡처·디코딩, SPI/I2C 관찰 | `signals/*` |
 | B | `firmware-dump-via-uart` | U-Boot `sf read`+`md.b`(+crc32) 또는 셸 `dd`(+md5) 덤프, 재개 가능 | `dumps/*.bin` + 메타데이터 |
@@ -52,6 +52,9 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
 
 각 Skill 은 끝날 때 스키마에 맞는 `summary` 를 케이스에 저장한다 (`schemas/*.schema.json`).
 다음 Skill 은 그 요약을 읽어서 이어서 진행한다. 세션이 끊겨도 케이스만 있으면 이어서 할 수 있다.
+
+보안 분석이 아닌 목표(게임 콘솔 분석, RF·하드웨어 분석, SD 카드 포렌식)는 준비 중이다. 지금은 기존 Skill·도구로 할 수 있는 일만 한다
+(ESP32 기기는 `esp32-flash-dump` + `firmware-static-analysis`, 보드 단위 콘솔·신호·덤프, SD 이미지는 사람이 쓰기 방지 장치로 이미징한 뒤 `case_import_file` + 해시 대조 — `orchestrator/master-prompt.md` §3.1).
 
 ## 빠른 시작
 
@@ -111,13 +114,23 @@ Codex 는 `$pweh-start` 로 시작한다 (설정은 `pweh mcp-config --client co
 기본 정책은 `destructive_policy: deny` 라서 위 흐름 자체가 일어나지 않는다. 사람이
 `orchestrator/pipeline-config.yaml` 에서 `approve` 로 바꿔야만 가능하다.
 
+### 사람 증명 (`pweh attest`)
+
+에이전트가 확인할 수 없는 사실(콘솔 오프라인, 배선과 잰 전압, 가져온 파일의 출처 등)이 필요한 도구는 `status: attestation_required` 와 `attestation_id` 를 돌려준다
+(지금은 코어와 이 명령만 있고 그런 도구는 아직 없다 — 게임 콘솔·RF·SD 포렌식·계측기 서버가 쓸 기반이다).
+사람이 **별도 터미널**에서 `.venv/bin/pweh attest <attestation_id>` 를 실행해 항목마다 직접 답하고, 승인이 되는 답이면 화면의 확인 코드를 입력한다(대화형 터미널 전용).
+클라이언트가 지원하면 같은 항목이 확인 폼으로 뜬다.
+승인과 달리 한 번 쓰고 사라지지 않고, 대상·범위(케이스·연결·job·계측기)와 만료에 묶여 재사용된다. 목록은 `pweh attest --list`, 철회는 `pweh attest --revoke <id>` 다.
+케이스 소유/허가 증명(`pweh case attest <case_id>`)과는 다른 명령이다.
+출처 원장은 지금도 기록된다: pweh-esp 의 덤프·칩·보안 정보는 기기에서 읽은 것으로, `case_import_file` 로 가져온 파일은 출처 미확인으로 남는다([안전 가이드](docs/safety.md) §3.5).
+
 ## 디렉터리
 
 ```
 pweh/
 ├── README.md, project.md(명세), AGENTS.md, CLAUDE.md
 ├── pyproject.toml                  하나의 패키지로 코어 + 7개 서버 설치
-├── src/pweh/                       공통 코어 (config, case, safety, jobs, mcpkit, report, cli, formats, schemas, mocktarget)
+├── src/pweh/                       공통 코어 (config, case, safety, provenance, jobs, mcpkit, report, cli, formats, schemas, mocktarget)
 ├── mcp-servers/
 │   ├── case-mcp/  uart-mcp/  openocd-mcp/  sigrok-mcp/  jtagulator-mcp/  fwtriage-mcp/  esp-mcp/
 ├── skills/                         pweh-start + 6개 Skill (.claude/skills, .agents/skills 에 링크)
@@ -152,7 +165,7 @@ pweh/
   - 순수 Python 보드레이트 추정.
 
 ## 문서
-- [안전 가이드](docs/safety.md) — 법적 범위, 전기 안전, 게이트, 승인, 위협 모델, 비상 정지, 백업
+- [안전 가이드](docs/safety.md) — 법적 범위, 전기 안전, 게이트, 승인, 사람 증명·출처 원장, 위협 모델, 비상 정지, 백업
 - [하드웨어 셋업](docs/hardware-setup.md) — 장비, UART 패드 찾기, 배선, WSL usbipd, 로직 애널라이저, JTAG, SPI 클립, ESP32 보드(esptool 방법 A/B)
 - [MCP 설정](docs/mcp-setup.md) — Claude Code / Codex / Cursor 등록, REA 연동, ESP32 esptool 방법 A, 타임아웃
 - [아키텍처와 계약](docs/architecture.md) — 서버별 도구, 케이스 구조, 안전 모델, 코딩·테스트 규칙

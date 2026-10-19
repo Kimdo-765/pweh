@@ -15,6 +15,7 @@ from typing import Any
 from pweh import schemas
 from pweh.case import PIPELINE_PHASES, PHASE_STATUSES
 from pweh.errors import NotFound, ValidationFailed
+from pweh.fsutil import is_within
 from pweh.mcpkit import ANN_LOCAL_WRITE, ANN_READ_ONLY, create_server, safe_tool
 from pweh.report import write_report
 from pweh.runtime import Runtime, get_runtime
@@ -235,8 +236,39 @@ def case_import_file(case_id: str, source_path: str, kind: str = "firmware-image
     case = rt().cases.get(case_id)
     if dest_subdir not in ("dumps", "extract", "analysis", "signals", "jtag", "notes", "uart"):
         raise ValidationFailed(f"허용되지 않은 dest_subdir: {dest_subdir}")
-    art = case.import_file(source_path, dest_subdir, kind=kind, producer="case-mcp", description=description)
-    return {"ok": True, "artifact": art, "absolute_path": str(case.dir / art["path"])}
+    # 보호 상태(승인·증명·출처 원장·솔트·감사 로그)를 케이스로 복사해 읽어 내지 못하게 한다. 확인한 경로를 그대로 복사한다(다시 해석하지 않음).
+    src = Path(source_path).expanduser().resolve()
+    if is_within(rt().config.state_dir, src):
+        raise ValidationFailed(
+            "보호 상태 디렉터리(state_dir — 승인·증명·출처 원장·솔트·감사 로그)의 파일은 가져올 수 없습니다.",
+            hint="케이스 밖의 원본 파일(벤더 펌웨어, 클립으로 읽은 덤프, 사람이 만든 이미지)만 가져온다.",
+        )
+    art = case.import_file(src, dest_subdir, kind=kind, producer="case-mcp", description=description)
+    return {"ok": True, "artifact": art, "absolute_path": str(case.dir / art["path"]), "provenance": _record_import(case, art, kind)}
+
+
+def _record_import(case, art: dict[str, Any], kind: str) -> dict[str, Any]:
+    """가져온 파일을 출처 원장에 imported-unattested 로 기록한다(기기 읽기로 기록하는 경로는 이 서버에 없다).
+
+    기록 실패는 가져오기를 막지 않는다 — 원장에 없는 파일은 출처 확인에서 신뢰되지 않으므로(fail closed) 결과만 알린다.
+    """
+    import logging
+
+    source = {"server": SERVER_NAME, "tool": "case_import_file", "imported_from": (art.get("extra") or {}).get("imported_from"),
+              "artifact_kind": kind}
+    try:
+        entry = rt().provenance.record_import(case, art["path"], source, sha256=art.get("sha256"))
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("pweh.case").warning("출처 원장 기록 실패 (%s): %s", art.get("path"), exc)
+        return {"recorded": False, "kind": "imported-unattested", "reason": f"{getattr(exc, 'code', type(exc).__name__)}: {exc}"[:300]}
+    return {
+        "recorded": True,
+        "kind": entry["kind"],
+        "seq": entry["seq"],
+        "sha256": entry["sha256"],
+        "note": ("가져온 파일은 기기에서 읽은 것으로 취급하지 않는다(imported-unattested). 출처가 중요한 작업(에뮬레이션·올리기·패치 base 등)에는 "
+                 "사람의 provenance-import 증명(`pweh attest`)이 필요하다."),
+    }
 
 
 @server.tool(

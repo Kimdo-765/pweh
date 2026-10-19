@@ -28,6 +28,9 @@
   두고, 최종 파일(``<name>.bin``/``.read2.bin``/``.json``)은 끝날 때 O_EXCL 로 만든다(기존 증거를 덮어쓰지 않음).
   서버 시작 때 주인 프로세스가 죽은 예약 파일을 지우고, 죽은 프로세스의 'running' 작업 기록을 'abandoned' 로 고친다.
   SIGTERM 을 받으면 작업을 취소해 정리한 뒤 끝난다.
+- 출처 원장(``pweh.provenance``, ``<state_dir>/provenance/<case>.jsonl``): 끝까지 성공한 덤프의 읽기 파일(1차·2차)은 device-read,
+  ``esp_chip_info``·``esp_security_info`` 결과는 device-fact 로 기록한다(실패·취소 때 보존한 1차 읽기는 기록하지 않음). 기록 실패는
+  결과를 막지 않고 응답의 ``provenance.recorded=false`` 와 경고로 알린다.
 """
 
 from __future__ import annotations
@@ -920,6 +923,7 @@ async def esp_chip_info(
                             "우회(글리칭·eFuse 조작)는 시도하지 않는다. esp_security_info 로 보안 설정을 확인하고 사용자에게 보고하라.")
             out["error"] = fatal_message(text)
             out.update(warnings=warnings, notes=notes)
+            out["provenance"] = _record_fact("esp-chip-info", "esp_chip_info", run, conn, _chip_fact(out))
             return out
         raise_for_result(res, text, "esp_chip_info(flash-id)", log_path=run["log_path"])
         raise EsptoolFailed(f"flash-id 출력을 해석할 수 없습니다 (로그: {run['log_path']})", code="esp_bad_output",
@@ -931,7 +935,63 @@ async def esp_chip_info(
     out.update(warnings=warnings, notes=notes)
     out["next_steps"] = (f"esp_security_info(case_id='{run['case'].id}', port='{run['spec'].port}') 로 보안 설정을 확인한 뒤 "
                          f"esp_read_flash_start(case_id='{run['case'].id}', port='{run['spec'].port}', size='all') 로 덤프한다.")
+    out["provenance"] = _record_fact("esp-chip-info", "esp_chip_info", run, conn, _chip_fact(out))
     return out
+
+
+# ---------------------------------------------------------------------------
+# 출처 원장 (pweh.provenance): 기기 사실(device-fact)과 덤프(device-read)
+# ---------------------------------------------------------------------------
+
+_CHIP_FACT_FIELDS = ("status", "chip", "chip_description", "chip_revision", "features", "crystal_mhz", "usb_mode", "mac", "base_mac",
+                     "mac_ext", "secure_download_mode", "stub", "detected_chip", "read_flash_possible", "flash")
+
+
+def _chip_fact(out: dict[str, Any]) -> dict[str, Any]:
+    return {k: out.get(k) for k in _CHIP_FACT_FIELDS}
+
+
+def _record_fact(fact_kind: str, tool: str, run: dict[str, Any], conn: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
+    """esp_chip_info·esp_security_info 결과를 출처 원장에 기기 사실로 기록한다 (계측기 플래시 전 백업·보안 상태 확인의 근거).
+
+    기록 실패는 기기 결과를 막지 않는다. 원장에 없는 사실은 확인하는 쪽에서 '없음'으로 다뤄진다(fail closed).
+    """
+    spec: ports.PortSpec = run["spec"]
+    backend: Backend = run["backend"]
+    source = {"server": SERVER_NAME, "tool": tool, "port": spec.port, "backend": backend.name, "esptool_version": backend.version,
+              "chip": conn.get("chip") or conn.get("detected_chip"), "mac": conn.get("mac"), "base_mac": conn.get("base_mac"),
+              "usb_mode": conn.get("usb_mode"), "log_path": run.get("log_path")}
+    try:
+        entry = rt().provenance.record_device_fact(run["case"], fact_kind, data, source)
+    except Exception as exc:  # noqa: BLE001 - 출처 기록 실패가 기기 결과를 막지 않게
+        log.warning("출처 원장 기록 실패 (%s): %s", fact_kind, exc)
+        return {"recorded": False, "kind": "device-fact", "fact_kind": fact_kind,
+                "reason": f"{getattr(exc, 'code', type(exc).__name__)}: {exc}"[:300]}
+    return {"recorded": True, "kind": "device-fact", "fact_kind": fact_kind, "seq": entry["seq"]}
+
+
+def _record_dump_provenance(case: Case, plan: "DumpPlan", reads: list[dict[str, Any]], verification: dict[str, Any],
+                            source: dict[str, Any], job_id: str | None) -> dict[str, Any]:
+    """끝난 덤프의 읽기 파일(1차·2차)을 출처 원장에 device-read 로 기록한다.
+
+    워커가 esptool 이 쓴 직후 계산한 sha256 을 넘겨, 공개한 파일이 그사이 바뀌었으면 기록하지 않는다.
+    """
+    src = {"server": SERVER_NAME, "tool": "esp_read_flash_start", "port": plan.port.port, "backend": plan.backend.name,
+           "chip": source.get("chip") or plan.chip, "chip_description": source.get("chip_description"), "mac": source.get("mac"),
+           "base_mac": source.get("base_mac"), "usb_mode": source.get("usb_mode"), "esptool_version": plan.backend.version,
+           "verify": verification.get("method"), "match": verification.get("match")}
+    recorded: list[dict[str, Any]] = []
+    try:
+        for i, rd in enumerate(reads):
+            extra = {"role": "primary" if i == 0 else "verification-read", "read": rd.get("index"), "offset": plan.offset,
+                     "length": rd.get("size"), "job_id": job_id, "after": rd.get("after"), "baud": rd.get("baud")}
+            entry = rt().provenance.record_device_read(case, rd["path"], src, extra, sha256=rd["sha256"])
+            recorded.append({"path": entry["path"], "seq": entry["seq"], "sha256": entry["sha256"]})
+    except Exception as exc:  # noqa: BLE001 - 덤프 결과는 이미 공개됨, 출처 기록 실패만 알린다
+        log.warning("출처 원장 기록 실패 (덤프): %s", exc)
+        return {"recorded": False, "kind": "device-read", "entries": recorded,
+                "reason": f"{getattr(exc, 'code', type(exc).__name__)}: {exc}"[:300]}
+    return {"recorded": True, "kind": "device-read", "entries": recorded}
 
 
 _SECURITY_NULL_FIELDS = (
@@ -993,6 +1053,7 @@ async def esp_security_info(
             "notes": notes,
         })
         rt().audit({"event": "esp_security_summary", "port": run["spec"].port, "status": "unsupported", "chip": chip_name}, run["case"].id)
+        out["provenance"] = _record_fact("esp-security-info", "esp_security_info", run, conn, _security_fact(out))
         return out
     if res.returncode != 0 or sec is None:
         raise_for_result(res, text, "esp_security_info(get-security-info)", log_path=run["log_path"])
@@ -1047,7 +1108,14 @@ async def esp_security_info(
     })
     rt().audit({"event": "esp_security_summary", "port": run["spec"].port, "status": "ok", "secure_boot": sec["secure_boot"],
                 "flash_encryption": fe, "secure_download_mode": sdm}, run["case"].id)
+    out["provenance"] = _record_fact("esp-security-info", "esp_security_info", run, conn, _security_fact(out))
     return out
+
+
+def _security_fact(out: dict[str, Any]) -> dict[str, Any]:
+    """보안 사실(원장 data): status·chip + 보안 필드 전부 (unsupported 면 보안 필드는 null = 미확인)."""
+    return {"status": out.get("status"), "chip": out.get("chip"), "chip_description": out.get("chip_description"),
+            **{k: out.get(k) for k in _SECURITY_NULL_FIELDS}}
 
 
 # ---------------------------------------------------------------------------
@@ -1405,10 +1473,20 @@ def _finalize_dump(plan: DumpPlan, reads: list[dict[str, Any]], *, status: str, 
                                                       "role": "verification-read", "primary": case.rel(primary["path"])})
     arts["metadata"] = case.register_artifact(meta_path, kind="other", producer=PRODUCER, description="esptool 덤프 메타데이터",
                                               extra={"type": "dump-metadata", "dump": case.rel(primary["path"])})
+    # 출처 원장: 끝까지 성공한 덤프만 기기 읽기(device-read)로 기록한다. 실패·취소 때 보존한 1차 읽기는 기록하지 않는다(신뢰하지 않음).
+    if status == "succeeded":
+        provenance = _record_dump_provenance(case, plan, reads, verification, source, job_id)
+        if not provenance["recorded"]:
+            warnings.append(f"출처 원장에 덤프를 기록하지 못했다({provenance.get('reason')}) — 출처 확인이 필요한 작업에서 이 덤프는 "
+                            "신뢰되지 않는다.")
+    else:
+        provenance = {"recorded": False, "kind": "device-read", "reason": f"status={status} (끝까지 성공한 덤프만 기록)"}
     rt().audit({"event": "esp_read_flash_completed", "status": status, "output": case.rel(primary["path"]), "sha256": primary["sha256"],
-                "size": primary["size"], "match": verification["match"], "backend": plan.backend.name, "port": plan.port.port}, plan.case_id)
+                "size": primary["size"], "match": verification["match"], "backend": plan.backend.name, "port": plan.port.port,
+                "provenance_recorded": provenance["recorded"]}, plan.case_id)
     return {
         "ok": True,
+        "provenance": provenance,
         "status": status,
         "path": case.rel(primary["path"]),
         "absolute_path": str(primary["path"]),

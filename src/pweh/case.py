@@ -4,7 +4,7 @@
 파일로 이루어진다::
 
     cases/<case_id>/
-      case.json          메타데이터: 대상, 소유/허가 증명, 단계 상태, 아티팩트 색인, 단계 결과 색인
+      case.json          메타데이터: 대상, 소유/허가 증명, 단계 상태(파이프라인 단계 + 기록된 선택 단계), 아티팩트 색인, 단계 결과 색인
       audit.jsonl        이 케이스의 모든 기기 조작/안전 결정 로그
       steps/NNNN-<skill>-<step>.json   단계 결과 (schemas/step-result.schema.json)
       uart/              UART 세션 로그 (*.log 텍스트, *.raw 원시 바이트, *.events.jsonl)
@@ -20,6 +20,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
 import re
 import shutil
 from pathlib import Path
@@ -44,6 +46,8 @@ from . import schemas
 CASE_ID_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,78}[A-Za-z0-9_-])?$")
 STANDARD_DIRS = ("steps", "uart", "dumps", "extract", "analysis", "signals", "jtag", "jobs", "notes")
 
+#: 보안 분석(기본 목표, CCTV/IoT) 파이프라인의 단계. 새 케이스는 모두 'pending' 으로 시작한다(case.json 의 phases).
+#: case-mcp 의 case_set_phase 도구 설명이 이 값을 그대로 쓰므로, 바꾸면 도구 카탈로그도 다시 만든다.
 PIPELINE_PHASES = (
     "uart-shell-acquisition",
     "firmware-dump-via-uart",
@@ -52,9 +56,38 @@ PIPELINE_PHASES = (
     "cctv-auth-bypass-hunt",
     "report",
 )
+#: 선택 단계 레지스트리: 보안 분석 밖의 목표(게임 콘솔·RF·SD 포렌식)와 계측기용 Skill 의 단계 이름(= Skill 이름).
+#: PIPELINE_PHASES 와 달리 새 케이스에 'pending' 항목을 만들지 않는다. 그 Skill 이 summary 를 기록하거나
+#: case_set_phase 로 상태를 정할 때 처음 생기므로, 그 목표를 쓰지 않는 케이스의 case.json·보고서는 달라지지 않는다.
+#: 순서는 보고서의 표시 순서다. Skill 을 추가하면 이름을 여기에, 라벨을 report._PHASE_LABEL 에,
+#: 요약 스키마를 schemas.SKILL_DATA_SCHEMAS 에 함께 등록한다.
+OPTIONAL_PHASES = (
+    "game-save-unlock-analysis",
+    "nfc-behavior-analysis",
+    "game-play-automation",
+    "flipper-rf-analysis",
+    "sd-card-forensics",
+    "espprobe",
+)
 PHASE_STATUSES = ("pending", "in-progress", "done", "partial", "failed", "skipped", "blocked")
+#: summary 단계의 status → 단계(phase) 상태. 표에 없는 값(in-progress)은 'in-progress'.
+SUMMARY_PHASE_STATUS = {"success": "done", "partial": "partial", "failed": "failed", "blocked": "blocked", "skipped": "skipped"}
 AUTH_BASES = ("owned", "written-authorization")
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+
+
+def tracks_phase(skill: str) -> bool:
+    """이 Skill 의 summary 가 case.json 의 단계 상태를 갱신하는지 (파이프라인 단계 또는 등록된 선택 단계)."""
+    return skill in PIPELINE_PHASES or skill in OPTIONAL_PHASES
+
+
+def phase_sort_key(name: str) -> tuple[int, int]:
+    """단계 표시 순서: 파이프라인 단계 → 선택 단계(레지스트리 순서) → 그 밖의 이름(같은 값 — 안정 정렬로 기록 순서 유지)."""
+    if name in PIPELINE_PHASES:
+        return (0, PIPELINE_PHASES.index(name))
+    if name in OPTIONAL_PHASES:
+        return (1, OPTIONAL_PHASES.index(name))
+    return (2, 0)
 
 
 def _slug(text: str, maxlen: int = 24) -> str:
@@ -139,6 +172,8 @@ class Case:
             )
 
     def set_phase(self, phase: str, status: str, note: str | None = None) -> dict[str, Any]:
+        """단계 상태 수동 갱신. 선택 단계(OPTIONAL_PHASES)는 여기나 record_step 에서 처음 생긴다.
+        단계 이름은 검사하지 않는다 — 레지스트리 밖의 이름도 기록되고 보고서의 '선택 단계' 표에 보인다."""
         if status not in PHASE_STATUSES:
             raise ValidationFailed(f"잘못된 단계 상태: {status!r}", hint=f"허용: {PHASE_STATUSES}")
 
@@ -193,7 +228,9 @@ class Case:
         description: str | None = None,
         extra: dict[str, Any] | None = None,
         compute_hash: bool = True,
+        sha256: str | None = None,
     ) -> dict[str, Any]:
+        """아티팩트 등록(같은 경로는 갱신). sha256: 호출자가 이미 계산한 해시(예: 복사하면서 계산) — 주면 파일을 다시 읽지 않는다."""
         p = self.resolve_path(path)
         if not p.exists():
             raise NotFound(f"아티팩트 파일이 없습니다: {p}")
@@ -209,7 +246,9 @@ class Case:
             entry["description"] = description
         if not is_dir:
             entry["size"] = p.stat().st_size
-            if compute_hash:
+            if sha256:
+                entry["sha256"] = sha256
+            elif compute_hash:
                 entry["sha256"] = sha256_file(p)
         if extra:
             entry["extra"] = extra
@@ -231,16 +270,35 @@ class Case:
         return result
 
     def import_file(self, src: str | Path, dest_subdir: str, *, kind: str, producer: str, description: str | None = None) -> dict[str, Any]:
-        """케이스 밖의 파일(예: 공식 펌웨어 다운로드)을 케이스로 복사 후 등록."""
+        """케이스 밖의 파일(예: 공식 펌웨어 다운로드)을 케이스로 복사 후 등록.
+
+        대상 파일은 O_CREAT|O_EXCL 로 새로 만든다. 같은 이름의 파일이나 심볼릭 링크(끊어진 링크 포함)가 있으면 거부한다
+        — 링크를 따라 케이스 밖에 쓰지 않게. 복사하면서 sha256 을 계산해 아티팩트에 싣는다(파일을 다시 읽지 않음).
+        """
         srcp = Path(src).expanduser().resolve()
         if not srcp.is_file():
             raise NotFound(f"가져올 파일이 없습니다: {srcp}")
         dst_dir = self.subdir(dest_subdir)
         dst = dst_dir / srcp.name
-        if dst.exists():
-            raise CaseError(f"이미 같은 이름의 파일이 있습니다: {self.rel(dst)}")
-        shutil.copy2(srcp, dst)
-        return self.register_artifact(dst, kind=kind, producer=producer, description=description, extra={"imported_from": str(srcp)})
+        try:
+            fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        except FileExistsError:
+            raise CaseError(f"이미 같은 이름의 파일이 있습니다: {self.rel(dst)}") from None
+        digest = hashlib.sha256()
+        try:
+            with os.fdopen(fd, "wb") as out, srcp.open("rb") as inp:
+                while True:
+                    block = inp.read(1 << 20)
+                    if not block:
+                        break
+                    digest.update(block)
+                    out.write(block)
+            shutil.copystat(srcp, dst, follow_symlinks=False)
+        except BaseException:
+            dst.unlink(missing_ok=True)  # 방금 O_EXCL 로 만든 파일만 지운다(복사 실패·취소 때 잘린 파일을 남기지 않게)
+            raise
+        return self.register_artifact(dst, kind=kind, producer=producer, description=description, extra={"imported_from": str(srcp)},
+                                      sha256=digest.hexdigest())
 
     def artifacts(self, kind: str | None = None) -> list[dict[str, Any]]:
         arts = self.load().get("artifacts", [])
@@ -287,11 +345,10 @@ class Case:
             rel = f"steps/{fname}"
             atomic_write_json(self.path("steps", fname), {**result, "seq": seq})
             steps.append({"seq": seq, "file": rel, "skill": skill, "step": step, "status": status, "at": result["finished_at"]})
-            # 요약 단계는 단계(phase) 상태도 갱신
-            if step == "summary" and skill in PIPELINE_PHASES:
-                phase_status = {"success": "done", "partial": "partial", "failed": "failed", "blocked": "blocked", "skipped": "skipped"}.get(status, "in-progress")
+            # 요약 단계는 단계(phase) 상태도 갱신. 선택 단계는 여기서 처음 생긴다(새 케이스에 pending 으로 만들지 않음)
+            if step == "summary" and tracks_phase(skill):
                 phases = meta.setdefault("phases", {})
-                phases[skill] = {"status": phase_status, "updated_at": result["finished_at"]}
+                phases[skill] = {"status": SUMMARY_PHASE_STATUS.get(status, "in-progress"), "updated_at": result["finished_at"]}
             return {**result, "seq": seq, "file": rel}
 
         out = self._update(fn)

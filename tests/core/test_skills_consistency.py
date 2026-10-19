@@ -5,6 +5,8 @@ skills/*/(SKILL.md, reference.md, checklist.md) 와 orchestrator/master-prompt.m
 - 도구: 문서의 도구 이름·키워드 인자가 실제 서버(list_tools)와 REA 도구 목록에 있다 (scripts/dump_tool_catalog.py --check 포함).
 - 스키마: 요약 예시 JSON 과 finding 예시가 pweh.schemas 를 통과한다.
 - 데이터 전달: 다음 Skill 이 읽는다고 적은 필드가 이전 Skill 의 요약 예시·스키마에 있다.
+- 목표 분기: master-prompt Phase 0 의 목표 표·장비 체크리스트·준비 중 항목·목표별 완료 기준, 아직 없는 Skill 이름을 적지 않음.
+- 서버 목록(도구 지도 행)은 카탈로그에서 얻는다.
 - 안전 규칙·사람 요청 템플릿: 태그 어휘, 전원 투입 순서, init=/bin/sh 동의, 증거 덮어쓰기 금지 등.
 - 서버 동작과 맞춘 사실: 문서의 예시 명령·규칙 설명을 실제 분류기(uart_mcp.guard, openocd_mcp.guard)와 서버 소스로 대조한다.
 문서만 읽고(서버 목록 수집·분류기 호출은 in-memory) 하드웨어·외부 도구가 필요 없다.
@@ -319,7 +321,9 @@ def _backticked_names(text: str) -> set[str]:
 def test_master_prompt_tool_map_matches_real_tools(catalog, pweh_params, rea_args):
     tool_map = _section(_read(MASTER), "## 2.")
     rows = [ln for ln in tool_map.split("\n") if ln.startswith("| `")]
-    assert len(rows) == 8, "도구 지도 행 수 (서버 8개)"
+    # 행 = 서버 하나씩: 카탈로그의 pweh 서버 전부 + rea (행 수를 숫자로 고정하지 않는다)
+    servers = [re.match(r"\| `([^`]+)`", row).group(1) for row in rows]
+    assert sorted(servers) == sorted(set(catalog) | {"rea"}), f"도구 지도 행 {servers} ≠ 카탈로그 서버 + rea"
     for row in rows:
         server = re.match(r"\| `([^`]+)`", row).group(1)
         names = _backticked_names(row.split("|")[2])
@@ -354,6 +358,54 @@ def test_master_prompt_decision_tree_names_existing_skills():
     assert named and named <= {d.name for d in SKILL_DIRS}
     assert {"uart-shell-acquisition", "logic-analyzer-protocol-decode", "firmware-dump-via-uart",
             "firmware-static-analysis", "cctv-auth-bypass-hunt", "esp32-flash-dump"} <= named
+
+
+def test_agent_docs_do_not_name_skills_that_do_not_exist():
+    """선택 단계 레지스트리(pweh.case.OPTIONAL_PHASES)에만 있고 Skill 디렉터리가 아직 없는 이름(준비 중인 목표의 Skill)은
+    에이전트가 읽는 문서에 적지 않는다 — 에이전트가 없는 Skill 을 찾거나 그 이름으로 요약을 기록하지 않게."""
+    from pweh.case import OPTIONAL_PHASES
+
+    future = sorted(set(OPTIONAL_PHASES) - {d.name for d in SKILL_DIRS})
+    problems = [f"{doc.relative_to(REPO)}: {name}" for doc in DOCS for name in future
+                if re.search(rf"(?<![A-Za-z0-9_-]){re.escape(name)}(?![A-Za-z0-9_-])", _read(doc))]
+    assert not problems, f"아직 없는 Skill 이름: {problems}"
+
+
+GOALS = ("보안 분석", "게임 콘솔 분석", "RF·하드웨어 분석", "SD 카드 포렌식")
+
+
+def test_master_prompt_goal_fork():
+    """Phase 0 목표 분기: 목표 표(보안 분석만 지원, 나머지는 준비 중 → §3.1), 목표별 장비 체크리스트, 준비 중 항목,
+    목표별 완료 기준(펌웨어 확보는 보안 분석만 요구 — RF·SD 케이스도 끝낼 수 있게), pweh-start 안내."""
+    master = _read(MASTER)
+    s3 = _section(master, "## 3.")
+    rows: dict[str, list[str]] = {}
+    for ln in s3.split("\n"):
+        cells = [c.strip() for c in ln.split("|")[1:-1]]
+        if ln.startswith("| ") and cells:
+            goal = next((g for g in GOALS if cells[0].replace("*", "").startswith(g)), None)
+            if goal:
+                rows[goal] = cells
+    assert set(rows) == set(GOALS), f"목표 표의 목표: {sorted(rows)}"
+    assert rows["보안 분석"][2] == "지원" and "§4" in rows["보안 분석"][3]
+    prep = s3[s3.index("### 3.1"):]
+    for goal in GOALS[1:]:
+        assert rows[goal][2] == "준비 중" and "§3.1" in rows[goal][3], goal
+        assert f"**{goal}**" in prep, f"§3.1 에 {goal} 항목 없음"
+    for item in ("Flipper Zero", "ChameleonUltra", "RTL-SDR", "캡처 카드", "브리지 보드", "쓰기 방지 장치", "Windows 관리자 권한"):
+        assert item in s3, f"Phase 0 장비 체크리스트에 {item} 없음"
+    assert re.search(r"case_create\([^)]*notes", s3), "고른 목표를 케이스에 남긴다(case_create 의 notes)"
+    s9 = _section(master, "## 9.")
+    common, _, per_goal = s9.partition("| 목표 |")
+    checklist = [ln for ln in common.split("\n") if ln.startswith("- [ ]")]
+    assert per_goal and len(checklist) >= 5
+    assert not [ln for ln in checklist if "펌웨어" in ln], "공통 완료 기준은 펌웨어 확보를 요구하지 않는다"
+    goal_rows = {g: ln for ln in per_goal.split("\n") for g in GOALS if ln.startswith(f"| {g}")}
+    assert set(goal_rows) == set(GOALS), f"§9 목표별 완료 기준: {sorted(goal_rows)}"
+    assert "펌웨어 확보" in goal_rows["보안 분석"]
+    assert all("펌웨어 확보" not in goal_rows[g] for g in ("RF·하드웨어 분석", "SD 카드 포렌식"))
+    start = _skill_text("pweh-start")
+    assert all(g in start for g in GOALS) and "준비 중" in start and "§3.1" in start
 
 
 # ---------------------------------------------------------------------------

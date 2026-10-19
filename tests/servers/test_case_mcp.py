@@ -169,3 +169,118 @@ async def test_step_results_survive_server_restart(workspace, auth):
         summ = res["summaries"]["uart-shell-acquisition"]
         assert summ["data"]["baudrate"] == 115200 and summ["status"] == "success"
         assert "firmware-dump-via-uart" in res["missing"]
+
+
+async def test_case_import_file_records_only_unattested_provenance(workspace, auth, tmp_path):
+    """case_import_file 은 출처 원장에 imported-unattested 만 남긴다: 덤프처럼 보이는 이름·kind·producer 로도 기기 읽기(device-read)가 되지 않고,
+    사람의 provenance-import 증명(같은 sha256·같은 케이스)이 있을 때만 신뢰된다."""
+    import json
+
+    from case_mcp.server import server
+    from pweh.provenance import PROVENANCE_IMPORT_QUESTIONS, provenance_import_target
+    from pweh.runtime import get_runtime
+
+    src = tmp_path / "esp-flash.bin"
+    src.write_bytes(b"DOWNLOADED-DUMP" * 512)
+    async with Client(server) as c:
+        cid = (await call(c, "case_create", title="import provenance", authorization=auth))["case"]["id"]
+        r = await call(c, "case_import_file", case_id=cid, source_path=str(src), kind="flash-dump", dest_subdir="dumps",
+                       description="esptool 플래시 덤프 (esp-mcp)")
+        assert r["ok"], r
+        prov = r["provenance"]
+        assert prov["recorded"] is True and prov["kind"] == "imported-unattested" and prov["sha256"] == r["artifact"]["sha256"]
+        # producer 를 바꿔 등록해도(case_register_artifact) 출처는 바뀌지 않는다
+        reg = await call(c, "case_register_artifact", case_id=cid, path="dumps/esp-flash.bin", kind="flash-dump", producer="esp-mcp")
+        assert reg["ok"], reg
+    rt = get_runtime("case-mcp")
+    case = rt.cases.get(cid)
+    entries = rt.provenance.entries(case)
+    assert [e["kind"] for e in entries] == ["imported-unattested"]
+    assert entries[0]["source"]["server"] == "case-mcp" and entries[0]["source"]["tool"] == "case_import_file"
+    assert entries[0]["source"]["imported_from"] == str(src.resolve())
+    v = rt.provenance.verify(case, "dumps/esp-flash.bin")
+    assert v["trusted"] is False and v["kind"] == "imported-unattested" and v["reason"] == "imported-unattested"
+    meta = json.loads(case.meta_path.read_text(encoding="utf-8"))
+    assert meta["artifacts"][0]["producer"] == "esp-mcp"  # case.json 은 에이전트 값 그대로 — 출처 확인은 보지 않는다
+    assert rt.provenance.verify(case, "dumps/esp-flash.bin")["trusted"] is False
+    # 사람 증명 (서버 도우미 → pweh attest 대신 저장소에 사람의 결정을 기록)
+    kind, subject, binding = provenance_import_target(cid, v["sha256"])
+    dec = await rt.attest(kind, subject, binding, list(PROVENANCE_IMPORT_QUESTIONS), cid, None, "가져온 덤프 출처 확인")
+    assert dec.status == "attestation_required"
+    rt.attestations.decide(dec.attestation_id, {"source_known": "yes", "how_obtained": "SOIC 클립 + CH341A"}, via="cli-tty", by="tester")
+    v2 = rt.provenance.verify(case, "dumps/esp-flash.bin")
+    assert v2["trusted"] is True and v2["reason"] == "imported-attested" and v2["attestation_id"] == dec.attestation_id
+    # 증명이 있어도 원장 항목은 여전히 imported-unattested 하나뿐 (device-read 를 만드는 경로가 없다)
+    assert [e["kind"] for e in rt.provenance.entries(case)] == ["imported-unattested"]
+
+
+async def test_case_import_file_survives_broken_ledger(workspace, auth, tmp_path):
+    """원장이 깨져 있으면 기록하지 않고(fail closed) 알리기만 한다 — 가져오기 자체는 된다."""
+    from case_mcp.server import server
+
+    src = tmp_path / "fw.bin"
+    src.write_bytes(b"fw")
+    async with Client(server) as c:
+        cid = (await call(c, "case_create", title="broken ledger", authorization=auth))["case"]["id"]
+        ledger = workspace["state_dir"] / "provenance" / f"{cid}.jsonl"
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        ledger.write_text("{garbage\n", encoding="utf-8")
+        r = await call(c, "case_import_file", case_id=cid, source_path=str(src))
+    assert r["ok"] and r["provenance"]["recorded"] is False and "provenance_ledger_broken" in r["provenance"]["reason"], r
+    assert ledger.read_text(encoding="utf-8") == "{garbage\n"
+
+
+async def test_case_import_file_refuses_protected_state(workspace, auth, tmp_path):
+    """보호 상태(state_dir)의 파일은 가져올 수 없다 — 솔트·승인 레코드를 케이스로 복사한 뒤 case_hash_file 로 바이트를 읽어 내는 경로를 막는다.
+    링크나 '..' 로 돌아가도 실제 경로로 판단하고, 케이스에는 아무 파일도 생기지 않는다."""
+    from case_mcp.server import server
+    from pweh.runtime import get_runtime
+
+    state = workspace["state_dir"]
+    async with Client(server) as c:
+        cid = (await call(c, "case_create", title="state import", authorization=auth))["case"]["id"]
+        rt = get_runtime("case-mcp")
+        rt.salts.salt(cid)  # 솔트를 만든다
+        salt = rt.salts.salt_path(cid)
+        appr = state / "approvals" / "ap-0123456789.json"
+        appr.parent.mkdir(parents=True, exist_ok=True)
+        appr.write_text('{"code": "WHAE"}', encoding="utf-8")
+        link = tmp_path / "innocent.bin"
+        link.symlink_to(salt)
+        dotted = state / "salts" / ".." / "salts" / salt.name
+        for src in (salt, appr, link, dotted):
+            r = await call(c, "case_import_file", case_id=cid, source_path=str(src), kind="other", dest_subdir="notes")
+            assert "[validation_failed]" in r.get("_error", ""), (src, r)
+        notes = rt.cases.get(cid).dir / "notes"
+        assert sorted(x.name for x in notes.iterdir()) == []
+        assert rt.cases.get(cid).artifacts() == []
+        # 케이스 밖의 일반 파일은 그대로 가져온다
+        ok = tmp_path / "board.jpg"
+        ok.write_bytes(b"jpeg")
+        r = await call(c, "case_import_file", case_id=cid, source_path=str(ok), kind="other", dest_subdir="notes")
+        assert r["ok"] and r["artifact"]["path"] == "notes/board.jpg", r
+
+
+def test_import_file_never_writes_through_destination_link(workspace, auth, tmp_path):
+    """대상 이름에 (끊어진) 심볼릭 링크가 있으면 링크를 따라 케이스 밖에 쓰지 않고 거부한다(O_EXCL). 복사하면서 계산한 sha256 이 아티팩트에 실린다."""
+    import hashlib
+
+    from pweh.errors import CaseError
+    from pweh.runtime import get_runtime
+
+    rt = get_runtime("test")
+    case = rt.cases.create(title="link", authorization=auth, case_id="link-case")
+    outside = tmp_path / "outside" / "att-00000000aa.json"
+    outside.parent.mkdir()
+    src = tmp_path / "att-00000000aa.json"
+    src.write_text('{"forged": true}', encoding="utf-8")
+    (case.dir / "notes" / "att-00000000aa.json").symlink_to(outside)  # 끊어진 링크
+    with pytest.raises(CaseError):
+        case.import_file(src, "notes", kind="other", producer="test")
+    assert not outside.exists()
+    data = b"\x5a" * 3_000_000  # 여러 블록
+    big = tmp_path / "fw.bin"
+    big.write_bytes(data)
+    art = case.import_file(big, "dumps", kind="firmware-image", producer="test")
+    assert art["sha256"] == hashlib.sha256(data).hexdigest() and art["size"] == len(data)
+    assert (case.dir / "dumps" / "fw.bin").read_bytes() == data

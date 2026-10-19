@@ -7,9 +7,9 @@ PWEH 는 에이전트가 MCP 서버와 Skill 로 CCTV/IoT 기기의 하드웨어
 - 시작점: `orchestrator/master-prompt.md` (Claude Code `/pweh-start`, Codex `$pweh-start`). 그 안의 절대 규칙을 따른다.
 - 소유/허가를 사용자에게 확인받고 `case_create` 하기 전에는 하드웨어 도구를 쓰지 않는다.
 - 서버 응답이 `approval_required` 이면 사용자에게 설명하고, 사람이 별도 터미널에서 `pweh approve <id>` 하도록 요청한다.
-  `denied` 이면 우회하지 않는다.
-  - 에이전트는 `pweh approve` 를 실행하지 않는다.
-  - `.pweh/state/` 승인 파일과 `orchestrator/pipeline-config.yaml` 의 `safety` 를 수정하지 않는다.
+  `attestation_required`(사람 증명)이면 확인할 사실을 설명하고 사람이 `pweh attest <id>` 로 답하게 한다. `denied` 이면 우회하지 않는다.
+  - 에이전트는 `pweh approve`·`pweh attest` 를 실행하지 않는다.
+  - `.pweh/state/` 의 승인·증명(attestations)·출처(provenance)·솔트·감사 로그와 `orchestrator/pipeline-config.yaml` 의 `safety` 를 수정하지 않는다.
 - U-Boot 프롬프트에서 빈 Enter 를 보내지 않는다 (직전 명령 반복). 새 프롬프트는 Ctrl-C(`uart_sync`)로 얻는다.
 - 물리 작업(배선·전원·클립)은 사람에게 구체적으로 요청하고 완료 확인 후 진행한다.
   근거 문서: `docs/hardware-setup.md`, `docs/safety.md`.
