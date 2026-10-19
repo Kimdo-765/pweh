@@ -991,9 +991,14 @@ OPENOCD_COMMANDS: dict[str, Risk] = {
     "fast_load": M, "fast_load_image": M, "bp": M, "rbp": M, "wp": M, "rwp": M, "halt": M, "resume": M,
     "step": M, "reset": M, "soft_reset_halt": M, "init": M, "shutdown": M, "reg": I, "arp_halt": M,
     "irscan": M, "drscan": M, "runtest": M, "pathmove": M, "statemove": M, "jtag_reset": M,
-    "wait_halt": I, "virt2phys": I, "profile": M, "rtt": M,
+    "wait_halt": I, "virt2phys": I, "rtt": M,
+    # 'profile <초> <파일> [시작 끝]': PC 샘플을 호스트 임의 경로 파일(gmon)로 기록 — dump_image 와 같은 호스트 파일 쓰기
+    "profile": D,
     # 영구 변경 / 임의 쓰기
     "mww": D, "mwh": D, "mwb": D, "mwd": D, "write_memory": D, "load_image": D, "program": D,
+    # Espressif OpenOCD 포크 전용 플래시 프로그래밍 proc (tcl/target/esp_common.cfg: reset init → flash write_image erase →
+    # 선택적 verify/reset/shutdown). 아래 _OPENOCD_PROGRAM_PROC 이 다른 program_* 이름까지 같은 규칙으로 잡는다.
+    "program_esp": D, "program_esp_bins": D, "program_esp32": D,
     "dump_image": D,  # 호스트 파일을 임의 경로에 씀 → 전용 도구 사용
     "fast_load_image_check": I,
     # 메타/간접 실행 (내용 확정 불가)
@@ -1019,15 +1024,55 @@ OPENOCD_SUBCOMMANDS: dict[str, dict[str, Risk]] = {
     "arm": {"mrc": I, "mcr": M, "core_state": I, "disassemble": I, "reg": I, "semihosting": M, "_default": M, "_none": I},
     "mips32": {"cp0": I, "scan_delay": M, "_default": M, "_none": I},
     "reset_config": {"_default": M, "_none": I},
+    # Espressif 'esp' 그룹 (업스트림 esp32/esp32s2/esp32s3 타깃 + Espressif 포크의 esp_flash.c/esp32_apptrace.c/esp_xtensa.c).
+    # 표에 없는 하위 명령은 unknown_command_risk, 이름이 쓰기/지우기/퓨즈 꼴이면 DESTRUCTIVE(_TCL_DESTRUCTIVE_SUB).
+    "esp": {
+        # 트레이스를 호스트 파일(file://<경로>)·TCP(tcp://<호스트>:<포트>)로 기록 — status/stop 은 _OPENOCD_SUB_ACTIONS 로 낮춘다
+        "apptrace": D, "sysview": D, "sysview_mcore": D,
+        "gcov": D,  # 타깃 펌웨어가 보낸 경로·모드로 호스트 파일을 연다 (esp32_apptrace.c: fopen(fname, mode), '..' 검사 없음)
+        "verify_bank_hash": M,  # 호스트 파일과 플래시의 SHA256 비교(읽기) — 타깃에서 해시 스텁을 실행한다
+        "flash_stub_clock_boost": M,  # 스텁으로 CPU 클럭을 바꿈 (플래시는 건드리지 않음)
+        "compression": M, "encrypt_binary": M, "stub_log": M, "appimage_offset": M, "semihost_basedir": M,  # 설정
+        "process_lazy_breakpoints": M, "disable_lazy_breakpoints": M, "halted_event_handler": M,
+        "stub_lib_test": M, "stub_apptrace_wr_test": M, "stub_apptrace_rd_test": M,  # 타깃에서 시험 스텁 실행
+        "_none": I,
+    },
+    # Xtensa 코어 명령 (업스트림 xtensa.c). 나머지(maskisr, smpbreak, xtdef … 설정)는 unknown_command_risk.
+    "xtensa": {"tracedump": D, "exe": D, "perfmon_dump": I, "_none": I},
 }
 
 # 인자 없이 쓰면 현재 값만 출력하는 조회 형태
 _OPENOCD_QUERY_WHEN_BARE = {("adapter", "speed"), ("adapter", "driver"), ("transport", "select")}
 
+# 두 번째 인자(동작)에 따라 위험도가 달라지는 하위 명령: 표에 있는 동작만 낮추고 start/dump 등은 표 값(DESTRUCTIVE) 그대로
+_OPENOCD_TRACE_ACTIONS = {"status": I, "stop": M}
+_OPENOCD_SUB_ACTIONS = {("esp", "apptrace"): _OPENOCD_TRACE_ACTIONS, ("esp", "sysview"): _OPENOCD_TRACE_ACTIONS,
+                        ("esp", "sysview_mcore"): _OPENOCD_TRACE_ACTIONS}
+
+_OPENOCD_TRACE_REASON = "트레이스를 호스트 파일(file://)·TCP 대상으로 기록 — 경로/주소를 서버가 관리하지 않음"
 _OPENOCD_SUB_REASONS = {
     ("flash", "read_bank"): "호스트의 임의 경로에 파일을 기록 — 경로를 관리하는 openocd_flash_read 도구를 사용하세요",
     ("nand", "dump"): "호스트의 임의 경로에 파일을 기록 — 전용 도구를 사용하세요",
+    ("esp", "apptrace"): _OPENOCD_TRACE_REASON,
+    ("esp", "sysview"): _OPENOCD_TRACE_REASON,
+    ("esp", "sysview_mcore"): _OPENOCD_TRACE_REASON,
+    ("esp", "gcov"): "타깃 펌웨어가 정한 경로·모드로 호스트 파일을 열어 씀 (gcov 덤프)",
+    ("xtensa", "tracedump"): "트레이스 메모리를 호스트 임의 경로 파일로 기록",
+    ("xtensa", "exe"): "임의 Xtensa 명령어를 타깃에서 실행 — 메모리·레지스터 임의 변경 가능",
 }
+
+# 플래시 프로그래밍 proc: Espressif 포크 program_esp / program_esp_bins (예전 program_esp32), 그 밖의 program_* 이름
+_OPENOCD_PROGRAM_PROC = re.compile(r"program_\w+")
+
+# ESP 칩 명령 그룹 (esp32, esp32s2, esp32s3, esp32c2, esp32c3, esp32c5, esp32c6, esp32c61, esp32h2, esp32h4, esp32p4 …):
+# '<칩> flashbootstrap …' / '<타깃> <칩> flashbootstrap …' 의 <칩> 자리
+_ESP_CHIP_GROUP = re.compile(r"esp32(?:[a-z]\d+)?")
+
+# semihosting 을 켜는 표준 proc (xPack/Espressif target/esp_common.cfg): examine-end 핸들러('arm semihosting enable')를
+# 감싸지 않은 채 다시 설치한다 (configure_openocd_events → configure_event_examine_end, create_esp_target → configure_openocd_events).
+# 이름에 'semihost' 가 들어 있는 명령/proc 도 같은 규칙으로 DESTRUCTIVE 다(_OPENOCD_SEMIHOST_NAME).
+OPENOCD_SEMIHOST_PROCS = frozenset({"configure_event_examine_end", "configure_openocd_events", "create_esp_target"})
+_OPENOCD_SEMIHOST_NAME = re.compile(r"semihost", re.I)
 
 _TCL_DESTRUCTIVE_SUB = re.compile(
     r"^(mass_erase|chip_erase|chip-erase|erase.*|unlock|lock|options_write|options_load|otp.*|.*fuse.*|"
@@ -1075,6 +1120,34 @@ def classify_openocd(text: str, *, unknown_risk: str | Risk = "modify") -> Class
             continue
         if re.fullmatch(r"[-+]?(0x[0-9a-fA-F]+|\d+)|[<>=!&|+\-*/%()]+|else|elseif|then", cmd):
             continue  # 표현식 조각
+        # ESP32 플래시 전압 스트랩: '<칩> flashbootstrap 1.8|3.3|none' / '<타깃> <칩> flashbootstrap …' (업스트림 esp32.c — TMS
+        # 유휴 상태가 리셋 때 플래시 전압 선택). 칩 이름(esp32 …)은 단일 코어 cfg 의 점 없는 타깃 이름이기도 해서 하위 명령 표로
+        # 만들지 않고, 바로 앞 단어가 ESP 칩 그룹일 때만 이 명령으로 본다. 여기서 끝내지 않는다(continue 없음): 아래 표·명령
+        # 규칙도 그대로 적용해 worst 로 정한다 ('program flashbootstrap', 'load_image flashbootstrap' 은 여전히 DESTRUCTIVE).
+        fb = next((i for i in (1, 2) if i < len(words) and words[i] == "flashbootstrap" and _ESP_CHIP_GROUP.fullmatch(words[i - 1])), None)
+        if fb is not None:
+            if len(words) > fb + 1:
+                results.append(Classification(D, "openocd.esp.flashbootstrap",
+                                              "ESP32 플래시 전압 스트랩 설정 — 1.8V 플래시에 3.3V 를 주는 등 하드웨어 손상 가능", " ".join(words)))
+            else:
+                results.append(Classification(I, "openocd.esp.flashbootstrap.query", "플래시 전압 스트랩 설정 조회", " ".join(words)))
+        # semihosting 을 켜는 proc (표준 ESP proc, 이름에 semihost) — 표에 없는 이름이라 DESTRUCTIVE 로 끝낸다(더 위험한 분류는 없다)
+        if cmd in OPENOCD_SEMIHOST_PROCS:
+            results.append(Classification(D, "openocd.esp.semihosting-proc",
+                                          f"'{cmd}' — ESP 표준 proc: semihosting 을 켜는 examine-end 핸들러를 감싸지 않은 채 다시 설치함", " ".join(words)))
+            continue
+        if _OPENOCD_SEMIHOST_NAME.search(cmd):
+            results.append(Classification(D, "openocd.semihosting-proc",
+                                          f"'{cmd}' — 이름으로 보아 semihosting 을 켜거나 바꾸는 proc/명령", " ".join(words)))
+            continue
+        # 트레이스(TPIU/SWO) 출력 대상: '<tpiu|swo> create … -output <파일|:포트|->', '<이름> configure -output …',
+        # 옛 'tpiu config internal <파일|:포트|-> …' — 호스트 임의 경로 파일 쓰기/TCP 포트 열기 (dump_image 와 같은 부류)
+        if (cmd in ("tpiu", "swo") or (args and args[0] in ("configure", "create"))) and "-output" in args[:-1]:
+            results.append(Classification(D, "openocd.trace.output",
+                                          "트레이스(TPIU/SWO) 출력을 호스트 임의 경로 파일·TCP 포트로 보냄 — 경로를 서버가 관리하지 않음", " ".join(words)))
+        if cmd == "tpiu" and len(args) >= 3 and args[0] == "config" and args[1] == "internal":
+            results.append(Classification(D, "openocd.tpiu.config.internal",
+                                          "TPIU 트레이스를 호스트 임의 경로 파일·TCP 포트로 기록 (tpiu config internal)", " ".join(words)))
         # target 이름 접두 (예: stm32f1x.cpu mww 0x0 0) → 두 번째 단어를 명령으로
         if "." in cmd and args and (args[0] in OPENOCD_COMMANDS or args[0] in OPENOCD_SUBCOMMANDS):
             cmd, args = args[0], args[1:]
@@ -1087,6 +1160,10 @@ def classify_openocd(text: str, *, unknown_risk: str | Risk = "modify") -> Class
             if len(args) == 1 and (cmd, sub) in _OPENOCD_QUERY_WHEN_BARE:
                 results.append(Classification(I, f"openocd.{cmd}.{sub}.query", f"{cmd} {sub} (조회)", " ".join(words)))
                 continue
+            actions = _OPENOCD_SUB_ACTIONS.get((cmd, sub))
+            if actions and len(args) >= 2 and args[1] in actions:
+                results.append(Classification(actions[args[1]], f"openocd.{cmd}.{sub}.{args[1]}", f"{cmd} {sub} {args[1]}", " ".join(words)))
+                continue
             sub_risk = table.get(sub)
             if sub_risk is None:
                 sub_risk = D if _TCL_DESTRUCTIVE_SUB.match(sub) else table.get("_default", unknown)
@@ -1094,6 +1171,12 @@ def classify_openocd(text: str, *, unknown_risk: str | Risk = "modify") -> Class
             if sub_risk >= D and (cmd, sub) not in _OPENOCD_SUB_REASONS:
                 reason += " — 플래시/저장장치 영구 변경 가능"
             results.append(Classification(sub_risk, f"openocd.{cmd}.{sub}", reason, " ".join(words)))
+            continue
+        if _OPENOCD_PROGRAM_PROC.fullmatch(cmd):
+            esp = cmd.startswith("program_esp")
+            reason = ("Espressif 포크의 플래시 프로그래밍 proc — reset init 후 플래시를 지우고 쓴다(선택적으로 verify/reset/shutdown)" if esp
+                      else f"'{cmd}' — 플래시 프로그래밍 proc 계열(program_*)로 보아 영구 변경 가능")
+            results.append(Classification(D, "openocd.flash.program_esp" if esp else "openocd.flash.program_proc", reason, " ".join(words)))
             continue
         if cmd == "reg":
             # reg <name> <value> 는 레지스터 쓰기
@@ -1114,6 +1197,7 @@ def classify_openocd(text: str, *, unknown_risk: str | Risk = "modify") -> Class
                 "load_image": "타깃 메모리에 이미지 기록",
                 "program": "플래시 프로그래밍",
                 "dump_image": "호스트 임의 경로에 파일 기록 — openocd_dump_memory 도구를 사용",
+                "profile": "PC 샘플을 호스트 임의 경로 파일(gmon)로 기록",
                 "power": "타깃 전원 제어",
             }.get(cmd, f"'{cmd}'")
             uncertain = cmd in ("eval", "source", "proc", "uplevel", "upvar", "subst", "interp", "rename", "namespace", "apply", "after", "trace", "unknown", "exec")

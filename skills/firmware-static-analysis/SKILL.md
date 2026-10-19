@@ -83,6 +83,9 @@ case_set_phase(case_id="<id>", phase="firmware-static-analysis", status="in-prog
 - 펌웨어 선택 순서:
   1. firmware-dump-via-uart 요약의 data.output.path (JTAG·SPI 클립 덤프도 이 요약으로 남는다, master-prompt §5). verification.match 가 true 가 아니면 분석은 하되 notes 에 "무결성 미확인"을 적는다.
      method 가 linux-*(셸 경로)이거나 범위를 나눠 받았으면 output 은 한 파티션(또는 우선 범위)뿐이다. data.partitions[] 중 path 가 있는 파일(kernel, app 등)도 분석 대상에 넣는다. 이미 나뉜 파일이므로 fw_carve 없이 1·3단계로 간다.
+     method 가 `esptool-read-flash`(esp32-flash-dump)면 ESP32 플래시 전체이고 firmware.source 는 "esptool-dump" 다(match 가 true 가 아니면 몇 분이면 되는 재덤프를 먼저 제안한다). fw_identify 는 ESP 구조(앱 이미지 헤더, 파티션 표, NVS)를 모르고 fw_carve 자동 레이아웃도 못 찾는다
+     → data.partitions[](0x8000 파티션 표에서 읽은 값)를 fw_carve 의 partitions 로 명시한다(없으면 [esp32-flash-dump reference §4](../esp32-flash-dump/reference.md#4-파티션-표-읽기)). 리눅스 rootfs 가 없으므로 4·5단계는 대개 해당하지 않는다.
+     fw_entropy 와 사용자 패턴(`lit:`, `re:`)의 fw_strings_hunt 로 일반 분석을 하고, 데이터 파티션(spiffs·fat 등)은 extract_firmware 를 시도해 안 되면 gap 으로 적는다. REA open_binary 는 ESP 앱 이미지(ELF 가 아닌 raw 세그먼트 이미지)를 열 수 없다 — raw-binary 는 x86/x86_64/arm/arm64/6502 만 받으므로 Xtensa(ESP32·S2·S3)와 RISC-V(C3·C6·H2) 모두 거부된다. 이 사유를 rea.limitations 에 적는다(Ghidra 자체에는 Xtensa·RISC-V 언어가 있어 사람이 PWEH 밖에서 직접 로드할 수는 있다).
   2. 요약은 없는데 `case_get(case_id="<id>", include_artifacts=true)` 에 kind `flash-dump` 아티팩트가 있으면(요약 없이 남은 JTAG·SPI 덤프) 그 파일을 쓰고 출처를 사용자에게 확인한다.
   3. 사용자가 준 공식 이미지: `case_import_file(case_id="<id>", source_path="/home/me/fw/IPC_5.5.0.bin", kind="firmware-image", description="vendor download")` → artifact.path(케이스 상대), artifact.sha256, absolute_path. firmware.source 는 "vendor-download" 이고, 실제 기기 펌웨어와 다를 수 있다고 notes 에 적는다.
   4. 셋 다 없으면 멈추고 템플릿 A 로 요청한다.

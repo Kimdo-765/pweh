@@ -59,25 +59,27 @@
 | `pweh-sigrok` | `sigrok_version`, `sigrok_scan`, `sigrok_device_info`, `sigrok_capture`, `sigrok_file_info`, `sigrok_estimate_baud`, `sigrok_uart_autodecode`, `sigrok_decoder_help`, `sigrok_decode`, `sigrok_job_status`, `sigrok_job_cancel` | 핀/보드레이트 모를 때, SPI/I2C 관찰. 입력 전용 (출력 가능 장치는 승인 경로 없이 `denied`) |
 | `pweh-openocd` | `openocd_list_configs`, `openocd_start`, `openocd_attach`, `openocd_scan_chain`, `openocd_targets`, `openocd_halt`, `openocd_read_memory`, `openocd_flash_banks`, `openocd_dump_memory_start`, `openocd_flash_read_start`, `openocd_job_status`, `openocd_job_cancel`, `openocd_stop`, `openocd_command`(원시 Tcl, §4 규칙) | JTAG/SWD 가 살아 있을 때 (대안 경로). 쓰기 도구(`openocd_write_memory`, `openocd_flash_write`)는 DESTRUCTIVE (기본 거부) |
 | `pweh-jtagulator` | `jtagulator_connect`, `jtagulator_set_voltage`(DESTRUCTIVE, 기본 거부), `jtagulator_uart_txd_scan`(수동 관찰, 먼저), `jtagulator_uart_scan`, `jtagulator_idcode_scan`, `jtagulator_job_status`, `jtagulator_job_cancel`, `jtagulator_disconnect` | 핀아웃을 전혀 모를 때 (선택). 순서와 정책은 §4 |
+| `pweh-esp` | `esp_version`, `esp_list_ports`, `esp_chip_info`, `esp_security_info`, `esp_read_flash_start`, `esp_job_status`, `esp_job_cancel`, `esp_jobs` | ESP32 계열 MCU 를 USB 로 연결했을 때 (esptool 다운로드 모드, 읽기 전용). WSL 에서는 Windows esptool.exe 가 Windows COM 포트(`COM3`)를 그대로 쓴다(방법 A, usbipd 불필요). 쓰기·삭제·eFuse 명령은 승인 경로 없이 `denied` |
 | `pweh-fwtriage` | `fw_identify`, `fw_entropy`, `fw_uboot_env`, `fw_carve`, `fw_uimage_info`, `fw_extract_squashfs`, `fw_rootfs_audit`, `fw_strings_hunt`, `fw_hunt_patterns`, `fw_elf_info`, `fw_crack_hashes`, `fwtriage_job_status` | 외부 도구 없이 빠른 1차 분석 |
 | `rea` | `inspect_firmware_regions`, `extract_firmware`, `open_binary`(provider_id="ghidra"), `binary_overview`, `search_strings`, `search_procedures`, `trace_feature`, `find_xrefs_to_name`, `xrefs`, `procedure_callers`, `procedure_pseudo_code`, `batch_decompile`, `analyze_function`, `trace_call_path`, `search_bytes`, `get_evidence_bundle`, `export_evidence_bundle`, `close_binary`, `inspect_with_objdump`, `execute_rizin_command`(읽기 전용 명령만) | 정밀 추출·디컴파일·참조 추적 |
 
 도구 응답의 공통 필드: `ok`, 그리고 게이트가 막았을 때 `status`/`approval_id`/`message`.
-오래 걸리는 작업은 `job_id` 를 돌려준다. `<서버>_job_status(job_id, wait_seconds≤50)` 로 폴링한다(`uart_`, `sigrok_`, `openocd_`, `jtagulator_`, `fwtriage_`).
+오래 걸리는 작업은 `job_id` 를 돌려준다. `<서버>_job_status(job_id, wait_seconds≤50)` 로 폴링한다(`uart_`, `sigrok_`, `openocd_`, `jtagulator_`, `fwtriage_`, `esp_`).
 
 ## 3. 시작 절차 (Phase 0: 접수)
 
 1. 사용자의 첫 메시지(또는 `ARGUMENTS:` 줄)에서 기기 정보를 읽는다. 다음 항목 중 모르는 것만 **한 번에 모아서** 묻는다.
    - 제조사/모델/하드웨어 리비전 (라벨 사진이 있으면 좋다).
    - **소유 또는 서면 허가 여부**. 서면 허가면 문서 식별자도 묻는다.
-   - 보유 장비: USB-UART(3.3V/1.8V), 로직 애널라이저, JTAG 프로브, JTAGulator, SPI 클립/프로그래머, 멀티미터.
+   - 보유 장비: USB-UART(3.3V/1.8V), 로직 애널라이저, JTAG 프로브, JTAGulator, SPI 클립/프로그래머, 멀티미터, ESP32 보드 USB 연결(데이터 케이블).
    - 이미 아는 것: UART 패드 위치, 공식 펌웨어 파일 경로, 웹 UI 접속 가능 여부.
    - 목표: 셸 획득만 / 펌웨어 분석 / 인증 우회 탐색까지 (기본: 전체).
-   - 실행 환경: 분석 PC 가 WSL2 인가 (그렇다면 usbipd 로 USB 장치를 attach 해야 한다).
+   - 실행 환경: 분석 PC 가 WSL2 인가 (그렇다면 usbipd 로 USB 장치를 attach 해야 한다. 단 ESP32 를 Windows esptool.exe 로 다루는 방법 A 는 attach 하지 않는다).
 2. `pipeline_profiles` 를 보고 가장 가까운 프로필을 고른다. 모르면 `generic-ipcam` 을 쓴다.
    `pipeline_safety_policy` 로 현재 정책을 확인한다 (기본: destructive=deny).
 3. `case_create(title, authorization, target, profile)` 를 호출한다. 이후 모든 하드웨어 도구에 `case_id` 를 넘긴다.
 4. 계획을 사용자에게 짧게 보여 준다. 예: "UART 접속 → U-Boot 진입 → 플래시 덤프(약 N시간) → 펌웨어 분석 → 인증 우회 탐색 → 보고서".
+   ESP32 보드면 예: "USB 연결 → 칩·보안 정보 확인 → 플래시 두 번 읽기(수 분) → 펌웨어 분석(일반 분석만) → 보고서".
    각 단계에서 사람이 할 일을 미리 알려 준다.
 
 ## 4. 단계 결정 트리
@@ -91,6 +93,7 @@
 
 [Phase B] 펌웨어 확보 (하나만 성공하면 됨, 위에서부터 시도)
   공식 펌웨어 파일이 있다 ────────────→ case_import_file (단, 실제 기기 펌웨어와 다를 수 있음을 보고서에 명시)
+  ESP32 계열 MCU (esptool 다운로드 모드) ─→ skill: esp32-flash-dump (esp_read_flash_start, 두 번 읽어 sha256 비교)
   U-Boot 프롬프트 확보 ────────────────→ skill: firmware-dump-via-uart (uboot_dump_start, crc32 검증)
   root 셸 확보 ───────────────────────→ skill: firmware-dump-via-uart (shell_dump_start, md5 검증)
   JTAG 동작 ──────────────────────────→ JTAG 순서(아래) → firmware-dump 요약 기록 (§5)
@@ -103,6 +106,8 @@
 
 - 사용자가 목표를 줄였다면 그 단계에서 멈춘다. 예: 셸 획득만 원하면 Phase A 까지 하고 보고서를 만든다.
 - 한 단계가 실패해도 다음 대안으로 넘어간다. 실패 이유는 `case_record_step(status="failed", blockers=[...])` 로 남긴다.
+- ESP32 계열 MCU 는 Phase A(UART 콘솔) 없이 Phase B 의 esp32-flash-dump 로 간다(USB 로 esptool 다운로드 모드). 요약은 §5 대로 skill="firmware-dump-via-uart" 로 남는다.
+  Phase C 는 일반 분석만 된다(fwtriage 는 ESP 이미지 형식을 해석하지 않고, REA open_binary 는 ESP 앱 이미지를 열 수 없다 — ELF 가 아닌 raw 이미지인데 raw-binary 는 x86/x86_64/arm/arm64/6502 만 받아 Xtensa·RISC-V 모두 거부. Ghidra 자체에는 두 언어가 있어 사람이 PWEH 밖에서 직접 로드할 수는 있다). Phase D(cctv-auth-bypass-hunt)는 리눅스 rootfs 를 전제로 하므로 맞지 않는다.
 - **JTAGulator 순서** (전용 Skill 없음): `jtagulator_connect` → 사람이 멀티미터로 대상 I/O 전압 측정(추측 금지) → `jtagulator_set_voltage(volts=<측정값>)`
   → `jtagulator_uart_txd_scan`(대상에 아무것도 보내지 않는 수동 관찰, 사람이 대상 재부팅) → 필요할 때만 `jtagulator_uart_scan` → 사람이 대상 전원을 끈 뒤 `jtagulator_disconnect`.
   찾은 TXD/RXD·보드레이트(`summary.best`)를 uart-shell-acquisition 에 넘긴다(baud_detection.method 는 `manual`, notes 에 "JTAGulator 측정" 이라고 출처를 적는다).
@@ -114,6 +119,7 @@
   - 뱅크가 비면(카메라 SoC 의 SPI NOR 는 OpenOCD 드라이버가 없는 경우가 많다) U-Boot 에서 `sf probe 0` → `sf read <RAM> <off> <len>`(`uart_send_command`, RAM 은 `uboot_info` 의 safe_ram_addr·ram_window 안) → `openocd_halt` → `openocd_dump_memory_start(address=<RAM>, length=<len>, kind="flash-dump")`.
   - `openocd_job_status` 로 폴링하고 끝나면 `openocd_stop`. 결과는 `dumps/<name>.bin` + `.json`(method `jtag-openocd`)이다.
   - 원시 Tcl(`openocd_command`, `openocd_start` 의 `extra_commands`)은 전용 도구로 안 되는 일에만, 변수·반복문 없는 단순 명령으로 쓴다.
+    `extra_commands` 에 `init`(과 `target init` 같은 init 계열)을 넣지 않는다 — 서버가 semihosting 가드 뒤에 init 을 실행하며, 넣으면 `validation_failed` 다.
     이벤트 핸들러에는 `$_TARGETNAME` 대신 실제 타깃 이름을 쓴다(명령 위치의 변수는 확정할 수 없어 DESTRUCTIVE).
     `expr`·`if`·`while`·`for` 의 조건은 **항상 중괄호로 감싼다**. 올바른 예: `if {[catch {halt}]} {echo failed}`, `expr {1 + 2}`.
     중괄호 없는 치환은 expr 가 결과를 다시 해석하므로(이중 치환) DESTRUCTIVE 로 거부된다. 거부되는 예: `expr $x`, `if [catch {halt}] {echo failed}`, `while $c {incr c}`.
@@ -139,6 +145,9 @@
   `case_record_step(case_id, skill="firmware-dump-via-uart", step="summary", status, summary, data=<firmware-dump 스키마>)`.
   method 는 `jtag-openocd`(필드는 `dumps/<name>.json` 메타데이터에서) 또는 `spi-clip-flashrom`(firmware-dump-via-uart reference §6.4)이다.
   공식 이미지는 firmware-static-analysis 가 0단계에서 직접 반입하고 출처를 기록한다.
+- esp32-flash-dump 는 자기 data 스키마가 없다(위 표에 넣지 않는다). 끝날 때 같은 firmware-dump 요약을 `skill="firmware-dump-via-uart"` 로 기록한다.
+  method 는 `esptool-read-flash`, verification.method 는 `double-read`(expected/actual = 두 읽기의 sha256, match = 둘이 같은지)이고,
+  값은 덤프 job 결과의 `summary_hint` 와 `dumps/<name>.json` 에서 옮긴다. firmware-static-analysis 는 이 요약을 읽고 firmware.source 를 `esptool-dump` 로 적는다.
 - 파일 산출물은 케이스 디렉터리 안에만 둔다. REA `extract_firmware` 의 `output_directory` 는 `case_paths(case_id, purpose="extract", label="rea")` 의 `new_output_dir` 을 쓴다.
   케이스 밖에서 받은 파일은 `case_import_file` 로 가져온다.
 - 발견사항은 `case_add_finding` 으로 하나씩 기록한다. 중복이면 서버가 기존 항목을 돌려준다.

@@ -76,7 +76,7 @@ def test_settings_permissions_follow_catalog_rule():
     settings = json.loads((REPO / ".claude" / "settings.json").read_text(encoding="utf-8"))
     allow, ask = settings["permissions"]["allow"], settings["permissions"]["ask"]
     expected = {"mcp__pweh-case__*", "mcp__pweh-fwtriage__*"}
-    for server in ("pweh-uart", "pweh-openocd", "pweh-sigrok", "pweh-jtagulator"):
+    for server in ("pweh-uart", "pweh-openocd", "pweh-sigrok", "pweh-jtagulator", "pweh-esp"):
         for t in cat[server]["tools"]:
             if (t.get("annotations") or {}).get("readOnlyHint"):
                 expected.add(f"mcp__{server}__{t['name']}")
@@ -141,7 +141,8 @@ def test_architecture_lists_every_tool_and_full_uart_signatures():
 def test_server_readmes_exist_and_list_tools():
     cat = _catalog()
     dirs = {"pweh-case": "case-mcp", "pweh-uart": "uart-mcp", "pweh-openocd": "openocd-mcp", "pweh-sigrok": "sigrok-mcp",
-            "pweh-jtagulator": "jtagulator-mcp", "pweh-fwtriage": "fwtriage-mcp"}
+            "pweh-jtagulator": "jtagulator-mcp", "pweh-fwtriage": "fwtriage-mcp",
+            "pweh-esp": "esp-mcp"}
     for server, info in cat.items():
         readme = (REPO / "mcp-servers" / dirs[server] / "README.md").read_text(encoding="utf-8")
         for t in info["tools"]:
@@ -424,7 +425,7 @@ def test_documented_rule_ids_exist_in_code():
     sources = [REPO / "src" / "pweh" / "safety" / "classifiers.py", *sorted(REPO.glob("mcp-servers/*/*_mcp/*.py"))]
     code = "\n".join(_text(p) for p in sources)
     config = _text(REPO / "orchestrator" / "pipeline-config.yaml")
-    pat = re.compile(r"`((?:linux|uboot|uart|openocd|sigrok|console|jtagulator)\.[A-Za-z0-9_.\-]+)`")
+    pat = re.compile(r"`((?:linux|uboot|uart|openocd|sigrok|console|jtagulator|esp)\.[A-Za-z0-9_.\-]+)`")
     missing = []
     for doc in (SAFETY, ARCH, *sorted(REPO.glob("mcp-servers/*/README.md"))):
         for m in pat.finditer(_text(doc)):

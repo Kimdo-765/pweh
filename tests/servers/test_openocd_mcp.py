@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import sys
 import time
 from pathlib import Path
 
@@ -17,7 +16,6 @@ from mcp_helpers import call, stdio_params
 
 pytestmark = pytest.mark.anyio
 
-FAKE_PATH = Path(__file__).resolve().parent / "fake_openocd.py"
 
 
 @pytest.fixture
@@ -260,8 +258,11 @@ async def test_custom_cfg_and_extra_commands_are_classified(workspace, auth, tmp
     async with Client(server) as c:
         r = await call(c, "openocd_start", case_id=cid, interface_cfg=str(evil), tcl_port=0)
         assert r["status"] == "denied" and r["custom_cfgs"][0]["classification"]["risk"] == "destructive", r
-        r = await call(c, "openocd_start", case_id=cid, interface_cfg="interface/dummy.cfg", extra_commands=["init", "mww 0 0"], tcl_port=0)
+        r = await call(c, "openocd_start", case_id=cid, interface_cfg="interface/dummy.cfg", extra_commands=["mww 0 0"], tcl_port=0)
         assert r["status"] == "denied"
+        # init 은 semihosting 가드보다 먼저 실행되므로 시작 명령에 넣을 수 없다 (분류 전에 거부)
+        r = await call(c, "openocd_start", case_id=cid, interface_cfg="interface/dummy.cfg", extra_commands=["init", "mww 0 0"], tcl_port=0)
+        assert "_error" in r and "init" in r["_error"], r
         assert not list((_case(cid).dir / "jtag").glob("openocd-*.log"))  # 프로세스가 뜨지 않음
         bad = await call(c, "openocd_start", case_id=cid, interface_cfg="interface/dummy.cfg", transport="usb")
         assert "_error" in bad and "transport" in bad["_error"]
@@ -478,12 +479,10 @@ async def test_version_profiles_v012_and_v011(workspace, auth):
 
 
 def _fake_bin(tmp_path: Path) -> Path:
-    d = tmp_path / "fakebin"
-    d.mkdir(exist_ok=True)
-    p = d / "openocd"
-    p.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{FAKE_PATH}" "$@"\n')
-    p.chmod(0o755)
-    return p
+    # 서버는 연결 직후 semihosting 가드 확인(RPC)이 필수다 → 그 proc 에 답하도록 가르친 가짜 (test_openocd_semihosting.GUARDED_FAKE)
+    from .test_openocd_semihosting import write_guarded_fake_bin
+
+    return write_guarded_fake_bin(tmp_path / "fakebin" / "openocd")
 
 
 @pytest.fixture
@@ -508,14 +507,20 @@ async def test_start_status_stop_spawned(workspace, auth, fake_bin):
         assert r["log_path"] == "jtag/openocd-1.log" and r["tcl_port"] > 0 and r["pid"]
         assert r["scan_chain"][0]["decoded"]["manufacturer"] == "ARM Ltd" and r["targets"][0]["name"] == "cam.cpu"
         argv = r["argv"]
-        assert argv[-2:] == ["-c", "init"] and "transport select jtag" in argv and "jtag newtap cam cpu -irlen 4" in argv
+        from openocd_mcp import semihosting
+
+        assert argv[-4:] == ["-c", "init", "-c", semihosting.POST_INIT_SCRIPT] and argv[-5] == semihosting.PRE_INIT_SCRIPT
+        assert "transport select jtag" in argv and "jtag newtap cam cpu -irlen 4" in argv
+        # 가짜 OpenOCD 는 -c 를 실행하지 않아 로그 표식은 없지만, 연결 직후 RPC 확인(필수)에 답한다 → 확인됨
+        assert r["semihosting"]["verified"] is True and r["semihosting"]["source"] == "rpc" and r["semihosting"]["log_markers"] is False
+        assert r["semihosting_neutralized"] == [] and not any("PWEH-SEMIHOSTING" in w for w in r["warnings"])
         assert r["classification"]["risk"] == "modify"
         case = _case(cid)
         assert (case.dir / "jtag" / "openocd-1.json").exists()
         st = await call(c, "openocd_status", case_id=cid)
         assert st["alive"] and st["process"]["running"] and any("Listening on port" in ln for ln in st["log_tail"])
         h = await call(c, "openocd_halt", case_id=cid)
-        assert h["state"] == "halted"
+        assert h["state"] == "halted" and h["semihosting_check"]["status"] == "ok"  # halt 뒤 semihosting 재확인
         dup = await call(c, "openocd_start", case_id=cid, interface_cfg="interface/dummy.cfg", tcl_port=0)
         assert "_error" in dup and "busy" in dup["_error"]
         assert len(list((case.dir / "jtag").glob(".openocd-1-cwd-*"))) == 1  # 실행 전용 빈 작업 디렉터리

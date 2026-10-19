@@ -39,7 +39,9 @@ from .fsutil import (
 )
 from . import schemas
 
-CASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+#: 케이스 id: 영문/숫자로 시작하고 영문/숫자/._- 만, 최대 80자. '.' 으로 끝날 수 없다 — Windows 경로 정규화가 요소 끝의 '.'·공백을
+#: 지워 다른 케이스 디렉터리를 가리키게 되기 때문이다(pweh-esp 방법 A 가 esptool.exe 에 \\wsl.localhost\… 경로를 넘긴다).
+CASE_ID_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,78}[A-Za-z0-9_-])?$")
 STANDARD_DIRS = ("steps", "uart", "dumps", "extract", "analysis", "signals", "jtag", "jobs", "notes")
 
 PIPELINE_PHASES = (
@@ -423,7 +425,7 @@ class CaseStore:
 
     def _case_dir(self, case_id: str) -> Path:
         if not CASE_ID_RE.match(case_id or ""):
-            raise ValidationFailed(f"잘못된 case_id: {case_id!r}", hint="영문/숫자/._- 만 사용 (최대 80자)")
+            raise ValidationFailed(f"잘못된 case_id: {case_id!r}", hint="영문/숫자/._- 만 사용 (최대 80자, '.' 으로 끝나면 안 됨)")
         return safe_join(self.dir, case_id)
 
     def exists(self, case_id: str) -> bool:

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from openocd_mcp import guard, parsers, process, tcl
+from openocd_mcp import guard, parsers, process, semihosting, tcl
 from pweh.errors import SafetyDenied
 from pweh.safety import Risk
 
@@ -386,7 +386,8 @@ def test_build_argv_order(tmp_path):
     )
     s = " | ".join(argv)
     assert argv[0] == "/opt/openocd" and argv[1:3] == ["-s", "/opt/scripts"]
-    assert argv[-2:] == ["-c", "init"]
+    # 끝: semihosting 핸들러 감싸기 → init → init 직후 semihosting 확인·끄기 (semihosting.py)
+    assert argv[-6:] == ["-c", semihosting.PRE_INIT_SCRIPT, "-c", "init", "-c", semihosting.POST_INIT_SCRIPT]
     i_port = argv.index("if {[catch {tcl port 0}]} {tcl_port 0}")
     i_iface = argv.index("interface/ftdi/tigard.cfg")
     i_tr = argv.index("transport select jtag")

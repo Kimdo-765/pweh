@@ -2,11 +2,14 @@
 
 명령행 순서 (docs/references/openocd-tcl-rpc.md §6, INSTALL_REPORT.md 실측):
   [-s scripts] → 포트 명령(이식형: ``if {[catch {tcl port N}]} {tcl_port N}``, telnet/gdb disabled)
-  → -f interface → transport select → -f target... → -f extra... → adapter speed → extra -c ... → -c init
+  → -f interface → transport select → -f target... → -f extra... → adapter speed → extra -c ...
+  → -c <semihosting 무력화: 핸들러 감싸기> → -c init → -c <semihosting 무력화: init 직후 확인·끄기>
 
 - 포트 명령을 맨 앞에 두는 이유: cfg 파일 안의 ``init`` 이후에는 포트를 바꿀 수 없다.
-- 명시적 ``-c init`` 을 마지막에 두면 init 이 서버 시작 전에 끝나므로 "Listening on port N for tcl connections"
-  줄이 init 완료 뒤에 찍힌다. 그래도 준비 판정은 그 줄 + ``version`` 왕복 성공으로 한다.
+- 명시적 ``-c init`` 을 (semihosting 확인 앞) 끝에 두면 init 이 서버 시작 전에 끝나므로 "Listening on port N for tcl
+  connections" 줄이 init 과 그 뒤 ``-c`` 가 모두 끝난 뒤에 찍힌다. 그래도 준비 판정은 그 줄 + ``version`` 왕복 성공으로 한다.
+- semihosting 무력화(:mod:`.semihosting`): 표준 cfg 의 이벤트 핸들러(예: ESP32 계열 ``examine-end``)가 켜는 semihosting 을
+  init 전에 감싸 두고, init 직후 TCL 서버가 연결을 받기 전에 타깃마다 꺼졌는지 확인한다. 결과는 로그 표식으로 남는다.
 - 로그는 파이프가 아닌 파일(케이스 jtag/openocd-<n>.log)로 보낸다 (파이프가 차서 OpenOCD 가 멈추는 일 방지).
 - start_new_session=True 로 별도 프로세스 그룹 → 종료 시 그룹 전체에 시그널.
 """
@@ -29,6 +32,7 @@ from typing import Any
 
 from pweh.errors import NotFound, ToolMissing, ValidationFailed
 
+from . import semihosting
 from .parsers import parse_version
 
 log = logging.getLogger("pweh.openocd")
@@ -238,6 +242,7 @@ def build_argv(
     tcl_port: int,
     debug_level: int | None = None,
     search_dirs: list[Path] | None = None,
+    semihosting_guard: bool = True,
 ) -> list[str]:
     """OpenOCD 명령행 조립.
 
@@ -245,6 +250,11 @@ def build_argv(
     기본 검색 순서(``$OPENOCD_SCRIPTS`` → ``~/.config/openocd`` → ``~/.openocd`` → site → 내장 scripts)에서 사용자 쓰기 가능
     위치의 같은 이름 파일보다 신뢰 디렉터리를 먼저 찾게 한다 (xPack 실측: ``-s`` 없이는 ``~/.openocd/mem_helper.tcl`` 이
     표준 target cfg 의 ``source [find mem_helper.tcl]`` 을 가로챘다).
+
+    semihosting_guard: 모든 cfg·extra_commands 뒤(init 직전)에 :data:`semihosting.PRE_INIT_SCRIPT`, init 바로 뒤에
+    :data:`semihosting.POST_INIT_SCRIPT` 를 넣는다. 그리고 ``-f`` 하나하나와 extra_commands 하나하나 뒤에
+    :data:`semihosting.EARLY_CHECK_SCRIPT` 를 넣는다: cfg 나 시작 명령이 init 을 먼저 실행했으면 그 자리에서 semihosting 을 끄고
+    OpenOCD 를 오류로 끝내, 뒤따르는 시작 명령이 semihosting 이 켜진 채 실행되지 않게 한다. 끄는 경로는 테스트용이며 서버는 항상 켠다.
     """
     argv = [binary]
     if debug_level is not None:
@@ -257,19 +267,24 @@ def build_argv(
             argv += ["-s", s]
     for c in port_commands(tcl_port):
         argv += ["-c", c]
-    argv += ["-f", interface.arg]
+    early = ["-c", semihosting.EARLY_CHECK_SCRIPT] if semihosting_guard else []
+    argv += ["-f", interface.arg, *early]
     if transport:
         argv += ["-c", f"transport select {transport}"]
     for t in targets:
-        argv += ["-f", t.arg]
+        argv += ["-f", t.arg, *early]
     for e in extra_cfgs:
-        argv += ["-f", e.arg]
+        argv += ["-f", e.arg, *early]
     if adapter_speed_khz is not None:
         k = int(adapter_speed_khz)
         argv += ["-c", f"if {{[catch {{adapter speed {k}}}]}} {{adapter_khz {k}}}"]
     for cmd in extra_commands:
-        argv += ["-c", cmd]
+        argv += ["-c", cmd, *early]
+    if semihosting_guard:
+        argv += ["-c", semihosting.PRE_INIT_SCRIPT]
     argv += ["-c", "init"]
+    if semihosting_guard:
+        argv += ["-c", semihosting.POST_INIT_SCRIPT]
     return argv
 
 

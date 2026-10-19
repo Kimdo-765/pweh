@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from pweh.safety import (
@@ -247,6 +249,162 @@ def test_console_unknown_context_takes_max():
 )
 def test_openocd_readonly_queries(cmd, risk):
     assert classify_openocd(cmd).risk == risk, classify_openocd(cmd)
+
+
+# ---------------------------------------------------------------------------
+# OpenOCD: 플래시 프로그래밍 proc (업스트림 program, Espressif 포크 program_esp*) 과 Espressif/Xtensa 명령
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "cmd,rule",
+    [
+        # Espressif 포크 tcl/target/esp_common.cfg: reset init → flash write_image erase → verify/reset/shutdown
+        ("program_esp build/app.bin 0x10000 verify reset exit", "openocd.flash.program_esp"),
+        ("program_esp_bins build flasher_args.json reset", "openocd.flash.program_esp"),
+        ("program_esp {fw.bin} 0x0 encrypt force", "openocd.flash.program_esp"),
+        ("ocd_program_esp fw.bin 0x0", "openocd.flash.program_esp"),
+        ("program_esp32 fw.bin 0x1000 verify", "openocd.flash.program_esp"),  # 예전 포크 이름
+        ("esp32s3.cpu0 program_esp fw.bin 0x0", "openocd.flash.program_esp"),
+        ("if {1} {program_esp fw.bin 0x0}", "openocd.flash.program_esp"),
+        ("program_flash fw.bin", "openocd.flash.program_proc"),  # 그 밖의 program_* proc
+        # 업스트림 program (flash/startup.tcl) 도 그대로 DESTRUCTIVE
+        ("program fw.elf verify reset exit", "openocd.program"),
+        ("program {fw.bin} 0x08000000 preverify verify", "openocd.program"),
+        ("ocd_program fw.elf", "openocd.program"),
+        ("stm32f1x.cpu program fw.elf", "openocd.program"),
+    ],
+)
+def test_openocd_flash_programming_procs_are_destructive(cmd, rule):
+    c = classify_openocd(cmd)
+    assert c.risk == Risk.DESTRUCTIVE and c.rule_id == rule, (cmd, c)
+
+
+@pytest.mark.parametrize(
+    "cmd,risk,rule",
+    [
+        # 호스트 파일/네트워크로 쓰는 트레이스·gcov (gcov 는 타깃 펌웨어가 호스트 경로와 모드를 정한다)
+        ("esp gcov", Risk.DESTRUCTIVE, "openocd.esp.gcov"),
+        ("esp gcov dump /tmp/prefix", Risk.DESTRUCTIVE, "openocd.esp.gcov"),
+        ("esp32s3.cpu0 esp gcov", Risk.DESTRUCTIVE, "openocd.esp.gcov"),
+        ("esp apptrace start file://trace.log", Risk.DESTRUCTIVE, "openocd.esp.apptrace"),
+        ("esp apptrace start tcp://10.0.0.1:53535", Risk.DESTRUCTIVE, "openocd.esp.apptrace"),
+        ("esp apptrace dump file://dump.bin", Risk.DESTRUCTIVE, "openocd.esp.apptrace"),
+        ("esp sysview start file://a.svdat file://b.svdat", Risk.DESTRUCTIVE, "openocd.esp.sysview"),
+        ("esp sysview_mcore start file://m.svdat", Risk.DESTRUCTIVE, "openocd.esp.sysview_mcore"),
+        ("esp apptrace status", Risk.INTERACT, "openocd.esp.apptrace.status"),
+        ("esp sysview stop", Risk.MODIFY, "openocd.esp.sysview.stop"),
+        # 읽기/비교·설정 (타깃에서 스텁을 돌리는 것은 MODIFY)
+        ("esp verify_bank_hash 0 fw.bin 0x1000", Risk.MODIFY, "openocd.esp.verify_bank_hash"),
+        ("esp flash_stub_clock_boost on", Risk.MODIFY, "openocd.esp.flash_stub_clock_boost"),
+        ("esp compression off", Risk.MODIFY, "openocd.esp.compression"),
+        ("esp encrypt_binary yes", Risk.MODIFY, "openocd.esp.encrypt_binary"),
+        ("esp appimage_offset 0x10000", Risk.MODIFY, "openocd.esp.appimage_offset"),
+        ("esp", Risk.INTERACT, "openocd.esp"),
+        ("esp efuse_burn 1", Risk.DESTRUCTIVE, "openocd.esp.efuse_burn"),  # 쓰기/퓨즈 꼴 이름
+        ("esp32s3.cpu0 esp write_flash 0 fw.bin", Risk.DESTRUCTIVE, "openocd.esp.write_flash"),
+        # Xtensa
+        ("xtensa tracedump core0.bin core1.bin", Risk.DESTRUCTIVE, "openocd.xtensa.tracedump"),
+        ("esp32s3.cpu0 xtensa exe 0x0020f0", Risk.DESTRUCTIVE, "openocd.xtensa.exe"),
+        ("xtensa perfmon_dump", Risk.INTERACT, "openocd.xtensa.perfmon_dump"),
+        # ESP32 플래시 전압 스트랩 (잘못 고르면 1.8V 플래시에 3.3V)
+        ("esp32 flashbootstrap 3.3", Risk.DESTRUCTIVE, "openocd.esp.flashbootstrap"),
+        ("esp32.cpu0 esp32 flashbootstrap 1.8", Risk.DESTRUCTIVE, "openocd.esp.flashbootstrap"),
+        ("esp32s3 flashbootstrap none", Risk.DESTRUCTIVE, "openocd.esp.flashbootstrap"),
+        # 조회 형태는 스트랩 규칙(INTERACT)과 일반 규칙(알 수 없는 명령 = unknown_command_risk)의 worst — 기본 설정이면 MODIFY
+        ("esp32 flashbootstrap", Risk.MODIFY, "openocd.unknown"),
+        # semihosting 을 켜는 표준 ESP proc (esp_common.cfg: examine-end 핸들러를 감싸지 않은 채 다시 설치) / 이름에 semihost
+        ("configure_event_examine_end", Risk.DESTRUCTIVE, "openocd.esp.semihosting-proc"),
+        ("configure_openocd_events", Risk.DESTRUCTIVE, "openocd.esp.semihosting-proc"),
+        ("create_esp_target xtensa", Risk.DESTRUCTIVE, "openocd.esp.semihosting-proc"),
+        ("esp32s3.cpu0 configure -event reset-init {configure_event_examine_end}", Risk.DESTRUCTIVE, "openocd.esp.semihosting-proc"),
+        ("pweh_semihosting_guard check", Risk.DESTRUCTIVE, "openocd.semihosting-proc"),
+        ("enable_semihosting_now", Risk.DESTRUCTIVE, "openocd.semihosting-proc"),
+    ],
+)
+def test_openocd_espressif_commands(cmd, risk, rule):
+    c = classify_openocd(cmd)
+    assert c.risk == risk and c.rule_id == rule, (cmd, c)
+
+
+def test_openocd_flashbootstrap_query_rule_still_applies_when_unknown_is_interact():
+    # 스트랩 조회 규칙이 먼저 들어가므로 unknown_command_risk=interact 이면 동률 → 조회 규칙
+    c = classify_openocd("esp32 flashbootstrap", unknown_risk="interact")
+    assert c.risk == Risk.INTERACT and c.rule_id == "openocd.esp.flashbootstrap.query", c
+
+
+_HEAD_CACHE: dict[str, object] = {}
+
+
+def _head_classify_openocd():
+    """수정 전(HEAD) 코어 분류기 — 이 작업이 DESTRUCTIVE 를 낮추지 않았는지 비교한다 (git 이 없으면 skip)."""
+    import importlib.util
+    import subprocess
+    import sys
+
+    if "fn" in _HEAD_CACHE:
+        return _HEAD_CACHE["fn"]
+    repo = Path(__file__).resolve().parents[2]
+    try:
+        src = subprocess.run(["git", "-C", str(repo), "show", "HEAD:src/pweh/safety/classifiers.py"], capture_output=True, text=True,
+                             timeout=30, check=True).stdout
+    except (OSError, subprocess.SubprocessError):
+        pytest.skip("git HEAD 의 classifiers.py 를 읽을 수 없습니다")
+    name = "pweh.safety._head_classifiers"
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(name, loader=None))
+    mod.__package__ = "pweh.safety"  # 'from .risk import …'
+    sys.modules[name] = mod  # dataclass 가 모듈을 찾는다
+    try:
+        exec(compile(src, "HEAD:classifiers.py", "exec"), mod.__dict__)
+    finally:
+        sys.modules.pop(name, None)
+    _HEAD_CACHE["fn"] = mod.classify_openocd
+    return mod.classify_openocd
+
+
+# 검토(critical): 'flashbootstrap' 규칙이 두/세 번째 단어만 보고 continue 해서 아래가 INTERACT 로 떨어졌다 (HEAD 는 DESTRUCTIVE)
+FLASHBOOTSTRAP_BYPASS = [
+    "program flashbootstrap", "flash write_image flashbootstrap", "load_image flashbootstrap", 'program "flashbootstrap"',
+    "catch {program flashbootstrap}", "flash write_image erase flashbootstrap", "program esp32 flashbootstrap",
+    "load_image esp32 flashbootstrap", "flash esp32 flashbootstrap",
+]  # 따옴표 본문(capture "…")은 코어가 원래 보지 않는다 — 서버 guard 테스트(test_openocd_guard.py)가 본다
+
+
+@pytest.mark.parametrize("cmd", FLASHBOOTSTRAP_BYPASS)
+def test_openocd_flashbootstrap_does_not_downgrade_programming(cmd):
+    head = _head_classify_openocd()(cmd)
+    now = classify_openocd(cmd)
+    assert head.risk == Risk.DESTRUCTIVE, (cmd, head)
+    assert now.risk == Risk.DESTRUCTIVE and "flashbootstrap" not in now.rule_id, (cmd, now)
+
+
+@pytest.mark.parametrize(
+    "cmd,rule",
+    [
+        # 호스트 임의 경로 파일 쓰기 (dump_image 와 같은 부류)
+        ("profile 1 /home/user/.bashrc", "openocd.profile"),
+        ("profile 5 gmon.out 0x80000000 0x80100000", "openocd.profile"),
+        ("tpiu0 configure -output /home/user/.profile", "openocd.trace.output"),
+        ("tpiu create cam.tpiu -dap cam.dap -ap-num 0 -output :4000", "openocd.trace.output"),
+        ("swo create cam.swo -dap cam.dap -output swo.bin", "openocd.trace.output"),
+        ("tpiu config internal /tmp/trace.bin uart off 24000000", "openocd.tpiu.config.internal"),
+    ],
+)
+def test_openocd_host_file_writers_are_destructive(cmd, rule):
+    c = classify_openocd(cmd)
+    assert c.risk == Risk.DESTRUCTIVE and c.rule_id == rule, (cmd, c)
+
+
+def test_openocd_trace_without_host_output_is_not_destructive():
+    assert classify_openocd("tpiu config external uart off 24000000").risk == Risk.MODIFY
+    assert classify_openocd("tpiu0 enable").risk == Risk.MODIFY
+    assert classify_openocd("echo -output").risk == Risk.INTERACT  # -output 뒤 값이 없으면 해당 없음
+
+
+def test_openocd_single_core_esp_target_name_is_not_a_command_group():
+    # 단일 코어 ESP cfg 의 타깃 이름은 칩 이름(esp32, esp32s3)이다 — 칩 그룹을 하위 명령 표로 만들지 않아 기존 분류(알 수 없는 명령) 그대로
+    assert classify_openocd("esp32 read_memory 0x3ff00000 32 1").rule_id == "openocd.unknown"
+    assert classify_openocd("esp32s3 smp on").risk == Risk.MODIFY
 
 
 # ---------------------------------------------------------------------------

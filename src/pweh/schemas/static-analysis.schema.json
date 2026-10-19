@@ -12,7 +12,7 @@
         "path": {"type": "string"},
         "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "size": {"type": ["integer", "null"]},
-        "source": {"enum": ["uart-dump", "jtag-dump", "spi-clip", "vendor-download", "other"]}
+        "source": {"enum": ["uart-dump", "jtag-dump", "spi-clip", "esptool-dump", "vendor-download", "other"]}
       }
     },
     "identification": {"type": "object", "description": "fw_identify / inspect_firmware_regions 결과 요약 (아키텍처, 엔디언, 파티션, U-Boot env)"},

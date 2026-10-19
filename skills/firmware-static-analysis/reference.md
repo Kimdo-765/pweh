@@ -266,12 +266,12 @@ SKILL.md 8단계의 F-001 과 같은 검증 케이스다. 모두 `case_add_findi
 
 | 키 | 채우는 법 |
 |---|---|
-| firmware | path(케이스 상대), sha256, size, source. firmware-dump 요약의 method 로 source 를 정한다: uboot-*·linux-* → uart-dump, jtag-openocd → jtag-dump, spi-clip-flashrom → spi-clip, vendor-download → vendor-download, 그 외 → other. `case_import_file` 로 들인 공식 이미지는 vendor-download. 파티션 파일 여러 개를 분석했으면 firmware 는 rootfs 가 든 파일로 하고 나머지는 identification.partitions[] 에 파일 경로와 함께 둔다 |
+| firmware | path(케이스 상대), sha256, size, source. firmware-dump 요약의 method 로 source 를 정한다: uboot-*·linux-* → uart-dump, jtag-openocd → jtag-dump, spi-clip-flashrom → spi-clip, vendor-download → vendor-download, esptool-read-flash → esptool-dump, 그 외 → other. `case_import_file` 로 들인 공식 이미지는 vendor-download. 파티션 파일 여러 개를 분석했으면 firmware 는 rootfs 가 든 파일로 하고 나머지는 identification.partitions[] 에 파일 경로와 함께 둔다 |
 | identification | arch, endianness, arch_flags, soc, bootloader, kernel, uboot_env, mtdparts(source, text), partitions[], entropy, regions_crosscheck, reports[] (fwtriage result_path 목록) |
 | extraction | tool(rootfs 를 만든 도구: fw_extract_squashfs → fwtriage, extract_firmware → rea-unblob; REA binwalk 는 추출하지 않으므로 rea-binwalk 는 쓰지 않는다), status, output_dir(rootfs 트리), gaps[]({region, kind, count, note} 요약), runs[](추출 실행 기록) |
 | rootfs | fw_rootfs_audit 응답의 rootfs 객체를 그대로 |
 | binaries_of_interest | 각 항목 {path(rootfs 절대 경로), reason} + arch, analyzed_with(rea-ghidra / fallback / none), evidence_bundle, finding_ids(선택). rootfs.path 밖의 트리(app·config)에 있으면 tree(그 트리의 케이스 상대 경로, 예: extract/app-001)를 붙이고 path 는 그 트리 기준 |
-| rea | provider("ghidra", 안 썼으면 null), evidence_bundle(대표 번들, 여럿이면 evidence_bundles 목록을 추가), limitations[](거부 사유, 미해결 간접 호출, 없는 엔진) |
+| rea | provider("ghidra", 안 썼으면 null), evidence_bundle(대표 번들, 여럿이면 evidence_bundles 목록을 추가), limitations[](거부 사유, 미해결 간접 호출, 없는 엔진). ESP 덤프는 "open_binary 는 ESP 앱 이미지(ELF 가 아닌 raw 세그먼트 이미지)를 열 수 없음 — raw-binary 는 x86/x86_64/arm/arm64/6502 만 받아 Xtensa·RISC-V 모두 거부" 처럼 사유를 적는다 |
 | finding_ids | 이번에 기록하거나 duplicate 로 돌려받은 id 전부 |
 | notes | 무결성 상태, 공식 이미지 여부, 시간 부족으로 미분석한 바이너리 등 |
 

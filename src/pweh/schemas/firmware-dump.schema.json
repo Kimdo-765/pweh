@@ -20,6 +20,7 @@
         "linux-tftp",
         "jtag-openocd",
         "spi-clip-flashrom",
+        "esptool-read-flash",
         "vendor-download",
         "other"
       ]

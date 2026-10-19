@@ -34,6 +34,7 @@ SKILL_NAMES = (
     "pweh-start",
     "uart-shell-acquisition",
     "firmware-dump-via-uart",
+    "esp32-flash-dump",
     "firmware-static-analysis",
     "logic-analyzer-protocol-decode",
     "cctv-auth-bypass-hunt",
@@ -46,6 +47,7 @@ SERVERS = {
     "pweh-sigrok": ("pweh-sigrok-mcp", "sigrok 로직 애널라이저"),
     "pweh-jtagulator": ("pweh-jtagulator-mcp", "JTAGulator 핀아웃 스캔"),
     "pweh-fwtriage": ("pweh-fwtriage-mcp", "오프라인 펌웨어 트리아지"),
+    "pweh-esp": ("pweh-esp-mcp", "ESP32 esptool 읽기 전용 덤프 (WSL 에서 Windows esptool.exe·COM 포트 또는 Linux esptool)"),
 }
 REA_ENV_KEYS = (
     "GHIDRA_INSTALL_DIR", "JAVA_HOME", "REA_SIGROK_COMMAND", "REA_BINWALK_COMMAND", "REA_UNBLOB_COMMAND",
@@ -54,7 +56,7 @@ REA_ENV_KEYS = (
 PWEH_ENV_KEYS = (
     "PWEH_TOOLS_DIR", "PWEH_SIGROK_CLI", "PWEH_OPENOCD", "PWEH_OPENOCD_SCRIPTS", "PWEH_OPENOCD_DUMMY", "PWEH_BINWALK",
     "PWEH_UNBLOB", "PWEH_MKSQUASHFS", "PWEH_UNSQUASHFS", "PWEH_MKIMAGE", "PWEH_MKENVIMAGE", "PWEH_DUMPIMAGE", "PWEH_ZIG",
-    "PWEH_GHIDRA_HEADLESS", "PWEH_REA", "PWEH_LZ4",
+    "PWEH_GHIDRA_HEADLESS", "PWEH_REA", "PWEH_LZ4", "PWEH_ESPTOOL", "PWEH_ESPTOOL_WIN",
 )
 
 
@@ -484,6 +486,18 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         add(f"tool:{name}", ok, f"{found} :: {ver}",
             "" if ok else f"실행 파일은 있지만 버전 확인에 실패했습니다 (설치가 깨졌을 수 있음). 필요 기능: {purpose}. "
             "직접 실행해 보고 scripts/install.sh --check / --force --only <구성요소> 로 다시 설치")
+    # 선택 도구: ESP32 esptool (pweh-esp). 없으면 '--'(선택), 있는데 버전 확인이 실패하면 '!!'
+    for name, exe, purpose in (
+        ("esptool", os.environ.get("PWEH_ESPTOOL") or shutil.which("esptool") or "", "pweh-esp 의 Linux esptool (/dev/tty* 포트)"),
+        ("esptool.exe", os.environ.get("PWEH_ESPTOOL_WIN") or "", "pweh-esp 방법 A (WSL 에서 Windows esptool.exe + COM 포트)"),
+    ):
+        found = exe if exe and (Path(exe).exists() or shutil.which(exe)) else None
+        if not found:
+            add(f"tool:{name}", None, "없음 (선택)", f"ESP32 덤프가 필요할 때 scripts/install.sh --only esptool ({purpose})")
+            continue
+        ok, ver = _tool_version([found, "version"], r"^esptool(\.py)? v\d", (0,))
+        add(f"tool:{name}", ok, f"{found} :: {ver}",
+            "" if ok else f"실행 파일은 있지만 버전 확인에 실패했습니다. 필요 기능: {purpose}. scripts/install.sh --force --only esptool 로 다시 설치")
     gh = os.environ.get("GHIDRA_INSTALL_DIR")
     add("ghidra", bool(gh and Path(gh).exists()), gh or "GHIDRA_INSTALL_DIR 미설정", "REA 의 네이티브 디컴파일에 필요")
     jh = os.environ.get("JAVA_HOME")

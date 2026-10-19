@@ -55,6 +55,10 @@ tools:
   mkimage: ${PWEH_MKIMAGE:-mkimage}
   mkenvimage: ${PWEH_MKENVIMAGE:-mkenvimage}
   zig: ${PWEH_ZIG:-zig}
+  # esp-mcp (pweh-esp): 리눅스 esptool 과, WSL interop 으로 실행할 Windows 용 esptool.exe 의 절대 경로(방법 A: port=COMn).
+  # esptool_win 이 비어 있으면 ~/pweh-tools/esptool-win/esptool-windows-amd64/esptool.exe 를 찾아본다.
+  esptool: ${PWEH_ESPTOOL:-esptool}
+  esptool_win: ${PWEH_ESPTOOL_WIN:-}
 
 # sigrok-mcp 캡처 드라이버 정책 (읽기 전용으로 참조됨).
 # 내장 규칙: 로직 애널라이저/오실로스코프 허용 목록만 캡처 가능, 출력 제어 장치(전원공급기·전자부하·신호발생기·릴레이)는

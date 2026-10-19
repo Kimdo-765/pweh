@@ -3,7 +3,7 @@
 **에이전트 주도 임베디드 기기 하드웨어 분석 파이프라인** (CCTV / IP 카메라 / DVR·NVR / IoT)
 
 사람은 배선·프로브·전원 같은 **물리 작업**만 한다. AI 에이전트(Claude Code / Codex / Cursor)는 MCP 서버와 Skill 을 통해
-UART 콘솔, 로직 애널라이저, JTAG, 펌웨어 분석(REA + Ghidra)을 주도한다. 결과는 증거가 달린 구조화된 보고서로 남는다.
+UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분석(REA + Ghidra)을 주도한다. 결과는 증거가 달린 구조화된 보고서로 남는다.
 
 > ⚠️ **소유한 기기 또는 서면 허가를 받은 기기만** 분석한다. 모든 하드웨어 도구는 케이스에 소유/허가 증명이 있어야 동작한다.
 > 플래시 쓰기·삭제, `saveenv`, 전압 인가 같은 위험 작업은 서버 측 안전 게이트가 기본으로 거부한다.
@@ -22,6 +22,7 @@ UART 콘솔, 로직 애널라이저, JTAG, 펌웨어 분석(REA + Ghidra)을 주
    ├─ pweh-openocd     OpenOCD: 스캔체인, 레지스터/메모리, 플래시 읽기(job)
    ├─ pweh-jtagulator  JTAGulator: JTAG/UART 핀아웃 스캔 (선택)
    ├─ pweh-fwtriage    오프라인 트리아지: 시그니처, 엔트로피, U-Boot env, mtdparts 분할, rootfs 감사, 문자열 휴리스틱
+   ├─ pweh-esp         ESP32: esptool 칩·보안 정보, 플래시 덤프(job, 두 번 읽어 sha256 비교). WSL 에서는 Windows esptool.exe + COM 포트 (선택)
    └─ rea              REA(rea-agents): binwalk/unblob 추출, Ghidra 디컴파일, 참조 추적, 신호 디코딩
             │
       [대상 기기]  (또는 pweh-mock-device 시뮬레이터)
@@ -44,6 +45,7 @@ UART 콘솔, 로직 애널라이저, JTAG, 펌웨어 분석(REA + Ghidra)을 주
 | A | `uart-shell-acquisition` | 포트 탐색, 보드레이트 탐지, 부팅 로그, U-Boot 인터럽트, 셸 획득, 기본 정보 수집 | `uart/*.log`, `steps/*` |
 | A′ | `logic-analyzer-protocol-decode` | 핀/보드레이트 모를 때 캡처·디코딩, SPI/I2C 관찰 | `signals/*` |
 | B | `firmware-dump-via-uart` | U-Boot `sf read`+`md.b`(+crc32) 또는 셸 `dd`(+md5) 덤프, 재개 가능 | `dumps/*.bin` + 메타데이터 |
+| B′ | `esp32-flash-dump` | ESP32 계열 보드: esptool 로 칩·보안 정보 확인 → 플래시를 두 번 읽어 sha256 비교(WSL 에서는 Windows esptool.exe + COM 포트). 요약은 firmware-dump 형식 | `dumps/*.bin`, `*.read2.bin` + 메타데이터 |
 | C | `firmware-static-analysis` | fwtriage 1차 분석 → REA 추출/Ghidra 디컴파일 → 인증·하드코딩·백도어 후보 | `extract/`, `analysis/`, `findings.json` |
 | D | `cctv-auth-bypass-hunt` | Hikvision/Dahua/XiongMai 스타일 공개 취약점 패턴 중심 집중 탐색 | `findings.json` |
 | E | — | `report_generate` | `report.md` |
@@ -58,6 +60,7 @@ UART 콘솔, 로직 애널라이저, JTAG, 펌웨어 분석(REA + Ghidra)을 주
 git clone https://github.com/Kimdo-765/pweh.git ~/pweh && cd ~/pweh
 ./scripts/install.sh              # 처음엔 Ghidra·JDK 등 약 1 GB 를 내려받는다(설치 후 디스크 약 3~4 GB). 다시 실행하면 설치된 것은 건너뛴다
 #   ./scripts/install.sh --minimal   Python + sigrok + OpenOCD + squashfs/u-boot 도구만
+#   ./scripts/install.sh --only esptool   ESP32 용 esptool 5.4.0 만 추가 (선택 구성요소. WSL interop 이면 Windows esptool.exe 도)
 #   ./scripts/install.sh --check     설치 상태만 점검 / --list 구성요소 목록 / --help 옵션 전체
 
 # 2. 셸에서 외부 도구 쓰기 (MCP 서버는 scripts/mcp-launch.sh 가 env.sh 를 자동으로 읽는다)
@@ -113,11 +116,11 @@ Codex 는 `$pweh-start` 로 시작한다 (설정은 `pweh mcp-config --client co
 ```
 pweh/
 ├── README.md, project.md(명세), AGENTS.md, CLAUDE.md
-├── pyproject.toml                  하나의 패키지로 코어 + 6개 서버 설치
+├── pyproject.toml                  하나의 패키지로 코어 + 7개 서버 설치
 ├── src/pweh/                       공통 코어 (config, case, safety, jobs, mcpkit, report, cli, formats, schemas, mocktarget)
 ├── mcp-servers/
-│   ├── case-mcp/  uart-mcp/  openocd-mcp/  sigrok-mcp/  jtagulator-mcp/  fwtriage-mcp/
-├── skills/                         pweh-start + 5개 Skill (.claude/skills, .agents/skills 에 링크)
+│   ├── case-mcp/  uart-mcp/  openocd-mcp/  sigrok-mcp/  jtagulator-mcp/  fwtriage-mcp/  esp-mcp/
+├── skills/                         pweh-start + 6개 Skill (.claude/skills, .agents/skills 에 링크)
 ├── orchestrator/
 │   ├── master-prompt.md            파이프라인 전체 지침 (이 하나로 시작)
 │   └── pipeline-config.yaml        안전 정책, 도구 경로, 대상 기기 프로필
@@ -150,8 +153,8 @@ pweh/
 
 ## 문서
 - [안전 가이드](docs/safety.md) — 법적 범위, 전기 안전, 게이트, 승인, 위협 모델, 비상 정지, 백업
-- [하드웨어 셋업](docs/hardware-setup.md) — 장비, UART 패드 찾기, 배선, WSL usbipd, 로직 애널라이저, JTAG, SPI 클립
-- [MCP 설정](docs/mcp-setup.md) — Claude Code / Codex / Cursor 등록, REA 연동, 타임아웃
+- [하드웨어 셋업](docs/hardware-setup.md) — 장비, UART 패드 찾기, 배선, WSL usbipd, 로직 애널라이저, JTAG, SPI 클립, ESP32 보드(esptool 방법 A/B)
+- [MCP 설정](docs/mcp-setup.md) — Claude Code / Codex / Cursor 등록, REA 연동, ESP32 esptool 방법 A, 타임아웃
 - [아키텍처와 계약](docs/architecture.md) — 서버별 도구, 케이스 구조, 안전 모델, 코딩·테스트 규칙
 - [MCP 도구 카탈로그](docs/references/pweh-mcp-tools.md) — 서버가 실제로 내보내는 도구·인자·annotation (`scripts/dump_tool_catalog.py` 로 자동 생성)
 - [참고 자료](docs/references/) — U-Boot/부트 콘솔, OpenOCD TCL RPC, sigrok-cli, JTAGulator 프로토콜, CCTV 공개 취약점 패턴, 에이전트 클라이언트

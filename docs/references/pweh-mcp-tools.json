@@ -4367,5 +4367,322 @@
     "meta": null
    }
   ]
+ },
+ "pweh-esp": {
+  "module": "esp_mcp.server",
+  "tools": [
+   {
+    "name": "esp_version",
+    "description": "esptool 백엔드 확인 (기기 미접촉, OBSERVE). backends.windows(방법 A: WSL interop 으로 Windows 용 esptool.exe 실행, port='COMn') 와 backends.linux(usbipd 로 attach 한 /dev/ttyACM0·/dev/ttyUSB0 를 리눅스 esptool 로)에 대해 {available, path, source, version, major, interop, error} 와 recommended, hints 를 돌려준다. 설치: scripts/install.sh --only esptool 또는 PWEH_ESPTOOL_WIN/PWEH_ESPTOOL.",
+    "params": [],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "esp_list_ports",
+    "description": "시리얼 포트 목록 (포트를 열지 않음, OBSERVE). windows{available, ports, note}: Windows 의 COM 포트(powershell.exe 로 Win32_PnPEntity 조회 — port, name, vid, pid, serial_number, usb_id, kind, description_ko), linux{ports, hidden_legacy_ports}: pyserial 목록(+ in_use_by 다른 프로세스 PID). 알려진 USB ID 주석: 303a:1001 = ESP 내장 USB-Serial/JTAG, 303a:0009 = ESP32-S3 ROM USB-OTG 다운로드 모드, 10c4:ea60 = CP210x, 1a86:7523 = CH340, 1a86:55d3 = CH343, 1a86:55d4 = CH9102, 0403:6001/6010/6014/6015 = FTDI. WSL interop/powershell 이 없으면 리눅스 목록과 note 만.",
+    "params": [],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "esp_chip_info",
+    "description": "칩·플래시 정보 (esptool flash-id, MODIFY: DTR/RTS 또는 USB-Serial/JTAG 리셋으로 ROM 다운로드 모드 진입 + RAM 스텁, 플래시/eFuse 쓰기 없음, 케이스 소유/허가 증명 필요). port: 'COM3'(방법 A, Windows esptool.exe) 또는 '/dev/ttyACM0'(리눅스 esptool). 반환: chip, chip_description, chip_revision, features, crystal_mhz, usb_mode, mac, flash{manufacturer_id, manufacturer, device_id, size, size_bytes, type_efuse, voltage}, secure_download_mode, stub, log_path(uart/esptool-chip-info-NNN.log), backend, port, esptool_version, warnings, notes. Secure Download Mode 면 flash-id 가 거부되므로 status='secure_download_mode' 와 칩 종류만 돌려준다. 연결 실패면 사람에게 BOOT 를 누른 채 RESET 을 누르게 하고 before='no-reset' 으로 다시 호출한다. modify_policy=approve 이면 approval_required → 사람이 pweh approve 후 approval_id 를 붙여 재호출.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "port",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "chip",
+      "type": "string",
+      "required": false,
+      "default": "auto"
+     },
+     {
+      "name": "baud",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "before",
+      "type": "string",
+      "required": false,
+      "default": "default-reset"
+     },
+     {
+      "name": "after",
+      "type": "string",
+      "required": false,
+      "default": "hard-reset"
+     },
+     {
+      "name": "no_stub",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "timeout_s",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "esp_security_info",
+    "description": "보안 설정 조회 (esptool get-security-info, MODIFY: 리셋으로 ROM 다운로드 모드 진입, 쓰기 없음, 케이스 소유/허가 증명 필요). 반환: status('ok' | 'unsupported'), secure_boot, flash_encryption(SPI_BOOT_CRYPT_CNT 홀수 비트=켜짐), crypt_cnt, secure_download_mode(플래그 비트 2), read_flash_possible, ciphertext_expected, jtag_hard_disabled/jtag_soft_disabled, usb_disabled, download_dcache/icache_disabled, key_blocks[{block, purpose}], flags_hex, parsed_flags, raw_fields(보안 블록의 'Label: value' 원문), chip_id, api_version, assessment, log_path(uart/esptool-security-info-NNN.log). Secure Download Mode 에서도 동작한다. read_flash_possible=false 면 덤프를 시도하지 말고 우회 없이 사용자에게 보고한다. 원조 ESP32/ESP8266 은 이 명령을 지원하지 않아 ok=true, status='unsupported', 보안 필드·read_flash_possible 이 null(보안 상태 미확인)이다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "port",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "chip",
+      "type": "string",
+      "required": false,
+      "default": "auto"
+     },
+     {
+      "name": "baud",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "before",
+      "type": "string",
+      "required": false,
+      "default": "default-reset"
+     },
+     {
+      "name": "after",
+      "type": "string",
+      "required": false,
+      "default": "hard-reset"
+     },
+     {
+      "name": "no_stub",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "timeout_s",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "esp_read_flash_start",
+    "description": "플래시 덤프 작업 시작 (esptool read-flash, job, MODIFY: 리셋으로 ROM 다운로드 모드 진입 + RAM 스텁, 플래시/eFuse 쓰기 없음, 케이스 소유/허가 증명 필요). 방법 A: port='COM3' 이면 Windows esptool.exe 가 wslpath 로 바꾼 경로에 바로 쓴다. offset(정수/'0x..'), size('all'=감지 크기(offset=0 일 때만), 정수, '0x400000', '4M', '16MB', '512K'), output_name(생략 시 esp-flash, esp-flash-002 …), baud(기본 921600 — 오류가 나면 460800/115200), verify='double'(기본: 두 번 읽어 sha256 비교, 1차는 --after no-reset-stub 으로 칩을 다운로드 모드에 둬 앱이 실행되지 않게. before='no-reset'(수동 다운로드 모드)이면 1차는 115200 baud) | 'none'. after='no-reset' 은 no-reset-stub 으로 바꿔 실행한다. no_stub=True(ROM 직접 읽기, 전송 MD5 검증 없음)는 chip 을 ESP8266 이 아닌 칩으로 명시할 때만 받는다(auto·esp8266 은 validation_failed). 결과: dumps/<name>.bin (+ dumps/<name>.read2.bin) + dumps/<name>.json(firmware-dump 스키마 모양 메타데이터, method 'esptool-read-flash'), flash-dump 아티팩트, 읽기별 로그 uart/esptool-<name>-readN-NNN.log. 최종 파일은 끝날 때 만들며 기존 파일은 덮어쓰지 않는다. 즉시 job_id 를 돌려주므로 esp_job_status(job_id, wait_seconds=30) 로 폴링(진행률 %)하고 esp_job_cancel 로 취소한다(취소된 읽기는 부분 데이터가 없어 삭제). 불일치면 result.match=false + warnings (파일 보존). Secure Download Mode 면 esp_secure_download_mode 로 실패한다(우회 금지).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "port",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "chip",
+      "type": "string",
+      "required": false,
+      "default": "auto"
+     },
+     {
+      "name": "offset",
+      "type": "integer/string",
+      "required": false,
+      "default": 0
+     },
+     {
+      "name": "size",
+      "type": "integer/string",
+      "required": false,
+      "default": "all"
+     },
+     {
+      "name": "output_name",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "baud",
+      "type": "integer/null",
+      "required": false,
+      "default": 921600
+     },
+     {
+      "name": "verify",
+      "type": "string",
+      "required": false,
+      "default": "double"
+     },
+     {
+      "name": "before",
+      "type": "string",
+      "required": false,
+      "default": "default-reset"
+     },
+     {
+      "name": "after",
+      "type": "string",
+      "required": false,
+      "default": "hard-reset"
+     },
+     {
+      "name": "no_stub",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "timeout_s",
+      "type": "number/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "esp_job_status",
+    "description": "백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "wait_seconds",
+      "type": "number",
+      "required": false,
+      "default": 0.0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "esp_job_cancel",
+    "description": "실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "esp_jobs",
+    "description": "이 서버 프로세스의 백그라운드 작업 목록.",
+    "params": [
+     {
+      "name": "active_only",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   }
+  ]
  }
 }

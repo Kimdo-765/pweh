@@ -13,6 +13,7 @@
 | JTAG/SWD 프로브 | FT2232H 보드(Tigard 등), J-Link, ST-Link, CMSIS-DAP, Raspberry Pi GPIO | OpenOCD(`pweh-openocd`)로 사용 |
 | 핀아웃 스캐너 | JTAGulator (선택) | `pweh-jtagulator`. 미지의 핀에서 JTAG/UART 탐색 |
 | SPI 플래시 직접 읽기 | SOIC-8 클립 + SPI 프로그래머 (CH341A **3.3V 개조판**, FT2232H + flashrom) | UART 덤프가 안 될 때. 사람이 수행 후 `case_import_file` 로 가져옴 |
+| ESP32 덤프 | USB **데이터** 케이블 (DevKit 은 USB 하나로 전원·통신). 헤더만 있는 모듈은 3.3V USB-UART 어댑터 | `pweh-esp`(esptool). 칩·보안 정보와 플래시 이중 읽기 덤프 (§8) |
 | 측정 | 멀티미터 (연속성/DC 전압), 확대경 | 전압 레벨과 GND 확인 |
 | 작업 | 인두, 2.54mm 핀 헤더, 듀폰 케이블, 정전기 방지 매트/스트랩 | |
 | 전원 | 기기용 DC 어댑터 (12V/5V) | PoE 대신 DC 잭 사용 권장 |
@@ -30,16 +31,63 @@ cd /path/to/pweh
 
 ### 2.2 WSL2 에서 USB 장치 쓰기 (usbipd-win)
 WSL2 는 USB 장치를 직접 보지 못한다. Windows 쪽에서 [usbipd-win](https://github.com/dorssel/usbipd-win) 으로 장치를 WSL 에 붙인다.
+(ESP32 보드는 usbipd 없이 Windows 용 esptool.exe 로 쓸 수 있다 — §8.1 방법 A.)
+attach 하면 WSL 안의 usbip 클라이언트가 Windows 의 usbipd 서비스(TCP 3240)에 접속해 장치를 가져온다.
+아래 동작은 usbipd-win v5.3.0 소스([Wsl.cs](https://github.com/dorssel/usbipd-win/blob/v5.3.0/Usbipd/Wsl.cs) — 접속 주소·방화벽 확인,
+[Program.cs](https://github.com/dorssel/usbipd-win/blob/v5.3.0/Usbipd/Program.cs) — 옵션,
+[Server.wxs](https://github.com/dorssel/usbipd-win/blob/v5.3.0/Installer/Server.wxs) — 방화벽 규칙)와
+[WSL 설정 문서](https://learn.microsoft.com/windows/wsl/wsl-config)의 `networkingMode` 항목을 근거로 한다.
 
+**1) WSL 네트워킹 모드부터 확인한다.** usbipd 는 모드에 따라 WSL 이 Windows 에 다시 접속할 주소를 정한다.
+```bash
+wslinfo --networking-mode            # WSL 쪽. nat | mirrored | virtioproxy | bridged | none …
+```
+
+| 모드 | usbipd 가 쓰는 Windows 주소 | attach 방법 |
+|---|---|---|
+| `nat` (기본값) | WSL 의 기본 게이트웨이(`/proc/net/route`) | `usbipd attach --wsl --busid <BUSID>` |
+| `mirrored`, `virtioproxy` | `127.0.0.1` (루프백) | `usbipd attach --wsl --busid <BUSID>` |
+| `bridged` (WSL 2.4.5 부터 deprecated) | 자동으로 정하지 못한다. `Networking mode 'bridged' is not supported.` 로 실패 | `--host-ip` 로 Windows 주소를 직접 준다(아래) |
+| `consomme` (예전 이름 `virtioproxy`) | v5.3.0 은 모르는 값이라 위와 같이 실패한다 | `--host-ip 127.0.0.1` |
+| `none` | 네트워크가 없어 쓸 수 없다 | `.wslconfig` 의 `networkingMode` 를 바꾼다 |
+
+**2) 장치를 공유(bind)하고 붙인다(attach).**
 ```powershell
 # Windows PowerShell (관리자) — 최초 1회 설치: winget install usbipd
-usbipd list                          # BUSID 확인 (예: 2-3  CP2102 USB to UART Bridge)
-usbipd bind --busid 2-3              # 최초 1회 (관리자 권한)
-usbipd attach --wsl --busid 2-3      # 연결할 때마다 (장치를 뽑았다 꽂으면 다시)
+usbipd list                          # BUSID 와 STATE 확인 (예: 2-3  CP2102 USB to UART Bridge  Not shared)
+usbipd bind --busid 2-3              # 최초 1회 (관리자 권한, 재부팅 뒤에도 유지)
+usbipd attach --wsl --busid 2-3      # nat / mirrored: 연결할 때마다 (장치를 뽑았다 꽂으면 다시)
+
+# bridged 모드: 'vEthernet (WSL External)' 어댑터의 IPv4 주소를 --host-ip 로 준다
+ipconfig                             # 'vEthernet (WSL External)' 어댑터의 IPv4 주소를 확인한다
+usbipd attach --wsl --busid 2-3 --host-ip <vEthernet (WSL External) IPv4>
 ```
+- bridged 모드의 Windows 주소는 DHCP 로 받으므로 바뀔 수 있다. attach 할 때마다 `ipconfig` 로 다시 확인한다.
+  WSL 의 기본 게이트웨이는 공유기라서 usbipd 가 주소를 추정하지 않는다.
+- 방화벽: 설치 프로그램이 `usbipd` 규칙(TCP 3240 인바운드, 모든 프로필, 범위 `localSubnet`)을 만든다.
+  WSL 주소(`ip -4 addr show eth0`)가 Windows 와 다른 서브넷이거나, 그룹 정책이 로컬 규칙을 막거나(공용 프로필 `AllowLocalPolicyMerge=0` 등),
+  서드파티 방화벽을 쓰면 attach 가 `A firewall appears to be blocking the connection; ensure TCP port 3240 is allowed.` 경고를 낸다.
+  이때는 관리자가 WSL 주소에서 오는 TCP 3240 인바운드를 허용한다.
+
+**3) 붙어 있는 동안 Windows 는 그 장치를 쓰지 못한다.** Windows 장치 관리자의 COM 포트(예: `COM3`)가 사라지고, Windows 프로그램
+(PuTTY, Windows 용 esptool.exe 의 `--port COM3` 등 — WSL interop 으로 실행해도 마찬가지)은 그 포트를 열 수 없다. Windows 쪽에서 다시 쓰려면 떼어 낸다.
+```powershell
+usbipd detach --busid 2-3            # 또는 usbipd detach --all. 장치를 뽑았다 꽂아도 떨어진다
+```
+반대로 Windows 쪽 도구로 COM 포트를 쓰는 동안에는 attach 하지 않는다.
+
+**4) 리셋 때 USB 를 다시 열거하는 장치는 `--auto-attach` 를 쓴다.** 재열거되면 WSL 에서 떨어지기 때문이다.
+- ESP32-S3 내장 USB-Serial/JTAG(`303a:1001`): esptool 이 칩을 리셋할 때(다운로드 모드 진입·종료 포함) 다시 열거된다.
+- fx2lafw 로직 애널라이저: 연결할 때마다 펌웨어를 올린 뒤 다시 열거된다(2.3 절).
+```powershell
+usbipd attach --wsl --busid 2-3 --auto-attach    # 다시 나타날 때마다 다시 붙인다. 이 창은 계속 실행된다(끝낼 때 Ctrl+C)
+```
+리셋 뒤 다른 VID:PID 로 나타나는 경우(ESP32-S3 ROM 의 USB-OTG 다운로드 모드 `303a:0009`)는 `usbipd list` 에서 새 항목의 STATE 를 확인하고,
+`Not shared` 면 그것도 bind 한다. auto-attach 를 쓰지 못하면 사람이 BOOT 버튼을 누른 채 리셋해 다운로드 모드로 둔 뒤 attach 한다.
+
 WSL 쪽 확인:
 ```bash
-ls -l /dev/ttyUSB* /dev/ttyACM*      # USB-UART
+ls -l /dev/ttyUSB* /dev/ttyACM*      # USB-UART (ESP32-S3 USB-Serial/JTAG 는 /dev/ttyACM*)
 lsusb                                # 로직 애널라이저/JTAG 프로브
 ```
 
@@ -159,3 +207,53 @@ UART 덤프가 불가능하거나 너무 느릴 때 쓴다. 16MiB 를 115200bps 
 # 표준입력에 power-cycle 을 입력하면 "사람이 전원을 껐다 켠" 것과 같다
 ```
 자세한 내용은 `tests/mock-targets/README.md` 를 본다.
+
+## 8. ESP32 보드 (esptool)
+
+ESP32 계열(ESP32·ESP32-S2·ESP32-S3·ESP32-C3 …) 보드와 모듈은 UART 콘솔 대신 `pweh-esp`(esptool)로 칩·보안 정보를 읽고 SPI 플래시를 덤프한다.
+에이전트 절차는 `esp32-flash-dump` Skill, 도구 계약은 [architecture.md](architecture.md) §6.7, 안전 규칙은 [안전 가이드 §2.7·§3.3](safety.md) 에 있다.
+보드를 연결하는 방법은 둘이다. WSL 에서는 방법 A 를 권장한다.
+
+### 8.1 방법 A — WSL 에서 Windows esptool.exe + COM 포트 (권장)
+- 보드를 Windows PC 에 USB 로 연결한 그대로 둔다. **usbipd attach 를 하지 않는다.** attach 하면 Windows 에서 COM 포트가 사라져 이 방법을 쓸 수 없다(§2.2 의 3).
+- Windows 장치 관리자의 '포트(COM & LPT)' 에 COM 포트가 생기는지 본다(예: `Silicon Labs CP210x USB to UART Bridge (COM3)`).
+  ESP 내장 USB-Serial/JTAG 는 보통 Windows 기본 드라이버의 'USB 직렬 장치(COMn)' 로 보인다. 에이전트는 `esp_list_ports` 로 같은 목록과 USB ID 를 본다.
+- 설치는 `./scripts/install.sh --only esptool` 이고, Windows 쪽에는 따로 설치할 것이 없다. WSL interop 이 켜져 있어야 한다([mcp-setup.md](mcp-setup.md) §6).
+- 서버가 WSL interop 으로 Windows 용 esptool.exe 를 실행한다. 에이전트는 `port="COM3"` 처럼 COM 이름을 그대로 주고,
+  덤프 파일은 esptool.exe 가 `\\wsl.localhost\<배포판>\…` 경로로 케이스 `dumps/` 에 바로 쓴다.
+
+### 8.2 방법 B — usbipd + 리눅스 esptool
+- WSL interop 을 쓸 수 없거나 네이티브 리눅스면 §2.2 대로 `usbipd bind`·`usbipd attach` 한 뒤 리눅스 포트를 쓴다.
+- 포트 이름은 연결 방식에 따라 다르다.
+  - ESP 내장 USB-Serial/JTAG(`303a:1001`, ESP32-S3·C3·C6·H2 의 네이티브 USB): `/dev/ttyACM0`.
+  - USB-UART 브리지(CP210x `10c4:ea60`, CH340 `1a86:7523`, CH343, CH9102, FTDI): `/dev/ttyUSB0`.
+- 내장 USB-Serial/JTAG 는 esptool 이 칩을 리셋할 때(다운로드 모드 진입·종료 포함) USB 를 다시 열거해 WSL 에서 떨어진다.
+  `usbipd attach --wsl --busid <BUSID> --auto-attach` 를 쓴다(§2.2 의 4). ESP32-S3 ROM 의 USB-OTG 다운로드 모드(`303a:0009`)처럼 다른 VID:PID 로 나타나면 그 항목도 bind 한다.
+  다시 열거되면 장치 번호(`/dev/ttyACM0` → `/dev/ttyACM1`)가 바뀔 수 있으니 `esp_list_ports` 로 다시 확인한다.
+- 시리얼 포트 권한(`dialout`)은 §2.3 을 따른다. 그 tty 를 연 다른 프로그램(시리얼 모니터, uart-mcp 세션)이 있으면 서버가 `busy` 로 거부한다.
+
+### 8.3 보드 준비와 물리 작업 (사람)
+- 데이터 케이블을 쓴다. 충전 전용 케이블이면 포트가 생기지 않는다.
+- USB 포트가 둘인 DevKit(예: ESP32-S3 DevKit 의 `UART` 와 `USB`)은 역할이 다르다. 하나는 USB-UART 브리지 칩을 거치는 UART0 포트이고, 하나는 칩 내장 USB-Serial/JTAG 포트다.
+  둘 다 esptool 로 쓸 수 있다. 연결에 실패하면 다른 포트로 바꿔 본다.
+- 자동 리셋: DevKit 은 USB-UART 의 DTR/RTS 가 EN 과 부트 스트랩 핀에 연결되어 있어 esptool 이 스스로 다운로드 모드로 넣는다. 내장 USB-Serial/JTAG 는 USB 쪽 리셋을 쓴다.
+- 자동 리셋이 안 되면(`esp_no_serial_data`, `esp_wrong_boot_mode`) 사람이 BOOT 를 누른 채 RESET(EN)을 눌렀다 떼고, 그다음 BOOT 를 놓는다. 그 뒤 에이전트가 `before="no-reset"` 으로 다시 호출한다
+  (`after="no-reset-stub"` 이면 호출 사이에도 칩이 다운로드 모드에 머물러 BOOT+RESET 을 다시 하지 않아도 된다).
+  BOOT 버튼은 부트 스트랩 핀을 내린다(ESP32·ESP32-S2·ESP32-S3 는 GPIO0, ESP32-C3·C6·H2 는 GPIO9). 정확한 핀은 칩 데이터시트로 확인한다.
+- 같은 포트를 연 시리얼 모니터(Arduino IDE, `idf.py monitor`, PuTTY)는 닫는다.
+- **보드는 재부팅된다.** esptool 은 연결할 때마다 칩을 리셋해 ROM 다운로드 모드로 넣으므로 실행 중이던 펌웨어가 멈춘다.
+  덤프가 끝나면 기본(`after="hard-reset"`)으로 앱이 다시 시작된다. 덤프를 취소했거나 `after="no-reset-stub"`(`no-reset` 요청 포함)이라 칩이 다운로드 모드에 남았으면 RESET 을 누른다.
+- 방법 A 에서 덤프를 취소하거나 시간이 초과된 뒤 에이전트가 'Windows 에 esptool.exe(PID n)가 남았다' 고 알리면, Windows 작업 관리자에서 그 esptool.exe 를 끝내거나
+  Windows 터미널에서 `taskkill /F /PID n` 을 실행한다(보드 USB 를 뽑았다 꽂아도 된다). 그 프로세스가 COM 포트를 잡고 있는 동안에는 다시 읽을 수 없다.
+- 헤더만 있는 모듈이나 제품 보드: 3.3V USB-UART 어댑터를 UART0 의 TX/RX/GND 에 §3.2 처럼 연결한다(VCC 연결 안 함).
+  부트 스트랩 핀을 GND 로 내린 채 EN 을 리셋해 다운로드 모드로 넣는다. 어떤 패드가 UART0·스트랩 핀·EN 인지는 모듈 데이터시트로 확인한다.
+
+### 8.4 주의
+- PWEH 는 esptool 의 쓰기·삭제·eFuse 명령(`write-flash`, `erase-flash`, espefuse 등)을 실행하지 않는다. 요청해도 거부되고 승인으로도 풀리지 않는다.
+  끝날 때 FLASH_BEGIN 을 보내는 `--after no-reset`·`soft-reset` 도 쓰지 않는다(레거시 스텁은 이때 SPI 플래시 상태 레지스터를 다시 쓴다).
+- esptool 설정 파일(`~/.config/esptool/esptool.cfg`, Windows `%USERPROFILE%\AppData\Local\esptool\esptool.cfg`)은 읽지 않는다. 그런 설정을 읽었다는 오류(`esp_foreign_config`)가 나면
+  사람이 그 파일의 `[esptool]` 섹션을 확인·제거하거나 파일을 옮긴다.
+- Secure Download Mode 가 켜진 칩은 esptool 로 플래시를 읽을 수 없다. `esp_security_info` 의 `read_flash_possible=false` 면 덤프하지 않고, 글리칭·eFuse 조작 같은 우회도 하지 않는다.
+- 플래시 암호화가 켜져 있으면 덤프는 암호문이다(`ciphertext_expected=true`). 키는 읽기 보호된 eFuse 에 있다.
+- 속도: 921600 baud 에서 4 MB 는 보통 1~2분, 115200 baud 면 6분 이상 걸린다(기본 이중 읽기는 두 배).
+  전송 오류나 baud 변경 직후 끊김(`esp_baud_switch_failed` — USB-UART 브리지가 921600 을 못 버팀)이 나면 baud 를 460800, 115200 으로 낮춘다. ESP 내장 USB-Serial/JTAG 연결은 baud 와 무관하다.

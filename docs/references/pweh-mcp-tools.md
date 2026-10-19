@@ -244,3 +244,22 @@
 - **`fw_crack_hashes(case_id, hashes?, source_path?, wordlist?, extra_words?, hash_type?, max_seconds?, reveal?, max_results?, background?)`**  
   펌웨어에서 나온 비밀번호 해시를 공개 기본 비밀번호 사전(builtin-defaults: src/pweh/data/default-passwords.txt + YAML candidate_passwords)과 오프라인 대조 — 소유 기기 감사용, 네트워크 로그인 시도 없음. hashes: 'user:hash:...' 줄 / 순수 해시 / {user, hash, type} 목록, 또는 source
 
+## pweh-esp
+
+- **`esp_version()`** — [읽기전용]  
+  esptool 백엔드 확인 (기기 미접촉, OBSERVE). backends.windows(방법 A: WSL interop 으로 Windows 용 esptool.exe 실행, port='COMn') 와 backends.linux(usbipd 로 attach 한 /dev/ttyACM0·/dev/ttyUSB0 를 리눅스 esptool 로)에 대해 {available, path, source, v
+- **`esp_list_ports()`** — [읽기전용]  
+  시리얼 포트 목록 (포트를 열지 않음, OBSERVE). windows{available, ports, note}: Windows 의 COM 포트(powershell.exe 로 Win32_PnPEntity 조회 — port, name, vid, pid, serial_number, usb_id, kind, description_ko), linux{ports, hidden_legacy_ports
+- **`esp_chip_info(case_id, port, chip?, baud?, before?, after?, no_stub?, timeout_s?, approval_id?)`**  
+  칩·플래시 정보 (esptool flash-id, MODIFY: DTR/RTS 또는 USB-Serial/JTAG 리셋으로 ROM 다운로드 모드 진입 + RAM 스텁, 플래시/eFuse 쓰기 없음, 케이스 소유/허가 증명 필요). port: 'COM3'(방법 A, Windows esptool.exe) 또는 '/dev/ttyACM0'(리눅스 esptool). 반환: chip, chip_descr
+- **`esp_security_info(case_id, port, chip?, baud?, before?, after?, no_stub?, timeout_s?, approval_id?)`**  
+  보안 설정 조회 (esptool get-security-info, MODIFY: 리셋으로 ROM 다운로드 모드 진입, 쓰기 없음, 케이스 소유/허가 증명 필요). 반환: status('ok' | 'unsupported'), secure_boot, flash_encryption(SPI_BOOT_CRYPT_CNT 홀수 비트=켜짐), crypt_cnt, secure_download_mode(플래그
+- **`esp_read_flash_start(case_id, port, chip?, offset?, size?, output_name?, baud?, verify?, before?, after?, no_stub?, timeout_s?, approval_id?)`**  
+  플래시 덤프 작업 시작 (esptool read-flash, job, MODIFY: 리셋으로 ROM 다운로드 모드 진입 + RAM 스텁, 플래시/eFuse 쓰기 없음, 케이스 소유/허가 증명 필요). 방법 A: port='COM3' 이면 Windows esptool.exe 가 wslpath 로 바꾼 경로에 바로 쓴다. offset(정수/'0x..'), size('all'=감지 크기(offse
+- **`esp_job_status(job_id, wait_seconds?)`** — [읽기전용]  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`esp_job_cancel(job_id)`**  
+  실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
+- **`esp_jobs(active_only?)`** — [읽기전용]  
+  이 서버 프로세스의 백그라운드 작업 목록.
+

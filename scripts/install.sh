@@ -21,13 +21,15 @@
 # 원칙
 # - root/sudo 를 쓰지 않고, 시스템 디렉터리·셸 rc 파일을 바꾸지 않는다. 설치물은 <prefix> 와 가상환경 아래에만 둔다.
 #   (예외: 시스템 cargo 를 쓰면 ~/.cargo 레지스트리 캐시, Ghidra 를 처음 실행하면 ~/.config/ghidra)
-# - 스크립트가 직접 받는 파일(압축 파일, pip·unblob 휠, rustup-init, sasquatch .deb)은 고정된 sha256 으로,
+# - 스크립트가 직접 받는 파일(압축 파일, pip·unblob 휠, esptool 소스 배포판, rustup-init, sasquatch .deb)은 고정된 sha256 으로,
 #   배포판 패키지는 apt 의 서명된 색인에 있는 해시로 검증한다. pip·npm 이 받는 의존성은 최상위 버전만 고정하고
-#   해시는 고정하지 않으며 (npm 패키지의 설치 스크립트가 실행됨), binwalk 의존성은 Cargo.lock(--locked) 의 체크섬으로 검증된다.
+#   해시는 고정하지 않으며 (npm 패키지의 설치 스크립트가 실행되고, esptool 소스 배포판을 빌드하는 setuptools 도 PyPI 에서 받음),
+#   binwalk 의존성은 Cargo.lock(--locked) 의 체크섬으로 검증된다.
 # - 압축 해제 전에 절대 경로, '..', 밖을 가리키는 링크, 장치 파일을 거부한다. 배포판 패키지의 설치 스크립트는 실행하지 않는다.
-# - 이미 설치된 구성요소는 건너뛴다. 선택 구성요소(erofs, binwalk, rea …)가 실패해도 나머지는 계속한다.
+# - 이미 설치된 구성요소는 건너뛴다. 선택 구성요소(erofs, binwalk, rea, esptool)가 실패해도 나머지는 계속한다.
 # - `rea setup` 은 실행하지 않는다 (다른 에이전트 클라이언트의 설정을 바꾼다).
 # - 지원: Linux x86_64. 배포판 패키지(sigrok, squashfs, u-boot, 압축 해제 도구)는 Debian/Ubuntu(apt)에서만.
+#   esptool 의 Windows 판(방법 A: WSL 에서 interop 으로 esptool.exe 를 실행해 Windows COM 포트를 씀)은 WSL interop 이 켜져 있을 때만 받는다.
 
 set -Eeuo pipefail
 umask 022
@@ -71,10 +73,17 @@ RUST_TOOLCHAIN=1.98.0   # 시스템 cargo 가 없을 때 binwalk 를 빌드하�
 PIP_VER=26.2.1          # 모든 가상환경의 pip (ensurepip·get-pip.py 대신 해시가 고정된 휠로 설치)
 PIP_URL="https://files.pythonhosted.org/packages/f3/6e/1736e5b4ae2b778ef2f81c47d797de9f891d4d8acb047a24ca37a60294dd/pip-${PIP_VER}-py3-none-any.whl"
 PIP_SHA=71138adf1f4ca900cdb7d289c21b7494329f2332b6d85f0e1c42108c0384ed3e
+ESPTOOL_VER=5.4.0
+ESPTOOL_SDIST="esptool-${ESPTOOL_VER}.tar.gz"   # PyPI 에는 esptool 5.x 휠이 없고 소스 배포판만 있다 (순수 Python, setuptools 로 빌드)
+ESPTOOL_URL="https://files.pythonhosted.org/packages/2c/43/1a2ae2dd8ae97bf1ec9991db097e52626d35b57d242f9687c9314eac5b57/${ESPTOOL_SDIST}"
+ESPTOOL_SHA=fd756598db0a26c9975fa18511b08687c54bf2ce7322ede80cf1f5117dad1f50
+ESPTOOL_WIN_ZIP="esptool-v${ESPTOOL_VER}-windows-amd64.zip"   # 방법 A: 공식 Windows 빌드 (의존성을 담은 단일 실행 파일들)
+ESPTOOL_WIN_URL="https://github.com/espressif/esptool/releases/download/v${ESPTOOL_VER}/${ESPTOOL_WIN_ZIP}"
+ESPTOOL_WIN_SHA=b7f6b9dd301a210b31f4829118c909c84aae23107f9ca1fdc14ccf4d7384be2e
 
-ALL_COMPONENTS="python sigrok openocd squashfs uboot zig jdk ghidra unblob extractors erofs binwalk rea"
+ALL_COMPONENTS="python sigrok openocd squashfs uboot zig jdk ghidra unblob extractors erofs binwalk rea esptool"
 MINIMAL_COMPONENTS="python sigrok openocd squashfs uboot"
-OPTIONAL_COMPONENTS="erofs binwalk rea"   # 실패해도 설치 전체를 실패로 보지 않는다 (경고만)
+OPTIONAL_COMPONENTS="erofs binwalk rea esptool"   # 실패해도 설치 전체를 실패로 보지 않는다 (경고만)
 SKIP_RC=99   # install_* 가 이 값으로 끝나면 "건너뜀" (빌드 도구 같은 전제 조건이 없음). 실패로 세지 않는다
 
 declare -A DESC=(
@@ -91,6 +100,7 @@ declare -A DESC=(
   [erofs]="erofs-utils ${EROFS_TAG} 소스 빌드 (EROFS 추출, 선택)"
   [binwalk]="binwalk ${BINWALK_VER} (cargo 빌드, REA 영역 식별, 선택)"
   [rea]="REA rea-agents ${REA_VER} (npm, Ghidra 연동 MCP 서버, 선택)"
+  [esptool]="esptool ${ESPTOOL_VER} (ESP32 계열 칩·보안 정보, 플래시 읽기) + WSL 이면 Windows esptool.exe (방법 A: interop 으로 COM 포트, 선택)"
 )
 
 # ---------------------------------------------------------------------------
@@ -813,6 +823,82 @@ version_rea() {
   else local r; r="$(existing_rea)" && echo "REA $("$r" --version 2>/dev/null) (기존 설치: $r)"; fi
 }
 
+# esptool (ESP32 계열): 두 부분을 따로 설치·확인한다.
+# - Linux 판: 전용 venv(esptool/venv)에 sha256 을 고정한 PyPI 소스 배포판을 설치하고 bin/esptool 래퍼로 실행한다.
+# - Windows 판(방법 A): WSL 에서 interop 으로 공식 Windows 빌드 esptool.exe 를 직접 실행해 Windows 의 COM 포트를 쓴다
+#   (usbipd 없이). Linux 파일 시스템에 둔 exe 도 실행되고, 파일 경로는 `wslpath -w` 의 UNC 경로로 넘기면 된다.
+ESPTOOL_WIN_EXE="$PREFIX/esptool-win/esptool-windows-amd64/esptool.exe"
+WSL_BINFMT=/proc/sys/fs/binfmt_misc   # WSL 이 Windows 실행 파일(MZ)을 넘겨받는 등록: WSLInterop (systemd 를 쓰면 WSLInterop-late 도)
+wsl_interop() {  # WSL 에서 Windows 실행 파일을 직접 실행할 수 있는가 (interop 등록이 있고 켜져 있음). 판정은 이 함수 하나로만 한다
+  local f
+  for f in "$WSL_BINFMT"/WSLInterop*; do
+    [ -r "$f" ] && [ "$(head -n 1 "$f" 2>/dev/null)" = enabled ] && return 0
+  done
+  return 1
+}
+esptool_version() {  # esptool_version <실행 파일> — `esptool version` 의 마지막 줄 ("esptool v5.4.0" 다음 줄이 "5.4.0"). Windows 판의 CR 은 지운다
+  local out
+  out="$(timeout 60 "$1" version </dev/null 2>/dev/null)" || return 1   # interop 이 멈춰도 끝나도록 시간 제한, 터미널 입력은 넘기지 않는다
+  out="${out//$'\r'/}"
+  printf '%s\n' "${out##*$'\n'}"
+}
+esptool_linux_ok() { [ -x "$B/esptool" ] && [ "$(esptool_version "$B/esptool")" = "$ESPTOOL_VER" ]; }
+esptool_win_ok() { [ -x "$ESPTOOL_WIN_EXE" ] && wsl_interop && [ "$(esptool_version "$ESPTOOL_WIN_EXE")" = "$ESPTOOL_VER" ]; }
+check_esptool() { esptool_linux_ok && { ! wsl_interop || esptool_win_ok; }; }   # Windows 판은 WSL interop 에서만 요구한다
+install_esptool_linux() {
+  [ -n "$PY" ] || { echo "Python 3.10 이상이 필요합니다" >&2; return 1; }
+  local venv="$PREFIX/esptool/venv" src="$CACHE/esptool/$ESPTOOL_SDIST"
+  make_venv "$venv"
+  fetch "$ESPTOOL_URL" "$src" "$ESPTOOL_SHA"
+  # esptool 자체는 해시를 고정한 소스 배포판에서 빌드하고(빌드 백엔드 setuptools 는 PyPI 에서), 의존성은 PyPI 휠만 받는다 (컴파일러 불필요)
+  "$venv/bin/python" -m pip install --only-binary=:all: --no-binary=esptool "$src"
+  cat >"$B/esptool.tmp" <<EOF
+#!/bin/bash
+# scripts/install.sh 가 만든 esptool ${ESPTOOL_VER} 래퍼 (전용 venv). 스스로는 아무것도 출력하지 않는다.
+unset PYTHONHOME PYTHONPATH
+exec '$venv/bin/esptool' "\$@"
+EOF
+  chmod +x "$B/esptool.tmp"; mv -f "$B/esptool.tmp" "$B/esptool"
+  "$B/esptool" version </dev/null   # 실행 확인: 실패하면 원인(Traceback)이 로그에 남는다
+}
+install_esptool_win() {
+  local a="$CACHE/esptool/$ESPTOOL_WIN_ZIP" d="$PREFIX/esptool-win"
+  fetch "$ESPTOOL_WIN_URL" "$a" "$ESPTOOL_WIN_SHA"
+  rm -rf "$d/esptool-windows-amd64"
+  extract "$a" "$d"
+  chmod +x "$d"/esptool-windows-amd64/*.exe   # zip 안의 권한은 0644: interop(binfmt_misc)은 실행 권한이 있는 파일만 넘긴다
+  timeout 120 "$ESPTOOL_WIN_EXE" version </dev/null   # interop 실행 확인 (Windows 보안 소프트웨어가 막으면 여기서 실패)
+}
+install_esptool() {  # 한쪽이 실패해도 다른 쪽은 설치한다 (env.sh 는 되는 쪽만 export). 각 부분은 첫 실패에서 멈춘다
+  local lin=0 win=0
+  set +e   # 조건 밖의 subshell 이라야 그 안의 set -e 가 산다 (run_component 와 같은 방식)
+  if [ "$FORCE" = 1 ] || ! esptool_linux_ok; then
+    echo "--- Linux esptool ---"
+    ( set -Eeuo pipefail; install_esptool_linux ); lin=$?
+  else
+    info "Linux esptool ${ESPTOOL_VER} 은 이미 있음"
+  fi
+  if ! wsl_interop; then
+    info "WSL interop(Windows 실행 파일 실행)을 쓸 수 없어 Windows esptool.exe(방법 A)는 건너뜀 — 실패 아님, Linux esptool 만 씀"
+  elif [ "$FORCE" = 1 ] || ! esptool_win_ok; then
+    echo "--- Windows esptool.exe (방법 A) ---"
+    ( set -Eeuo pipefail; install_esptool_win ); win=$?
+  else
+    info "Windows esptool.exe ${ESPTOOL_VER} 은 이미 있음"
+  fi
+  set -e
+  [ "$lin" -eq 0 ] || echo "Linux esptool 설치 실패 (종료 코드 $lin)" >&2
+  [ "$win" -eq 0 ] || echo "Windows esptool.exe(방법 A) 설치 실패 (종료 코드 $win)" >&2
+  [ "$lin" -eq 0 ] && [ "$win" -eq 0 ]
+}
+version_esptool() {
+  local s
+  s="esptool $(esptool_version "$B/esptool" || echo 없음)"
+  if wsl_interop; then s="$s + Windows esptool.exe $(esptool_version "$ESPTOOL_WIN_EXE" || echo 없음) ($ESPTOOL_WIN_EXE)"
+  else s="$s (Windows esptool.exe 는 WSL interop 에서만)"; fi
+  printf '%s\n' "$s"
+}
+
 # ---------------------------------------------------------------------------
 # env.sh
 # ---------------------------------------------------------------------------
@@ -856,6 +942,9 @@ write_env() {
     if check_squashfs; then echo "export PWEH_MKSQUASHFS='$B/mksquashfs'"; echo "export PWEH_UNSQUASHFS='$B/unsquashfs'"; fi
     if check_uboot; then echo "export PWEH_MKIMAGE='$B/mkimage'"; echo "export PWEH_MKENVIMAGE='$B/mkenvimage'"; echo "export PWEH_DUMPIMAGE='$B/dumpimage'"; fi
     if check_zig; then echo "export PWEH_ZIG='$B/zig'"; fi
+    # esp-mcp 서버의 tools.esptool / tools.esptool_win. 두 판을 따로 판정한다 (Windows 판은 WSL interop 에서 실제로 실행될 때만)
+    if esptool_linux_ok; then echo "export PWEH_ESPTOOL='$B/esptool'"; fi
+    if esptool_win_ok; then echo "export PWEH_ESPTOOL_WIN='$ESPTOOL_WIN_EXE'"; fi
     if [ -x "$B/rea" ]; then echo "export PWEH_REA='$B/rea'"; fi
     if [ -x "$PREFIX/extractors/bin/lz4" ]; then echo "export PWEH_LZ4='$PREFIX/extractors/bin/lz4'"; fi
   } >"$f.tmp"

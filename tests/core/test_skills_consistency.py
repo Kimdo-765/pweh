@@ -227,7 +227,7 @@ def rea_args() -> dict[str, set[str]]:
 def test_every_skill_has_frontmatter_with_allowed_keys():
     assert {d.name for d in SKILL_DIRS} >= {
         "pweh-start", "uart-shell-acquisition", "firmware-dump-via-uart", "logic-analyzer-protocol-decode",
-        "firmware-static-analysis", "cctv-auth-bypass-hunt",
+        "firmware-static-analysis", "cctv-auth-bypass-hunt", "esp32-flash-dump",
     }
     for d in SKILL_DIRS:
         text = _read(d / "SKILL.md")
@@ -319,7 +319,7 @@ def _backticked_names(text: str) -> set[str]:
 def test_master_prompt_tool_map_matches_real_tools(catalog, pweh_params, rea_args):
     tool_map = _section(_read(MASTER), "## 2.")
     rows = [ln for ln in tool_map.split("\n") if ln.startswith("| `")]
-    assert len(rows) == 7, "도구 지도 행 수 (서버 7개)"
+    assert len(rows) == 8, "도구 지도 행 수 (서버 8개)"
     for row in rows:
         server = re.match(r"\| `([^`]+)`", row).group(1)
         names = _backticked_names(row.split("|")[2])
@@ -350,10 +350,10 @@ def test_master_prompt_skill_schema_table_matches_core():
 
 def test_master_prompt_decision_tree_names_existing_skills():
     tree = _section(_read(MASTER), "## 4.")
-    named = set(re.findall(r"skill: ([a-z-]+)", tree))
+    named = set(re.findall(r"skill: ([a-z0-9-]+)", tree))
     assert named and named <= {d.name for d in SKILL_DIRS}
     assert {"uart-shell-acquisition", "logic-analyzer-protocol-decode", "firmware-dump-via-uart",
-            "firmware-static-analysis", "cctv-auth-bypass-hunt"} <= named
+            "firmware-static-analysis", "cctv-auth-bypass-hunt", "esp32-flash-dump"} <= named
 
 
 # ---------------------------------------------------------------------------

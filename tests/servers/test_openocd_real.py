@@ -101,6 +101,10 @@ async def test_real_openocd_dummy_lifecycle(workspace, auth, real_openocd):
         )
         assert r["ok"], r
         assert r["health"] == "ok" and r["tcl_port"] > 0
+        # semihosting 무력화 스크립트가 실행되었다: testee 에는 semihosting 이 없고(조용히 확인), 감쌀 핸들러도 없다
+        assert r["semihosting"]["verified"] and r["semihosting"]["targets"] == {"dummy.cpu": "unsupported"}, r["semihosting"]
+        assert r["semihosting"]["source"] == "rpc" and r["semihosting"]["phases"] == ["pre-init", "post-init", "verify"]
+        assert r["semihosting_neutralized"] == [] and not any("PWEH-SEMIHOSTING" in w for w in r["warnings"])
         assert "Open On-Chip Debugger" in r["version"]
         assert r["startup"]["listening"].get("tcl") == r["tcl_port"]
         assert "telnet" not in r["startup"]["listening"] and "gdb" not in r["startup"]["listening"]
@@ -136,6 +140,7 @@ async def test_real_openocd_dummy_lifecycle(workspace, auth, real_openocd):
 
         h = await call(c, "openocd_halt", case_id=cid)
         assert h["ok"] and h["state"] == "halted", h
+        assert h["semihosting_check"]["status"] == "ok" and h["semihosting_check"]["targets"] == {"dummy.cpu": "unsupported"}, h
 
         # testee 는 메모리 접근을 지원하지 않는다 → 깔끔한 오류 (OpenOCD 는 살아 있어야 함)
         mem = await call(c, "openocd_read_memory", case_id=cid, address=0, count=1)
@@ -156,11 +161,13 @@ async def test_real_openocd_dummy_lifecycle(workspace, auth, real_openocd):
 
         rs = await call(c, "openocd_reset", case_id=cid, mode="halt")
         assert rs["ok"], rs
+        assert rs["semihosting_check"]["status"] == "ok", rs  # reset 뒤 재확인 (poll 을 쓰지 않아 testee 도 살아 있다)
         assert "JTAG scan chain interrogation failed" in rs["messages"]  # dummy 어댑터의 재검사 로그 (INSTALL_REPORT 실측)
         assert rs["targets"][0]["name"] == "dummy.cpu"
 
         st = await call(c, "openocd_status", case_id=cid)
         assert st["alive"] and st["process"]["running"] and st["targets"][0]["name"] == "dummy.cpu"
+        assert st["semihosting"]["last_check"]["trigger"] == "openocd_reset" and st["semihosting_live"]["status"] == "reported"
 
         stop = await call(c, "openocd_stop", case_id=cid)
         assert stop["ok"] and stop["method"] == "shutdown" and stop["process"]["exit_code"] == 0, stop

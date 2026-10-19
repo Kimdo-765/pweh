@@ -28,11 +28,12 @@ pweh-openocd-mcp = "openocd_mcp.server:main"
 pweh-sigrok-mcp = "sigrok_mcp.server:main"
 pweh-jtagulator-mcp = "jtagulator_mcp.server:main"
 pweh-fwtriage-mcp = "fwtriage_mcp.server:main"
+pweh-esp-mcp = "esp_mcp.server:main"
 pweh-mock-device = "pweh.mocktarget.cli:main"
 
 [tool.setuptools]
 # 공통 코어(pweh)는 src/ 아래, 각 MCP 서버 패키지는 명세의 디렉터리 구조대로 mcp-servers/<name>/ 아래에 둔다.
-package-dir = { "" = "src", "case_mcp" = "mcp-servers/case-mcp/case_mcp", "uart_mcp" = "mcp-servers/uart-mcp/uart_mcp", "openocd_mcp" = "mcp-servers/openocd-mcp/openocd_mcp", "sigrok_mcp" = "mcp-servers/sigrok-mcp/sigrok_mcp", "jtagulator_mcp" = "mcp-servers/jtagulator-mcp/jtagulator_mcp", "fwtriage_mcp" = "mcp-servers/fwtriage-mcp/fwtriage_mcp" }
+package-dir = { "" = "src", "case_mcp" = "mcp-servers/case-mcp/case_mcp", "uart_mcp" = "mcp-servers/uart-mcp/uart_mcp", "openocd_mcp" = "mcp-servers/openocd-mcp/openocd_mcp", "sigrok_mcp" = "mcp-servers/sigrok-mcp/sigrok_mcp", "jtagulator_mcp" = "mcp-servers/jtagulator-mcp/jtagulator_mcp", "fwtriage_mcp" = "mcp-servers/fwtriage-mcp/fwtriage_mcp", "esp_mcp" = "mcp-servers/esp-mcp/esp_mcp" }
 packages = [
     "pweh",
     "pweh.safety",
@@ -45,6 +46,7 @@ packages = [
     "sigrok_mcp",
     "jtagulator_mcp",
     "fwtriage_mcp",
+    "esp_mcp",
 ]
 
 [tool.setuptools.package-data]
@@ -57,7 +59,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "hardware: 실제 하드웨어가 연결되어 있어야 하는 테스트 (기본 skip)",
-    "external: 외부 도구(sigrok-cli, openocd, binwalk, unblob, ghidra 등)가 필요한 테스트 (없으면 skip)",
+    "external: 외부 도구(sigrok-cli, openocd, binwalk, unblob, ghidra, esptool 등)가 필요한 테스트 (없으면 skip)",
     "slow: 오래 걸리는 테스트",
 ]
 filterwarnings = [

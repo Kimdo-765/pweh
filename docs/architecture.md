@@ -17,6 +17,7 @@
    ├─ pweh-openocd     (mcp-servers/openocd-mcp)     OpenOCD 프로세스 + TCL RPC: 스캔체인, 메모리/플래시 읽기
    ├─ pweh-jtagulator  (mcp-servers/jtagulator-mcp)  JTAGulator 핀아웃 스캔 (선택)
    ├─ pweh-fwtriage    (mcp-servers/fwtriage-mcp)    오프라인 펌웨어 트리아지 (외부 도구 없이 동작)
+   ├─ pweh-esp         (mcp-servers/esp-mcp)         ESP32 계열 esptool 읽기 전용: 칩·보안 정보, 플래시 덤프(job) (선택)
    └─ rea              (외부: rea-agents 6.5)        binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩
             │
       [대상 기기]  (또는 테스트용 pweh.mocktarget 시뮬레이터)
@@ -41,7 +42,7 @@
 
 패키징: 루트 `pyproject.toml` 하나로 모든 패키지를 설치한다 (`pip install -e ".[dev]"`).
 콘솔 스크립트: `pweh`, `pweh-case-mcp`, `pweh-uart-mcp`, `pweh-openocd-mcp`, `pweh-sigrok-mcp`,
-`pweh-jtagulator-mcp`, `pweh-fwtriage-mcp`, `pweh-mock-device`.
+`pweh-jtagulator-mcp`, `pweh-fwtriage-mcp`, `pweh-esp-mcp`, `pweh-mock-device`.
 
 ## 3. 케이스 디렉터리 (Skill 사이의 데이터 전달)
 
@@ -54,8 +55,11 @@ cases/<case_id>/
   uart/<session>.raw   수신 원시 바이트
   uart/<session>.events.jsonl  송신 명령/안전 결정/문맥 변화 이벤트 (비밀번호는 마스킹)
   uart/<session>-boot-NN.log   uart_capture_boot 가 저장한 부팅 로그 발췌
+  uart/esptool-<명령>-NNN.log  pweh-esp 의 esptool 출력 로그 (esptool-chip-info / esptool-security-info / esptool-<name>-readN)
   dumps/<name>.bin     덤프 결과 + dumps/<name>.json (메타데이터) + 진행 중이면 <name>.state.json 과
-                       부분 파일(UART 덤프 <name>.bin.part, OpenOCD 덤프 <name>.part)
+                       부분 파일(UART 덤프 <name>.bin.part, OpenOCD 덤프 <name>.part).
+                       pweh-esp 덤프는 이중 읽기의 2차 결과 <name>.read2.bin 을 함께 둔다. 읽는 동안에는 숨은 예약 파일 .<name>.readN.partial 과
+                       소유 표식 .<name>.owner.partial 만 두고, 최종 파일(.bin/.read2.bin/.json)은 끝날 때 덮어쓰지 않고 만든다
   extract/<label>-NNN/ 추출 결과 (REA extract_firmware 의 output_directory 는 case_paths 의 new_output_dir 사용)
                        fw_carve: <idx>-<name>.bin (idx 2자리) + index.json / fw_extract_squashfs: 트리 + 옆에 <label>-NNN.manifest.json
   analysis/            fwtriage JSON, 디컴파일 발췌, 메모
@@ -83,6 +87,11 @@ cases/<case_id>/
 | logic-analyzer-protocol-decode | `schemas/signal-capture.schema.json` |
 | cctv-auth-bypass-hunt | `schemas/auth-hunt.schema.json` |
 
+- firmware-dump-via-uart 밖에서 얻은 덤프(JTAG, SPI 클립, ESP32 esptool)도 다음 Skill 이 찾을 수 있게 `skill="firmware-dump-via-uart"` 로 firmware-dump 요약을 남긴다(master-prompt §5).
+  `esp32-flash-dump` Skill 은 따로 요약 스키마를 두지 않고 이 규칙을 따른다: `method` `esptool-read-flash`, `verification.method` `double-read`
+  (`expected`/`actual` = 두 읽기의 sha256, `match`). 값은 `esp_read_flash_start` job `result.summary_hint` 에 그대로 있다(§6.7).
+- ESP32 덤프용 스키마 값: firmware-dump `method` 의 `esptool-read-flash`, static-analysis `firmware.source` 의 `esptool-dump`.
+
 아티팩트 kind 어휘: `uart-log`, `uart-raw`, `uart-events`, `flash-dump`, `memory-dump`, `partition`,
 `firmware-image`, `extracted-tree`, `signal-capture`, `signal-decode`, `jtag-dump`, `jtag-scan`, `triage-report`,
 `rea-evidence`, `decompilation`, `report`, `other`.
@@ -99,8 +108,8 @@ cases/<case_id>/
 |---|---|---|
 | OBSERVE | 포트 목록, 버퍼 읽기, 로직 캡처 | 허용 |
 | INTERACT | `printenv`, `md.b`, `sf read`(RAM), `crc32`, `cat /proc/mtd`, `scan_chain`, `mdw` | 허용 |
-| MODIFY | `setenv`(저장 안 함), `boot`, `reset`, `halt`, DTR/RTS 토글, 서비스 시작, JTAGulator 스캔, 결과를 저장하는 `crc32 <주소> <크기> <대상>`, `/dev/watchdog`·`/dev/mem` 읽기 | 허용 (`safety.modify_policy`) |
-| DESTRUCTIVE | `saveenv`, `sf erase/write`, `nand erase/write`, `mw`, `flash_erase`, `dd of=/dev/mtd*`, 시스템 디렉터리 밖 실행 파일 실행(`./x`, `/tmp/x`), `PATH`/`LD_PRELOAD` 변경, OpenOCD `flash write_image`/`mww`, JTAGulator 전압 설정 | **거부** (`safety.destructive_policy`) |
+| MODIFY | `setenv`(저장 안 함), `boot`, `reset`, `halt`, DTR/RTS 토글, 서비스 시작, JTAGulator 스캔, 결과를 저장하는 `crc32 <주소> <크기> <대상>`, `/dev/watchdog`·`/dev/mem` 읽기, esptool 연결(`flash-id`·`get-security-info`·`read-flash` — 리셋으로 ROM 다운로드 모드 진입 + RAM 스텁) | 허용 (`safety.modify_policy`) |
+| DESTRUCTIVE | `saveenv`, `sf erase/write`, `nand erase/write`, `mw`, `flash_erase`, `dd of=/dev/mtd*`, 시스템 디렉터리 밖 실행 파일 실행(`./x`, `/tmp/x`), `PATH`/`LD_PRELOAD` 변경, OpenOCD `flash write_image`/`mww`, JTAGulator 전압 설정, esptool `write-flash`/`erase-flash`·eFuse(pweh-esp 는 정책과 무관하게 거부) | **거부** (`safety.destructive_policy`) |
 
 - 분류기: `classify_uboot`, `classify_linux`, `classify_openocd`, `classify_console_line`(문맥별), `LineAssembler`(분할 쓰기/줄 편집 대응. 기기가 입력 일부를 버렸을 수 있으면 `mark_uncertain` 으로 남은 입력을 uncertain 처리).
   U-Boot 약어, `run`/`boot` 간접 실행(추적한 env 로 재귀 분류), 빈 Enter 반복, 명령 위치의 변수/글롭, `eval`/`sh -c`/파이프-to-셸 등을 보수적으로 처리한다.
@@ -131,6 +140,27 @@ cases/<case_id>/
       `expr {…}`, `if {[catch {halt}]} …` 처럼 중괄호로 감싸면 안쪽 `[…]` 만 재귀 분류한다.
     - 이 서버가 끈 telnet/GDB 명령 서버를 다시 여는 `telnet port N`, `gdb port N`, `gdb_port N`, `-gdb-port N`(값이 `disabled` 면 MODIFY). 그 포트로 들어온 명령은 게이트를 거치지 않는다.
     - 코어 표에 없는 첫 단어(점 없는 타깃 이름 `cpu0` 등) 뒤의 위험한 하위 명령(`cpu0 mww …` → DESTRUCTIVE. `cpu0 read_memory …` 는 MODIFY 그대로).
+    - semihosting 켜기(`openocd.local.semihosting`): `arm semihosting`·`arm semihosting_fileio` 뒤의 값이 끄는 값(`disable`/`off`/`false`/`no`/`0`)이 아니거나
+      변수·명령 치환이면 DESTRUCTIVE 다. OpenOCD 는 값을 대소문자 없이 해석한다(`arm semihosting ENABLE`, `arm semihosting on`, `arm semihosting $x` 모두 켜짐을 실측).
+      조회(`arm semihosting`)와 끄기는 MODIFY 그대로다.
+    - semihosting proc: 세션의 OpenOCD 에서 가드가 찾은 proc(본문에 `semihost` 가 있거나 그런 proc 을 부르는 proc, 전이적)의 호출(`openocd.local.semihosting-proc`).
+      코어도 ESP 표준 proc `configure_event_examine_end`·`configure_openocd_events`·`create_esp_target`(`openocd.esp.semihosting-proc`)과 이름에 `semihost` 가 든 명령(`openocd.semihosting-proc`)을 DESTRUCTIVE 로 본다.
+    - OpenOCD 훅 변수 `post_init_commands`·`pre_shutdown_commands` 에 `lappend`/`set`/`append`/`lset` 로 넣는 값(원소가 eval 됨 — 실측)은 스크립트로 분류한다
+      (`lappend pre_shutdown_commands "mww 0 0"` → 안쪽 `mww` 기준 DESTRUCTIVE. 예전에는 INTERACT 로 통과해 `openocd_stop` 때 실행됐다).
+    - 사용자 cfg 안의 init 계열 명령(`init`, `target`/`transport`/`jtag`/`dap` … `init`, `jtag arp_init`, `post_init_commands` 수정)은 semihosting 가드보다 먼저 init 을 돌리므로
+      DESTRUCTIVE(`openocd.local.init-before-guard`)다. `extra_commands` 에서는 아예 `validation_failed` 다(§6.4).
+    - 알려진 하위 명령 그룹(`flash`, `nand`, `arm`, `jtag`, `esp` …)의 하위 명령 자리가 변수·명령 치환이면 DESTRUCTIVE(`openocd.local.dynamic-subcommand`).
+      코어는 `[…]` 를 떼어 보므로 `flash [string cat erase_sector] 0 0 last` 가 `flash`(인자 없음, INTERACT)로 보였다.
+
+    코어 표(`classify_openocd`)의 OpenOCD 포크·칩 명령: 업스트림 `program` 과 Espressif 포크의 플래시 프로그래밍 proc `program_esp`·`program_esp_bins`
+    (예전 `program_esp32`, 그 밖의 `program_*` 포함)는 DESTRUCTIVE 다(`openocd.flash.program_esp`, 그 밖의 이름은 `openocd.flash.program_proc`).
+    호스트 파일·네트워크로 쓰는 `esp gcov`(타깃 펌웨어가 호스트 경로와 모드를 정함)·`esp apptrace`·`esp sysview`·`esp sysview_mcore` 의 `start`/`dump`·`xtensa tracedump`,
+    임의 명령어를 실행하는 `xtensa exe`, 플래시 전압 스트랩 `<칩> flashbootstrap <값>`(`openocd.esp.flashbootstrap`)도 DESTRUCTIVE 다.
+    `flashbootstrap` 규칙은 바로 앞 단어가 ESP 칩 그룹(`esp32`, `esp32s2`, `esp32s3`, `esp32c3` …)인 `<칩> flashbootstrap …`·`<타깃> <칩> flashbootstrap …` 에만 적용하고,
+    그 뒤에도 일반 표·명령 규칙을 그대로 돌려 더 위험한 쪽을 쓴다(`program flashbootstrap`·`load_image flashbootstrap` 은 DESTRUCTIVE, 값 없는 `esp32 flashbootstrap` 은 `openocd.unknown`).
+    호스트 파일을 쓰는 `profile <초> <파일>`(gmon), 트레이스 출력 `<tpiu|swo> create|configure … -output <파일|:포트>`(`openocd.trace.output`), `tpiu config internal <파일>`(`openocd.tpiu.config.internal`)도 DESTRUCTIVE 다.
+    스텁을 돌리는 검증·설정(`esp verify_bank_hash`, `esp flash_stub_clock_boost`, `esp compression` …)은 MODIFY, `esp apptrace status` 는 INTERACT 다.
+    칩 이름(`esp32`, `esp32s3`)은 단일 코어 cfg 의 점 없는 타깃 이름이기도 해서 하위 명령 표로 만들지 않았다.
 
     결과를 낮추는 예외는 둘뿐이다.
     - `classify_managed`: 서버가 직접 만든 정확한 형식의 덤프 명령(`dump_image`/`flash read_bank`/`flash verify_bank`/`verify_image`, 경로가 케이스의 `jtag/`·`dumps/` 안)만 INTERACT 로 본다.
@@ -143,6 +173,21 @@ cases/<case_id>/
     `ftdi-la` 는 기본 허용 목록에서 뺐다(`SHARED_ADAPTER_DRIVERS`). 제품 문자열 확인 없이 범용 FTDI VID/PID 만으로 장치를 잡아, 같은 칩을 쓰는 USB-UART 어댑터(대상 콘솔)·JTAG 어댑터·JTAGulator 를
     LA 로 열고 커널 드라이버를 떼며 핀을 bitbang 입력으로 바꾸기 때문이다. 전용 FTDI LA 만 쓰는 환경이면 운영자가 `sigrok.capture_drivers_allow` 에 넣는다.
     디코드(`sigrok_decode` job, `sigrok_uart_autodecode` 의 sigrok-cli 경로)도 프로세스를 띄우기 직전에 argv 를 다시 분류해 오프라인 명령(`sigrok.offline`)만 실행한다.
+  - `esp_mcp.policy`: 코어에 esptool 분류기가 없어 `classify_esptool_argv` 가 서버가 검증한 인자로 직접 조립한 argv(실행할 argv 그대로)를 분류한다. 원시 esptool 인자를 받는 도구는 없다.
+    허용하는 명령은 이것뿐이다: `version`(OBSERVE, `esp.version`), `flash-id`·`get-security-info`·`chip-id`·`read-mac`(MODIFY, 규칙 id `esp.info.<명령>`),
+    `read-flash`(MODIFY, `esp.read-flash` — 출력은 케이스 `dumps/` 안의 서버 예약 경로만). 서버가 실제로 쓰는 것은 `flash-id`·`get-security-info`·`read-flash` 다.
+    MODIFY 인 이유: esptool 은 연결할 때 DTR/RTS 또는 USB-Serial/JTAG 리셋으로 칩을 ROM 다운로드 모드에 넣고 보통 RAM 에 플래셔 스텁을 올린다.
+    USB-Serial/JTAG 연결이면 워치독 레지스터를 끄고, SPI 플래시에 리셋 명령(0x66/0x99)을 보내며, 끝나면 `--after` 에 따라 다시 리셋한다. 모두 휘발성이고 플래시·eFuse 에 쓰는 명령은 보내지 않는다.
+    그래서 끝날 때 FLASH_BEGIN 을 보내는 `--after no-reset`(`esp.after.no-reset`)·`--after soft-reset`(`esp.after.soft-reset`)은 DESTRUCTIVE 다: 레거시 스텁(esptool 4.8~5.2 의 기본)은
+    FLASH_BEGIN 때 SPI 플래시 상태 레지스터를 다시 쓴다(비휘발성). `--chip auto` 는 칩에 남은 스텁을 `--no-stub` 이어도 스텁으로 다루므로 서버는 사용자의 `after="no-reset"` 을
+    늘 `no-reset-stub` 으로 바꿔 argv 를 만들고(`policy.stub_safe_after`), `soft-reset` 은 인자 검증에서 거부한다. `watchdog-reset` 은 esptool v5·v4.12 이상에서만 받는다.
+    `--no-stub` 과 `--chip esp8266`·`auto` 의 조합도 DESTRUCTIVE 다(`esp.nostub.esp8266`): ESP8266 ROM 에는 플래시 연결 명령이 없어 esptool 이 FLASH_BEGIN(0, 0) 을 보낸다.
+    인자 검증(`policy.validate_no_stub`)도 `no_stub=True` 면 ESP8266 이 아닌 칩을 `chip` 으로 명시하게 한다.
+    그 밖의 모든 것은 DESTRUCTIVE 다: 플래시 쓰기·삭제(`esp.cmd.flash-write`), RAM 적재·실행(`esp.cmd.ram-exec`), 임의 메모리 쓰기·읽기(`esp.cmd.mem-write`, `esp.cmd.mem-read`),
+    오프라인 이미지 도구(`esp.cmd.offline`), 이 서버가 쓰지 않는 명령(`esp.cmd.unsupported`), 모르는 명령(`esp.cmd.unknown`), espefuse·espsecure·rfc2217 서버 실행 파일(`esp.exe.forbidden`),
+    금지·모르는 옵션(`esp.opt.forbidden`, `esp.opt.unknown`), `@파일` 인자 확장(`esp.argv.unparsed`), 빠졌거나 검증한 포트와 다른 `--port`(`esp.port.missing`, `esp.port.mismatch`),
+    허용 밖 값과 `--connect-attempts 0`(`esp.opt.value`), 명령 뒤의 추가 인자(`esp.argv.extra`), 케이스 `dumps/` 밖 출력(`esp.output.outside`).
+    DESTRUCTIVE 는 `rt().authorize` 에 넘기지 않고 `status: "denied"`(`gate.via: "esp-policy"`)로 거부하므로 `destructive_policy: approve` 여도 승인 경로가 없다(`pweh approve` 로도 풀 수 없다).
   - `jtagulator_mcp.classify`: 코어에 JTAGulator 분류기가 없어 보낼 키 계획을 실제 장치 프롬프트 기준으로 분류한다(스캔·`D`/`T` = MODIFY, `V` 키·전압 대화(0 V 포함)·`Y`/`P`/`O`/`W`/`L`/`A`/UART 패스스루 = DESTRUCTIVE).
     UART 스캔 프로브 문자열은 코어 `classify_console_line` 결과와 worst 를 취한다. 대상 콘솔은 순열마다 프로브를 다시 받으므로,
     한 번 보낸 형태와 두 번 이어 붙인 형태(줄 끝 없는 꼬리가 다음 송신의 머리와 이어짐 — `_erase X\rflash` → `flash_erase X`)를 모두 분류한다.
@@ -188,6 +233,12 @@ if not decision.allowed:
   게이트를 통과한 **도구 호출 안에서** 보내고, job 은 출력을 감시하며 INTERACT 인 중단 키(JTAGulator 는 LF 1바이트)만 보낸다.
   job 은 시작 전에 이 계획이 INTERACT 이하인지 확인하고, 도구 호출과 job 의 모든 송신은 실제 장치 상태(수신 버퍼 끝의 프롬프트)로 다시 분류된다.
   다른 job 도 실행 중에 다시 검사한다: sigrok 은 프로세스를 띄우기 직전에 argv 를(캡처·디코드 모두), openocd 덤프 job 은 청크 명령마다 검사하고 INTERACT 를 넘으면 중단한다.
+- 예외: pweh-esp 의 read-flash job 은 job 안에서 MODIFY 를 실행한다. esptool 프로세스가 읽기마다 다시 연결(리셋·스텁)하기 때문이다.
+  그래서 게이트는 도구 호출 안에서 계획한 read-flash argv(MODIFY `esp.read-flash`)로 한 번 판단한다. 승인 지문에는 포트·칩·범위·`output_name`·`verify`·리셋 모드
+  (실제 `after` 와 바꾸기 전의 `after_requested`, 1차 읽기의 `read1_after`·`read1_baud`)가 들어가고,
+  `modify_policy: approve` 면 승인 한 번이 이중 읽기 두 번을 모두 덮는다. 출력 경로를 예약한 뒤에는 읽기마다 실제 argv 를 다시 분류한다.
+  job 은 esptool 을 띄우기 직전마다 그 argv 를 다시 분류해 정확히 MODIFY `esp.read-flash` 가 아니면 멈추고(`safety_denied`), 케이스 소유/허가도 다시 확인한다(철회되면 `authorization_required`).
+  계획 밖의 명령은 보내지 않는다.
 - 이 분류기는 협조적이지만 성급한 에이전트의 실수를 막기 위한 것이며 적대적 우회를 완벽히 막는 샌드박스가 아니다.
   강한 격리가 필요하면 MCP 서버를 별도 OS 계정으로 실행한다 (docs/safety.md).
 
@@ -318,23 +369,23 @@ OpenOCD 프로세스 관리 + TCL RPC. TCL 포트만 127.0.0.1 에 열고 telnet
 | 도구 | 설명 / 반환 |
 |---|---|
 | `openocd_list_configs(kind="interface", pattern=None, limit=200)` *(추가)* | scripts 디렉터리의 cfg 목록(`interface`/`target`/`board`/`all`, `pattern` 은 부분 문자열 필터) → `scripts_dir`, `configs[]`, `count`, `truncated`. 값을 `openocd_start` 의 `interface_cfg`/`target_cfg` 에 그대로 쓴다 |
-| `openocd_start(case_id, interface_cfg, target_cfg=None, transport=None, adapter_speed_khz=None, extra_commands=None, tcl_port=6666, extra_cfgs=None, ready_timeout=30, approval_id=None)` | **MODIFY**(JTAG/SWD 초기화가 타깃 상태에 영향). 게이트는 `extra_commands`, 서버가 만든 transport/adapter speed 명령, 사용자 cfg 의 **내용 전체**까지 분류한 최악값으로 판단한다(`$변수`·`-event`·`proc` 를 쓰는 cfg, `telnet port N`/`gdb port N` 재활성화, 중괄호 없는 `expr`/`if` 조건의 치환은 DESTRUCTIVE → 기본 거부). 사용자 cfg 는 신뢰 scripts 디렉터리 밖의 경로, 그리고 OpenOCD 기본 검색 위치(`$OPENOCD_SCRIPTS`, `~/.config/openocd`, `~/.openocd`, site)에서 찾은 이름이다. 1 MiB 를 넘는 사용자 cfg 는 잘라 분류하지 않고 `validation_failed` 로 거부한다. 승인 지문에 사용자 cfg 의 sha256(`custom_cfg_sha256`)이 들어가 승인 뒤 내용이 바뀌면 승인이 맞지 않고, 프로세스를 띄우기 직전에 다시 해시해 다르면 `safety_denied` 로 띄우지 않는다. 표준 cfg 는 확인된 절대경로로 넘기고, 신뢰 scripts 디렉터리는 모두 `-s` 로 넘겨(표준 cfg 안의 `source [find …]` 가 `~/.openocd` 같은 사용자 위치의 같은 이름 파일보다 먼저 찾음) OpenOCD 를 빈 작업 디렉터리에서 띄운다. `target_cfg` 는 문자열 또는 목록, `tcl_port=0` 이면 빈 포트 자동. 준비 완료 = 로그의 `Listening on port N for tcl connections` + `version` 왕복. 로그 `jtag/openocd-<n>.log`, 상태 `jtag/openocd-<n>.json`. 반환: `tcl_port`, `pid`, `log_path`, `version`, `health`(`ok`/`degraded`), `startup`(`taps`, `auto_newtap_suggestions`, 오류/경고), `diagnosis[]`(code + 힌트), `scan_chain`, `targets`. **시작에 실패해도 예외를 던지지 않고** `ok: false, status: "start_failed"` 와 `reason`, `errors`, `diagnosis`, `log_tail`, `argv` 를 돌려준다(로그와 진단 보존) |
-| `openocd_attach(case_id, host="127.0.0.1", tcl_port=6666, approval_id=None)` | 이미 떠 있는 OpenOCD(사람이 띄운 것, 원격 Raspberry Pi 등)의 TCL 포트에 연결한다. 이 케이스가 전에 `openocd_start` 로 띄운 프로세스면 `jtag/openocd-<n>.json` 으로 입양해 `openocd_stop` 으로 끌 수 있게 한다. 원격 호스트면 메모리 덤프는 `read_memory` 방식으로 자동 전환되고 플래시 덤프는 할 수 없다 |
+| `openocd_start(case_id, interface_cfg, target_cfg=None, transport=None, adapter_speed_khz=None, extra_commands=None, tcl_port=6666, extra_cfgs=None, ready_timeout=30, approval_id=None)` | **MODIFY**(JTAG/SWD 초기화가 타깃 상태에 영향). `extra_commands` 의 init 계열 명령(`init`, `::init`, `ocd_init`, `target`/`transport`/`jtag`/`dap`/`flash`/`nand`/`pld`/`tpiu`/`swo` `init`, `jtag arp_init`·`arp_init-reset`, `jtag_init`, `init_reset`, `post_init_commands` 수정 — catch·eval·if·capture·따옴표 본문과 `-event` 본문, switch 목록 안 본문·apply 람다·proc 본문·defer·subst 의 `[…]`·`-command` 접두 안 포함)은 `validation_failed` 다(init 은 semihosting 가드 뒤에 서버가 실행한다). 게이트는 `extra_commands`, 서버가 만든 transport/adapter speed 명령, 사용자 cfg 의 **내용 전체**까지 분류한 최악값으로 판단한다(사용자 cfg 의 init 계열 명령은 DESTRUCTIVE `openocd.local.init-before-guard`, `$변수`·`-event`·`proc` 를 쓰는 cfg, `telnet port N`/`gdb port N` 재활성화, 중괄호 없는 `expr`/`if` 조건의 치환은 DESTRUCTIVE → 기본 거부). 사용자 cfg 는 신뢰 scripts 디렉터리 밖의 경로, 그리고 OpenOCD 기본 검색 위치(`$OPENOCD_SCRIPTS`, `~/.config/openocd`, `~/.openocd`, site)에서 찾은 이름이다. 1 MiB 를 넘는 사용자 cfg 는 잘라 분류하지 않고 `validation_failed` 로 거부한다. 승인 지문에 사용자 cfg 의 sha256(`custom_cfg_sha256`)이 들어가 승인 뒤 내용이 바뀌면 승인이 맞지 않고, 프로세스를 띄우기 직전에 다시 해시해 다르면 `safety_denied` 로 띄우지 않는다. 표준 cfg 는 확인된 절대경로로 넘기고, 신뢰 scripts 디렉터리는 모두 `-s` 로 넘겨(표준 cfg 안의 `source [find …]` 가 `~/.openocd` 같은 사용자 위치의 같은 이름 파일보다 먼저 찾음) OpenOCD 를 빈 작업 디렉터리에서 띄운다. `target_cfg` 는 문자열 또는 목록, `tcl_port=0` 이면 빈 포트 자동. 준비 완료 = 로그의 `Listening on port N for tcl connections` + `version` 왕복. 로그 `jtag/openocd-<n>.log`, 상태 `jtag/openocd-<n>.json`. **semihosting 은 항상 꺼 둔 채 끝내고 시작 뒤에도 계속 확인한다**(`mcp-servers/openocd-mcp/openocd_mcp/semihosting.py` 의 Tcl 가드 `pweh_semihosting_guard <단계>`): 표준 cfg 는 내용을 분류하지 않는데 xPack `target/esp_common.cfg` 는 ESP32 계열 cpu0/cpu1 의 `examine-end` 핸들러에서 `arm semihosting enable` 을 실행한다(켜지면 타깃 펌웨어가 호스트 파일·명령에 접근). 관련 핸들러(본문에 `semihost` 가 있거나 semihosting proc 이름이 든 타깃·TAP 이벤트 핸들러)만 `try {원래 본문} finally {모든 타깃 중 켜진 것을 끔}` 으로 감싼다(다른 핸들러·ARM 표준 cfg 는 바이트 단위로 그대로). `-f` 하나하나와 `extra_commands` 하나하나 바로 뒤의 init 조기 실행 검사(`[command mode]` 가 `config` 가 아니면 모든 타깃의 semihosting 을 끄고 OpenOCD 를 오류로 끝냄 → 로그 표식으로 `init-before-semihosting-guard`) → 단계: `pre-init`(모든 cfg·`extra_commands` 뒤, init 직전 — `[command mode]` 가 `config` 가 아니면 init 이 이미 돈 것, 아니면 감싸기) → `post-init`(init 직후, TCL 포트가 열리기 전 — init 중(init_board/init_targets) 설치된 핸들러와 TAP 핸들러까지 다시 감싸고 타깃마다 조회해 켜져 있으면 끔) → `verify`(연결 직후 TCL RPC 로 **반드시**: 가드가 전역 변수에 남긴 시작 단계 기록과 새 확인 결과를 받으므로 로그 형식과 무관). 로그의 `PWEH-SEMIHOSTING …` 표식은 `-d3` 이상의 `User : … handle_echo(): ` 접두도 읽고 `script_debug(): command - echo …` 줄은 무시한다. 가드가 없거나 결과가 불완전하면 `semihosting-verification-failed`, init 이 가드보다 먼저 돌았으면(init 을 직접 실행하는 표준 cfg 포함) `init-before-semihosting-guard`, 감싸기·끄기 실패나 스크립트 오류면 `semihosting-neutralization-failed`(`semihosting_failures`) — 모두 OpenOCD 를 끄고 빈 실행 디렉터리를 지운 뒤 `start_failed` 로 돌려준다. 반환: `tcl_port`, `pid`, `log_path`, `version`, `health`(`ok`/`degraded`), `startup`(`taps`, `auto_newtap_suggestions`, 오류/경고), `diagnosis[]`(code + 힌트, 무력화했으면 `semihosting_neutralized`), `scan_chain`, `targets`, `semihosting_neutralized`(`<타깃>:<이벤트>` = 감싼 핸들러, `tap:<TAP>:<이벤트>`, `<타깃>:after-init` = init 직후 켜져 있어 끔, `<타깃>:after-start` = 연결 직후 확인에서 끔), `semihosting`(`verified`, `source: "rpc"`, `log_markers`(로그 표식이 있었는지), `phases`(`pre-init`·`post-init`·`verify`. 조기 실행 검사로 끝났으면 `early-check`), `handlers_wrapped`, `targets`: 타깃별 `off`/`disabled`/`unsupported`, `procs`(가드 자신의 proc 을 뺀 semihosting proc), `phase_targets`, `unwrapped`, `init_before_guard`, `failures`; 상태 파일과 `openocd_status` 의 `semihosting.startup` 에도 같은 값). **시작에 실패해도 예외를 던지지 않고** `ok: false, status: "start_failed"` 와 `reason`, `errors`, `diagnosis`, `log_tail`, `argv` 를 돌려준다(로그와 진단 보존) |
+| `openocd_attach(case_id, host="127.0.0.1", tcl_port=6666, approval_id=None)` | 이미 떠 있는 OpenOCD(사람이 띄운 것, 원격 Raspberry Pi 등)의 TCL 포트에 연결한다. 이 케이스가 전에 `openocd_start` 로 띄운 프로세스면 `jtag/openocd-<n>.json` 으로 입양해 `openocd_stop` 으로 끌 수 있게 한다. 입양한 프로세스에 semihosting 가드 proc 이 있으면 `check` 를 돌려 `semihosting_check`·`semihosting_warning` 을 붙이고, 끄지 못하면 OpenOCD 를 종료해 `status: "semihosting_failsafe"` 로 돌려준다(가드가 없으면 경고만). 사람이 띄운 외부 OpenOCD 는 무력화·확인하지 않는다. 원격 호스트면 메모리 덤프는 `read_memory` 방식으로 자동 전환되고 플래시 덤프는 할 수 없다 |
 | `openocd_stop(case_id, shutdown_attached=False, approval_id=None)` | 실행 중인 덤프 job 을 먼저 취소한다(부분 결과 보존). 서버가 띄운/입양한 프로세스는 `shutdown` → SIGTERM → SIGKILL 로 끄고(프로세스 수명 관리라 게이트 없음, 감사 기록) 로그를 `other` 아티팩트로 등록한다. attach 한 외부 OpenOCD 는 연결만 끊고, `shutdown_attached=true` 일 때만 MODIFY 게이트를 거쳐 `shutdown` 을 보낸다 |
-| `openocd_status(case_id, log_lines=40)` | `alive`, `connected`, `mode`, `version`, `tcl_port`, `uptime_seconds`, `log_tail`, 진단, `active_jobs`, 살아 있으면 `targets`/`target_state`. 세션이 없으면 이 케이스의 이전 실행 기록(`previous_runs`) |
-| `openocd_command(case_id, command, approval_id=None, timeout=30, max_output_chars=20000)` | 원시 Tcl. 조회(`scan_chain`, `targets`, `mdw`, `read_memory`, `flash banks`/`info` …)=허용, `halt`/`reset`/`resume` 등=MODIFY, `mww`/`write_memory`/`flash write·erase`/OTP·eFuse·옵션바이트=DESTRUCTIVE(기본 거부), 원시 `dump_image`/`flash read_bank`(호스트 파일 쓰기)=거부 → 덤프 도구를 쓴다. telnet/GDB 포트 재활성화, 점 없는 타깃 이름 뒤의 위험한 하위 명령(`cpu0 mww …`)도 DESTRUCTIVE 다. Tcl 식(`expr`, `if`/`while` 조건, `for` 검사식)은 항상 중괄호로 감싼다: 중괄호 없는 변수·명령 치환은 이중 치환이라 DESTRUCTIVE 다. 중괄호 조건이라도 `$변수` 로 시작하면(`if {$x} …`) 코어가 명령 위치의 변수로 보고 거부하므로, 변수 대신 실제 값과 타깃 이름을 쓴다. `list [catch {capture {CMD}} r] $r` 봉투로 실행 → `output`. Tcl 오류면 `ok: false, status: "tcl_error"`, `error`, `diagnosis`. 긴 출력은 `jtag/command-output-<n>.txt` |
+| `openocd_status(case_id, log_lines=40)` | `alive`, `connected`, `mode`, `version`, `tcl_port`, `uptime_seconds`, `log_tail`, 진단, `active_jobs`, 살아 있으면 `targets`/`target_state`. 이 서버가 띄운 세션이면 `semihosting`(시작 보고가 아니라 최신 상태: `policy`, `verified`, `targets`, `handlers_wrapped`, `procs`, `neutralized_at_start`, `reneutralized[{at, trigger, items}]`, `last_check`, `check_pending`, `failsafe`, `startup`)과 `semihosting_live`(읽기 전용 가드 확인 — 끄기 정책인데 켜진 타깃·감싸지 않은 핸들러가 보이면 그 자리에서 다시 무력화), fail closed 로 종료됐으면 `semihosting_failsafe`. 세션이 없으면 이 케이스의 이전 실행 기록(`previous_runs`) |
+| `openocd_command(case_id, command, approval_id=None, timeout=30, max_output_chars=20000)` | 원시 Tcl. 조회(`scan_chain`, `targets`, `mdw`, `read_memory`, `flash banks`/`info` …)=허용, `halt`/`reset`/`resume` 등=MODIFY, `mww`/`write_memory`/`flash write·erase`/OTP·eFuse·옵션바이트=DESTRUCTIVE(기본 거부), 원시 `dump_image`/`flash read_bank`(호스트 파일 쓰기)=거부 → 덤프 도구를 쓴다. telnet/GDB 포트 재활성화, 점 없는 타깃 이름 뒤의 위험한 하위 명령(`cpu0 mww …`)도 DESTRUCTIVE 다. Tcl 식(`expr`, `if`/`while` 조건, `for` 검사식)은 항상 중괄호로 감싼다: 중괄호 없는 변수·명령 치환은 이중 치환이라 DESTRUCTIVE 다. 중괄호 조건이라도 `$변수` 로 시작하면(`if {$x} …`) 코어가 명령 위치의 변수로 보고 거부하므로, 변수 대신 실제 값과 타깃 이름을 쓴다. `list [catch {capture {CMD}} r] $r` 봉투로 실행 → `output`. Tcl 오류면 `ok: false, status: "tcl_error"`, `error`, `diagnosis`. 긴 출력은 `jtag/command-output-<n>.txt`. 호스트 파일을 쓰는 `profile <초> <파일>`·`-output` 트레이스, semihosting proc 호출, 훅 변수(`post_init_commands`·`pre_shutdown_commands`)에 넣는 위험한 값도 DESTRUCTIVE 다(§4). MODIFY 이상(`unknown_command_risk: interact` 면 모든 명령)이면 실행 뒤 semihosting `check` 를 돌려 `semihosting_check`(`status`: `ok`/`reneutralized`/`pending`/`skipped`/`failsafe`/`reported`, `phase`, `trigger`, `at`, `targets`, `reneutralized`/`unwrapped`, `verified`)를 붙이고, 무력화했으면 `semihosting_reneutralized`(`<타깃>:<이벤트>`, `tap:<TAP>:<이벤트>`, `<타깃>:after-command`)·`semihosting_warning` 도 붙인다. 끄지 못했거나 가드가 사라졌거나 결과가 불완전하면 OpenOCD 를 종료하고 `ok: false, status: "semihosting_failsafe"`, `semihosting_failsafe{reasons, stop_method, process, trigger, at}` 와 `message`/`hint` 를 돌려준다 — 그 뒤 기기 도구는 `device_error`('semihosting 을 끄지(확인하지) 못해 서버가 OpenOCD 를 종료했습니다: …'). 명령이 시간 초과면 OpenOCD 를 죽이지 않고 확인을 미뤄 다음 RPC 전에 하며(그 확인이 끝나지 않으면 `busy`), 승인된 명령이 semihosting 을 켜고 성공하면 `semihosting_policy: "enabled-by-approval"`(이후 `openocd_stop` 까지 보고만) |
 | `openocd_scan_chain(case_id)` | `taps[{tap_name, enabled, idcode, expected[], irlen, ircap, irmask, mismatch, decoded{manufacturer, part, version, valid}}]`, `count`, `hints`(IDCODE 가 0x00000000/0xffffffff 면 배선·전원 힌트) |
 | `openocd_targets(case_id)` | `targets[{index, current, name, type, endian, tap_name, state}]`(state: running/halted/reset/unknown/examine deferred/tap-disabled), `current` |
-| `openocd_halt(case_id, target=None, approval_id=None, timeout=15)` | MODIFY. `target` 을 주면 그 타깃을 현재 타깃으로 바꾼 뒤 정지한다 → `messages`(예: `target halted …, pc: …`), `state` |
-| `openocd_resume(case_id, address=None, target=None, approval_id=None)` | MODIFY. `address` 를 주면 그 주소에서 실행한다(실기기 펌웨어가 다시 돈다) |
-| `openocd_reset(case_id, mode="halt", approval_id=None, timeout=30)` | MODIFY. `mode`: `halt`(리셋 직후 정지) / `run` / `init`(reset-init 스크립트 실행 후 정지) |
+| `openocd_halt(case_id, target=None, approval_id=None, timeout=15)` | MODIFY. `target` 을 주면 그 타깃을 현재 타깃으로 바꾼 뒤 정지한다 → `messages`(예: `target halted …, pc: …`), `state`, `semihosting_check`(뒤에 도는 semihosting 확인 — `semihosting_reneutralized`/`semihosting_failsafe` 는 `openocd_command` 와 같다) |
+| `openocd_resume(case_id, address=None, target=None, approval_id=None)` | MODIFY. `address` 를 주면 그 주소에서 실행한다(실기기 펌웨어가 다시 돈다). 뒤에 semihosting 확인(`semihosting_check`, `openocd_command` 와 같음) |
+| `openocd_reset(case_id, mode="halt", approval_id=None, timeout=30)` | MODIFY. `mode`: `halt`(리셋 직후 정지) / `run` / `init`(reset-init 스크립트 실행 후 정지). 리셋은 `examine-end` 같은 핸들러를 다시 실행하므로 뒤에 semihosting 확인(`semihosting_check`, `openocd_command` 와 같음) |
 | `openocd_read_registers(case_id, names=None, target=None, refresh=True, max_refresh=64, save=True)` | `reg` 파싱 → `registers`, `target_state`, `snapshot_path`(`jtag/registers-<n>.json`, `jtag-dump` 아티팩트). running 타깃은 값이 없을 수 있으니 먼저 `openocd_halt` |
 | `openocd_read_memory(case_id, address, count, width=32, target=None, phys=False)` | 작은 범위만 읽는다(count×width/8 ≤ 4096 바이트, width 8/16/32/64) → `values`(타깃 엔디언 정수), `bytes_hex`, `hexdump`(메모리 순서), `endian`, `method`. Cortex-A 의 mem_ap 타깃을 `target` 으로 주면 CPU 를 멈추지 않고 읽는다. `target` 은 서버가 `target names` 로 확인한 이름만 쓴다: 세션(프로세스 시작·연결 단위) 캐시에 없으면 한 번 다시 조회하고, 그래도 없으면 보내기 전에 `validation_failed`(사용 가능한 이름 안내, 점 있는 이름도 같음)다. OpenOCD/Tcl 명령과 같은 이름(`mww`, `reset`, `flash` …)은 목록에 있어도 거부한다. 확인된 타깃의 `<타깃> read_memory …`/`<타깃> md* …` 는 INTERACT(점 없는 `mem_ap`·`cpu0` 포함)이고, 목록을 얻지 못하면 접두를 떼지 않아 이전 분류(점 없는 이름은 MODIFY)를 따른다 |
 | `openocd_dump_memory_start(case_id, address, length, output_name=None, chunk_size=65536, target=None, method="auto", verify=False, resume=True, kind="memory-dump", retries=2, chunk_timeout_s=None)` | job → `job_id`, `output`. 청크마다 `dump_image` 를 케이스 경로로만 실행한다. **기본 저장 위치는 `jtag/<name>.bin`**(+ `<name>.json` 메타데이터, 진행 중 `.part`/`.state.json`)이고 **`kind="flash-dump"` 면 `dumps/`** 다. OpenOCD 가 쓴 파일이 보이지 않으면(원격) `read_memory` 방식으로 자동 전환한다. `verify=true` 면 청크를 두 번 읽어 비교한다. 같은 `output_name`·같은 인자로 다시 부르면 `.state.json` 에서 이어받는다(주소/길이가 다르면 거부, `resume=false` 면 처음부터, 기존 `.bin` 은 덮어쓰지 않음). 완료 `result`: `path`, `sha256`, `size`, `metadata_path`, `chunks`, `source`. 대부분의 코어는 먼저 halt 가 필요하다(`not halted` 는 재시도 없이 실패). `target` 은 시작 전에 `openocd_read_memory` 와 같은 방식으로 확인하고, 확인된 이름은 청크마다 하는 명령 재검사에도 쓴다(목록을 얻지 못하면 점 없는 이름의 덤프는 시작 거부) |
 | `openocd_flash_banks(case_id, probe=False, info=False)` | `banks[{bank, name, driver, base, size, bus/chip width, target}]`, `notes`. `probe=true` 면 각 뱅크를 flash probe 한 뒤 다시 조회, `info=true` 면 섹터/보호 상태까지. 카메라 SoC(HiSilicon/Ingenic/SigmaStar)의 SPI NOR 컨트롤러는 OpenOCD 드라이버가 없어 비어 있는 경우가 많다 |
 | `openocd_flash_read_start(case_id, bank, offset=0, length=None, output_name=None, chunk_size=65536, verify=False, resume=True, retries=2, chunk_timeout_s=None)` | job. 청크마다 `flash read_bank` 를 케이스 경로로만 실행해 **항상 `dumps/<name>.bin`**(+ `.json`, sha256, `flash-dump` 아티팩트)에 저장한다. `verify=true` 면 청크마다 `flash verify_bank` 로 재확인. 로컬 OpenOCD 에서만 된다(원격 attach 불가) |
-| `openocd_write_memory(case_id, address, values, width=32, target=None, phys=False, verify=True, approval_id=None)` | **DESTRUCTIVE**(기본 거부). `destructive_policy: approve` 일 때만 사람 승인(`pweh approve <id>`) 후 같은 인자 + `approval_id` 로 1회 실행. `values` 는 최대 1024개. 목록에 없거나 명령 이름과 겹치는 `target` 은 승인을 묻기 전에 거부하고, `verify` 확인 읽기는 확인된 타깃이면 INTERACT 로 분류한다 |
-| `openocd_flash_write(case_id, path, address, erase=True, unlock=False, verify=True, approval_id=None, timeout=600)` | **DESTRUCTIVE**(기본 거부). `path` 는 케이스 안 파일만. 승인 지문에 파일 sha256 이 들어가 승인 뒤 파일이 바뀌면 실행되지 않는다 |
+| `openocd_write_memory(case_id, address, values, width=32, target=None, phys=False, verify=True, approval_id=None)` | **DESTRUCTIVE**(기본 거부). `destructive_policy: approve` 일 때만 사람 승인(`pweh approve <id>`) 후 같은 인자 + `approval_id` 로 1회 실행. `values` 는 최대 1024개. 목록에 없거나 명령 이름과 겹치는 `target` 은 승인을 묻기 전에 거부하고, `verify` 확인 읽기는 확인된 타깃이면 INTERACT 로 분류한다. 뒤에 semihosting 확인(`semihosting_check`) |
+| `openocd_flash_write(case_id, path, address, erase=True, unlock=False, verify=True, approval_id=None, timeout=600)` | **DESTRUCTIVE**(기본 거부). `path` 는 케이스 안 파일만. 승인 지문에 파일 sha256 이 들어가 승인 뒤 파일이 바뀌면 실행되지 않는다. 뒤에 semihosting 확인(`semihosting_check`) |
 | `openocd_job_status(job_id, wait_seconds=0)`, `openocd_job_cancel(job_id)`, `openocd_jobs(active_only=False)` | OpenOCD 는 단일 스레드이고 프로토콜 수준 취소가 없어, 취소는 현재 청크가 끝난 뒤 반영된다 |
 
 - 덤프 메타데이터 `<name>.json`: `method: "jtag-openocd"`, `output{path, sha256, size}`, `verification{method: "size-only", match, reread}`,
@@ -414,6 +465,89 @@ JTAGulator(FW 1.10–1.12)의 USB-시리얼 텍스트 메뉴를 조작해 JTAG(I
   (그래서 `path_or_dir` 로 rootfs 의 하위 디렉터리를 줘도 `file` 은 `/usr/bin/…` 이다).
 - `fw_carve` 의 `partitions[].path` 는 케이스 상대 경로다(`file` 은 같은 값의 별칭).
 
+### 6.7 pweh-esp (선택)
+Espressif 칩(ESP32·ESP32-S2·ESP32-S3·ESP32-C3 등)을 esptool 로 **읽기 전용** 분석한다. 칩·플래시 정보, 보안 설정, SPI 플래시 덤프(job, 기본으로 두 번 읽어 sha256 비교)를 다룬다.
+실행하는 esptool 명령은 `flash-id`(`esp_chip_info`), `get-security-info`(`esp_security_info`), `read-flash`(`esp_read_flash_start`) 셋뿐이다.
+모두 MODIFY 로 게이트를 거친다(연결할 때 칩을 리셋해 ROM 다운로드 모드에 넣고 RAM 에 스텁을 올린다. 플래시·eFuse 에 쓰는 명령은 보내지 않는다 — 끝날 때 FLASH_BEGIN 을 보내는 `--after no-reset`·`soft-reset` 도 쓰지 않음, 기본 허용).
+쓰기·삭제·eFuse·RAM 실행 같은 명령은 도구가 없고, 조립한 argv 가 허용 범위를 벗어나면 `esp_mcp.policy` 가 승인 경로 없이 거부한다(§4).
+아래 시그니처는 카탈로그(`docs/references/pweh-mcp-tools.md`)의 인자 전체와 기본값이다(동작·오류 코드 상세: `mcp-servers/esp-mcp/README.md`).
+
+**포트 형식이 백엔드를 정한다.**
+- `COM1` ~ `COM256`(대소문자 무관) → `windows` 백엔드(방법 A, WSL 권장): WSL interop 으로 Windows 용 `esptool.exe` 를 `--port COMn` 으로 실행한다.
+  보드는 Windows 에 연결된 그대로 두므로 usbipd attach 가 필요 없다. 덤프 출력 경로는 `wslpath -w` 로 바꿔(`\\wsl.localhost\<배포판>\…\dumps\…`) esptool.exe 가 케이스 `dumps/` 에 바로 쓴다.
+  실행 파일은 설정 `tools.esptool_win`(`PWEH_ESPTOOL_WIN`)이고, 비어 있으면 `~/pweh-tools/esptool-win/esptool-windows-amd64/esptool.exe`(설치 스크립트의 esptool 구성요소)를 찾는다.
+  조건은 셋이다: WSL 안, `/proc/sys/fs/binfmt_misc/WSLInterop`(또는 `WSLInterop-late`)가 `enabled`, `wslpath`.
+- `/dev/ttyACM<n>`, `/dev/ttyUSB<n>`, `/dev/ttyS<n>`, `/dev/serial/by-id/<이름>` → `linux` 백엔드: 리눅스 esptool(`tools.esptool`, `PWEH_ESPTOOL`. 설치 스크립트는 esptool 5.4.0 venv).
+  WSL 이면 usbipd attach 뒤에 쓴다(attach 하는 동안 Windows 에서는 그 COM 포트가 사라진다). 장치가 있어야 하고 링크의 실제 대상도 `/dev` 아래여야 한다.
+- `rfc2217://`, `socket://` 같은 네트워크 포트와 그 밖의 경로는 `validation_failed` 다.
+
+기본값의 뜻: `baud=None` 은 정보 도구에서 115200 이고, 덤프 기본값은 921600 이다(전송 오류가 나면 460800, 115200 으로 낮춘다. ESP 내장 USB-Serial/JTAG 연결에서는 속도와 무관).
+`before`: `default-reset`(DTR/RTS 자동 리셋) / `usb-reset` / `no-reset`(사람이 다운로드 모드로 둔 뒤). `after`: `hard-reset`(끝나면 앱 재실행) / `no-reset-stub`(리셋하지 않고 다운로드 모드(스텁)에 둠) /
+`watchdog-reset`(esptool v5, v4.12 이상) / `no-reset`(받지만 항상 `no-reset-stub` 으로 바꿔 실행 — 응답 `after`·`after_requested`와 notes). `soft-reset` 은 `validation_failed` 다
+(`no-reset`·`soft-reset` 은 끝날 때 FLASH_BEGIN 을 보내 레거시 스텁이 SPI 플래시 상태 레지스터를 다시 쓸 수 있다, §4).
+`no_stub=True` 는 ROM 로더와 직접 통신한다(전송 MD5 검증 없음). `chip` 을 ESP8266 이 아닌 칩으로 명시해야 한다(`auto`·`esp8266` 이면 `validation_failed` — §4 `esp.nostub.esp8266`).
+ESP32 계열 ROM 은 read-flash 를 지원하고, ROM 이 지원하지 않는 기능은 `esp_rom_unsupported` 다.
+`timeout_s=None` 은 정보 도구 50초(최대 600초), 덤프는 크기·baud 로 계산한 읽기당 시간(최대 6시간)이며, 덤프는 출력 없이 180초가 지나면 멈춘 것으로 본다.
+모든 esptool 명령에 `--chip`·`--port`·`--baud`·`--before`·`--after`·`--connect-attempts 7` 을 명시하고, 설정 파일·환경변수는 아래 '실행 환경' 처럼 중립화한다.
+esptool v5 는 하이픈 이름(`read-flash`), v4 는 밑줄 이름(`read_flash`)으로 조립한다.
+
+| 도구 | 설명 / 반환 |
+|---|---|
+| `esp_version()` | OBSERVE(기기 미접촉). `backends.windows`·`backends.linux` 마다 `{available, path, source, version, major, error}`(windows 에는 `wsl`, `interop` 도. v4 미만이면 `warning`), `recommended`(`windows`/`linux`/`null`), `hints`. 버전은 `esptool version` 출력으로 정하고 실행 파일 경로·mtime·크기별로 캐시한다 |
+| `esp_list_ports()` | OBSERVE(포트를 열지 않음). `windows{available, ports[{port, name, pnp_device_id, vid, pid, serial_number, usb_id, kind, description_ko}], note}`: powershell.exe 로 Win32_PnPEntity 를 조회한 결과(이름에 `(COMn)` 이 있는 장치만). `linux{ports, hidden_legacy_ports}`: pyserial 목록 + `in_use_by`(그 tty 를 연 다른 프로세스 PID), sysfs 정보가 없는 레거시 `/dev/ttyS*` 는 숨기고 센다. 그 밖에 `count`, `hints`. 알려진 USB ID: `303a:1001` = ESP 내장 USB-Serial/JTAG, `303a:0009`·`303a:0002` = ESP32-S3·S2 ROM USB-OTG 다운로드 모드, CP210x·CH340·CH343·CH9102·FTDI. `hints` 는 종류별이다(USB-Serial/JTAG = esptool 의 USB-JTAG 리셋, ROM USB-OTG = `before="no-reset"`·`after="no-reset"`(서버가 `no-reset-stub` 으로 실행)과 끝난 뒤 사람의 RESET). interop 이나 powershell 이 없으면 `windows.available=false` 와 `note` |
+| `esp_chip_info(case_id, port, chip="auto", baud=None, before="default-reset", after="hard-reset", no_stub=False, timeout_s=None, approval_id=None)` | MODIFY(`flash-id`). `chip`, `chip_description`, `chip_revision`, `features`, `crystal_mhz`, `usb_mode`, `mac`, `flash{manufacturer_id, manufacturer, device_id, size, size_bytes, type_efuse, voltage, voltage_source}`, `base_mac`(늘 6바이트), `mac_ext`(EUI-64 확장 2~8바이트), `secure_download_mode`, `stub`, `log_path`(`uart/esptool-chip-info-NNN.log`), `backend`, `port`, `esptool_version`, `command`, `classification`, `after`(실제로 쓴 값), `after_requested`(`no-reset` 을 바꿨을 때만), `warnings`(플래시 크기 미감지 → 덤프에 `size` 명시, 플래시 ID `ff`/`00` → 배선·전원·스트래핑), `notes`, `next_steps`. `mac` 은 esptool 이 찍은 값(ESP32-C6·H2 는 8바이트 EUI-64). Secure Download Mode 면 ROM 이 flash-id 를 거부하므로 오류 대신 `status: "secure_download_mode"`, `read_flash_possible: false` 와 칩 종류만 돌려준다 |
+| `esp_security_info(case_id, port, chip="auto", baud=None, before="default-reset", after="hard-reset", no_stub=False, timeout_s=None, approval_id=None)` | MODIFY(`get-security-info`). `status`(`"ok"`/`"unsupported"`), `secure_boot`, `flash_encryption`(SPI_BOOT_CRYPT_CNT 의 1 비트 수가 홀수면 켜짐), `crypt_cnt`, `secure_download_mode`(플래그 비트 2), `read_flash_possible`(= Secure Download Mode 꺼짐), `ciphertext_expected`(= 플래시 암호화 켜짐), `jtag_hard_disabled`, `jtag_soft_disabled`, `usb_disabled`, `download_dcache_disabled`, `download_icache_disabled`, `key_blocks[{block, purpose}]`, `flags_hex`, `parsed_flags`, `raw_fields`, `chip_id`, `api_version`, `assessment`(한국어 판단), `log_path`(`uart/esptool-security-info-NNN.log`), `after`, `after_requested`, `warnings`, `notes`. Secure Download Mode 에서도 동작한다. `read_flash_possible=false` 면 덤프하지 않고 우회 없이 사용자에게 보고한다. 원조 ESP32·ESP8266 은 get-security-info 를 지원하지 않는다 → 오류 대신 `ok: true, status: "unsupported"`, `chip`, `chip_description`, 보안 필드(`secure_boot`·`flash_encryption`·`crypt_cnt`·`secure_download_mode`·`read_flash_possible`·`ciphertext_expected`·`jtag_*`·`usb_disabled`·`key_blocks`·`raw_fields`·`flags_hex`·`parsed_flags`·`chip_id`·`api_version` 등)는 모두 `null`, `assessment` ['보안 상태 미확인 …'], `error`(esptool 문구), 첫 note 는 '미확인'으로 기록하고 진행하라는 안내(감사 이벤트 `esp_security_summary` 에도 `status`) |
+| `esp_read_flash_start(case_id, port, chip="auto", offset=0, size="all", output_name=None, baud=921600, verify="double", before="default-reset", after="hard-reset", no_stub=False, timeout_s=None, approval_id=None)` | MODIFY · job(`read-flash`). 시작 응답 `status: "started"`, `job_id`, `planned_path`(`dumps/<name>.bin`), `planned_read2_path`, `metadata_path`, `reads`(1 또는 2), `backend`, `port`, `esptool_version`, `after`(마지막 읽기에 쓸 값), `after_requested`(바꿨을 때만), `read1_after`(이중 읽기면 `"no-reset-stub"`, 아니면 `null`), `read1_baud`(이중 읽기의 1차 baud, 아니면 `null`), `timeout_s_per_read`, `classification`, `notes`. `offset` 은 정수 또는 `"0x10000"`, `size` 는 `"all"`(감지한 플래시 크기, `offset=0` 일 때만)·정수·`"0x400000"`·`"4M"`·`"16MB"`·`"512K"`, `output_name` 을 생략하면 `esp-flash`, `esp-flash-002` … 순서로 정한다(`.bin` 자동). `verify="double"` 은 같은 범위를 두 번 읽어 sha256 을 비교한다: 1차는 `--after no-reset-stub` 으로 칩을 다운로드 모드에 둬 앱이 실행되지 않게 하고(NVS 변경 방지), 마지막 읽기 뒤에 요청한 `after` 를 쓴다(`no-reset` 은 `no-reset-stub` 으로). `before="no-reset"`(수동 다운로드 모드)의 이중 읽기는 1차를 min(baud, 115200)으로 읽는다(esptool 은 연결을 115200 으로 맞추므로 1차 뒤 칩이 그 속도에 남아야 2차 연결이 된다. 계획 note 와 gate 의 `read1_baud`). `"none"` 은 한 번 읽는다. 기존 파일은 덮어쓰지 않는다(시작 때 같은 이름이 있으면 `case_error`, 심볼릭 링크인 `dumps/` 도 `case_error`). Secure Download Mode 면 job 이 `esp_secure_download_mode` 로 실패한다 |
+| `esp_job_status(job_id, wait_seconds=0)`, `esp_job_cancel(job_id)`, `esp_jobs(active_only=False)` | `register_job_tools(..., "esp")`. 진행률은 esptool 출력의 % 로 계산한다(두 번 읽으면 읽기마다 절반). 끝난 job 의 `result`: `status`(`succeeded`/`cancelled`/`failed`), `path`, `read2_path`, `metadata_path`, `size`, `sha256`, `sha256_read2`, `match`, `verification`, `source`, `backend`, `port`, `esptool_version`, `log_paths`, `artifacts{primary, read2, metadata}`, `warnings`, `notes`, `summary_hint`. 취소하면 esptool 프로세스 그룹을 SIGTERM, 이어서 SIGKILL 로 끝낸다. Windows esptool.exe 는 PyInstaller onefile 이라 interop 프로세스를 끝내도 자식이 COM 포트를 잡은 채 남으므로(실측), 명령줄 표식(덤프는 UNC 출력 경로)으로 Windows 프로세스를 찾아 자식부터 끝내고(부트로더가 `%TEMP%\_MEI*` 를 지우고 끝남) 남은 것이 없을 때만 `cancelled` 다. 남으면 job 은 `failed`(`error.code` `esp_orphan_process`, `data.pids`)이고 예약 파일은 그 프로세스가 끝날 때까지 남는다. 시간 초과도 같다 |
+
+- 결과 파일(케이스):
+  - `dumps/<name>.bin`: 1차 읽기(대표 덤프). `flash-dump` 아티팩트(`extra.role="primary"`, `extra.metadata`).
+  - `dumps/<name>.read2.bin`: 2차 읽기(`verify="double"`). `flash-dump` 아티팩트(`extra.role="verification-read"`).
+  - `dumps/<name>.json`: 메타데이터. `other` 아티팩트(`extra.type="dump-metadata"`).
+  - `uart/esptool-chip-info-NNN.log`, `uart/esptool-security-info-NNN.log`, `uart/esptool-<name>-readN-NNN.log`: esptool 출력 로그(헤더에 명령·백엔드·버전·종료 코드. 빈 줄과 ANSI 코드는 빼고 진행률 줄은 5% 단위만). `other` 아티팩트(`extra.type="esptool-log"`).
+- esptool 은 모든 데이터를 받은 뒤에만 출력 파일을 쓴다. 그래서 읽는 동안에는 숨은 예약 파일만 둔다: esptool 이 쓰는 `dumps/.<name>.readN.partial`, 소유 표식 `dumps/.<name>.owner.partial`
+  (JSON: server, pid, start_ticks, boot_id, host, created_at, job_id. Windows 백엔드는 첫 esptool.exe 를 띄우기 전에 windows_tokens(출력 UNC 경로)·windows_images,
+  Windows 프로세스가 남으면 windows_pids·released_at 도), 잠깐 쓰는 `dumps/.<name>.meta.partial`.
+  크기를 확인한 뒤 끝날 때 최종 파일(`.bin`, `.read2.bin`, `.json`)을 하드 링크(안 되면 O_EXCL 복사)로 만들고 덮어쓰지 않는다. 계획한 이름이 그사이 생겼으면 `<name>-<job_id>` 로 저장하고 warnings 에 적는다.
+  취소·실패한 읽기에는 부분 데이터가 없으므로 예약 파일을 지운다(Windows esptool.exe 가 남은 `esp_orphan_process` 면 그 프로세스가 끝날 때까지 남긴다).
+  주인이 죽은 예약(소유 표식이 없거나 pid·start_ticks·boot_id 가 맞지 않고, 남은 Windows PID 도 windows_tokens 경로를 명령줄에 가진 esptool.exe 도 없음 — 확인할 수 없으면
+  지우지 않음)은 서버 시작 때(모든 케이스)와 `esp_read_flash_start` 마다(그 케이스) 지운다
+  (감사 이벤트 `esp_stale_reservations_removed`). 서버 시작 때 주인(`meta.owner`)이 죽은 queued·running·cancelling 작업 기록은 `jobs/<id>.json` 의 status 를 `abandoned` 로 고친다(`esp_jobs_abandoned`).
+  덤프 도중 `dumps/` 가 심볼릭 링크로 바뀌거나 case·dumps 의 실제 경로가 달라지면 esptool 을 띄우기 전·결과를 공개하기 전에 `safety_denied` 로 멈춘다.
+  2차 읽기만 취소·실패하면 1차 결과를 `verification.method="none"` 으로 보존한다(job 상태는 `cancelled`/`failed`, `result` 에 보존한 1차 결과).
+  두 sha256 이 다르면 job 은 `succeeded` 지만 `match=false` 와 `warnings` 가 붙고 두 파일을 모두 남긴다(낮은 baud 로 다시 읽거나 전원·배선을 확인한다).
+- 메타데이터 `dumps/<name>.json`(`schema: "pweh.esp-dump/v1"`)은 firmware-dump 요약과 같은 모양이다: `method: "esptool-read-flash"`,
+  `source{type: "esptool", device_path, chip, chip_description, mac, base_mac, usb_mode, flash_size, flash_size_str, offset, length, requested_size, flash_type: "spi-nor", partition, ram_addr}`,
+  `output{path, sha256, size}`, `verification{method: "double-read"|"none", expected(1차 sha256), actual(2차 sha256), match, detail}`,
+  `reads[{index, path, sha256, size, after, baud, seconds, kbit_s, log_path, started_at}]`, `tool{name, esptool_version, backend, esptool_path, argv[]}`,
+  `baudrate`, `status`, `duration_seconds`, `started_at`, `finished_at`, `job_id`, `notes`, `warnings`.
+- firmware-dump 요약: job `result.summary_hint`(`method`, `source{device_path, flash_size, offset, length, flash_type}`, `output`, `verification{method, expected, actual, match}`, `baudrate`)는
+  firmware-dump 스키마를 그대로 통과한다. 이 값으로 `skill="firmware-dump-via-uart"` 요약을 남긴다(§3).
+- 승인 지문(`action`)은 `command`, `port`, `chip`, `baud`, `before`, `after`(실제로 쓸 값), `no_stub` 이고, `after` 를 바꿨으면 `after_requested` 가 더해진다. 덤프는 `offset`, `size`, `output_name`, `verify` 와
+  이중 읽기의 `read1_after`(`no-reset-stub`), 1차 baud 가 다르면 `read1_baud` 가 더해진다(`timeout_s` 는 넣지 않음).
+  정책 거부(`gate.via: "esp-policy"`)는 승인 경로가 없다. 다른 인자나 다른 도구로 다시 시도하지 말고 사용자에게 보고한다.
+- 실행 환경: esptool 은 매번 새로 만든 작업 디렉터리에서 실행하고, 그 안에 `[esptool]` 한 줄짜리 `esptool.cfg` 를 써서 `ESPTOOL_CFGFILE` 로 가리킨다(설정 파일 탐색 —
+  현재 디렉터리 → `~/.config/esptool`(Windows `%USERPROFILE%\AppData\Local\esptool`) → 홈 — 보다 앞선다. esptool 5.3.1 이하는 설정의 `custom_reset_sequence` 를 코드로 실행한다).
+  - 리눅스: `ESPTOOL_*`·`FORCE_COLOR`·IDE 웹소켓 변수·`PYTHONPATH` 류를 지운 뒤 중립값을 두고 `HOME=<작업 디렉터리>`, `PYTHONIOENCODING=utf-8`, `PYTHONUNBUFFERED=1`, `NO_COLOR=1`.
+  - Windows: esptool.exe 는 Windows 쪽 사용자 환경변수를 물려받으므로 WSLENV 를 새로 만들어 정확히
+    `NO_COLOR:TTY_COMPATIBLE:TTY_INTERACTIVE:ESPTOOL_CFGFILE/p:ESPTOOL_STUB_VERSION:ESPTOOL_OPEN_PORT_ATTEMPTS:ESPTOOL_FS:ESPTOOL_ENV_FPGA:ESPTOOL_CHIP:ESPTOOL_BAUD:ESPTOOL_BEFORE:ESPTOOL_AFTER:ESPTOOL_CONNECT_ATTEMPTS` 만 넘긴다.
+    값: `NO_COLOR=1`, `TTY_*=0`, `ESPTOOL_OPEN_PORT_ATTEMPTS=1`, `ESPTOOL_FS=keep`, `ESPTOOL_ENV_FPGA=0`, `ESPTOOL_CHIP=auto`, `ESPTOOL_BAUD=115200`, `ESPTOOL_BEFORE=default-reset`,
+    `ESPTOOL_AFTER=hard-reset`, `ESPTOOL_CONNECT_ATTEMPTS=7`(빈 값은 WSLENV 로 넘어가지 않아 모두 비어 있지 않은 값). `PYTHONIOENCODING`·`PYTHONUNBUFFERED` 는 넘기지 않는다(얼린 파이썬이 무시).
+    출력은 엄격한 UTF-8 로 읽고, 아니면 Windows ANSI 코드 페이지(레지스트리 ACP, 한국어 Windows 는 cp949)로 읽는다.
+  - `ESPTOOL_STUB_VERSION` 은 esptool 5.3 이상 `"2"`(새 esp-flasher-stub, 그 버전들의 기본), 그 밖 `"1"` 이고 버전 조회는 `"1"` 이다.
+  - 서버가 만든 것이 아닌 설정을 읽었다는 줄(`Loaded custom configuration from <다른 경로>`)이 보이면 연결 전에 프로세스를 끝내고 `esp_foreign_config`(`data.config`, `data.expected`)로 실패한다.
+- 같은 포트는 한 번에 한 작업만 쓴다(포트 잠금 + job 배타 키 `esp-port:<포트>`, 서버 프로세스 안에서만 유효. 리눅스 포트는 realpath 로 묶는다).
+  리눅스 tty 를 다른 프로세스(시리얼 모니터, uart-mcp 세션)가 열고 있으면 `busy` 로 거부한다. Windows COM 포트는 그 포트를 인자로 받은 esptool.exe(`--port COMn`·`--port=COMn`·`-p COMn`)를
+  Windows 프로세스 목록(Win32_Process)에서 찾아 `busy`(PID 와 `taskkill /F /PID n` 안내, `data.pids`)로 거부하고, 그 밖의 프로그램이 잡고 있으면 esptool 이 `esp_port_busy` 로 실패한다
+  (powershell 이 실패하면 확인하지 못하고 기록만 한 뒤 진행). Windows 프로세스가 남아 있으면 서버 안의 포트 잠금은 풀고 이 확인이 대신 막는다.
+- 서버가 SIGTERM 을 받으면 작업을 취소·정리한 뒤(최대 30초) SIGTERM 으로 끝나고, stdin 이 닫혀도 정리한 뒤 끝난다. 서버 종료(atexit) 정리도 Windows esptool.exe 를 자식부터 끝낸다.
+- 연결할 때마다 칩이 리셋되어 ROM 다운로드 모드로 들어간다(실행 중이던 앱이 멈춘다). 연결에 실패하면(`esp_no_serial_data`, `esp_wrong_boot_mode`)
+  사람이 BOOT(부트 스트랩 핀. ESP32·ESP32-S2·ESP32-S3 는 GPIO0, ESP32-C3·C6·H2 는 GPIO9 — 그 밖의 칩은 데이터시트로 확인)를 누른 채 RESET(EN)을 눌렀다 떼고 BOOT 를 놓은 뒤 `before="no-reset"` 으로 다시 호출한다.
+  `after` 가 `no-reset-stub`(`no-reset` 요청 포함)이거나 덤프를 취소하면 칩이 다운로드 모드(스텁)에 남으므로, 일반 부팅이 필요하면 사람이 RESET 을 누른다.
+- 덤프 출력의 Windows 경로 요소가 '.'·공백으로 끝나면 `validation_failed` 다(Windows 가 끝의 '.' 을 지워 다른 디렉터리에 쓴다). 그래서 case_id 도 '.' 으로 끝날 수 없다(`CASE_ID_RE`).
+- Secure Download Mode 에서는 esptool 로 플래시를 읽을 수 없다(`esp_secure_download_mode`). 이 서버는 글리칭·eFuse 조작 같은 우회를 하지 않는다.
+  플래시 암호화가 켜져 있으면 덤프는 암호문이다(`ciphertext_expected=true`). 키는 읽기 보호된 eFuse 에 있으므로 정적 분석은 평문 영역 밖에서 제한적이다.
+
 ## 7. REA 연동
 
 - 등록: `.mcp.json` 의 `rea` 서버. `scripts/mcp-launch.sh rea` 가 `~/pweh-tools/env.sh` 를 불러온 뒤 `rea --mcp` 를 실행한다
@@ -431,7 +565,8 @@ JTAGulator(FW 1.10–1.12)의 USB-시리얼 텍스트 메뉴를 조작해 JTAG(I
 - REA 제약: 펌웨어 입력 ≤ 128 MiB, `extract_firmware` 의 output_directory 는 존재하지 않는 절대 경로
   (이미 있는 디렉터리를 주면 원인을 알기 어려운 오류가 나므로 매번 `case_paths(purpose="extract", label="rea")` 의 `new_output_dir` 을 새로 받는다),
   `export_evidence_bundle` 의 `path` 는 부모 디렉터리가 이미 있어야 한다(케이스 `analysis/` 아래 파일 경로를 준다. 기존 파일은 `overwrite: true` 필요),
-  raw-binary 는 x86/x86_64/arm/arm64/6502 리틀엔디언만 (MIPS raw 불가 → rootfs 의 ELF 를 대상으로),
+  raw-binary 는 x86/x86_64/arm/arm64/6502 리틀엔디언만 (MIPS raw 불가 → rootfs 의 ELF 를 대상으로. ESP 앱 이미지도 ELF 가 아닌 raw 이미지라 Xtensa·RISC-V 모두 열 수 없다 —
+  Ghidra 자체에는 두 언어가 있어 사람이 PWEH 밖에서 직접 로드할 수는 있다),
   MIPS ELF 는 o32 + MIPS32r2 등 엄격한 승인 조건, Ghidra 첫 쿼리는 수 분 걸릴 수 있음 (클라이언트 도구 타임아웃 조정).
   REA 가 거부하면 `inspect_with_objdump` / `execute_rizin_command` / fwtriage 로 대체한다. `execute_rizin_command` 는 Rizin 셸 탈출(`!`)로
   호스트 명령까지 실행할 수 있어(REA 계약: foreign code·파일 변경·네트워크) `.claude/settings.json` 의 `ask` 에 있다.
@@ -441,7 +576,10 @@ JTAGulator(FW 1.10–1.12)의 USB-시리얼 텍스트 메뉴를 조작해 JTAG(I
 - `tests/conftest.py` 의 `workspace` fixture(격리된 설정/케이스/상태 디렉터리)와 `auth` fixture 를 사용한다.
 - MCP 서버 테스트는 `tests/mcp_helpers.py` 의 `Client(server)`(in-memory) + `call()` 과, 최소 1개의 stdio 테스트(`stdio_params(module)`).
 - 하드웨어 없이 테스트한다: UART 는 `pweh.mocktarget`(PTY/TCP 시뮬레이터), OpenOCD 는 가짜 TCL 서버(+ 실제 openocd dummy 어댑터가 있으면 integration),
-  sigrok 은 합성 VCD/.sr 파일과 가짜 `sigrok-cli` 스크립트(+ 실제 sigrok-cli 가 있으면 integration).
+  sigrok 은 합성 VCD/.sr 파일과 가짜 `sigrok-cli` 스크립트(+ 실제 sigrok-cli 가 있으면 integration),
+  esptool 은 esptool 5.4.0·4.8.1 출력을 흉내 내는 가짜 esptool(`tests/servers/esp_fake_esptool.py`, 이름이 `.exe` 로 끝나면 Windows 빌드처럼 동작하고 PyInstaller onefile 의
+  부트로더 + 자식 구조도 흉내 냄. Windows 프로세스 조회·종료는 `tests/servers/esp_testutil.py` 의 `FakeWinProcs` 로 바꾼다)
+  (+ 실제 Windows esptool.exe·리눅스 esptool 이 있으면 기기 없이 — version, 없는 COM99 의 취소, 파일만 쓰는 merge-bin, 설정 파일 탐색 — 확인하는 external 테스트).
 - 외부 도구가 필요한 테스트는 `@pytest.mark.external` + 도구가 없으면 `pytest.skip`.
   오래 걸리는 테스트(전체 플래시 덤프 e2e 등)는 `@pytest.mark.slow` 다. 기본 실행에서 빠지지 않으므로 빠르게 돌릴 때는 `-m "not slow"` 를 준다.
   실제 하드웨어가 필요한 테스트는 `@pytest.mark.hardware` 이고 기본 skip 이다(`--run-hardware` 또는 `PWEH_HARDWARE=1` 일 때만 실행, `tests/conftest.py`).

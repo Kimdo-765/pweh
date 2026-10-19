@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
@@ -19,7 +18,6 @@ from mcp_helpers import call
 
 pytestmark = pytest.mark.anyio
 
-FAKE_PATH = Path(__file__).resolve().parent / "fake_openocd.py"
 
 
 @pytest.fixture
@@ -36,10 +34,10 @@ def _cleanup_sessions():
 
 
 def _write_fake_bin(path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{FAKE_PATH}" "$@"\n')
-    path.chmod(0o755)
-    return path
+    # 서버는 연결 직후 semihosting 가드 확인(RPC)이 필수다 → 그 proc 에 답하도록 가르친 가짜 (test_openocd_semihosting.GUARDED_FAKE)
+    from .test_openocd_semihosting import write_guarded_fake_bin
+
+    return write_guarded_fake_bin(path)
 
 
 @pytest.fixture

@@ -41,6 +41,19 @@ class OcdSession:
     last_targets: list[dict[str, Any]] = field(default_factory=list)
     # 'target names' 로 확인한 타깃 이름 캐시 (세션 = OpenOCD 프로세스 시작/연결 단위). 요청한 이름이 없으면 다시 조회한다.
     target_names: frozenset[str] | None = None
+    # --- semihosting 가드 (semihosting.py) -------------------------------------------------------------
+    # 이 서버가 띄운(또는 입양한) OpenOCD 에 가드 proc 이 있어 RPC 로 확인·무력화할 수 있음 (attached 는 False)
+    semihosting_managed: bool = False
+    # disabled = 항상 끈다(기본) / enabled-by-approval = 사람이 승인한 명령이 켰음 → 끄지 않고 상태만 보고 (openocd_stop 까지)
+    semihosting_policy: str = "disabled"
+    # 세션의 OpenOCD 에서 가드가 찾은 'semihosting 을 켜는 proc' (호출은 DESTRUCTIVE 로 분류)
+    semihost_procs: frozenset[str] = field(default_factory=frozenset)
+    # 마지막 확인 결과 등 (openocd_status 가 보여 준다)
+    semihosting: dict[str, Any] = field(default_factory=dict)
+    # 명령이 시간 초과 등으로 끝을 확인하지 못해 아직 확인하지 못한 경우 → 다음 RPC 전에 먼저 확인한다
+    semihosting_check_pending: bool = False
+    # semihosting 을 끄지 못해 서버가 OpenOCD 를 종료한 경우의 기록
+    semihosting_failsafe: dict[str, Any] | None = None
 
     @property
     def owned(self) -> bool:

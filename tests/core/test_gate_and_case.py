@@ -188,3 +188,21 @@ def test_job_partial_result_on_cancel(workspace):
     rt.jobs.wait(job.id, 5)
     j = rt.jobs.get(job.id)
     assert j.status == "cancelled" and j.result and j.result["chunks_done"] >= 1
+
+
+def test_case_id_cannot_end_with_dot(workspace):
+    """케이스 id 는 '.' 으로 끝날 수 없다: Windows 경로 정규화가 요소 끝의 '.' 을 지워 다른 케이스(esp-lab.→esp-lab)를 가리키게 된다."""
+    from pweh.case import CASE_ID_RE
+
+    rt = get_runtime("test")
+    for bad in ("esp-lab.", "esp-lab..", "a.", "x" * 79 + "."):
+        assert not CASE_ID_RE.match(bad), bad
+        with pytest.raises(ValidationFailed):
+            rt.cases.create(title="bad id", case_id=bad)
+    for good in ("esp-lab", "a", "a.b", "a_", "a-", "v1.2.3", "20261019-esp-test", "x" * 80):
+        assert CASE_ID_RE.match(good), good
+    assert not CASE_ID_RE.match("x" * 81) and not CASE_ID_RE.match(".a") and not CASE_ID_RE.match("a b")
+    c = rt.cases.create(title="dot inside", case_id="esp-lab.v2")
+    assert c.id == "esp-lab.v2" and rt.cases.exists("esp-lab.v2")
+    auto = rt.cases.create(title="자동 id ...", target={"vendor": "Acme.", "model": "Cam."})
+    assert CASE_ID_RE.match(auto.id) and not auto.id.endswith(".")

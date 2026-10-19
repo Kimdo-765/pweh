@@ -12,6 +12,15 @@
 - target 인자로 서버가 만드는 ``<타깃> read_memory|md* …`` 는 ``_trusted_target`` 이 실제 ``target names`` 목록에서 확인하고
   (세션 캐시, 불일치 시 재조회) 명령 이름과 겹치지 않는 이름일 때만 접두를 떼고 분류한다(점 없는 mem_ap/cpu0 용).
   목록에 없거나 명령 이름과 겹치면 보내기 전에 거부한다. 에이전트 원시 명령(openocd_command)에는 적용하지 않는다.
+- openocd_start 는 semihosting 을 항상 꺼 둔 채 끝낸다(``semihosting`` 모듈): 신뢰 scripts 의 표준 cfg 는 내용을 분류하지
+  않는데, ESP32 계열 cfg 의 ``examine-end`` 핸들러가 semihosting 을 켜면 타깃 펌웨어가 호스트 파일·명령에 접근할 수 있다.
+  init 전에 semihosting 관련 이벤트 핸들러를 감싸고, init 직후 타깃마다 확인해 끄고, TCL 연결 직후 RPC 로 다시 확인한다(필수).
+  가드보다 먼저 init 이 실행됐거나(``init-before-semihosting-guard``) 끄지/확인하지 못하면 OpenOCD 를 종료하고 ``start_failed``.
+  ``-f`` 하나하나와 extra_commands 하나하나 뒤의 init 조기 실행 검사(``semihosting.EARLY_CHECK_SCRIPT``)는 init 이 먼저 돌았으면
+  그 자리에서 semihosting 을 끄고 OpenOCD 를 오류로 끝내 다음 시작 명령이 semihosting 이 켜진 채 실행되지 않게 한다.
+  extra_commands 의 init 계열 명령은 거부하고, 사용자 cfg 의 init 계열 명령은 DESTRUCTIVE 다.
+  시작 뒤에도 MODIFY 이상 명령·halt/resume/reset·쓰기 뒤마다 RPC 로 다시 감싸고 끈다(켜져 있었으면 ``semihosting_reneutralized``,
+  끄지 못하면 OpenOCD 를 종료 — fail closed). 결과는 응답·상태 파일·감사 로그와 ``openocd_status`` 의 ``semihosting`` 에 남는다.
 """
 
 from __future__ import annotations
@@ -26,7 +35,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pweh.errors import Busy, DeviceError, NotFound, PwehError, SafetyDenied, ValidationFailed
+from pweh.errors import Busy, DeviceError, NotFound, PwehError, SafetyDenied, TimeoutExpired, ValidationFailed
 from pweh.fsutil import atomic_write_json, atomic_write_text, parse_size, read_json, sha256_file, utcnow_iso
 from pweh.mcpkit import (
     META_REQUIRE_HUMAN,
@@ -44,7 +53,7 @@ from pweh.mcpkit import (
 from pweh.runtime import Runtime, get_runtime
 from pweh.safety import Classification, Risk, worst
 
-from . import dumps, guard, parsers, process
+from . import dumps, guard, parsers, process, semihosting
 from .rpc import TclConnectionClosed, TclRpcClient
 from .session import REGISTRY, OcdSession
 from .tcl import TclReply, brace_quote_path, braces_balanced
@@ -108,8 +117,10 @@ def _unknown_risk() -> str:
     return rt().config.safety.unknown_command_risk
 
 
-def _classify(cmd: str) -> Classification:
-    return guard.classify_command(cmd, unknown_risk=_unknown_risk())
+def _classify(cmd: str, sess: OcdSession | None = None) -> Classification:
+    """명령 분류. 세션이 있으면 그 OpenOCD 에서 semihosting 가드가 찾은 'semihosting 을 켜는 proc' 호출도 DESTRUCTIVE 로 본다."""
+    procs = sess.semihost_procs if sess is not None else frozenset()
+    return guard.classify_command(cmd, unknown_risk=_unknown_risk(), semihost_procs=procs)
 
 
 def _parse_int(value: Any, name: str, *, minimum: int = 0, maximum: int | None = None, size: bool = False) -> int:
@@ -140,6 +151,8 @@ def _check_ident(value: str | None, name: str) -> str | None:
 
 def _session(case_id: str) -> OcdSession:
     sess = REGISTRY.get(case_id)
+    if sess.semihosting_failsafe is not None:
+        raise _failsafe_error(sess)
     if sess.process_exited():
         raise sess.exit_error()
     return sess
@@ -171,6 +184,18 @@ async def _authorize(case_id: str, tool: str, commands: list[str], *, ctx: Any, 
 
 
 async def _call(sess: OcdSession, cmd: str, *, timeout: float = DEFAULT_TIMEOUT, raw: bool = False) -> TclReply:
+    if sess.semihosting_check_pending:
+        # 이전 명령이 시간 초과 등으로 끝을 확인하지 못했다 → 새 명령을 보내기 전에 semihosting 부터 다시 확인한다
+        res = await _semihosting_enforce(sess, trigger="pending")
+        if res is not None and res.get("status") == "failsafe":
+            raise _failsafe_error(sess)
+        if sess.semihosting_check_pending:
+            raise Busy(
+                "이전 명령 뒤 semihosting 재확인을 아직 마치지 못해 명령을 보내지 않았습니다 (OpenOCD 가 이전 명령을 처리 중일 수 있음).",
+                hint="잠시 뒤 다시 호출하세요. 계속되면 openocd_status 로 확인하고 openocd_stop 으로 정리하세요.",
+                data={"semihosting_check": res},
+            )
+
     def run() -> TclReply:
         try:
             if raw:
@@ -187,6 +212,168 @@ async def _call(sess: OcdSession, cmd: str, *, timeout: float = DEFAULT_TIMEOUT,
 def _reply_error(reply: TclReply, *, command: str) -> dict[str, Any]:
     err = reply.error_text or "(OpenOCD 가 오류 메시지 없이 실패 — 자세한 원인은 openocd_status 의 로그 참고)"
     return {"ok": False, "status": "tcl_error", "command": command, "code": reply.code, "error": err, "diagnosis": parsers.diagnose(err)}
+
+
+# ---------------------------------------------------------------------------
+# semihosting 재확인 (semihosting.py 의 Tcl 가드를 RPC 로 다시 실행)
+# ---------------------------------------------------------------------------
+
+SEMIHOSTING_CHECK_TIMEOUT = 20.0
+
+
+def _semihosting_wanted(cls: Classification) -> bool:
+    """명령 뒤 semihosting 재확인이 필요한지: MODIFY 이상, 또는 알 수 없는 명령을 INTERACT 로 두는 설정(그 proc 이 켤 수 있다)."""
+    return cls.risk >= Risk.MODIFY or _unknown_risk() == "interact"
+
+
+def _public_procs(procs: Any) -> list[str]:
+    """응답에 보여 줄 'semihosting 을 켜는 proc' (가드 자신의 pweh_semihosting_* 는 뺀다)."""
+    return sorted(p for p in procs if not str(p).startswith("pweh_semihosting_"))
+
+
+def _failsafe_error(sess: OcdSession) -> DeviceError:
+    fs = sess.semihosting_failsafe or {}
+    return DeviceError(
+        "semihosting 을 끄지(확인하지) 못해 서버가 OpenOCD 를 종료했습니다: " + "; ".join(fs.get("reasons") or [])[:300],
+        hint="openocd_status 로 기록을 확인하고 사람에게 알린 뒤 openocd_stop → (cfg·OpenOCD 를 확인하고) openocd_start 로 다시 시작하세요.",
+        data={"semihosting_failsafe": fs},
+    )
+
+
+def _save_semihosting_state(sess: OcdSession) -> None:
+    try:
+        _write_session_state(sess, rt().case(sess.case_id), semihosting=sess.semihosting)
+    except PwehError:  # pragma: no cover - 케이스가 사라진 경우
+        pass
+
+
+async def _semihosting_failsafe(sess: OcdSession, problems: list[str], report: dict[str, Any], *, trigger: str) -> dict[str, Any]:
+    """semihosting 을 끄지(확인하지) 못함 → OpenOCD 를 종료한다(fail closed). 세션은 남겨 두어 openocd_status/openocd_stop 으로 본다."""
+    method = "not-owned"
+    if sess.owned and sess.proc is not None:
+        method = await run_blocking(sess.proc.terminate, 2.0) if sess.proc.alive else "already-exited"
+    sess.client.close()
+    fs = {"at": utcnow_iso(), "trigger": trigger, "reasons": problems, "stop_method": method,
+          "targets": report.get("targets") or {}, "process": sess.process_info()}
+    sess.semihosting_failsafe = fs
+    sess.semihosting_check_pending = False
+    sess.semihosting["failsafe"] = fs
+    sess.semihosting["verified"] = False
+    rt().audit({"event": "openocd_semihosting_failsafe", **fs}, sess.case_id)
+    _save_semihosting_state(sess)
+    log.warning("semihosting failsafe: stopped OpenOCD for case %s (%s)", sess.case_id, problems)
+    return {"status": "failsafe", **fs}
+
+
+async def _semihosting_enforce(sess: OcdSession, *, trigger: str) -> dict[str, Any] | None:
+    """semihosting 가드를 RPC 로 다시 실행한다 (관련 이벤트 핸들러 다시 감싸기 + 모든 타깃 확인·끄기).
+
+    policy 가 ``enabled-by-approval`` (사람이 승인한 명령이 켰음)이면 끄지 않고 읽기 전용 ``status`` 로 상태만 보고한다.
+    반환: None(가드를 관리하지 않는 세션 — attached) 또는 ``{status, …}``:
+    - ``ok`` / ``reneutralized``: 켜진 타깃이나 감싸지 않은 핸들러를 찾아 무력화했으면 reneutralized (감사 기록 + 상태 파일)
+    - ``failsafe``: 가드가 실패를 보고했거나(끄지/감싸지 못함, 스크립트 오류) 가드 호출이 실패했거나 결과가 불완전함 → OpenOCD 종료
+    - ``pending``: 시간 초과/연결 문제로 확인하지 못함 → 다음 RPC 전에 다시 확인한다(진행 중일 수 있는 쓰기를 끊지 않도록 죽이지 않는다)
+    - ``skipped``: 프로세스가 이미 종료됨, ``reported``: 읽기 전용 보고
+    """
+    if not sess.semihosting_managed or sess.semihosting_failsafe is not None:
+        return None
+    if sess.process_exited():
+        sess.semihosting_check_pending = False
+        return {"status": "skipped", "reason": "OpenOCD 프로세스가 종료됨"}
+    readonly = sess.semihosting_policy != "disabled"
+    phase = "status" if readonly else "check"
+    sess.semihosting_check_pending = True
+    try:
+        reply = await run_blocking(sess.client.call, semihosting.STATUS_CALL if readonly else semihosting.CHECK_CALL,
+                                   timeout=SEMIHOSTING_CHECK_TIMEOUT)
+    except TclConnectionClosed as exc:
+        if await run_blocking(sess.died_after_disconnect):
+            sess.semihosting_check_pending = False
+            return {"status": "skipped", "reason": "OpenOCD 프로세스가 종료됨"}
+        return {"status": "pending", "error": str(exc)}
+    except (TimeoutExpired, PwehError) as exc:
+        return {"status": "pending", "error": str(exc)}
+    report = semihosting.parse_report(reply.output if reply.ok else "", required=(phase,), startup_only=False)
+    problems = [] if reply.ok else [f"semihosting 가드 호출 실패: {(reply.error_text or '(오류 메시지 없음)')[:200]}"]
+    problems += semihosting.verification_problems(report, (phase,)) if reply.ok else []
+    if report["procs"]:
+        sess.semihost_procs = frozenset(report["procs"])
+    now = utcnow_iso()
+    state = sess.semihosting
+    if readonly:
+        sess.semihosting_check_pending = False
+        last = {"phase": phase, "trigger": trigger, "at": now, "targets": report["targets"], "unwrapped": report["unwrapped"],
+                "problems": problems}
+        state["last_check"] = last
+        state["targets"] = report["targets"]
+        return {"status": "reported", "policy": sess.semihosting_policy, **last}
+    if problems:
+        return await _semihosting_failsafe(sess, problems, report, trigger=trigger)
+    sess.semihosting_check_pending = False
+    renewed = semihosting.neutralized_list(report)
+    last = {"phase": phase, "trigger": trigger, "at": now, "verified": True, "targets": report["targets"], "reneutralized": renewed}
+    state["last_check"] = last
+    state["targets"] = report["targets"]
+    state["verified"] = True
+    wrapped = state.setdefault("handlers_wrapped", [])
+    for h in report["handlers_wrapped"]:
+        if h not in wrapped:
+            wrapped.append(h)
+    state["procs"] = _public_procs(sess.semihost_procs)
+    if renewed:
+        state.setdefault("reneutralized", []).append({"at": now, "trigger": trigger, "items": renewed})
+        rt().audit({"event": "openocd_semihosting_reneutralized", "trigger": trigger, "items": renewed, "targets": report["targets"]},
+                   sess.case_id)
+        _save_semihosting_state(sess)
+        return {"status": "reneutralized", **last}
+    return {"status": "ok", **last}
+
+
+def _semihosting_fields(res: dict[str, Any] | None) -> dict[str, Any]:
+    """도구 응답에 붙일 semihosting 재확인 결과 필드."""
+    if res is None:
+        return {}
+    out: dict[str, Any] = {"semihosting_check": res}
+    if res.get("status") == "reneutralized":
+        out["semihosting_reneutralized"] = list(res.get("reneutralized") or [])
+        out["semihosting_warning"] = (
+            "명령 뒤 semihosting 이 다시 켜져 있었거나 감싸지 않은 관련 핸들러가 있어 다시 무력화했습니다: "
+            + ", ".join(out["semihosting_reneutralized"]) + " — 같은 명령을 반복하지 말고 사람에게 알리세요."
+        )
+    elif res.get("status") == "failsafe":
+        out["semihosting_failsafe"] = {k: res.get(k) for k in ("reasons", "stop_method", "process", "trigger", "at")}
+    elif res.get("status") == "pending":
+        out["semihosting_warning"] = "명령 뒤 semihosting 재확인을 마치지 못했습니다 — 다음 명령 전에 다시 확인합니다."
+    elif res.get("status") == "reported" and any(v == "enabled" for v in (res.get("targets") or {}).values()):
+        out["semihosting_warning"] = "사람이 승인한 명령으로 semihosting 이 켜져 있습니다 (이 세션은 끄지 않고 보고만 함)."
+    return out
+
+
+def _failsafe_response(res: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    return {
+        "ok": False, "status": "semihosting_failsafe", **extra, **_semihosting_fields(res),
+        "message": "명령 뒤 semihosting 을 끄지(확인하지) 못해 OpenOCD 를 종료했습니다 (fail closed).",
+        "hint": "사람에게 알리고 openocd_status 로 기록을 확인한 뒤 openocd_stop → openocd_start 로 다시 시작하세요.",
+    }
+
+
+async def _call_checked(sess: OcdSession, cmd: str, *, timeout: float, check: bool, trigger: str, raw: bool = False,
+                        on_reply: Any = None) -> tuple[TclReply, dict[str, Any] | None]:
+    """명령을 보내고 check 이면 semihosting 을 다시 확인한다. 명령이 예외(시간 초과 등)로 끝나면 확인을 다음 RPC 로 미룬다.
+
+    on_reply(reply): 확인 전에 부른다 (승인된 semihosting 켜기가 성공했는지 보고 정책을 바꾸는 데 쓴다).
+    """
+    want = check and sess.semihosting_managed
+    try:
+        reply = await _call(sess, cmd, timeout=timeout, raw=raw)
+    except BaseException:
+        if want:
+            sess.semihosting_check_pending = True
+        raise
+    if on_reply is not None:
+        on_reply(reply)
+    res = await _semihosting_enforce(sess, trigger=trigger) if want and not reply.closed else None
+    return reply, res
 
 
 async def _query_targets(case_id: str, sess: OcdSession, ctx: Any, *, timeout: float = 10.0) -> list[dict[str, Any]] | None:
@@ -379,6 +566,14 @@ async def openocd_start(
             raise ValidationFailed(f"extra_commands 항목이 너무 길거나 제어문자를 포함합니다: {c[:60]!r}")
         if not braces_balanced(c):
             raise ValidationFailed(f"extra_commands 항목의 중괄호 짝이 맞지 않습니다: {c[:80]!r}")
+        inits = guard.init_family_commands(c)
+        if inits:
+            raise ValidationFailed(
+                f"extra_commands 에 init 계열 명령을 넣을 수 없습니다: {inits[0][:80]!r}",
+                hint="openocd_start 는 semihosting 무력화 가드를 실행한 뒤 init 을 직접 실행한다. 그보다 먼저 init(target/transport/jtag/dap "
+                "init 등)을 하면 cfg 의 이벤트 핸들러(예: ESP32 examine-end 의 'arm semihosting enable')가 감싸지지 않은 채 실행된다. "
+                "init 을 빼고, init 뒤에 할 일(reset, halt …)은 시작 후 openocd_reset/openocd_halt/openocd_command 로 보내세요.",
+            )
         cmds.append(c.strip())
 
     binary = process.find_openocd(r.config.tool_path("openocd"))
@@ -407,7 +602,17 @@ async def openocd_start(
         if ref.kind == "custom" and ref.path is not None:
             raw = _read_custom_cfg(ref.path)
             # 앞부분만 잘라 분류하면 나머지가 분류 없이 실행된다 → 전체를 분류하고, 너무 크면 거부한다
-            c = _classify(raw.decode("utf-8", errors="replace"))
+            text = raw.decode("utf-8", errors="replace")
+            c = _classify(text)
+            inits = guard.init_family_commands(text)
+            if inits:
+                # cfg 가 init 을 직접 하면 semihosting 가드보다 먼저 cfg 의 핸들러가 실행된다 (실행하면 init-before-semihosting-guard 로 종료)
+                c = worst([c, Classification(
+                    Risk.DESTRUCTIVE, "openocd.local.init-before-guard",
+                    f"init 계열 명령 '{inits[0][:60]}' — semihosting 무력화 가드보다 먼저 init 하면 이벤트 핸들러가 감싸지지 않은 채 실행됨 "
+                    "(openocd_start 가 가드 뒤에 init 을 직접 실행하니 cfg 에서 init 을 빼세요)",
+                    inits[0][:200],
+                )])
             results.append(Classification(c.risk, f"openocd.cfg:{c.rule_id}", f"사용자 cfg {ref.path.name}: {c.reason}", str(ref.path), c.uncertain))
             sha = hashlib.sha256(raw).hexdigest()
             custom_sha[str(ref.path)] = sha
@@ -473,8 +678,9 @@ async def _finish_start(r, case, case_id: str, ctx: Any, *, proc, argv, log_path
                         ready_timeout: float, version: dict[str, Any], cls: Classification, custom_cfgs: list) -> dict[str, Any]:
     ready = await run_blocking(process.wait_ready, proc, log_offset=0, timeout=ready_timeout)
 
-    def failure(reason: str, extra_info: dict[str, Any] | None = None) -> dict[str, Any]:
+    def failure(reason: str, extra_info: dict[str, Any] | None = None, extra_diagnosis: list[dict[str, str]] | None = None) -> dict[str, Any]:
         method = proc.terminate(grace=2.0) if proc.alive else "already-exited"
+        proc.cleanup_cwd()  # 실행 전용 작업 디렉터리가 비어 있으면 정리 (openocd_stop 과 같음 — 무언가 남았으면 증거로 보존)
         text = process.read_log_since(log_path, 0)
         summary = parsers.parse_log_summary(text)
         out = {
@@ -484,7 +690,7 @@ async def _finish_start(r, case, case_id: str, ctx: Any, *, proc, argv, log_path
             "process": proc.returncode_info(),
             "stop_method": method,
             "errors": summary["errors"],
-            "diagnosis": parsers.diagnose(text),
+            "diagnosis": (extra_diagnosis or []) + parsers.diagnose(text),
             "log_path": case.rel(log_path),
             "log_tail": process.tail_lines(log_path, 30),
             "argv": argv,
@@ -499,8 +705,27 @@ async def _finish_start(r, case, case_id: str, ctx: Any, *, proc, argv, log_path
             pass
         return out
 
+    def semihosting_failure(report: dict[str, Any], problems: list[str], log_text: str) -> dict[str, Any]:
+        reason, extra, diag_entries = _semihosting_start_failure(report, problems, log_text)
+        r.audit({"event": "openocd_semihosting_failed", "reason": reason, "reasons": problems}, case_id)
+        return failure(reason, extra, extra_diagnosis=diag_entries)
+
     if not ready.ready:
+        # init 조기 실행 검사(semihosting.EARLY_CHECK_SCRIPT)는 semihosting 을 끄고 OpenOCD 를 오류로 끝낸다 → 프로세스 종료 대신
+        # 로그 표식의 치명 사유(init-before-semihosting-guard 등)로 실패를 돌려준다
+        early_text = process.read_log_since(log_path, 0)
+        early_report = semihosting.parse_report(early_text)
+        early_fatal = semihosting.fatal_reasons(early_report)
+        if early_fatal:
+            return semihosting_failure(early_report, early_fatal, early_text)
         return failure(ready.reason)
+
+    # (1) 시작 로그의 표식(-d3 접두 포함): TCL 서버가 연결을 받기 전에 끝난 가드의 결과. 실패가 보이면 연결하지 않고 끝낸다.
+    startup_text = process.read_log_since(log_path, 0)
+    log_report = semihosting.parse_report(startup_text)
+    log_fatal = semihosting.fatal_reasons(log_report)
+    if log_fatal:
+        return semihosting_failure(log_report, log_fatal, startup_text)
     port = ready.port or tcl_port
     client = TclRpcClient("127.0.0.1", port, name=f"{case_id}-main")
     deadline_left = max(5.0, ready_timeout - ready.elapsed)
@@ -512,18 +737,45 @@ async def _finish_start(r, case, case_id: str, ctx: Any, *, proc, argv, log_path
     if not vreply.ok:
         client.close()
         return failure("version-rpc-error", {"rpc_error": vreply.error_text})
+    # (2) 필수: TCL RPC 로 가드를 다시 실행해 확인한다. 가드가 전역 변수에 남긴 시작 단계 기록(로그 형식·리다이렉트와 무관) +
+    # 지금 상태. 가드 proc 이 없거나(가드가 실행되지 않은 OpenOCD) 결과가 불완전하거나 실패가 있으면 실행하지 않는다.
+    required = (*semihosting.STARTUP_PHASES, "verify")
+    try:
+        gr = await run_blocking(client.call, semihosting.VERIFY_CALL, timeout=max(5.0, min(30.0, deadline_left)))
+    except PwehError as exc:
+        client.close()
+        return semihosting_failure(log_report, [f"semihosting 가드 확인(RPC) 실패: {exc}"], startup_text)
+    sh_report = semihosting.parse_report(gr.output if gr.ok else "", required=required, startup_only=False)
+    problems = (semihosting.verification_problems(sh_report, required) if gr.ok
+                else [f"semihosting 가드 확인(RPC) 실패: {(gr.error_text or '(오류 메시지 없음)')[:200]}"])
+    if problems:
+        client.close()
+        return semihosting_failure(sh_report, problems, startup_text)
+    sh_report["source"] = "rpc"
+    sh_report["log_markers"] = bool(log_report["phases"])  # 시작 로그에서도 표식을 찾았는지 (-d3/리다이렉트면 없을 수 있음)
 
     sess = OcdSession(
         case_id=case_id, mode="spawned", host="127.0.0.1", port=port, client=client, proc=proc, log_path=log_path,
         log_offset=0, argv=argv, version=parsers.parse_version(vreply.output),
     )
     sess.state_file = jtag_dir / f"openocd-{n}.json"
+    sess.semihosting_managed = True
+    sess.semihost_procs = frozenset(sh_report["procs"])
+    sh_report["procs"] = _public_procs(sh_report["procs"])
+    sh_neutralized = semihosting.neutralized_list(sh_report)
+    sess.semihosting = {
+        "policy": "disabled", "verified": True, "targets": sh_report["targets"], "handlers_wrapped": list(sh_report["handlers_wrapped"]),
+        "procs": sh_report["procs"], "neutralized_at_start": sh_neutralized, "reneutralized": [],
+        "last_check": {"phase": "verify", "trigger": "openocd_start", "at": utcnow_iso(), "verified": True, "targets": sh_report["targets"]},
+    }
     text = sess.run_log()
     summary = parsers.parse_log_summary(text)
-    diag = parsers.diagnose(text)
-    sess.startup = {"summary": summary, "diagnosis": diag}
+    diag = parsers.diagnose(text) + semihosting.diagnosis_entries(sh_report, startup_text)
+    sess.startup = {"summary": summary, "diagnosis": diag, "semihosting": sh_report}
     REGISTRY.add(sess)
-    _write_session_state(sess, case)
+    _write_session_state(sess, case, semihosting=sess.semihosting)
+    r.audit({"event": "openocd_semihosting", "verified": sh_report["verified"], "neutralized": sh_neutralized,
+             "targets": sh_report["targets"], "source": "rpc"}, case_id)
 
     warnings = []
     for svc in ("telnet", "gdb"):
@@ -563,8 +815,32 @@ async def _finish_start(r, case, case_id: str, ctx: Any, *, proc, argv, log_path
         "warnings": warnings,
         "custom_cfgs": custom_cfgs,
         "classification": cls.to_dict(),
+        # 무력화한 것: '<타깃>:<이벤트>'(감싼 핸들러), 'tap:<TAP>:<이벤트>', '<타깃>:after-init'(init 직후 켜져 있어 끔),
+        # '<타깃>:after-start'(연결 직후 RPC 확인에서 켜져 있어 끔)
+        "semihosting_neutralized": sh_neutralized,
+        "semihosting": sh_report,
         "next": "openocd_scan_chain / openocd_targets 로 확인 → openocd_halt → openocd_read_memory",
     }
+
+
+def _semihosting_start_failure(report: dict[str, Any], problems: list[str], log_text: str) -> tuple[str, dict[str, Any], list[dict[str, str]]]:
+    """semihosting 가드 문제로 시작을 실패시킬 때의 (reason, 응답 추가 필드, 진단 항목)."""
+    if report.get("init_before_guard"):
+        reason = "init-before-semihosting-guard"
+        hint = ("cfg(신뢰 scripts 포함)나 시작 명령이 init 을 직접 실행해 semihosting 무력화 가드보다 init 이 먼저 돌았습니다(그동안 cfg 의 "
+                "이벤트 핸들러가 감싸지지 않은 채 실행됨). init 을 하지 않는 cfg 로 시작하세요 — openocd_start 가 가드 뒤에 init 을 실행합니다.")
+    elif any(f["kind"] in ("wrap-failed", "disable-failed", "error") for f in report.get("failures", [])):
+        reason = "semihosting-neutralization-failed"
+        hint = "semihosting 이 꺼졌다고 확인할 수 없어 OpenOCD 를 종료했습니다. cfg 와 OpenOCD 버전을 사람에게 확인받으세요."
+    else:
+        reason = "semihosting-verification-failed"
+        hint = ("OpenOCD 가 semihosting 가드 확인(RPC)에 제대로 답하지 않았습니다 — 가드 스크립트가 실행되지 않은 실행 파일일 수 있어 실행하지 "
+                "않습니다. OpenOCD 실행 파일(PWEH_OPENOCD)과 버전(xPack 0.12.0-7 로 검증)을 사람에게 확인받으세요.")
+    diag = semihosting.diagnosis_entries(report, log_text)
+    if not any(d["code"] == "semihosting_neutralization_failed" for d in diag):
+        diag.insert(0, {"code": "semihosting_neutralization_failed", "message": "semihosting 이 꺼졌다고 확인하지 못해 OpenOCD 를 종료함",
+                        "evidence": "; ".join(problems)[:200], "hint": hint})
+    return reason, {"semihosting": report, "semihosting_failures": problems, "hint": hint}, diag
 
 
 def _enrich_taps(taps: list[dict[str, Any]], summary: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -645,10 +921,32 @@ async def openocd_attach(case_id: str, ctx: Context, host: str = "127.0.0.1", tc
     sess.state_file = state_file
     if log_path is not None:
         text = sess.run_log()
-        sess.startup = {"summary": parsers.parse_log_summary(text), "diagnosis": parsers.diagnose(text)}
+        # 입양: 이 서버가 띄운 프로세스라 시작 로그에 semihosting 무력화 표식이 있다
+        sh_report = semihosting.parse_report(text)
+        sess.startup = {"summary": parsers.parse_log_summary(text),
+                        "diagnosis": parsers.diagnose(text) + semihosting.diagnosis_entries(sh_report, text),
+                        "semihosting": sh_report}
     REGISTRY.add(sess)
     if state_file is not None:
         _write_session_state(sess, case, adopted_at=utcnow_iso())
+    sh_fields: dict[str, Any] = {}
+    if mode == "adopted":
+        # 이 서버가 띄운 프로세스: 가드 proc 이 있으면 관리 대상으로 삼아 지금 바로 다시 확인·무력화한다(없으면 attached 처럼 안내만)
+        try:
+            probe = await run_blocking(client.call, f"info procs {semihosting.GUARD_PROC}", timeout=10.0)
+            has_guard = probe.ok and probe.output.strip() == semihosting.GUARD_PROC
+        except PwehError:
+            has_guard = False
+        if has_guard:
+            sess.semihosting_managed = True
+            sess.semihosting = {"policy": "disabled", "verified": False, "handlers_wrapped": [], "reneutralized": []}
+            res = await _semihosting_enforce(sess, trigger="openocd_attach")
+            sh_fields = _semihosting_fields(res)
+            if res is not None and res.get("status") == "failsafe":
+                return _failsafe_response(res, mode=mode, session=sess.describe())
+        else:
+            sh_fields = {"semihosting_warning": "입양한 OpenOCD 에 semihosting 가드가 없습니다(예전 서버가 띄움) — 무력화를 확인할 수 없으니 "
+                                                "openocd_stop 후 openocd_start 로 다시 시작하는 것을 권장합니다."}
     tgts = await _query_targets(case_id, sess, ctx)
     r.audit({"event": "openocd_attached", "host": host, "tcl_port": tcl_port, "mode": mode}, case_id)
     out = {
@@ -659,6 +957,7 @@ async def openocd_attach(case_id: str, ctx: Context, host: str = "127.0.0.1", tc
         "version": ver.get("raw"),
         "targets": tgts,
         "remote": host not in LOOPBACK,
+        **sh_fields,
     }
     if host not in LOOPBACK:
         out["note"] = "원격 OpenOCD: 메모리 덤프는 read_memory 방식(느림)으로만, 플래시 read_bank 덤프는 불가."
@@ -772,6 +1071,17 @@ async def openocd_status(case_id: str, ctx: Context, log_lines: int = 40) -> dic
     if sess.startup:
         out["startup"] = sess.startup.get("summary")
         out["startup_diagnosis"] = sess.startup.get("diagnosis")
+        if sess.startup.get("semihosting") is not None:
+            out["semihosting"] = sess.startup["semihosting"]
+    if sess.semihosting_managed and not sess.process_exited() and sess.semihosting_failsafe is None:
+        # 가드의 읽기 전용 status 로 지금 상태를 본다 (위반이 보이면 그 자리에서 다시 무력화 — 끄지 못하면 fail closed)
+        out.update(await _semihosting_live(sess))
+    if sess.semihosting_managed:
+        # 시작 때 보고가 아니라 세션의 최신 상태: 마지막 확인 결과(last_check), 다시 무력화한 기록, 정책, 시작 보고(startup)
+        out["semihosting"] = {**sess.semihosting, "policy": sess.semihosting_policy, "check_pending": sess.semihosting_check_pending,
+                              **({"startup": sess.startup["semihosting"]} if sess.startup.get("semihosting") is not None else {})}
+    if sess.semihosting_failsafe is not None:
+        out["semihosting_failsafe"] = sess.semihosting_failsafe
     text = process.read_log_tail_text(sess.log_path)
     if text:
         summary = parsers.parse_log_summary(text)
@@ -780,6 +1090,10 @@ async def openocd_status(case_id: str, ctx: Context, log_lines: int = 40) -> dic
         out["diagnosis"] = parsers.diagnose(text)
     out["log_tail"] = process.tail_lines(sess.log_path, log_lines) if sess.log_path else []
     out["active_jobs"] = _active_jobs(case_id)
+    if sess.semihosting_failsafe is not None:
+        out["alive"] = False
+        out["message"] = "semihosting 을 끄지(확인하지) 못해 서버가 OpenOCD 를 종료했습니다 (fail closed). 사람에게 알리고 openocd_stop 으로 정리하세요."
+        return out
     if sess.process_exited():
         out["alive"] = False
         out["message"] = "OpenOCD 프로세스가 종료되었습니다. openocd_stop 으로 세션을 정리한 뒤 다시 시작하세요."
@@ -792,6 +1106,30 @@ async def openocd_status(case_id: str, ctx: Context, log_lines: int = 40) -> dic
         out["targets"] = tgts
         out["target_state"] = _target_state(tgts)
     return out
+
+
+async def _semihosting_live(sess: OcdSession) -> dict[str, Any]:
+    """openocd_status 용: 가드의 읽기 전용 ``status`` 로 지금 상태를 본다. 확인이 밀려 있거나(pending) policy 가 disabled 인데 켜진 타깃·
+    감싸지 않은 관련 핸들러가 보이면 그 자리에서 다시 무력화한다(끄지 못하면 fail closed)."""
+    if sess.semihosting_check_pending:
+        res = await _semihosting_enforce(sess, trigger="openocd_status")
+        return {"semihosting_live": res, **_semihosting_fields(res)}
+    try:
+        reply = await run_blocking(sess.client.call, semihosting.STATUS_CALL, timeout=10.0)
+    except PwehError as exc:
+        return {"semihosting_live": {"status": "unavailable", "error": str(exc)}}
+    if not reply.ok:
+        res = await _semihosting_enforce(sess, trigger="openocd_status")  # 가드 호출 실패 → 확인 단계에서 판정(fail closed)
+        return {"semihosting_live": res, **_semihosting_fields(res)}
+    report = semihosting.parse_report(reply.output, required=("status",), startup_only=False)
+    live = {"status": "reported", "targets": report["targets"], "unwrapped": report["unwrapped"],
+            "problems": semihosting.verification_problems(report, ("status",))}
+    violated = sess.semihosting_policy == "disabled" and (
+        any(v == "enabled" for v in report["targets"].values()) or report["unwrapped"] or live["problems"])
+    if violated:
+        res = await _semihosting_enforce(sess, trigger="openocd_status")
+        return {"semihosting_live": live, **_semihosting_fields(res)}
+    return {"semihosting_live": live}
 
 
 # ---------------------------------------------------------------------------
@@ -825,16 +1163,30 @@ async def openocd_command(
     if not braces_balanced(command):
         raise ValidationFailed("중괄호 짝이 맞지 않거나 백슬래시로 끝납니다", hint="Tcl 중괄호 { } 의 짝을 맞추세요.")
     timeout = max(1.0, min(float(timeout), 600.0))
-    cls = _classify(command)
+    cls = _classify(command, sess)
     if cls.risk >= Risk.MODIFY:
         _ensure_no_job(case_id, "MODIFY 이상 명령")
     decision = await r.authorize(tool="openocd_command", action={"command": command}, classification=cls, case_id=case_id, approval_id=approval_id, ctx=ctx)
     if not decision.allowed:
         return gate_response(decision)
+    check = _semihosting_wanted(cls)
+    # 사람이 승인한(또는 운영자 정책이 허용한) DESTRUCTIVE 명령이 semihosting 을 켜고 성공하면 → 이 세션은 끄지 않고 상태만 보고
+    # (openocd_stop 까지). 실패하면 그대로 끄기 정책으로 확인한다.
+    approved_enable = (check and sess.semihosting_managed and cls.risk >= Risk.DESTRUCTIVE and sess.semihosting_policy == "disabled"
+                       and guard.semihosting_intent(command, semihost_procs=sess.semihost_procs))
+
+    def on_reply(rp: TclReply) -> None:
+        if approved_enable and rp.ok:
+            sess.semihosting_policy = "enabled-by-approval"
+            sess.semihosting["policy"] = sess.semihosting_policy
+            r.audit({"event": "openocd_semihosting_enabled_by_approval", "command": command, "approval_id": approval_id}, case_id)
+
     t0 = time.monotonic()
-    reply = await _call(sess, command, timeout=timeout, raw=True)
+    reply, sh = await _call_checked(sess, command, timeout=timeout, raw=True, check=check, trigger="openocd_command", on_reply=on_reply)
     dt = round(time.monotonic() - t0, 3)
-    out: dict[str, Any] = {"classification": cls.to_dict(), "duration_seconds": dt, "code": reply.code}
+    out: dict[str, Any] = {"classification": cls.to_dict(), "duration_seconds": dt, "code": reply.code, **_semihosting_fields(sh)}
+    if sess.semihosting_policy != "disabled":
+        out["semihosting_policy"] = sess.semihosting_policy
     output = reply.output
     max_output_chars = max(1000, min(int(max_output_chars), 1_000_000))
     if len(output) > max_output_chars:
@@ -851,6 +1203,8 @@ async def openocd_command(
         if sess.process_exited():
             out["process"] = sess.process_info()
             out["note"] = "명령 후 OpenOCD 프로세스가 종료되었습니다 (shutdown 이었거나 비정상 종료)."
+    if sh is not None and sh.get("status") == "failsafe":
+        return _failsafe_response(sh, **{k: v for k, v in out.items() if not k.startswith("semihosting_")}, command=command)
     if reply.code is None and not reply.closed:
         return {"ok": False, "status": "unparsed", **out, "notes": reply.notes}
     if reply.closed:
@@ -926,9 +1280,13 @@ async def _modify_and_report(case_id: str, tool: str, cmd: str, *, ctx: Any, app
     decision, cls = await _authorize(case_id, tool, [cmd], ctx=ctx, approval_id=approval_id)
     if not decision.allowed:
         return gate_response(decision)
-    reply = await _call(sess, cmd, timeout=timeout)
+    # halt/resume/reset 은 이벤트 핸들러(reset-*, examine-end, halted …)를 실행한다 → 뒤에 semihosting 을 다시 확인
+    reply, sh = await _call_checked(sess, cmd, timeout=timeout, check=True, trigger=tool)
+    if sh is not None and sh.get("status") == "failsafe":
+        return _failsafe_response(sh, command=cmd, messages=reply.log, classification=cls.to_dict())
     tgts = await _query_targets(case_id, sess, ctx)
-    base = {"command": cmd, "messages": reply.log, "targets": tgts, "state": _target_state(tgts, target), "classification": cls.to_dict()}
+    base = {"command": cmd, "messages": reply.log, "targets": tgts, "state": _target_state(tgts, target), "classification": cls.to_dict(),
+            **_semihosting_fields(sh)}
     if not reply.ok:
         return {**_reply_error(reply, command=cmd), **base}
     return {"ok": True, "status": "ok", **base}
@@ -1427,10 +1785,13 @@ async def openocd_write_memory(
     decision, cls = await _authorize(case_id, "openocd_write_memory", [cmd], ctx=ctx, approval_id=approval_id)
     if not decision.allowed:
         return gate_response(decision)
-    rep = await _call(sess, cmd, timeout=60.0)
+    rep, sh = await _call_checked(sess, cmd, timeout=60.0, check=True, trigger="openocd_write_memory")
+    if sh is not None and sh.get("status") == "failsafe":
+        return _failsafe_response(sh, command=cmd, classification=cls.to_dict(), written=rep.ok)
     if not rep.ok:
-        return _reply_error(rep, command=cmd)
-    out: dict[str, Any] = {"ok": True, "status": "written", "address": f"0x{addr:x}", "width": width, "count": len(vals), "classification": cls.to_dict()}
+        return {**_reply_error(rep, command=cmd), **_semihosting_fields(sh)}
+    out: dict[str, Any] = {"ok": True, "status": "written", "address": f"0x{addr:x}", "width": width, "count": len(vals), "classification": cls.to_dict(),
+                           **_semihosting_fields(sh)}
     if verify:
         rcmd = f"{prefix}read_memory 0x{addr:x} {width} {len(vals)}" + (" phys" if phys else "")
         d2, _ = await _authorize(case_id, "openocd_write_memory", [rcmd], ctx=ctx, classification=_classify_read(rcmd, trusted))
@@ -1483,11 +1844,13 @@ async def openocd_flash_write(
     if await run_blocking(sha256_file, p) != sha:
         raise SafetyDenied("승인 이후 이미지 파일 내용이 바뀌었습니다. 실행하지 않습니다.", hint="새 내용으로 다시 승인을 받으세요.")
     timeout = max(10.0, min(float(timeout), 3600.0))
-    rep = await _call(sess, cmd, timeout=timeout)
+    rep, sh = await _call_checked(sess, cmd, timeout=timeout, check=True, trigger="openocd_flash_write")
+    if sh is not None and sh.get("status") == "failsafe":
+        return _failsafe_response(sh, command=cmd, classification=cls.to_dict(), written=rep.ok, messages=rep.log)
     if not rep.ok:
-        return _reply_error(rep, command=cmd)
+        return {**_reply_error(rep, command=cmd), **_semihosting_fields(sh)}
     out: dict[str, Any] = {"ok": True, "status": "written", "output": rep.output, "messages": rep.log, "file_sha256": sha, "file_size": size,
-                           "classification": cls.to_dict()}
+                           "classification": cls.to_dict(), **_semihosting_fields(sh)}
     if verify:
         vcmd = f"verify_image {qpath} 0x{addr:x} bin"
         vcls = guard.classify_managed(vcmd, allowed_dirs=[case.dir], unknown_risk=_unknown_risk())

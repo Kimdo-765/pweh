@@ -13,13 +13,32 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "install.sh"
-COMPONENTS = ["python", "sigrok", "openocd", "squashfs", "uboot", "zig", "jdk", "ghidra", "unblob", "extractors", "erofs", "binwalk", "rea"]
+COMPONENTS = ["python", "sigrok", "openocd", "squashfs", "uboot", "zig", "jdk", "ghidra", "unblob", "extractors", "erofs", "binwalk", "rea", "esptool"]
 
 
 def _run(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     e = dict(os.environ)
     e.update(env or {})
     return subprocess.run(["bash", str(SCRIPT), *args], capture_output=True, text=True, env=e, timeout=120)
+
+
+def _wsl_interop() -> bool:
+    """install.sh 의 wsl_interop() 과 같은 판정: binfmt_misc 의 WSLInterop* 등록이 켜져 있다."""
+    for f in Path("/proc/sys/fs/binfmt_misc").glob("WSLInterop*"):
+        try:
+            if f.read_text().split("\n", 1)[0] == "enabled":
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _fake_esptool(path: Path, version: str, crlf: bool = False) -> None:
+    """`esptool version` 처럼 두 줄("esptool vX" / "X")을 출력하는 가짜 실행 파일. Windows 판은 CRLF 로 출력한다."""
+    nl = "\\r\\n" if crlf else "\\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"#!/bin/sh\nprintf 'esptool v{version}{nl}{version}{nl}'\n")
+    path.chmod(0o755)
 
 
 def test_script_syntax_and_executable():
@@ -34,6 +53,8 @@ def test_list_names_every_component_and_creates_nothing(tmp_path):
     names = [line.split()[0] for line in r.stdout.splitlines() if line.strip()]
     assert names == COMPONENTS
     assert "[minimal]" in r.stdout and "[선택]" in r.stdout
+    esptool = next(line for line in r.stdout.splitlines() if line.split()[:1] == ["esptool"])
+    assert "[선택]" in esptool and "[minimal]" not in esptool and "방법 A" in esptool
     assert not prefix.exists()  # --list 는 디렉터리를 만들지 않는다
 
 
@@ -69,7 +90,7 @@ def test_minimal_selects_only_minimal_components(tmp_path):
 
 def test_pinned_artifacts_have_sha256():
     text = SCRIPT.read_text(encoding="utf-8")
-    for var in ("OPENOCD", "ZIG", "JDK", "GHIDRA", "SASQUATCH", "NODE", "UNBLOB", "PIP", "RUSTUP"):
+    for var in ("OPENOCD", "ZIG", "JDK", "GHIDRA", "SASQUATCH", "NODE", "UNBLOB", "PIP", "RUSTUP", "ESPTOOL", "ESPTOOL_WIN"):
         line = next(ln for ln in text.splitlines() if ln.startswith(f"{var}_SHA="))
         value = line.split("=", 1)[1].split()[0]
         assert len(value) == 64 and all(c in "0123456789abcdef" for c in value), line
@@ -94,6 +115,40 @@ def test_refuses_unrelated_or_unsafe_prefix(tmp_path):
     quoted = tmp_path / "it's"
     r = _run("--only", "zig", "--prefix", str(quoted), "--venv", str(tmp_path / "v"), "--no-link")
     assert r.returncode == 2 and not quoted.exists(), r.stderr
+
+
+def test_esptool_optional_linux_and_windows_builds(tmp_path):
+    """esptool 은 선택 구성요소다. Linux 판은 항상, Windows 판(방법 A)은 WSL interop 에서만 확인하고 env.sh 에 따로 export 한다.
+
+    가짜 실행 파일로 확인하므로 네트워크 없이 돈다 (이미 설치된 것으로 보이면 설치 모드도 내려받지 않는다).
+    WSL 에서도 가짜 esptool.exe 는 MZ 실행 파일이 아니라 interop 을 거치지 않고 셸 스크립트로 실행된다.
+    """
+    prefix = tmp_path / "tools"
+    common = ("--prefix", str(prefix), "--venv", str(tmp_path / "v"), "--no-link")
+    r = _run("--check", "--only", "esptool", *common)
+    assert r.returncode == 0 and "✗ esptool" in r.stdout, r.stdout + r.stderr  # 없어도 --check 는 실패가 아니다
+    assert not prefix.exists()
+
+    linux = prefix / "bin" / "esptool"
+    win = prefix / "esptool-win" / "esptool-windows-amd64" / "esptool.exe"
+    _fake_esptool(linux, "5.4.0")
+    r = _run("--check", "--only", "esptool", *common)
+    assert ("✓ esptool" in r.stdout) == (not _wsl_interop()), r.stdout  # WSL interop 이면 Windows 판도 있어야 한다
+
+    _fake_esptool(win, "5.4.0", crlf=True)
+    r = _run("--check", "--only", "esptool", *common)
+    assert r.returncode == 0 and "✓ esptool  esptool 5.4.0" in r.stdout, r.stdout + r.stderr
+
+    (prefix / ".state").mkdir()  # 설치 모드가 pweh-tools 디렉터리로 알아보도록
+    r = _run("--only", "esptool", *common)
+    assert r.returncode == 0 and "esptool: 이미 설치됨" in r.stdout, r.stdout + r.stderr
+    env = (prefix / "env.sh").read_text()
+    assert f"export PWEH_ESPTOOL='{linux}'" in env
+    assert (f"export PWEH_ESPTOOL_WIN='{win}'" in env) == _wsl_interop(), env
+
+    _fake_esptool(linux, "4.8.1")  # 고정 버전이 아니면 설치된 것으로 보지 않는다
+    r = _run("--check", "--only", "esptool", *common)
+    assert r.returncode == 0 and "✗ esptool" in r.stdout, r.stdout
 
 
 # --- pweh.toolsdir ----------------------------------------------------------

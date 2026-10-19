@@ -29,6 +29,10 @@
       "mcp__pweh-jtagulator__jtagulator_status",
       "mcp__pweh-jtagulator__jtagulator_job_status",
       "mcp__pweh-jtagulator__jtagulator_jobs",
+      "mcp__pweh-esp__esp_version",
+      "mcp__pweh-esp__esp_list_ports",
+      "mcp__pweh-esp__esp_job_status",
+      "mcp__pweh-esp__esp_jobs",
       "mcp__rea__inspect_firmware_regions",
       "mcp__rea__extract_firmware",
       "mcp__rea__open_binary",
@@ -124,6 +128,7 @@
     "pweh-openocd",
     "pweh-jtagulator",
     "pweh-fwtriage",
+    "pweh-esp",
     "rea"
   ]
 }
