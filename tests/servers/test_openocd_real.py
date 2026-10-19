@@ -13,6 +13,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from pweh.toolsdir import tools_dir
+
 import pytest
 from mcp import Client
 
@@ -20,7 +22,7 @@ from mcp_helpers import call
 
 pytestmark = [pytest.mark.anyio, pytest.mark.external]
 
-TOOLS = Path.home() / "pweh-tools"
+TOOLS = tools_dir()
 XPACK_SCRIPTS = TOOLS / "openocd" / "xpack-openocd-0.12.0-7" / "openocd" / "scripts"
 
 

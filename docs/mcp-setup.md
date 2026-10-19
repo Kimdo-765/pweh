@@ -20,23 +20,48 @@ PWEH 는 MCP 서버 7개를 쓴다. 6개는 이 저장소에 있고, 1개는 외
 
 ```bash
 cd ~/pweh
-python3 -m venv .venv
-.venv/bin/pip install -e ".[dev]"
+./scripts/install.sh                   # 원클릭: Python 가상환경 + 외부 도구 + REA (sudo 없음)
 .venv/bin/pytest -q                    # 하드웨어 없이 전체 테스트 (외부 도구가 없으면 일부 skip)
-.venv/bin/pweh doctor                  # 환경 점검
 ```
 
-외부 도구 위치 (`~/pweh-tools/env.sh`):
-- sigrok-cli 0.7.2
-- OpenOCD 0.12 (xPack)
-- binwalk 3.1.0
-- unblob 26.6.4
-- squashfs-tools, u-boot-tools
-- Zig
-- JDK 21 + Ghidra 12.1.4
+`scripts/install.sh` 는 root 권한 없이 설치한다. 시스템 디렉터리와 셸 rc 파일은 바꾸지 않고, 설치물은 `~/pweh-tools`(외부 도구)와
+`.venv`(Python)에만 둔다. 끝나면 `~/pweh-tools/env.sh` 를 만들고 `pweh doctor` 로 점검한다. 다시 실행하면 이미 설치된 구성요소는 건너뛴다.
+
+| 구성요소 | 내용 | 설치 방법 |
+|---|---|---|
+| `python` | pweh 가상환경 (`pip install -e .[dev]`) | `python3 -m venv --without-pip` + sha256 고정 pip 26.2.1 휠 (python3-venv/ensurepip 불필요) |
+| `sigrok` | sigrok-cli 0.7.2 + libsigrok/libsigrokdecode | 배포판 패키지를 `apt-get download` 로 받아 개인 경로에 풀고 래퍼로 실행 |
+| `openocd` | xPack OpenOCD 0.12.0-7 + 하드웨어 없는 `openocd-dummy` | 릴리스 tar.gz (sha256 고정) |
+| `squashfs`, `uboot` | mksquashfs/unsquashfs, mkimage/mkenvimage/dumpimage | 배포판 패키지 (개인 경로) |
+| `zig` | Zig 0.17.0 (시뮬레이터 합성 펌웨어) | 공식 tar.xz (sha256 고정) |
+| `jdk`, `ghidra` | Temurin JDK 21, Ghidra 12.1.4 (REA 디컴파일 엔진) | 공식 tar.gz / zip (sha256 고정) |
+| `unblob`, `extractors` | unblob 26.6.4 + 7z, lz4, lzop, zstd, sasquatch, unar, simg2img … | 전용 venv(unblob 휠 sha256 고정, libmagic 이 없으면 개인 경로에) + 배포판 패키지, sasquatch .deb (sha256 고정) |
+| `erofs` *(선택)* | erofs-utils 1.9.4 (EROFS 추출) | 태그 소스 빌드 (C 컴파일러·autotools 필요) |
+| `binwalk` *(선택)* | binwalk 3.1.0 (REA 영역 식별) | `cargo install --locked` (cargo 가 없으면 `~/pweh-tools/_rust` 에 rustup 1.29.1(sha256 고정) + Rust 1.98.0, 개발 파일이 없으면 `binwalk/root` 에 -dev 패키지를 풀어 씀. C 컴파일러 필요) |
+| `rea` *(선택)* | REA `rea-agents` 6.5.0 | 이미 설치된 REA 6.x 가 있으면 그대로 쓴다. 없으면 `npm install --prefix ~/pweh-tools/rea` (Node 22.19+ 가 없으면 Node 22 를 개인 경로에 받음). REA 의 Ghidra 분석에 필요한 `ps`(procps)가 없으면(Debian 최소 설치 등) 개인 경로에 풀어 `bin/ps` 로 둔다. `rea setup` 은 실행하지 않는다 |
+
+- **전제 조건:** Linux x86_64, bash, curl(또는 wget), tar, xz, Python 3.10 이상, git.
+  배포판 패키지 구성요소는 Debian/Ubuntu(apt)에서만 받는다. apt 가 없으면 해당 도구를 직접 설치하고 `PWEH_*` 환경변수로 알려 준다.
+  선택 구성요소(erofs, binwalk)는 C 컴파일러가 없으면 이유를 출력하고 건너뛴다. 관리자가 `build-essential` 을 설치해 두면 함께 설치된다.
+- **검증:** 스크립트가 직접 받는 파일(OpenOCD·Zig·JDK·Ghidra·Node 압축 파일, pip·unblob 휠, rustup-init, sasquatch .deb)은
+  스크립트에 고정한 sha256 으로, 배포판 패키지는 apt 의 서명된 색인에 있는 해시로 검증한다.
+  압축 해제 전에 절대 경로·`..`·밖을 가리키는 링크·장치 파일을 거부하고, 배포판 패키지의 설치 스크립트는 실행하지 않는다.
+  - 한계: pip(pweh·unblob 의 의존성)와 npm(rea-agents 의 의존성)이 받는 패키지는 최상위 버전만 고정하고 해시는 고정하지 않는다.
+    npm 패키지의 설치 스크립트(예: 네이티브 모듈 prebuild)는 실행된다. binwalk 의 crates 는 `Cargo.lock`(`--locked`)의 체크섬으로 검증된다.
+- **점검:** 설치 끝에 `pweh doctor` 를 돌린다. 실행 파일이 있어도 버전 확인이 실패하면(공유 라이브러리 없음, Traceback 등) `!!` 로 표시한다.
+- **옵션:** `--minimal`, `--only a,b`, `--skip a,b`, `--check`(점검만), `--list`, `--force`(다시 설치), `--prefix DIR`,
+  `--seed DIR`, `--no-link`.
+  - `--seed DIR`: 해시가 고정된 파일(압축 파일·휠·.deb)을 이 디렉터리에서 먼저 찾아 이름과 해시가 맞으면 쓴다(여러 대 설치·재설치용).
+    다른 머신의 `~/pweh-tools/_downloads` 를 그대로 넘기면 된다. pip·npm·cargo 의존성은 여전히 네트워크에서 받으므로 완전한 오프라인 설치는 아니다.
+- **다른 위치에 설치:** `--prefix DIR` 로 설치하면 스크립트가 저장소에 `.pweh/tools-env.path`(git 제외)를 남긴다.
+  `scripts/mcp-launch.sh` 와 테스트가 그 env.sh 를 찾는다. 순서는 `PWEH_TOOLS_ENV` → `PWEH_TOOLS_DIR/env.sh` → `.pweh/tools-env.path` → `~/pweh-tools/env.sh` 다.
+- **prefix 밖에 쓰는 것:** 시스템 cargo 를 쓰면 `~/.cargo` 레지스트리 캐시, Ghidra 를 처음 실행하면 `~/.config/ghidra`.
+  pip·npm 캐시는 `~/pweh-tools/_cache` 에 둔다. 로그는 `~/pweh-tools/_logs/install-*.log`.
+- **디스크:** 설치 후 약 3 GB(내려받기 캐시 `_downloads` 약 0.8 GB 포함). 시스템 cargo 가 없으면 개인 Rust 툴체인(`_rust`) 약 0.7 GB 가 더 든다.
+  `_downloads`(재설치용 캐시)와 `_build`(빌드 중간 파일)는 설치 뒤 지워도 된다.
+- **지우기:** `rm -rf ~/pweh-tools .venv` (그리고 `--prefix`/`--venv` 를 썼다면 `.pweh/tools-env.path`, `.pweh/venv.path`).
 
 MCP 서버는 `scripts/mcp-launch.sh` 를 거쳐 실행된다. 이 런처가 위 env.sh 를 자동으로 불러온다.
-다른 위치에 설치했다면 `PWEH_TOOLS_ENV=/path/to/env.sh` 로 알려 준다.
 
 ## 2. Claude Code
 
@@ -178,7 +203,7 @@ signals/boot-001.sr 을 REA decode_signal_recording 으로 UART 디코딩해서 
 | 변수 | 용도 |
 |---|---|
 | `PWEH_CONFIG` | 설정 파일 경로 (설정하지 않으면 런처가 저장소의 `orchestrator/pipeline-config.yaml` 로 지정) |
-| `PWEH_TOOLS_ENV` | 외부 도구 env.sh 경로 (기본 `~/pweh-tools/env.sh`) |
+| `PWEH_TOOLS_ENV`, `PWEH_TOOLS_DIR` | 외부 도구 env.sh 경로 / 도구 디렉터리 (기본 `~/pweh-tools`. `--prefix` 로 설치했으면 `.pweh/tools-env.path` 가 가리킴) |
 | `PWEH_REA` | 런처가 실행할 `rea` 실행 파일 (기본: `PATH` 의 `rea`, 없으면 `~/.local/bin/rea`) |
 | `PWEH_CASES_DIR`, `PWEH_STATE_DIR` | 케이스/상태 디렉터리 강제 지정 (테스트·격리 실행) |
 | `PWEH_SIGROK_CLI`, `PWEH_OPENOCD`, `PWEH_OPENOCD_SCRIPTS`, `PWEH_UNSQUASHFS`, `PWEH_MKSQUASHFS`, `PWEH_ZIG` … | 외부 도구 경로 (env.sh 가 설정) |
@@ -191,4 +216,6 @@ signals/boot-001.sr 을 REA decode_signal_recording 으로 UART 디코딩해서 
 | `Pending approval` | `claude` 를 대화형으로 실행해 승인한다. 또는 `claude mcp reset-project-choices` 후 다시 승인한다 |
 | REA 도구가 Ghidra 없다고 함 | env.sh 의 `GHIDRA_INSTALL_DIR`/`JAVA_HOME` 을 확인하고 `rea doctor --provider ghidra` 를 실행한다 |
 | 시리얼 포트 권한 오류 | `pweh doctor` → `dialout` 그룹, WSL 이면 `usbipd attach` |
+| REA 의 Ghidra 분석이 `spawn ps ENOENT` 로 실패 | `ps`(procps)가 없는 시스템이다. `scripts/install.sh --only rea` 가 개인 경로에 `ps` 를 둔다 (MCP 서버는 env.sh 의 PATH 로 찾음) |
+| `pweh doctor` 가 도구를 `!!` (종료 코드 …) 로 표시 | 실행 파일은 있지만 깨진 설치다. 표시된 명령을 직접 실행해 보고 `scripts/install.sh --force --only <구성요소>` 로 다시 설치한다. 로그는 `~/pweh-tools/_logs/` |
 | 게이트가 계속 `denied` | `pipeline_safety_policy` 로 정책을 확인한다. 정책 변경은 사람이 하고 서버를 재시작해야 반영된다 |

@@ -17,6 +17,7 @@ import mmap
 import os
 import re
 import stat
+import sys
 import threading
 import time
 from pathlib import Path
@@ -296,6 +297,28 @@ def file_info(case: Case, p: Path, *, with_hash: bool = True) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+# CPython 3.11.0–3.11.4 의 mmap.find() 는 검색 구간 바로 뒤 1바이트를 읽는다 (gh-105235, 3.11.5 에서 고침).
+# 구간이 파일 끝까지이면 그 바이트는 매핑 밖이라, 파일 크기가 페이지 크기의 배수(플래시 덤프는 거의 다)이고
+# 매핑 바로 뒤 페이지가 비어 있으면 SIGSEGV 로 서버 프로세스가 죽는다 (Debian 12 의 python3.11 3.11.2 에서 재현).
+_MMAP_FIND_OVERREAD = (3, 11) <= sys.version_info < (3, 11, 5)
+
+
+class _SafeFindMmap(mmap.mmap):
+    """gh-105235 우회: 구간 끝이 매핑 끝이면 마지막 1바이트를 뺀 구간을 찾고, 끝에 붙은 위치만 따로 비교한다."""
+
+    def find(self, sub: Any, start: Any = None, end: Any = None) -> int:  # type: ignore[override]
+        size = len(self)
+        s, e, _ = slice(self.tell() if start is None else start, size if end is None else end).indices(size)
+        sub = bytes(sub)
+        n = len(sub)
+        if e < size or n < 2 or e - s < n:  # 매핑 안쪽에서 끝남 / memchr 경로 / 비교 없이 -1
+            return super().find(sub, s, e)
+        r = super().find(sub, s, e - 1)
+        if r < 0 and self[e - n:e] == sub:
+            r = e - n
+        return r
+
+
 @contextlib.contextmanager
 def open_mmap(path: Path) -> Iterator[Any]:
     """읽기 전용 mmap. 0바이트 파일이면 빈 bytes 를 돌려준다 (mmap 은 0바이트를 매핑할 수 없음)."""
@@ -305,7 +328,7 @@ def open_mmap(path: Path) -> Iterator[Any]:
         if size == 0:
             yield b""
             return
-        mm = mmap.mmap(fd, 0, access=mmap.ACCESS_READ)
+        mm = (_SafeFindMmap if _MMAP_FIND_OVERREAD else mmap.mmap)(fd, 0, access=mmap.ACCESS_READ)
         try:
             yield mm
         finally:

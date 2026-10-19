@@ -9,13 +9,15 @@ import subprocess
 import sys
 from fractions import Fraction
 from pathlib import Path
+
+from pweh.toolsdir import tools_dir
 from typing import Any
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
 FAKE_SRC = HERE / "sigrok_fake_cli.py"
 VENV_PY = REPO_ROOT / ".venv" / "bin" / "python"
-REAL_FALLBACK = str(Path.home() / "pweh-tools" / "bin" / "sigrok-cli")
+REAL_FALLBACK = str(tools_dir() / "bin" / "sigrok-cli")
 
 AUTH = {"basis": "owned", "owner": "테스트 랩", "statement": "이 카메라는 제가 직접 구매한 제 소유 기기입니다."}
 

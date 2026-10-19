@@ -22,11 +22,11 @@
 ### 2.1 소프트웨어
 ```bash
 cd /path/to/pweh
-python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+./scripts/install.sh              # Python 가상환경 + 외부 도구(~/pweh-tools) + REA, sudo 없음
 . ~/pweh-tools/env.sh            # sigrok-cli, openocd, binwalk, unblob, Ghidra, JDK 경로
 .venv/bin/pweh doctor             # 환경 점검
 ```
-외부 도구는 sudo 없이 `~/pweh-tools/` 에 설치되어 있다 (설치 내역은 `~/pweh-tools/INSTALL_REPORT.md`).
+설치 스크립트의 구성요소·옵션·검증 범위는 [mcp-setup.md](mcp-setup.md) §1 에 있다.
 
 ### 2.2 WSL2 에서 USB 장치 쓰기 (usbipd-win)
 WSL2 는 USB 장치를 직접 보지 못한다. Windows 쪽에서 [usbipd-win](https://github.com/dorssel/usbipd-win) 으로 장치를 WSL 에 붙인다.

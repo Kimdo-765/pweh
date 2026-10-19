@@ -18,6 +18,8 @@ import os
 import time
 from pathlib import Path
 
+from pweh.toolsdir import tools_dir
+
 import pytest
 from mcp import Client
 
@@ -377,7 +379,7 @@ async def test_unavailable_target_list_loosens_nothing(workspace, auth, fake):
 # 실제 OpenOCD (xPack 0.12.0-7, dummy 어댑터 + 점 없는 testee 타깃)
 # ---------------------------------------------------------------------------
 
-_TOOLS = Path.home() / "pweh-tools"
+_TOOLS = tools_dir()
 _XPACK_SCRIPTS = _TOOLS / "openocd" / "xpack-openocd-0.12.0-7" / "openocd" / "scripts"
 
 

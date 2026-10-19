@@ -15,6 +15,8 @@ import shutil
 import threading
 import time
 from pathlib import Path
+
+from pweh.toolsdir import tools_dir
 from typing import Any
 
 import serial
@@ -23,7 +25,7 @@ from pweh.mocktarget import MockDevice
 
 TIME_SCALE = 0.01
 AUTOBOOT_FLOOR = 0.12
-TOOLS_BIN = Path.home() / "pweh-tools" / "bin"
+TOOLS_BIN = tools_dir() / "bin"
 
 
 def tool_path(env: str, name: str) -> str | None:

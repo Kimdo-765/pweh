@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -53,7 +54,7 @@ REA_ENV_KEYS = (
 PWEH_ENV_KEYS = (
     "PWEH_TOOLS_DIR", "PWEH_SIGROK_CLI", "PWEH_OPENOCD", "PWEH_OPENOCD_SCRIPTS", "PWEH_OPENOCD_DUMMY", "PWEH_BINWALK",
     "PWEH_UNBLOB", "PWEH_MKSQUASHFS", "PWEH_UNSQUASHFS", "PWEH_MKIMAGE", "PWEH_MKENVIMAGE", "PWEH_DUMPIMAGE", "PWEH_ZIG",
-    "PWEH_GHIDRA_HEADLESS",
+    "PWEH_GHIDRA_HEADLESS", "PWEH_REA", "PWEH_LZ4",
 )
 
 
@@ -246,7 +247,9 @@ def _load_tools_env(path: str | None) -> dict[str, str]:
     for k in REA_ENV_KEYS + PWEH_ENV_KEYS:
         if os.environ.get(k):
             env[k] = os.environ[k]
-    candidate = path or os.environ.get("PWEH_TOOLS_ENV") or str(Path.home() / "pweh-tools" / "env.sh")
+    from .toolsdir import tools_env
+
+    candidate = path or str(tools_env())
     p = Path(os.path.expanduser(candidate))
     if p.exists() and shutil.which("bash"):
         try:
@@ -297,7 +300,8 @@ def build_mcp_servers(include_rea: bool = True, tools_env: str | None = None, st
                 env[k] = tenv[k]
         servers[name] = {"type": "stdio", "command": str(bindir / script), "args": [], "env": env}
     if include_rea:
-        rea = shutil.which("rea") or str(Path.home() / ".local" / "bin" / "rea")
+        # install.sh 가 <prefix>/bin/rea 에 깐 REA 는 env.sh 의 PWEH_REA / PATH 로만 보인다
+        rea = tenv.get("PWEH_REA") or shutil.which("rea", path=tenv.get("PATH")) or str(Path.home() / ".local" / "bin" / "rea")
         env = {k: tenv[k] for k in REA_ENV_KEYS if k in tenv}
         if "PATH" in tenv:
             env["PATH"] = tenv["PATH"]
@@ -387,13 +391,22 @@ def cmd_skills_install(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _tool_version(cmd: list[str], timeout: float = 20.0) -> str | None:
+def _tool_version(cmd: list[str], expect: str, ok_codes: tuple[int, ...] = (0,), timeout: float = 20.0) -> tuple[bool, str]:
+    """도구의 버전 출력을 확인한다. (정상 여부, 버전 첫 줄 또는 실패 이유).
+
+    실행 파일이 있어도 공유 라이브러리가 없거나 Python Traceback 으로 죽는 '깨진 설치'를 잡기 위해
+    종료 코드와 첫 줄의 형식(expect 정규식)을 함께 본다.
+    """
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
-    except (OSError, subprocess.SubprocessError):
-        return None
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"실행 실패: {exc}"
     text = (out.stdout or out.stderr or "").strip().splitlines()
-    return text[0][:120] if text else ""
+    first = text[0][:120] if text else ""
+    if out.returncode in ok_codes and re.search(expect, first):
+        return True, first
+    err = (out.stderr or out.stdout or "").strip().splitlines()
+    return False, f"종료 코드 {out.returncode}: {err[-1][:120] if err else '(출력 없음)'}"
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
@@ -448,22 +461,29 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     for k, v in tenv.items():
         if k != "PATH":
             os.environ.setdefault(k, v)
-    tool_cmds = {
-        "sigrok-cli": ([os.environ.get("PWEH_SIGROK_CLI") or os.environ.get("REA_SIGROK_COMMAND") or "sigrok-cli", "--version"], "sigrok-mcp / REA decode_signal_recording"),
-        "openocd": ([os.environ.get("PWEH_OPENOCD") or "openocd", "--version"], "openocd-mcp"),
-        "rea": ([shutil.which("rea") or str(Path.home() / ".local/bin/rea"), "--version"], "펌웨어 추출/Ghidra 분석"),
-        "binwalk": ([os.environ.get("REA_BINWALK_COMMAND") or "binwalk", "--version"], "REA inspect_firmware_regions"),
-        "unblob": ([os.environ.get("REA_UNBLOB_COMMAND") or "unblob", "--version"], "REA extract_firmware"),
-        "unsquashfs": ([os.environ.get("PWEH_UNSQUASHFS") or "unsquashfs", "-version"], "fwtriage squashfs 추출 폴백"),
+    # (명령, 필요 기능, 버전 출력 첫 줄의 형식, 정상 종료 코드)
+    tool_cmds: dict[str, tuple[list[str], str, str, tuple[int, ...]]] = {
+        "sigrok-cli": ([os.environ.get("PWEH_SIGROK_CLI") or os.environ.get("REA_SIGROK_COMMAND") or "sigrok-cli", "--version"],
+                       "sigrok-mcp / REA decode_signal_recording", r"^sigrok-cli \d", (0,)),
+        "openocd": ([os.environ.get("PWEH_OPENOCD") or "openocd", "--version"], "openocd-mcp", r"Open On-Chip Debugger \d", (0,)),
+        "rea": ([os.environ.get("PWEH_REA") or shutil.which("rea") or str(Path.home() / ".local/bin/rea"), "--version"],
+                "펌웨어 추출/Ghidra 분석", r"^\d+\.\d+", (0,)),
+        "binwalk": ([os.environ.get("REA_BINWALK_COMMAND") or "binwalk", "--version"], "REA inspect_firmware_regions", r"^binwalk \d", (0,)),
+        "unblob": ([os.environ.get("REA_UNBLOB_COMMAND") or "unblob", "--version"], "REA extract_firmware", r"^\d+\.\d+", (0,)),
+        # unsquashfs 4.5 의 -version 은 정상이어도 종료 코드 1
+        "unsquashfs": ([os.environ.get("PWEH_UNSQUASHFS") or "unsquashfs", "-version"], "fwtriage squashfs 추출 폴백",
+                       r"^unsquashfs version \d", (0, 1)),
     }
-    for name, (cmd, purpose) in tool_cmds.items():
+    for name, (cmd, purpose, expect, ok_codes) in tool_cmds.items():
         exe = cmd[0]
         found = shutil.which(exe) or (exe if Path(exe).exists() else None)
         if not found:
             add(f"tool:{name}", False, "없음", f"필요 기능: {purpose}. ~/pweh-tools/env.sh 를 source 했는지 확인")
             continue
-        ver = _tool_version([found, *cmd[1:]])
-        add(f"tool:{name}", True, f"{found} :: {ver}")
+        ok, ver = _tool_version([found, *cmd[1:]], expect, ok_codes)
+        add(f"tool:{name}", ok, f"{found} :: {ver}",
+            "" if ok else f"실행 파일은 있지만 버전 확인에 실패했습니다 (설치가 깨졌을 수 있음). 필요 기능: {purpose}. "
+            "직접 실행해 보고 scripts/install.sh --check / --force --only <구성요소> 로 다시 설치")
     gh = os.environ.get("GHIDRA_INSTALL_DIR")
     add("ghidra", bool(gh and Path(gh).exists()), gh or "GHIDRA_INSTALL_DIR 미설정", "REA 의 네이티브 디컴파일에 필요")
     jh = os.environ.get("JAVA_HOME")

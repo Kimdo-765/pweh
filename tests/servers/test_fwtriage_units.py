@@ -19,6 +19,8 @@ import warnings
 import zlib
 from pathlib import Path
 
+from pweh.toolsdir import tools_dir
+
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
@@ -257,7 +259,7 @@ def test_xxh32_vectors():
 
 @pytest.mark.external
 def test_lz4_cli_frame_detected(tmp_path):
-    lz4 = find_tool("PWEH_LZ4", "lz4") or (str((Path.home() / "pweh-tools" / "extractors" / "bin" / "lz4")) if (Path.home() / "pweh-tools" / "extractors" / "bin" / "lz4").exists() else None)
+    lz4 = find_tool("PWEH_LZ4", "lz4") or (str(tools_dir() / "extractors" / "bin" / "lz4") if (tools_dir() / "extractors" / "bin" / "lz4").exists() else None)
     if not lz4:
         pytest.skip("lz4 CLI 없음")
     src = tmp_path / "in.bin"
@@ -464,6 +466,60 @@ def test_squashfs_superblock_validation():
     bad2 = bytearray(sb)
     struct.pack_into("<Q", bad2, 64, 6000)  # inode_table_start > bytes_used
     assert parse_squashfs_superblock(bytes(bad2), 7000) is None
+
+
+def test_safe_find_mmap_matches_bytes_find(tmp_path):
+    """gh-105235 우회용 mmap.find 가 bytes.find 와 같은 결과를 내는지 (끝에 붙은 일치 포함, 모든 Python 에서 검사)."""
+    import mmap
+
+    from fwtriage_mcp.common import _SafeFindMmap
+
+    rng = random.Random(105235)
+    for size in (mmap.PAGESIZE, mmap.PAGESIZE * 2, mmap.PAGESIZE + 7):
+        data = bytes(rng.choice(b"\x01\x02") for _ in range(size))
+        p = tmp_path / f"f{size}"
+        p.write_bytes(data)
+        with open(p, "rb") as fh, _SafeFindMmap(fh.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+            needles = [data[-n:] for n in (1, 2, 3, 8)] + [data[:4], b"\x01\x01\x01\x01\x01\x01\x01\x01\x03", b"", b"\x02\x01\x02"]
+            for sub in needles:
+                for args in ((0, size), (size - 9, size), (size - len(sub), size), (5, size - 1), (-20,), ()):
+                    assert mm.find(sub, *args) == data.find(sub, *args), (size, sub, args)
+
+
+def test_open_mmap_find_does_not_read_past_mapping(tmp_path):
+    """페이지 배수 크기 파일, 매핑 바로 뒤 페이지가 빈 상태에서 끝까지 find 해도 프로세스가 죽지 않아야 한다 (gh-105235)."""
+    code = r"""
+import mmap, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[2])
+from fwtriage_mcp.common import open_mmap
+p = Path(sys.argv[1])
+p.write_bytes(b"\x01" * (mmap.PAGESIZE * 4))
+def unmapped_after(mm_end):
+    for ln in open("/proc/self/maps"):
+        a, b = (int(x, 16) for x in ln.split()[0].split("-"))
+        if a <= mm_end < b:
+            return False
+    return True
+tested = 0
+for _ in range(20):
+    guard = mmap.mmap(-1, mmap.PAGESIZE * 16)
+    with open_mmap(p) as mm:
+        guard.close()
+        end = max(int(ln.split()[0].split("-")[1], 16) for ln in open("/proc/self/maps") if ln.rstrip().endswith(str(p)))
+        if unmapped_after(end):
+            assert mm.find(b"\x01\x01\x02", 0, len(mm)) == -1
+            assert mm.find(b"\x01\x01", 0, len(mm)) == 0
+            tested += 1
+print("tested", tested)
+"""
+    if not Path("/proc/self/maps").exists():
+        pytest.skip("/proc/self/maps 없음")
+    out = subprocess.run([sys.executable, "-c", code, str(tmp_path / "pagefile.bin"), str(REPO / "mcp-servers" / "fwtriage-mcp")],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, (out.returncode, out.stderr[-800:])
+    if "tested 0" in out.stdout:
+        pytest.skip("매핑 배치상 '바로 뒤 페이지가 빈' 조건을 만들지 못함")
 
 
 # ---------------------------------------------------------------------------

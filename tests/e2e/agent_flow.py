@@ -27,6 +27,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from pweh.toolsdir import tools_dir, tools_env
 from typing import Any, Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -35,7 +37,7 @@ if str(REPO_ROOT / "tests") not in sys.path:
 
 from mcp_helpers import result_data  # noqa: E402
 
-TOOLS_ENV = Path(os.environ.get("PWEH_TOOLS_ENV", str(Path.home() / "pweh-tools" / "env.sh")))
+TOOLS_ENV = tools_env()
 
 # 시뮬레이터 프로필 → pipeline-config.yaml 프로필 (케이스 프로필)
 PIPELINE_PROFILE = {
@@ -61,7 +63,7 @@ def tool_path(env: str, name: str) -> str | None:
     val = os.environ.get(env)
     if val and Path(val).is_file():
         return val
-    cand = Path.home() / "pweh-tools" / "bin" / name
+    cand = tools_dir() / "bin" / name
     if cand.is_file():
         return str(cand)
     return shutil.which(name)
@@ -78,7 +80,7 @@ def build_firmware(profile: str, out_dir: Path) -> tuple[Path, dict[str, Any]]:
 
 
 def rea_env() -> dict[str, str]:
-    """~/pweh-tools/env.sh 를 적용한 환경 (scripts/mcp-launch.sh 와 같은 방식)."""
+    """외부 도구 env.sh(pweh.toolsdir.tools_env)를 적용한 환경 (scripts/mcp-launch.sh 와 같은 방식)."""
     env = dict(os.environ)
     if TOOLS_ENV.is_file():
         try:

@@ -18,12 +18,14 @@ import subprocess
 import tempfile
 import zlib
 from pathlib import Path
+
+from pweh.toolsdir import tools_dir
 from typing import Any
 
 from pweh.formats import build_uboot_env, build_uimage_header
 
-TOOLS_BIN = Path.home() / "pweh-tools" / "bin"
-EXTRACTORS_BIN = Path.home() / "pweh-tools" / "extractors" / "bin"
+TOOLS_BIN = tools_dir() / "bin"
+EXTRACTORS_BIN = tools_dir() / "extractors" / "bin"
 
 
 def find_tool(env: str, name: str) -> str | None:

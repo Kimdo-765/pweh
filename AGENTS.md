@@ -28,5 +28,5 @@ PWEH 는 에이전트가 MCP 서버와 Skill 로 CCTV/IoT 기기의 하드웨어
 - 테스트: `.venv/bin/pytest -q`. 하드웨어 없이 `pweh.mocktarget` 시뮬레이터, 가짜 OpenOCD 서버, 합성 신호를 쓴다.
   외부 도구 테스트는 `@pytest.mark.external` 로 표시하고, 도구가 없으면 skip 한다.
   실제 하드웨어가 필요한 테스트는 `@pytest.mark.hardware` 로 표시한다(기본 skip, `--run-hardware` 또는 `PWEH_HARDWARE=1` 로 실행).
-- 외부 도구는 `~/pweh-tools/env.sh` 에 있다 (sudo 없이 설치됨).
+- 외부 도구는 `~/pweh-tools/env.sh` 에 있다 (`scripts/install.sh` 로 sudo 없이 설치, 위치 규칙은 `src/pweh/toolsdir.py`).
 - `cases/`, `.pweh/` 는 커밋하지 않는다.

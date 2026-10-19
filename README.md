@@ -54,13 +54,14 @@ UART 콘솔, 로직 애널라이저, JTAG, 펌웨어 분석(REA + Ghidra)을 주
 ## 빠른 시작
 
 ```bash
-# 1. 설치 (Python 3.10+)
-cd ~/pweh
-python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+# 1. 원클릭 설치 (sudo 없음): Python 가상환경 + 외부 도구(~/pweh-tools) + REA, 마지막에 pweh doctor
+git clone https://github.com/Kimdo-765/pweh.git ~/pweh && cd ~/pweh
+./scripts/install.sh              # 처음엔 Ghidra·JDK 등 약 1 GB 를 내려받는다(설치 후 디스크 약 3~4 GB). 다시 실행하면 설치된 것은 건너뛴다
+#   ./scripts/install.sh --minimal   Python + sigrok + OpenOCD + squashfs/u-boot 도구만
+#   ./scripts/install.sh --check     설치 상태만 점검 / --list 구성요소 목록 / --help 옵션 전체
 
-# 2. 외부 도구 (이 머신에는 ~/pweh-tools 에 설치되어 있음: sigrok-cli, OpenOCD, binwalk, unblob, Ghidra, JDK, Zig …)
+# 2. 셸에서 외부 도구 쓰기 (MCP 서버는 scripts/mcp-launch.sh 가 env.sh 를 자동으로 읽는다)
 . ~/pweh-tools/env.sh
-.venv/bin/pweh doctor
 
 # 3. 테스트 (하드웨어 없이, 시뮬레이터 사용. 외부 도구가 없으면 일부 skip)
 .venv/bin/pytest -q

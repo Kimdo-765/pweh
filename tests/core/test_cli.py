@@ -130,3 +130,26 @@ def test_approve_on_tty_with_code_approves_once(workspace):
     assert get_runtime("test").approvals.get(d.approval_id)["status"] == "approved"
     again = _run(["approve", d.approval_id], {"PWEH_CONFIG": str(workspace["config"])}, input_text=code + "\n")
     assert again.returncode != 0
+
+
+def test_doctor_tool_version_detects_broken_tools(tmp_path):
+    """doctor 는 실행 파일이 있어도 버전 확인이 실패하면(Traceback, 형식 불일치) 실패로 본다."""
+    from pweh.cli import _tool_version
+
+    def tool(name: str, body: str) -> str:
+        f = tmp_path / name
+        f.write_text("#!/bin/sh\n" + body + "\n")
+        f.chmod(0o755)
+        return str(f)
+
+    ok, ver = _tool_version([tool("good", "echo 'binwalk 3.1.0'"), "--version"], r"^binwalk \d")
+    assert ok and ver == "binwalk 3.1.0"
+    # unsquashfs 4.5 의 -version 은 종료 코드 1 이지만 정상
+    sq = tool("sq", "echo 'unsquashfs version 4.5 (2021/07/22)'; exit 1")
+    assert _tool_version([sq, "-version"], r"^unsquashfs version \d", (0, 1))[0]
+    assert not _tool_version([sq, "-version"], r"^unsquashfs version \d")[0]
+    ok, why = _tool_version([tool("tb", "echo 'Traceback (most recent call last):' >&2; echo 'OSError: libmagic.so.1' >&2; exit 1"), "--version"], r"^\d+\.\d+")
+    assert not ok and "libmagic" in why
+    assert not _tool_version([tool("junk", "echo hello"), "--version"], r"^\d+\.\d+")[0]
+    assert not _tool_version([str(tmp_path / "missing"), "--version"], r".")[0]
+
