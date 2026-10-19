@@ -603,6 +603,62 @@ async def test_uart_open_dtr_rts_policy(workspace, devices, auth):
         assert "_error" in r2 and "busy" in r2["_error"]
 
 
+async def test_uart_refuses_dangerous_pyserial_urls_and_non_devices(workspace, devices, auth, tmp_path):
+    """spy://(호스트 파일 쓰기)·hwgrep://(임의 포트 열기)와 일반 파일·상대 경로는 게이트 전에 validation_failed.
+
+    INTERACT 변형(dtr=rts=False, probe='none')은 어떤 정책으로도 막히지 않으므로 포트 검증이 유일한 방어다.
+    spy 는 do_not_open 이어도 포트 이름을 정하는 순간 파일을 쓰기로 연다 — 파일이 생기지 않아야 한다.
+    """
+    from uart_mcp.server import server
+
+    spy_log = tmp_path / "spy.log"
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep me")
+    cid = make_case(auth)
+    async with Client(server) as c:
+        for port in (f"spy://loop://?file={spy_log}", "hwgrep://.*", "HWGREP://ttyUSB", "alt://loop://?class=x",
+                     str(victim), "ttyUSB0", "COM3"):
+            r = await call(c, "uart_open", case_id=cid, port=port, baudrate=115200)
+            assert "[validation_failed]" in r.get("_error", ""), (port, r)
+            r = await call(c, "uart_detect_baud", case_id=cid, port=port, candidates=[115200], listen_seconds=0.2, probe="none")
+            assert "[validation_failed]" in r.get("_error", ""), (port, r)
+        assert not spy_log.exists()
+        assert victim.read_text() == "keep me"
+        sessions = await call(c, "uart_sessions")
+        assert not sessions.get("sessions"), sessions
+        # 허용 형식은 그대로: PTY 장치 경로와 socket://
+        dev = devices()
+        sid = await open_session(c, cid, dev)
+        await call(c, "uart_close", session_id=sid)
+        sid = await open_session(c, cid, dev, tcp=True)
+        await call(c, "uart_close", session_id=sid)
+
+
+def test_validate_port_unit(tmp_path):
+    import os
+
+    from pweh.errors import ValidationFailed
+    from uart_mcp.session import open_serial, PortSettings, validate_port
+
+    assert validate_port(" loop:// ") == "loop://"
+    assert validate_port("socket://127.0.0.1:7777").startswith("socket://")
+    assert validate_port("RFC2217://10.0.0.2:4000").lower().startswith("rfc2217://")
+    assert validate_port("/dev/ttyUSB-does-not-exist-0") == "/dev/ttyUSB-does-not-exist-0"  # 없는 장치는 열 때 DeviceError
+    master, slave = os.openpty()
+    try:
+        assert validate_port(os.ttyname(slave)) == os.ttyname(slave)
+    finally:
+        os.close(master)
+        os.close(slave)
+    for bad in ("", "  ", "spy://x", "hwgrep://.*", "cp2110://0001:0002", "/dev/tty\x00USB0", str(tmp_path), "relative/path", "COM3", "com12"):
+        with pytest.raises(ValidationFailed):
+            validate_port(bad)
+    # open_serial 도 직접 막는다 (작업 경로 방어)
+    with pytest.raises(ValidationFailed):
+        open_serial(PortSettings(port=f"spy://loop://?file={tmp_path / 's.log'}"))
+    assert not (tmp_path / "s.log").exists()
+
+
 async def test_uart_mcp_stdio(workspace, devices, auth):
     dev = devices("hisilicon-like")
     host, port = dev.start_tcp()

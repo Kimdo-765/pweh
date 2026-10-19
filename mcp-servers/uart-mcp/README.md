@@ -19,7 +19,7 @@ md.b 덤프 job)와 BusyBox 리눅스 셸(로그인, 식별, dd 덤프 job), 보
 | 도구 | 위험도 | 설명 |
 |---|---|---|
 | `uart_list_ports(include_links=False)` | OBSERVE | 시리얼 포트 목록 + `likely_usb_uart`, `in_use_by` |
-| `uart_open(case_id, port, baudrate=115200, bytesize=8, parity="N", stopbits=1, line_ending="\r", dtr=False, rts=False, profile=None, label=None, approval_id=None)` | INTERACT (dtr/rts=true 면 MODIFY) | 세션 시작 → `session_id`, `log_path`/`raw_path`/`events_path`, `context`. `port` 는 장치 경로 또는 `socket://`·`rfc2217://`·`loop://`. DTR/RTS 는 **열기 전에** 설정(기본 False). 장치 경로는 flock 으로 독점. 같은 케이스·포트의 앞 세션이 보낸 마지막 U-Boot 명령을 이어 받으면 `inherited_last_command` (§2.3) |
+| `uart_open(case_id, port, baudrate=115200, bytesize=8, parity="N", stopbits=1, line_ending="\r", dtr=False, rts=False, profile=None, label=None, approval_id=None)` | INTERACT (dtr/rts=true 면 MODIFY) | 세션 시작 → `session_id`, `log_path`/`raw_path`/`events_path`, `context`. `port` 는 장치 절대경로 또는 `socket://`·`rfc2217://`·`loop://` 만(`spy://`·`hwgrep://` 같은 다른 pyserial URL·상대 경로·일반 파일은 `validation_failed` — `uart_detect_baud` 도 같다). DTR/RTS 는 **열기 전에** 설정(기본 False). 장치 경로는 flock 으로 독점. 같은 케이스·포트의 앞 세션이 보낸 마지막 U-Boot 명령을 이어 받으면 `inherited_last_command` (§2.3) |
 | `uart_close(session_id)` | — | job 취소 → 수신 스레드 정지 → 로그 3종 아티팩트 등록 (정리 작업이라 게이트 없음) |
 | `uart_sessions(case_id=None)` | OBSERVE | 상태(open/disconnected), 문맥/phase/프롬프트, rx/tx, 미완성 입력(`pending_uncertain`), `device_ready`/`device_busy_reason`(§2.2 규칙 10), 실행 중 job |
 | `uart_read(session_id, since_cursor=None, max_bytes=8192, wait_seconds=0, tail=False)` | OBSERVE | 링 버퍼 읽기. 커서 = 누적 수신 바이트. 생략 시 에이전트 읽기 위치부터 → `text, cursor_start, cursor_end, more, context, prompt, state, lost_bytes` |

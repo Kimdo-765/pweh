@@ -22,6 +22,8 @@ import json
 import logging
 import os
 import re
+import stat
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -31,7 +33,7 @@ from typing import Any, Callable
 import serial
 
 from pweh.case import Case
-from pweh.errors import Busy, DeviceError, PwehError
+from pweh.errors import Busy, DeviceError, PwehError, ValidationFailed
 from pweh.fsutil import utcnow_iso
 from pweh.safety import Classification, LineAssembler, Risk
 
@@ -251,6 +253,52 @@ def is_url(port: str) -> bool:
     return "://" in port
 
 
+#: 허용하는 pyserial URL 처리기. 나머지(spy://, hwgrep://, alt://, cp2110:// …)는 거부한다.
+PORT_URL_SCHEMES = ("socket://", "rfc2217://", "loop://")
+_WIN_COM_RE = re.compile(r"COM[1-9][0-9]{0,3}", re.I)
+
+
+def validate_port(port: str) -> str:
+    """포트 문자열 검증 (열기 전, 게이트 전): 장치 절대경로, 원격 시리얼 URL(socket://, rfc2217://, 테스트용 loop://),
+    네이티브 Windows 의 COMn 만 받는다.
+
+    pyserial 의 다른 URL 처리기는 막는다. ``spy://…?file=<경로>`` 는 ``do_not_open=True`` 여도 포트 이름을 정하는 순간
+    호스트 파일을 쓰기로 열어 덮어쓰고, ``hwgrep://<정규식>`` 은 어떤 장치가 열릴지 정할 수 없으며 다른 포트를 배타 잠금 없이
+    (DTR/RTS 기본값으로) 열어 본다 — 대상 보드가 리셋될 수 있다. 장치 경로가 이미 있으면 문자 장치여야 한다(일반 파일 거부).
+    """
+    p = (port or "").strip()
+    if not p:
+        raise ValidationFailed("port 가 필요합니다.", hint="uart_list_ports 의 device 또는 socket://host:port")
+    if any(c in p for c in "\x00\r\n"):
+        raise ValidationFailed(f"port 에 제어 문자가 있습니다: {port!r}")
+    if is_url(p):
+        if not p.lower().startswith(PORT_URL_SCHEMES):
+            raise ValidationFailed(
+                f"지원하지 않는 포트 URL 입니다: {p!r}",
+                hint="장치 경로(/dev/ttyUSB0, /dev/serial/by-id/…) 또는 socket://host:port, rfc2217://host:port 만 쓸 수 있습니다 "
+                     "(spy://·hwgrep:// 등 다른 pyserial URL 은 호스트 파일 쓰기·임의 포트 열기 위험 때문에 막는다).",
+            )
+        return p
+    if _WIN_COM_RE.fullmatch(p):
+        if sys.platform == "win32":
+            return p.upper()
+        raise ValidationFailed(
+            f"이 환경에서는 Windows COM 포트({p})를 직접 열 수 없습니다.",
+            hint="WSL2 에서는 Windows 쪽에서 usbipd 로 USB-UART 어댑터를 WSL 에 attach 한 뒤 /dev/ttyUSB0·/dev/ttyACM0 을 쓰세요 "
+                 "(ESP32 보드 덤프는 pweh-esp 의 방법 A 가 COMn 을 직접 씁니다).",
+        )
+    if not p.startswith("/"):
+        raise ValidationFailed(f"포트는 장치 절대경로여야 합니다: {p!r}",
+                               hint="예: /dev/ttyUSB0, /dev/serial/by-id/usb-FTDI_…, 원격이면 socket://host:port")
+    try:
+        st = os.stat(p)
+    except OSError:
+        return p  # 없는 장치는 열 때 DeviceError(연결 확인 힌트)로 알린다
+    if not stat.S_ISCHR(st.st_mode):
+        raise ValidationFailed(f"시리얼 장치(문자 장치)가 아닙니다: {p!r}", hint="uart_list_ports 의 device 를 쓰세요.")
+    return p
+
+
 def port_key(port: str) -> str:
     """같은 물리 포트를 가리키는 다른 표기(/dev/serial/by-id/… 링크)를 하나로."""
     if is_url(port):
@@ -262,6 +310,7 @@ def port_key(port: str) -> str:
 
 def open_serial(settings: PortSettings, *, timeout: float = 0.05) -> serial.SerialBase:
     """DTR/RTS 를 열기 전에 설정하고 포트를 연다. 실패는 DeviceError(+힌트)."""
+    validate_port(settings.port)  # 도구에서 이미 검사했어도 여기서 다시 (pyserial URL 처리기는 포트 이름만 정해도 부작용이 있다)
     kwargs: dict[str, Any] = dict(baudrate=settings.baudrate, bytesize=settings.bytesize, parity=settings.parity,
                                   stopbits=settings.stopbits, timeout=timeout, write_timeout=5)
     if not is_url(settings.port):

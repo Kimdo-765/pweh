@@ -73,7 +73,7 @@ from .parsers import (
     uboot_has,
 )
 from .profile import load_profile
-from .session import PortSettings, UartSession, is_url, port_key
+from .session import PortSettings, UartSession, is_url, port_key, validate_port
 from .textutil import decode_bytes, decode_keys, key_display, normalize_line_ending, normalize_newlines, parse_int, slugify
 
 SERVER_NAME = "uart-mcp"
@@ -389,9 +389,7 @@ async def uart_open(
 ) -> dict[str, Any]:
     r = rt()
     case = r.case(case_id, hardware=True)
-    port = (port or "").strip()
-    if not port:
-        raise ValidationFailed("port 가 필요합니다.", hint="uart_list_ports 의 device 또는 socket://host:port")
+    port = validate_port(port)
     if not (50 <= int(baudrate) <= 20_000_000):
         raise ValidationFailed(f"잘못된 baudrate: {baudrate}")
     if bytesize not in (5, 6, 7, 8):
@@ -815,6 +813,7 @@ async def uart_detect_baud(case_id: str, port: str, ctx: Context, candidates: li
                            probe: str = "ctrl-c", approval_id: str | None = None) -> dict[str, Any]:
     r = rt()
     case = r.case(case_id, hardware=True)
+    port = validate_port(port)
     if probe not in ("ctrl-c", "none"):
         raise ValidationFailed(f"잘못된 probe: {probe!r}", hint="ctrl-c 또는 none")
     cands = [int(b) for b in (candidates or r.config.baud_candidates(case.meta.get("profile")))]
