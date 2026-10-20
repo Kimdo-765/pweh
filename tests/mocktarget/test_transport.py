@@ -90,6 +90,36 @@ def test_tcp_transport_and_multiple_clients():
         dev.stop()
 
 
+@pytest.mark.parametrize("host", ["0.0.0.0", "", "192.0.2.10", "localhost.", "127.1", "::1", "::"])
+def test_tcp_transport_refuses_non_loopback_bind(host):
+    """루프백이 아닌 바인드는 allow_lan 없이는 소켓을 만들기 전에 거부한다 (G13). 시험은 실제로 LAN 에 바인드하지 않는다."""
+    from pweh.errors import ValidationFailed
+    from pweh.mocktarget.transport import TcpTransport
+
+    t = TcpTransport(on_input=lambda data: None, host=host)
+    with pytest.raises(ValidationFailed, match="루프백"):
+        t.start()
+    assert t._server is None and t._threads == [] and t.lan_exposed is False
+    dev = make_device("ingenic-like")
+    try:
+        with pytest.raises(ValidationFailed):
+            dev.start_tcp(host)
+    finally:
+        dev.stop()
+
+
+def test_tcp_transport_ipv6_refused_cleanly_even_with_allow_lan():
+    """리스너는 AF_INET 전용 — '::1' 은 bind 의 gaierror 대신 분명한 ValidationFailed (리뷰 F7)."""
+    from pweh.errors import ValidationFailed
+    from pweh.mocktarget.transport import TcpTransport
+
+    for host in ("::1", "::"):
+        t = TcpTransport(on_input=lambda data: None, host=host, allow_lan=True)
+        with pytest.raises(ValidationFailed, match="IPv4"):
+            t.start()
+        assert t._server is None
+
+
 def test_power_states_and_events():
     dev = make_device("hisilicon-like")
     try:

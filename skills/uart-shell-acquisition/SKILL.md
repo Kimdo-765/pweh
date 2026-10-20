@@ -105,7 +105,7 @@ uart_list_ports(include_links=true)
   WSL2 의 `/dev/ttyS0`…`ttyS31` 은 가상 포트(likely_usb_uart false)라서 어댑터가 아니다.
 - USB 포트가 없으면 H1 을 요청하고 다시 부른다. 두 번 실패하면 사람에게 `pweh doctor`(dialout 권한, WSL 점검)를 실행해 달라고 한다.
 - `in_use_by` 가 있으면 이미 열린 세션이다. `uart_sessions(case_id=…)` 로 확인해 재사용하거나 `uart_close` 한다. 어댑터가 여럿이면 vid/pid/serial_number 로
-  사람에게 확인받는다. 시뮬레이터·ser2net 은 목록에 없다(`socket://host:port` 나 PTY 경로를 그대로 쓴다).
+  사람에게 확인받는다. 시뮬레이터·이 호스트의 ser2net 은 목록에 없다(`socket://127.0.0.1:<포트>` 나 PTY 경로를 그대로 쓴다. 원격 URL 은 루프백만 — LAN 의 ser2net 은 지원하지 않는다).
 
 ### 2. 배선과 전압
 

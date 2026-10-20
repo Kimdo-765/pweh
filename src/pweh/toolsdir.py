@@ -44,4 +44,26 @@ def tools_dir() -> Path:
     return tools_env().parent
 
 
-__all__ = ["POINTER", "tools_dir", "tools_env"]
+#: 도구 디렉터리 안의 Windows esptool.exe 후보 (scripts/install.sh --only esptool 이 푸는 위치)
+ESPTOOL_WIN_RELPATHS = ("esptool-win/esptool-windows-amd64/esptool.exe", "esptool-win/esptool.exe")
+
+
+def esptool_win_candidates(configured: str | None, env_value: str | None, tools_dir: Path | None) -> list[tuple[str, str]]:
+    """Windows esptool.exe 후보 (경로, 출처) — 설정 ``tools.esptool_win`` → 환경 변수 ``PWEH_ESPTOOL_WIN`` → 도구 디렉터리.
+
+    출처: config | env | pweh-tools. esp-mcp(``esptool_cli.windows_exe_candidates``)와 doctor·``pweh env``(``pweh.hostenv``)가
+    같은 규칙을 쓰도록 여기에 둔다. 파일이 있는지는 보지 않는다.
+    """
+    out: list[tuple[str, str]] = []
+    if configured and configured.strip():
+        out.append((configured.strip(), "config"))
+    env = (env_value or "").strip()
+    if env and all(env != c for c, _ in out):
+        out.append((env, "env"))
+    if tools_dir is not None:
+        for rel in ESPTOOL_WIN_RELPATHS:
+            out.append((str(tools_dir / rel), "pweh-tools"))
+    return out
+
+
+__all__ = ["ESPTOOL_WIN_RELPATHS", "POINTER", "esptool_win_candidates", "tools_dir", "tools_env"]

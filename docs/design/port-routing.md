@@ -11,11 +11,11 @@
 
 ## 1. 요약과 원칙
 
-검증에 쓴 개발 환경은 Windows 11(25H2) 위의 WSL 3.0.3.0 이다. 커널은 6.18.54.1-microsoft-standard-WSL2, Ubuntu 22.04.5 다.
-- 네트워킹은 `bridged` 이고 interop 이 켜져 있다. 일반적으로 UAC 가 꺼진 관리자 계정 호스트에서는 interop 으로 띄운 Windows 프로세스가 관리자 권한(High IL)으로 돈다(sd-forensics §0 — 호스트 설정은 이 문서에 적지 않는다).
-- usbipd-win 은 없다(`C:\Program Files\USBip` 은 반대 방향인 usbip-win2 클라이언트). 에이전트에게 sudo 도 없다.
-- 하드웨어에 닿는 경로는 **pweh-esp 방법 A(Windows esptool.exe + COMn) 하나뿐**이다 [높음 — probe, `pweh doctor --json`].
-  uart·jtagulator·sigrok·openocd 는 usbipd attach 를 전제로 하는데, usbipd 가 없고 bridged 에서는 attach 마다 `--host-ip` 까지 필요하다.
+검증에 쓴 개발 환경은 Windows 11 위의 WSL2(Ubuntu, interop 켜짐)다(정확한 버전·네트워킹 모드 같은 호스트 설정은 이 문서에 적지 않는다).
+- 일반적으로 UAC 가 꺼진 관리자 계정 호스트에서는 interop 으로 띄운 Windows 프로세스가 관리자 권한(High IL)으로 돈다(sd-forensics §0).
+- usbipd-win 이 없는 환경을 기준으로 삼았다(`C:\Program Files\USBip` 은 반대 방향인 usbip-win2 클라이언트일 수 있다). 에이전트에게 sudo 도 없다.
+- 그런 환경에서 하드웨어에 닿는 경로는 **pweh-esp 방법 A(Windows esptool.exe + COMn) 하나뿐**이다 [높음 — probe, `pweh doctor --json`].
+  uart·jtagulator·sigrok·openocd 는 usbipd attach 를 전제로 하는데, usbipd 가 없으면 쓸 수 없고 bridged 모드에서는 attach 마다 `--host-ip` 까지 필요하다.
 
 원칙:
 
@@ -71,7 +71,8 @@
 ## 3. 환경 감지 — `pweh.hostenv`
 
 모듈 이름은 `hostenv` 다(common-core §1 의 옛 이름 `platform.py` 는 표준 라이브러리 `platform` 과 겹쳐 가림 위험이 있다).
-esp 의 `is_wsl`·`interop_status`, install.sh 의 `wsl_interop`, 시험 유틸, doctor 의 감지는 모두 이 모듈을 쓴다(install.sh 는 같은 규칙을 셸로 구현).
+esp 의 `is_wsl`·`interop_status`, install.sh 의 `wsl_interop`, 시험 유틸, doctor 의 감지는 모두 이 모듈을 쓴다(install.sh 는 hostenv 와 같은 감지 규칙에서 smoke 와 설정 override(`hostenv.disable`)를 뺀 것을 셸로 구현한다 — 컨테이너 제외, WSLInterop(-late) enabled, /init, `wslpath -w /`).
+> I4 구현 메모: "wslpath 실행" 은 `wslpath -w /` 로 본다(C: 마운트는 Windows 쪽 경로를 찾는 데만 쓴다). 실패한 감지는 30 초 뒤 다시 보고(성공한 smoke 만 300 초 캐시), Windows 실행 파일은 실제 경로가 정확히 맞을 때만 실행한다.
 
 ### 3.1 결정 트리
 
@@ -119,24 +120,24 @@ H9  macOS: /dev/cu.* 만 쓴다(tty.* 거부, §4.1). /proc 가 없으니 프로
 - [높음] binfmt `status` 그림자: WSL `init.cpp` `ProtectBinfmtStatus()`("Reads reflect the shadow file, not the kernel status"), 개발 환경 의 mountinfo `/wsl/binfmt-status-lock /proc/sys/fs/binfmt_misc/status … tmpfs`.
 - [높음] interop 항목 이름: WSL `binfmt.h:21` `LX_INIT_BINFMT_NAME "WSLInterop"` — 현행 WSL 은 이 이름만 등록한다. `-late` 는 받아 두기만 한다(어느 판이 등록했는지 미확인, 받아도 해가 없다).
 - [높음] networkingMode 값, NAT → consomme 대체(WSL 2.3.25+), bridged deprecated(2.4.5+): https://learn.microsoft.com/en-us/windows/wsl/wsl-config . usbipd 도 같은 명령으로 모드를 읽는다(v5.3.0 `Usbipd/Wsl.cs:405-430`).
-- [높음] 개발 환경 실측: `systemd-detect-virt` → `wsl`(`-c` 도 `wsl` — H1 에서 `wsl` 을 빼는 이유), `/proc/cmdline` 에 `WSL_ROOT_INIT=1`, WSLInterop 만 있음, `wslinfo` → `bridged`, `[Environment]::OSVersion.Version` 은 UBR 없이 `10.0.<build>.0` 으로 나온다(UBR 은 레지스트리에서 따로 읽는다), `C:\Program Files\USBip` = usbip-win2 클라이언트.
+- [높음] WSL2 실측: `systemd-detect-virt` → `wsl`(`-c` 도 `wsl` — H1 에서 `wsl` 을 빼는 이유), `/proc/cmdline` 에 `WSL_ROOT_INIT=1`, WSLInterop 만 있음, `wslinfo` 는 모드 이름 한 줄, `[Environment]::OSVersion.Version` 은 UBR 없이 `10.0.<build>.0` 으로 나온다(UBR 은 레지스트리에서 따로 읽는다). `C:\Program Files\USBip` 은 usbip-win2 클라이언트(반대 방향)의 설치 경로라 usbipd 로 보지 않는다.
 - [미확인] WSL1 커널 문자열 형식(문서 근거만)과 오래된 systemd 의 출력.
 
-### 3.2 보고서 (`pweh.hostenv/v1`) — 예시 (WSL2 bridged 개발 환경, 일부 값은 설명용)
+### 3.2 보고서 (`pweh.hostenv/v1`) — 예시 (값은 설명용 — 실제 호스트 값이 아니다)
 
 ```json
 {
   "schema": "pweh.hostenv/v1",
   "kind": "WSL2_INTEROP",
   "python": {"sys_platform": "linux", "machine": "x86_64", "version": "3.10.12"},
-  "linux": {"distro": "Ubuntu 22.04.5 LTS", "kernel": "6.18.54.1-microsoft-standard-WSL2", "container": false,
+  "linux": {"distro": "Ubuntu <버전>", "kernel": "<x.y.z>-microsoft-standard-WSL2", "container": false,
             "systemd": true, "udevd": true, "groups": ["dialout", "plugdev", "video"], "root_equivalent_groups": [],
             "udev_rules": [], "brltty": {"installed": false}, "usb_nodes": "absent"},
-  "wsl": {"version": 2, "version_source": "osrelease", "release": "3.0.3.0", "distro": "Ubuntu",
+  "wsl": {"version": 2, "version_source": "osrelease", "release": "<WSL 버전>", "distro": "Ubuntu",
           "networking_mode": "bridged", "drvfs_c": "/mnt/c",
           "interop": {"usable": true, "entry": "WSLInterop", "init": true, "wslpath": true, "smoke": "ok",
                       "binfmt_status_advisory": "enabled"}},
-  "windows": {"build": "10.0.26200", "uac_enabled": true, "smart_app_control": "off",
+  "windows": {"build": "10.0.<build>", "uac_enabled": true, "smart_app_control": "off",
               "powershell": "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
               "usbipd": {"present": false}, "ignored": ["C:\\Program Files\\USBip\\usbip.exe (usbip-win2 클라이언트)"],
               "serial_helper": {"present": false},
@@ -146,7 +147,7 @@ H9  macOS: /dev/cu.* 만 쓴다(tty.* 거부, §4.1). /proc 가 없으니 프로
   "overridden": [],
   "warnings": ["networking_mode=bridged: WSL 의 0.0.0.0 리스너는 LAN 에 열린다(PWEH 는 리스너를 만들지 않음). usbipd 대체 경로는 attach 마다 --host-ip <Windows LAN IP>",
                "(UAC 가 꺼져 있으면) uac_enabled=false: interop 으로 띄운 Windows 프로세스는 관리자 권한(High IL)으로 돈다"],
-  "evidence": [{"step": "H3", "signal": "/proc/sys/kernel/osrelease", "value": "6.18.54.1-microsoft-standard-WSL2"}]
+  "evidence": [{"step": "H3", "signal": "/proc/sys/kernel/osrelease", "value": "<x.y.z>-microsoft-standard-WSL2"}]
 }
 ```
 
@@ -190,7 +191,7 @@ override 규칙:
   - 네이티브 Linux 에서는 brltty 를 검사한다. usbipd AutoBind 정책이 있으면 경고한다. bridged 이면 0.0.0.0 리스너 목록을 보여 준다(스캔 아님).
 
 ```
-[-- ] env                     WSL2 (WSL 3.0.3.0, 6.18.54.1-microsoft-standard-WSL2), Ubuntu 22.04.5, x86_64
+[-- ] env                     WSL2 (WSL <버전>, <x.y.z>-microsoft-standard-WSL2), Ubuntu <버전>, x86_64
 [OK ] env:interop             WSLInterop enabled, /init, wslpath, smoke ok (binfmt status=enabled, 참고 값)
 [OK ] env:uac                 UAC 켜짐 (꺼져 있으면 [!!] — interop 으로 띄운 Windows 프로그램은 관리자 권한으로 돈다)
 [-- ] env:networking          bridged (deprecated) — PWEH 는 리스너를 만들지 않음. 0.0.0.0 리스너: <포트 목록>
@@ -711,6 +712,13 @@ Windows 쪽 MCP 클라이언트는 사람이 설정한 `wsl.exe -d <배포판> -
 - **합격 기준(정직하게)**: esp 시험은 지문 단정만 바뀐다(+ autouse fixture). 목록 결과는 필드 추가와 §13.3 의 의미 변화만 허용한다.
 
 ### 13.2 단계
+
+> **구현 상태 (I4 = P0, 2026-10-20)**: `pweh.hostenv`(결정 트리 H0–H9, `pweh.hostenv/v1`, 추천 경로, Windows 실행 허용 목록 — wsl/cmd/reg/usbip 실행 안 함), `pweh env`, doctor 환경 절
+> (가짜 ttyS 숨김, WSL1/2, 모드별 usbipd 안내, esptool.exe 해석 통일, brltty·AutoBind·UAC 경고), `pipeline_environment()`, esp 의 WSL 감지·`/mnt/c` 를 hostenv 로(G6·G7),
+> install.sh `wsl_interop` 규칙 통일, uart·jtagulator 원격 URL 루프백만(정규형으로 바꿈, pyserial URL 옵션 거부 — D4, `safety.ports.remote_serial_hosts` 는 아직 없음), uart COM1–COM4096,
+> 시뮬레이터 루프백 바인드(`--allow-lan` 때만 LAN, G13), 네이티브 Windows·Cygwin·MSYS 시작 거부와 `procutil.pid_alive`(G9 — openocd 만 옮김, 나머지 killpg 는 P1).
+> 설계와 다른 점: 코어 `pweh.ports` 는 P1 의 씨앗(문법 검사만), doctor 의 COM 별 `Service` 는 interop 이 될 때만, 보고서에 esptool.exe 버전·`ghost_ports_hidden`·`portlock` 은 없음.
+> 남은 usbipd 전용 안내: uart·sigrok·openocd 의 일부 힌트(P1·P2 에서 경로 기반으로).
 
 | 단계 | 내용 | 합격 기준 |
 |---|---|---|

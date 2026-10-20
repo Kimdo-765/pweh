@@ -69,6 +69,8 @@ from pweh.mcpkit import (
     register_job_tools,
     safe_tool,
 )
+from pweh import hostenv
+from pweh.procutil import pid_alive
 from pweh.runtime import Runtime, get_runtime
 from pweh.safety import Classification, GateDecision, Risk
 from pweh.toolsdir import tools_dir
@@ -242,6 +244,11 @@ def _run_dir(windows: bool = False) -> Iterator[RunDir]:
 
 
 def _find_windows_exe() -> tuple[str, str]:
+    if "windows_tools" in hostenv.disabled_keys(rt().config):
+        raise ToolMissing(
+            "설정 hostenv.disable 에 windows_tools 가 있어 Windows 용 esptool.exe(방법 A, port='COMn')를 쓰지 않습니다.",
+            hint="리눅스 백엔드(usbipd attach 뒤 port='/dev/ttyACM0')를 쓰거나, 사람이 pipeline-config.yaml 의 hostenv.disable 을 고친다.",
+        )
     st = ports.interop_status()
     if not st["interop"]:
         raise ToolMissing(
@@ -520,14 +527,8 @@ def _owner_alive(rec: dict[str, Any]) -> bool:
         pid = int(rec.get("pid"))
     except (TypeError, ValueError):
         return False
-    if pid <= 0:
+    if not pid_alive(pid):  # 0 이하·범위 밖(OverflowError)·없음·좀비는 False, 권한 없음(EPERM)은 True
         return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        pass
     st = _proc_stat(pid)
     if st is not None:
         if st[0] == "Z":

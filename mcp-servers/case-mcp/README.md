@@ -35,6 +35,7 @@ PWEH 오케스트레이션 레이어의 MCP 서버다. 분석 작업 하나를 *
 | `report_generate(case_id)` | 단계 요약·발견사항·아티팩트·안전 감사 요약을 모아 `cases/<id>/report.md` 생성 |
 | `pipeline_profiles()` / `pipeline_profile(name)` | `pipeline-config.yaml` 의 대상 기기 프로필 목록 / 상세(`extends` 해석 완료) (읽기 전용) |
 | `pipeline_safety_policy()` | 현재 안전 정책(위험도별 allow/approve/deny, 승인 방법, 영구 경로) (읽기 전용) |
+| `pipeline_environment(refresh=False)` | 실행 환경 보고서 `report`(`pweh.hostenv/v1`: `kind` — WSL2_INTEROP·WSL2_NO_INTEROP·WSL1·WSL_UNKNOWN·NATIVE_LINUX·MACOS·NATIVE_WINDOWS·CYGWIN·MSYS·CONTAINER, `wsl{version, networking_mode, interop{usable, entry, smoke, reason}}`, `windows{build, uac_enabled, interop_elevated, smart_app_control, usbipd, tools.esptool_win}`, `linux{systemd, udevd, groups, brltty}`, `warnings`, `overridden`)와 장치 종류별 추천 경로 `routes[]`(`device`, `now{route, status, available, human_steps}` = 지금 되는 경로, `target{route, phase}` = 다음 단계에서 생기는 경로, `alternatives`, `notes`). 모르는 값은 `null`. COM 목록 같은 휘발 값은 넣지 않는다. 첫 감지는 WSL 에서 powershell.exe smoke 로 몇 초, 이후 캐시(smoke 300 초) — `refresh=true` 면 다시 감지. 같은 내용을 사람은 `pweh env` 로 본다 (읽기 전용) |
 | `approval_status(approval_id)` / `approvals_pending()` | 승인 요청 상태(`pending`\|`approved`\|`denied`\|`consumed`\|`expired`) / 대기 목록(확인 코드 제외) (읽기 전용) |
 | `schema_get(name)` | JSON 스키마: `case`, `step-result`, `finding`, `uart-recon`, `firmware-dump`, `static-analysis`, `signal-capture`, `auth-hunt` (읽기 전용) |
 

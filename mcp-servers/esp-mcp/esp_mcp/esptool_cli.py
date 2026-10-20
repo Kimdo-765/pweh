@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from pweh.errors import PwehError, TimeoutExpired, ToolMissing
+from pweh.toolsdir import esptool_win_candidates
 
 from . import winproc
 from .policy import CONNECT_ATTEMPTS_DEFAULT, norm_name
@@ -202,17 +203,8 @@ def locate_linux_esptool(configured: str | None) -> str:
 
 
 def windows_exe_candidates(configured: str | None, tools_dir: Path | None) -> list[tuple[str, str]]:
-    """(경로, 출처) 후보. 출처: config | env | pweh-tools."""
-    out: list[tuple[str, str]] = []
-    if configured and configured.strip():
-        out.append((configured.strip(), "config"))
-    env = (os.environ.get("PWEH_ESPTOOL_WIN") or "").strip()
-    if env and all(env != c for c, _ in out):
-        out.append((env, "env"))
-    if tools_dir is not None:
-        for rel in ("esptool-win/esptool-windows-amd64/esptool.exe", "esptool-win/esptool.exe"):
-            out.append((str(tools_dir / rel), "pweh-tools"))
-    return out
+    """(경로, 출처) 후보. 출처: config | env | pweh-tools. 규칙은 코어 ``pweh.toolsdir.esptool_win_candidates`` 하나다(doctor·pweh env 와 같음)."""
+    return esptool_win_candidates(configured, os.environ.get("PWEH_ESPTOOL_WIN"), tools_dir)
 
 
 def exe_image(path: str) -> str:

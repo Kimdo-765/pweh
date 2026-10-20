@@ -1,7 +1,8 @@
 """``pweh`` 명령행 도구 (사람용).
 
 주요 명령:
-  pweh doctor                       환경 점검 (Python 패키지, 설정, 시리얼 포트 권한, 외부 도구, WSL USB 안내)
+  pweh doctor                       환경 점검 (맨 앞에 실행 환경 절 — pweh env 와 같은 감지 — 다음 Python 패키지, 설정, 시리얼 포트 권한, 외부 도구)
+  pweh env [--json] [--refresh]     실행 환경 보고서(pweh.hostenv/v1)와 장치 종류별 추천 경로
   pweh approve <id>                 위험 작업 승인 (대화형 터미널에서 사람이 확인 코드를 입력해야 함)
   pweh deny <id>                    위험 작업 거부
   pweh approvals [--all]            승인 요청 목록
@@ -609,11 +610,309 @@ def _tool_version(cmd: list[str], expect: str, ok_codes: tuple[int, ...] = (0,),
     return False, f"종료 코드 {out.returncode}: {err[-1][:120] if err else '(출력 없음)'}"
 
 
+_KIND_LABELS = {
+    "WSL2_INTEROP": "WSL2",
+    "WSL2_NO_INTEROP": "WSL2 (interop 없음)",
+    "WSL1": "WSL1",
+    "WSL_UNKNOWN": "WSL (버전 모름)",
+    "NATIVE_LINUX": "네이티브 Linux",
+    "MACOS": "macOS",
+    "NATIVE_WINDOWS": "네이티브 Windows (미지원)",
+    "CYGWIN": "Cygwin (미지원)",
+    "MSYS": "MSYS (미지원)",
+    "CONTAINER": "컨테이너",
+}
+
+
+def _env_summary(report: dict[str, Any]) -> str:
+    kind = report.get("kind")
+    py = report.get("python") or {}
+    lin = report.get("linux") or {}
+    wsl = report.get("wsl") or {}
+    mac = report.get("macos") or {}
+    machine = py.get("machine") or "?"
+    label = _KIND_LABELS.get(str(kind), f"알 수 없는 플랫폼 ({py.get('sys_platform')})")
+    if wsl:
+        return f"{label} (WSL {wsl.get('release') or '?'}, {lin.get('kernel') or '?'}), {lin.get('distro') or '?'}, {machine}"
+    if kind == "NATIVE_LINUX":
+        virt = lin.get("virt")
+        return f"{label} ({lin.get('kernel') or '?'}{', VM ' + virt if virt and virt != 'none' else ''}), {lin.get('distro') or '?'}, {machine}"
+    if kind == "CONTAINER":
+        return f"{label} ({lin.get('container_signal')}), {lin.get('kernel') or '?'}, {lin.get('distro') or '?'}, {machine}"
+    if kind == "MACOS":
+        return f"{label} {mac.get('product_version') or '?'} ({machine}{', Rosetta' if mac.get('rosetta') else ''})"
+    return f"{label}, {machine}"
+
+
+def _no_ports_hint(report: dict[str, Any]) -> str:
+    from . import hostenv
+
+    kind = report.get("kind")
+    mode = (report.get("wsl") or {}).get("networking_mode")
+    attach = hostenv.usbipd_attach(mode)
+    if kind == "WSL2_INTEROP":
+        return ("USB 직렬 장치를 Windows 에 꽂으면 COMn 으로 보인다. ESP32 는 그 COMn 을 그대로 쓴다(방법 A, esp_list_ports). "
+                f"UART 콘솔 같은 다른 직렬 장치는 지금은 usbipd attach 뒤 /dev/ttyACM*·/dev/ttyUSB* 로 쓴다 ({attach['command']}) — "
+                "Windows COM 헬퍼는 P2")
+    if kind in ("WSL2_NO_INTEROP", "WSL_UNKNOWN"):
+        return f"USB 장치는 usbipd attach 뒤 /dev/ttyACM*·/dev/ttyUSB* 로 보인다 ({attach['command'] or attach['note']})"
+    if kind == "WSL1":
+        return "Windows 의 COMn 은 /dev/ttyS<n> 으로 보인다 (COM1–COM191). WSL1 은 USB 장치를 쓸 수 없다"
+    if kind == "NATIVE_LINUX":
+        return "USB-UART 어댑터를 연결하세요 (dialout 그룹·brltty 확인)"
+    if kind == "MACOS":
+        return "/dev/cu.* 로 보인다 (macOS 는 P5 전 최선 노력)"
+    return "USB-UART 어댑터를 연결하세요"
+
+
+def _port_get(p: Any, key: str) -> Any:
+    return p.get(key) if isinstance(p, dict) else getattr(p, key, None)
+
+
+def env_checks(report: dict[str, Any], *, local_ports: list[Any] | None = None, windows_ports: list[dict[str, Any]] | None = None,
+               listeners: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """환경 절의 점검 줄 (doctor 맨 앞과 ``pweh env``). 보고서와 그때 읽은 휘발 목록만으로 만든다(시험은 합성 보고서를 넣는다).
+
+    local_ports: pyserial 목록(dict 또는 ListPortInfo — 가짜 /dev/ttyS* 는 esp 규칙으로 숨기고 센다), windows_ports: Windows COM(+ 드라이버
+    Service), listeners: 0.0.0.0 리스너(bridged 일 때만 보여 준다). None 이면 확인하지 않은 것이다.
+    """
+    from . import hostenv
+
+    checks: list[dict[str, Any]] = []
+
+    def add(name: str, ok: bool | None, detail: str, hint: str = "") -> None:
+        checks.append({"check": name, "ok": ok, "detail": detail, "hint": hint})
+
+    kind = report.get("kind")
+    lin = report.get("linux") or {}
+    wsl = report.get("wsl") or {}
+    win = report.get("windows") or {}
+    add("env", None, _env_summary(report))
+    if kind in hostenv.UNSUPPORTED_KINDS or kind is None:
+        sp = str((report.get("python") or {}).get("sys_platform") or "")
+        add("env:platform", False, "이 플랫폼에서는 PWEH 서버를 실행하지 않는다",
+            hostenv.unsupported_platform(sp) or "WSL2 또는 리눅스에서 실행하라")
+    if kind == "CONTAINER":
+        add("env:container", None, f"컨테이너 ({lin.get('container_signal')}) — 통과된 /dev 노드만 쓸 수 있다 (최선 노력)",
+            "WSL 커널이어도 WSL interop·usbipd 경로로 보지 않는다")
+    if kind in hostenv.WSL_KINDS:
+        it = wsl.get("interop") or {}
+        if it.get("usable"):
+            smoke_txt = ("powershell.exe 를 찾지 못해 smoke 못 함" if it.get("smoke") == "no-powershell" else f"smoke {it.get('smoke')}")
+            add("env:interop", True, f"{it.get('entry')} enabled, /init, wslpath, {smoke_txt} "
+                                     f"(binfmt status={it.get('binfmt_status_advisory') or '?'}, 참고 값)")
+        elif it.get("smoke") == "disabled":
+            add("env:interop", None, "설정 hostenv.disable 로 끔 — Windows 쪽 프로그램을 실행하지 않는다")
+        else:
+            add("env:interop", False, str(it.get("reason") or "쓸 수 없음"),
+                "사람이 /etc/wsl.conf 의 [interop] enabled=true 를 확인하고 Windows 에서 wsl --shutdown 뒤 다시 연다. "
+                "그동안 USB 장치는 usbipd attach 로만 쓴다")
+        if wsl.get("drvfs_c") is None:
+            add("env:drvfs", None, "C: 드라이브 마운트를 찾지 못함 — powershell·Windows 정보·COM 목록·usbipd 확인이 없다 (interop 은 그대로)",
+                "사람이 /etc/wsl.conf 의 [automount] 를 확인한다. 리눅스 파일 시스템의 esptool.exe(방법 A)는 C: 없이도 돈다")
+        uac, elevated = win.get("uac_enabled"), win.get("interop_elevated")
+        if uac is False or elevated is True:
+            add("env:uac", False, ("UAC 꺼짐 — " if uac is False else "") + "interop 으로 띄운 Windows 프로그램이 관리자 권한(High IL)으로 돈다",
+                "PWEH 가 실행하는 Windows 프로그램은 허용 목록으로 묶는다. UAC 설정은 사용자 결정이다")
+        elif uac is True:
+            add("env:uac", True, "UAC 켜짐 (interop 으로 띄운 Windows 프로그램은 일반 권한)")
+        else:
+            add("env:uac", None, "확인 안 함 (interop smoke 가 통과해야 읽는다)")
+        sac = win.get("smart_app_control")
+        if sac in ("on", "evaluation"):
+            add("env:sac", None, f"Smart App Control {sac} — 서명 없는 실행 파일(이후 단계의 직렬 헬퍼 등)이 막힐 수 있다")
+        if kind == "WSL1":
+            add("env:usbipd", None, "해당 없음 — WSL1 은 USB 장치(usbipd)를 쓸 수 없다")
+        else:
+            mode = wsl.get("networking_mode")
+            if mode == "bridged":
+                if listeners is None:
+                    ls = "확인 안 함"
+                else:
+                    ls = ", ".join(f"{x['port']}/{x['proto']}" for x in listeners) or "없음"
+                detail = f"bridged (WSL 2.4.5 부터 deprecated) — PWEH 는 리스너를 만들지 않음. 0.0.0.0 리스너(LAN 에 열림): {ls}"
+            elif mode == "consomme":
+                detail = "consomme — NAT 가 실패하면 WSL 이 조용히 바꾸는 모드 (usbipd ≤5.3.0 attach 는 --host-ip 127.0.0.1)"
+            elif mode is None:
+                detail = "모름 (wslinfo 실패) — usbipd 는 nat 로 가정한다"
+            else:
+                detail = str(mode)
+            add("env:networking", None, detail)
+            u = win.get("usbipd") or {}
+            attach = hostenv.usbipd_attach(mode)
+            how = f"{attach['command']} ({attach['note']})" if attach["possible"] else f"attach 불가 — {attach['note']}"
+            ignored = " — usbip.exe(usbip-win2 클라이언트)는 무시" if win.get("ignored") else ""
+            if u.get("present"):
+                n = u.get("autobind_policies")
+                if n:
+                    add("env:usbipd", False, f"usbipd-win {u.get('version') or '?'} — AutoBind 정책 {n}개 (LAN 의 다른 PC 가 장치를 가져갈 수 있다)",
+                        "AutoBind 정책은 원격 요청에도 장치를 자동 bind 하고 공유를 영구 저장한다. 사람이 Windows 관리자 터미널에서 지운다. "
+                        "PWEH 는 세션 동안만 bind 하고 끝나면 unbind 하는 방식만 안내한다")
+                else:
+                    add("env:usbipd", True, f"usbipd-win {u.get('version') or '(버전 확인 안 함)'} — 대체 경로: 세션 동안만 bind [관리자], {how}{ignored}")
+            else:
+                elsewhere = f" — $PATH 의 {u['found_elsewhere']} 는 표준 위치(C:\\Program Files\\usbipd-win)가 아니라 실행하지 않았다" \
+                    if u.get("found_elsewhere") else ""
+                if u.get("present") is False:
+                    add("env:usbipd", None, f"없음 (선택){elsewhere}. 쓰려면 세션 동안만 bind [관리자] 하고 {how}{ignored}")
+                else:
+                    add("env:usbipd", None, f"확인 안 함 (C: 드라이브 마운트를 찾지 못함){elsewhere}{ignored}")
+    if lin:
+        b = lin.get("brltty") or {}
+        if b.get("installed") and b.get("ch340_rule") and not b.get("masked"):
+            add("env:brltty", False, "brltty 가 CH340(1a86:7523)을 점자 장치로 잡는다 — 리눅스 쪽 /dev/ttyUSB0 이 사라질 수 있다",
+                "[root] 사람이 brltty 를 지우거나 85-brltty.rules 를 무력화한다 (docs/hardware-setup.md)")
+        elif kind == "NATIVE_LINUX":
+            add("env:brltty", True, "문제 없음" + (" (CH340 규칙 무력화됨)" if b.get("masked") else ("" if b.get("installed") else " (설치 안 됨)")))
+        if kind in ("NATIVE_LINUX", "WSL2_INTEROP", "WSL2_NO_INTEROP", "WSL_UNKNOWN"):
+            if lin.get("systemd") and lin.get("udevd"):
+                add("env:udev", None, "PID1 systemd + systemd-udevd 동작 (리눅스 쪽 장치의 /dev/serial/by-id·자동 모듈 적재)")
+            else:
+                add("env:udev", None, "udev 없음 또는 모름 — 리눅스 쪽 장치에 /dev/serial/by-id 가 없을 수 있다 (/dev/ttyUSB* 를 쓴다)")
+        if lin.get("root_equivalent_groups"):
+            add("env:groups", None, f"root 와 같은 그룹: {', '.join(lin['root_equivalent_groups'])}",
+                "이 계정의 프로그램은 root 권한을 얻을 수 있다 (docker·disk 그룹)")
+        if kind == "NATIVE_LINUX" and lin.get("ssh_session"):
+            add("env:ssh", None, "SSH 세션 — 배선·전원 같은 물리 작업은 이 원격 기계에서 한다")
+    ser = report.get("serial") or {}
+    base = f"pyserial {ser.get('pyserial') or '없음'} {ser.get('backend') or '?'}"
+    if local_ports is None and windows_ports is None:
+        add("serial:backend", bool(ser.get("pyserial")), base)
+        return checks
+    visible, hidden = hostenv.split_ghost_ports(local_ports or [])
+    ghost = f"가짜 /dev/ttyS* {hidden}개 숨김" if local_ports is not None else "리눅스 쪽 목록 확인 안 함"
+    wcount = f"Windows COM {len(windows_ports)}개" if windows_ports is not None else "Windows COM 확인 안 함"
+    add("serial:backend", bool(ser.get("pyserial")), f"{base}, {ghost}, {wcount}")
+    names = [f"{p['port']} ({p.get('service') or '드라이버 ?'})" for p in windows_ports or []]
+    names += [str(_port_get(p, "device")) for p in visible]
+    add("serial:ports", True if names else None, ", ".join(names) if names else "(없음)", "" if names else _no_ports_hint(report))
+    return checks
+
+
+def route_lines(routes: list[dict[str, Any]], *, steps: bool = False) -> list[str]:
+    """추천 경로 표 (route:<종류> 지금 경로 [상태]  목표: … [단계]  대체: …). steps=True 면 사람 단계를 아래에 덧붙인다."""
+    out = []
+    for r in routes:
+        now = r.get("now") or {}
+        line = f"route:{r.get('device', '?'):<8} {now.get('route') or '없음'} [{now.get('status')}]"
+        t = r.get("target")
+        if t:
+            line += f"  목표: {t.get('route')} [{t.get('phase')}{', 설정으로 끔' if t.get('disabled') else ''}]"
+        if r.get("alternatives"):
+            line += "  대체: " + " / ".join(r["alternatives"])
+        out.append(line)
+        if steps:
+            out.extend(f"    · {s}" for s in now.get("human_steps") or [])
+            out.extend(f"    ※ {n}" for n in r.get("notes") or [])
+    return out
+
+
+def esptool_win_check(report: dict[str, Any], version: Any = None) -> dict[str, Any]:
+    """doctor 의 tool:esptool.exe 줄. hostenv 보고서의 windows.tools.esptool_win 을 쓰고(esp 와 같은 해석), 실행은 interop 을 쓸 수
+    있고 설정 ``hostenv.disable: [windows_tools]`` 가 없을 때만 한다. version 은 ``_tool_version`` 과 같은 호출(시험이 바꿔 끼운다)."""
+    from . import hostenv
+
+    run_version = version or _tool_version
+    purpose = "pweh-esp 방법 A (WSL 에서 Windows esptool.exe + COM 포트)"
+    esp_win = ((report.get("windows") or {}).get("tools") or {}).get("esptool_win")
+
+    def row(ok: bool | None, detail: str, hint: str = "") -> dict[str, Any]:
+        return {"check": "tool:esptool.exe", "ok": ok, "detail": detail, "hint": hint}
+
+    if esp_win is None:
+        return row(None, "해당 없음 (WSL 에서만 쓰는 방법 A)")
+    if esp_win.get("disabled"):
+        return row(None, "설정 hostenv.disable: [windows_tools] 로 끔 — 실행하지 않는다 (esp 도 Windows esptool.exe 를 쓰지 않음)")
+    if esp_win.get("problem"):
+        return row(False, f"{esp_win.get('path')} :: {esp_win['problem']} (출처: {esp_win.get('source')})",
+                   "tools.esptool_win(pipeline-config.yaml) 또는 PWEH_ESPTOOL_WIN 을 고치거나 비우고 scripts/install.sh --only esptool")
+    if not esp_win.get("present"):
+        return row(None, "없음 (선택)", f"ESP32 덤프가 필요할 때 scripts/install.sh --only esptool ({purpose})")
+    if not hostenv.interop_usable(report):
+        return row(None, f"{esp_win.get('path')} (출처: {esp_win.get('source')}) — interop 을 쓸 수 없어 버전 확인 생략",
+                   "WSL interop 이 켜져야 Windows esptool.exe 를 실행할 수 있다 (env:interop 참고)")
+    ok, ver = run_version([esp_win["path"], "version"], r"^esptool(\.py)? v\d", (0,))
+    return row(ok, f"{esp_win['path']} :: {ver} (출처: {esp_win.get('source')})",
+               "" if ok else f"실행 파일은 있지만 버전 확인에 실패했습니다. 필요 기능: {purpose}. scripts/install.sh --force --only esptool 로 다시 설치")
+
+
+def _print_checks(checks: list[dict[str, Any]]) -> None:
+    for c in checks:
+        mark = "OK " if c["ok"] else ("-- " if c["ok"] is None else "!! ")
+        print(f"[{mark}] {c['check']:<28} {c['detail']}")
+        if c["hint"] and not c["ok"]:
+            print(f"       → {c['hint']}")
+
+
+def _local_serial_ports() -> list[dict[str, Any]] | None:
+    """pyserial 목록 (포트를 열지 않음 — sysfs 읽기). 실패하면 None."""
+    try:
+        from serial.tools import list_ports
+
+        return [{"device": p.device, "hwid": p.hwid, "vid": p.vid, "pid": p.pid, "description": p.description}
+                for p in list_ports.comports()]
+    except Exception:  # noqa: BLE001 - doctor 는 계속한다
+        return None
+
+
+def cmd_env(args: argparse.Namespace) -> int:
+    from . import hostenv
+
+    try:
+        cfg: Any = load_config()
+    except PwehError:
+        cfg = None  # hostenv 가 다시 읽어 보고 실패를 경고로 남긴다
+    report = hostenv.detect(refresh=bool(args.refresh), config=cfg)
+    routes = hostenv.recommend_routes(report)
+    if args.json:
+        _print({"report": report, "routes": routes}, True)
+        return 0
+    print(f"pweh {__version__} env ({report.get('schema')})")
+    _print_checks(env_checks(report))
+    print()
+    print("추천 경로 (지금 되는 경로 [상태] / 목표 단계):")
+    for line in route_lines(routes, steps=True):
+        print(line)
+    if report.get("warnings"):
+        print()
+        print("경고:")
+        for w in report["warnings"]:
+            print(f"  - {w}")
+    if report.get("overridden"):
+        print(f"설정으로 좁힘: {', '.join(report['overridden'])}")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
+    from . import hostenv
+
     checks: list[dict[str, Any]] = []
 
     def add(name: str, ok: bool | None, detail: str = "", hint: str = "") -> None:
         checks.append({"check": name, "ok": ok, "detail": detail, "hint": hint})
+
+    # 외부 도구 env.sh 를 먼저 읽는다 (서버가 mcp-launch.sh 로 source 하는 것과 같게 — 설정의 ${PWEH_*} 확장과 esptool.exe 해석에 쓰인다)
+    tenv = _load_tools_env(None)
+    for k, v in tenv.items():
+        if k != "PATH":
+            os.environ.setdefault(k, v)
+    cfg: Any = None
+    cfg_error: PwehError | None = None
+    try:
+        cfg = load_config()
+    except PwehError as exc:
+        cfg_error = exc
+
+    # 환경 절 (맨 앞): pweh env 와 같은 감지 + 이때 읽는 휘발 목록(포트, Windows COM, 0.0.0.0 리스너)
+    report = hostenv.detect(config=cfg)
+    routes = hostenv.recommend_routes(report)
+    local_ports = _local_serial_ports()
+    windows_ports = None
+    if hostenv.interop_usable(report):
+        wc = hostenv.windows_com_ports(report)
+        windows_ports = wc["ports"] if wc.get("available") else None
+    listeners = hostenv.wildcard_listeners() if (report.get("wsl") or {}).get("networking_mode") == "bridged" else None
+    env_cs = env_checks(report, local_ports=local_ports, windows_ports=windows_ports, listeners=listeners)
 
     add("python", sys.version_info >= (3, 10), platform.python_version())
     for mod in ("mcp", "serial", "yaml", "jsonschema"):
@@ -622,45 +921,27 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             add(f"python:{mod}", True, getattr(m, "__version__", getattr(m, "VERSION", "")) or "ok")
         except ImportError as exc:
             add(f"python:{mod}", False, str(exc), "pip install -e . 로 설치")
-    try:
-        cfg = load_config()
+    if cfg is not None:
         add("config", True, str(cfg.path) if cfg.path else "(내장 기본값)")
         add("safety.destructive_policy", True, cfg.safety.destructive_policy)
         add("safety.approval_methods", True, ", ".join(cfg.safety.approval_methods))
         for d in (cfg.cases_dir, cfg.state_dir):
             d.mkdir(parents=True, exist_ok=True)
             add(f"writable:{d}", os.access(d, os.W_OK), "")
-    except PwehError as exc:
-        cfg = None
-        add("config", False, str(exc))
+    else:
+        add("config", False, str(cfg_error))
 
-    # 시리얼 포트
-    try:
-        from serial.tools import list_ports
+    # 시리얼 포트 권한 (리눅스 쪽 장치 — 네이티브 리눅스, WSL 의 usbipd attach)
+    if report.get("linux") is not None:
+        try:
+            import grp
 
-        ports = [p.device for p in list_ports.comports()]
-        add("serial:ports", True, ", ".join(ports) if ports else "(없음)", "" if ports else "USB-UART 어댑터를 연결하세요")
-    except Exception as exc:  # pragma: no cover
-        add("serial:ports", False, str(exc))
-    try:
-        import grp
+            groups = {grp.getgrgid(g).gr_name for g in os.getgroups()}
+            add("serial:dialout-group", "dialout" in groups or "uucp" in groups or os.geteuid() == 0, ",".join(sorted(groups)),
+                "sudo usermod -aG dialout $USER 후 재로그인 (사람 — root 1회. 또는 udev 규칙)")
+        except Exception:
+            pass
 
-        groups = {grp.getgrgid(g).gr_name for g in os.getgroups()}
-        add("serial:dialout-group", "dialout" in groups or os.geteuid() == 0, ",".join(sorted(groups)),
-            "sudo usermod -aG dialout $USER 후 재로그인 (또는 udev 규칙)")
-    except Exception:
-        pass
-    try:
-        if "microsoft" in Path("/proc/version").read_text().lower():
-            add("wsl", None, "WSL2 감지", "USB 기기(UART 어댑터/로직 애널라이저/JTAG 프로브)는 Windows 에서 usbipd-win 으로 WSL 에 attach 해야 합니다: "
-                "usbipd list → usbipd bind --busid X → usbipd attach --wsl --busid X")
-    except OSError:
-        pass
-
-    tenv = _load_tools_env(None)
-    for k, v in tenv.items():
-        if k != "PATH":
-            os.environ.setdefault(k, v)
     # (명령, 필요 기능, 버전 출력 첫 줄의 형식, 정상 종료 코드)
     tool_cmds: dict[str, tuple[list[str], str, str, tuple[int, ...]]] = {
         "sigrok-cli": ([os.environ.get("PWEH_SIGROK_CLI") or os.environ.get("REA_SIGROK_COMMAND") or "sigrok-cli", "--version"],
@@ -685,17 +966,16 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             "" if ok else f"실행 파일은 있지만 버전 확인에 실패했습니다 (설치가 깨졌을 수 있음). 필요 기능: {purpose}. "
             "직접 실행해 보고 scripts/install.sh --check / --force --only <구성요소> 로 다시 설치")
     # 선택 도구: ESP32 esptool (pweh-esp). 없으면 '--'(선택), 있는데 버전 확인이 실패하면 '!!'
-    for name, exe, purpose in (
-        ("esptool", os.environ.get("PWEH_ESPTOOL") or shutil.which("esptool") or "", "pweh-esp 의 Linux esptool (/dev/tty* 포트)"),
-        ("esptool.exe", os.environ.get("PWEH_ESPTOOL_WIN") or "", "pweh-esp 방법 A (WSL 에서 Windows esptool.exe + COM 포트)"),
-    ):
-        found = exe if exe and (Path(exe).exists() or shutil.which(exe)) else None
-        if not found:
-            add(f"tool:{name}", None, "없음 (선택)", f"ESP32 덤프가 필요할 때 scripts/install.sh --only esptool ({purpose})")
-            continue
-        ok, ver = _tool_version([found, "version"], r"^esptool(\.py)? v\d", (0,))
-        add(f"tool:{name}", ok, f"{found} :: {ver}",
-            "" if ok else f"실행 파일은 있지만 버전 확인에 실패했습니다. 필요 기능: {purpose}. scripts/install.sh --force --only esptool 로 다시 설치")
+    lin_esptool = os.environ.get("PWEH_ESPTOOL") or shutil.which("esptool") or ""
+    found_lin = lin_esptool if lin_esptool and (Path(lin_esptool).exists() or shutil.which(lin_esptool)) else None
+    if not found_lin:
+        add("tool:esptool", None, "없음 (선택)", "ESP32 덤프가 필요할 때 scripts/install.sh --only esptool (pweh-esp 의 Linux esptool, /dev/tty* 포트)")
+    else:
+        ok, ver = _tool_version([found_lin, "version"], r"^esptool(\.py)? v\d", (0,))
+        add("tool:esptool", ok, f"{found_lin} :: {ver}",
+            "" if ok else "실행 파일은 있지만 버전 확인에 실패했습니다. 필요 기능: pweh-esp 의 Linux esptool. scripts/install.sh --force --only esptool 로 다시 설치")
+    # Windows esptool.exe (방법 A): esp 와 같은 해석 — 설정 tools.esptool_win → PWEH_ESPTOOL_WIN → 도구 디렉터리 후보 (hostenv 보고서)
+    checks.append(esptool_win_check(report))
     gh = os.environ.get("GHIDRA_INSTALL_DIR")
     add("ghidra", bool(gh and Path(gh).exists()), gh or "GHIDRA_INSTALL_DIR 미설정", "REA 의 네이티브 디컴파일에 필요")
     jh = os.environ.get("JAVA_HOME")
@@ -707,14 +987,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     add("claude:skills", len(installed) == len(SKILL_NAMES), f"{len(installed)}/{len(SKILL_NAMES)}", "pweh skills install --target claude-project")
 
     if args.json:
-        _print({"version": __version__, "checks": checks}, True)
+        _print({"version": __version__, "environment": {"report": report, "routes": routes}, "checks": env_cs + checks}, True)
     else:
         print(f"pweh {__version__} doctor")
-        for c in checks:
-            mark = "OK " if c["ok"] else ("-- " if c["ok"] is None else "!! ")
-            print(f"[{mark}] {c['check']:<28} {c['detail']}")
-            if c["hint"] and not c["ok"]:
-                print(f"       → {c['hint']}")
+        _print_checks(env_cs)
+        for line in route_lines(routes):
+            print(line)
+        _print_checks(checks)
     return 0
 
 
@@ -729,6 +1008,10 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("doctor", help="환경 점검")
     d.add_argument("--json", action="store_true")
     d.set_defaults(fn=cmd_doctor)
+    e = sub.add_parser("env", help="실행 환경 보고서(pweh.hostenv/v1)와 장치 종류별 추천 경로")
+    e.add_argument("--json", action="store_true", help="보고서와 routes 를 JSON 으로")
+    e.add_argument("--refresh", action="store_true", help="캐시를 버리고 다시 감지 (같은 프로세스 안에서만 의미가 있다)")
+    e.set_defaults(fn=cmd_env)
 
     a = sub.add_parser("approve", help="위험 작업 승인 (사람이 대화형 터미널에서 실행)")
     a.add_argument("approval_id")

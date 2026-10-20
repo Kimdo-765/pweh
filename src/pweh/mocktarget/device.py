@@ -184,9 +184,13 @@ class MockDevice:
             self.power_on()
         return path
 
-    def start_tcp(self, host: str = "127.0.0.1", port: int = 0) -> tuple[str, int]:
-        """TCP 서버를 연다. pyserial URL ``socket://host:port`` 로 접속한다. (host, port) 반환."""
-        t = TcpTransport(on_input=self.feed_input, on_event=self._transport_event, host=host, port=port)
+    def start_tcp(self, host: str = "127.0.0.1", port: int = 0, *, allow_lan: bool = False) -> tuple[str, int]:
+        """TCP 서버를 연다. pyserial URL ``socket://host:port`` 로 접속한다. (host, port) 반환.
+
+        루프백이 아닌 host(0.0.0.0, LAN 주소)는 ``allow_lan=True`` 가 없으면 ValidationFailed (G13).
+        """
+        t = TcpTransport(on_input=self.feed_input, on_event=self._transport_event, host=host, port=port,
+                         allow_lan=allow_lan)
         addr = t.start()
         self._transports.append(t)
         self.record({"type": "transport", "kind": "tcp", "url": t.url})

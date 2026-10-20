@@ -614,6 +614,25 @@
     "meta": null
    },
    {
+    "name": "pipeline_environment",
+    "description": "실행 환경 보고서와 장치 종류별 추천 경로 (기기 미접촉, OBSERVE, 읽기 전용). report(pweh.hostenv/v1): kind(WSL2_INTEROP | WSL2_NO_INTEROP | WSL1 | WSL_UNKNOWN | NATIVE_LINUX | MACOS | NATIVE_WINDOWS | CYGWIN | MSYS | CONTAINER), wsl{version, networking_mode, interop{usable, entry, smoke, reason}}, windows{build, uac_enabled, interop_elevated, smart_app_control, usbipd{present, version, autobind_policies}, tools.esptool_win}, linux{systemd, udevd, groups, brltty}, warnings, overridden. routes[]: {device(serial|esptool|openocd|sigrok|sdr|video|block), now{route, status, available, human_steps}(지금 되는 경로), target{route, phase}(다음 단계에서 생기는 경로), alternatives, notes}. 모르는 값은 null. 휘발 목록(COM 포트·usbipd attach 상태)은 넣지 않는다 — 포트는 각 서버의 *_list_ports. 첫 감지는 WSL 에서 powershell.exe smoke 로 몇 초 걸리고 이후 캐시(smoke 300 초). refresh=true 면 캐시를 버리고 다시 감지한다. Phase 0 장비 체크리스트에 쓴다(사람 단계의 [관리자]·[root] 표시).",
+    "params": [
+     {
+      "name": "refresh",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
     "name": "approval_status",
     "description": "승인 요청 상태 조회 (pending|approved|denied|consumed|expired). 사람이 `pweh approve <id>` 를 했는지 확인할 때 사용.",
     "params": [
@@ -670,7 +689,7 @@
   "tools": [
    {
     "name": "uart_list_ports",
-    "description": "시리얼 포트 목록 (OBSERVE). ports[{device, description, hwid, vid, pid, serial_number, manufacturer, likely_usb_uart, in_use_by}]. include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(ser2net, 시뮬레이터)은 목록에 없고 uart_open 에 socket://host:port 로 준다.",
+    "description": "시리얼 포트 목록 (OBSERVE). ports[{device, description, hwid, vid, pid, serial_number, manufacturer, likely_usb_uart, in_use_by}]. include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(이 호스트의 ser2net, 시뮬레이터)은 목록에 없고 uart_open 에 socket://127.0.0.1:<포트> 로 준다(루프백만 — LAN 호스트는 validation_failed).",
     "params": [
      {
       "name": "include_links",
@@ -689,7 +708,7 @@
    },
    {
     "name": "uart_open",
-    "description": "UART 세션 열기 (INTERACT, dtr/rts=true 면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL (socket://host:port, rfc2217://, loop://). DTR/RTS 는 열기 전에 설정하며 기본 False. line_ending 기본 \"\\r\" (U-Boot 문맥은 항상 \\r). profile 은 pipeline_profiles 이름(생략 시 케이스 프로필) — 프롬프트/autoboot 정규식과 인터럽트 키를 정한다. 반환: session_id, log_path/raw_path/events_path(케이스 상대), context, cursor. 세션이 열려 있는 동안 수신 스레드가 계속 기록한다.",
+    "description": "UART 세션 열기 (INTERACT, dtr/rts=true 면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL (루프백 호스트만: socket://127.0.0.1:<포트>, rfc2217://[::1]:<포트> / 테스트용 loop:// — LAN 호스트는 validation_failed). DTR/RTS 는 열기 전에 설정하며 기본 False. line_ending 기본 \"\\r\" (U-Boot 문맥은 항상 \\r). profile 은 pipeline_profiles 이름(생략 시 케이스 프로필) — 프롬프트/autoboot 정규식과 인터럽트 키를 정한다. 반환: session_id, log_path/raw_path/events_path(케이스 상대), context, cursor. 세션이 열려 있는 동안 수신 스레드가 계속 기록한다.",
     "params": [
      {
       "name": "case_id",
@@ -2993,7 +3012,7 @@
   "tools": [
    {
     "name": "jtagulator_connect",
-    "description": "JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 pyserial URL(socket://host:port). 포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽는다. 영속 모드(OpenOCD/로직 분석기)였다면 빠져나오며 경고한다. 연결할 때마다 서버의 전압 상태는 '미설정'으로 초기화된다. 세션 원시 기록은 jtag/jtagulator-<n>.log. 지원 펌웨어 1.10–1.12.",
+    "description": "JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 루프백 pyserial URL(socket://127.0.0.1:<포트> — LAN 호스트는 validation_failed). 포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽는다. 영속 모드(OpenOCD/로직 분석기)였다면 빠져나오며 경고한다. 연결할 때마다 서버의 전압 상태는 '미설정'으로 초기화된다. 세션 원시 기록은 jtag/jtagulator-<n>.log. 지원 펌웨어 1.10–1.12.",
     "params": [
      {
       "name": "case_id",

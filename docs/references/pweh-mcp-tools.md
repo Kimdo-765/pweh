@@ -44,6 +44,8 @@
   대상 기기 프로필 상세 (extends 해석 완료): 보드레이트 후보, U-Boot 프롬프트/autoboot 패턴, 인터럽트 키, 예상 인터페이스, 플래시/RAM 주소 힌트, 펌웨어 분석 힌트.
 - **`pipeline_safety_policy()`** — [읽기전용]  
   현재 적용 중인 안전 정책 (위험도별 allow/approve/deny, 승인 방법, 영구 경로 목록).
+- **`pipeline_environment(refresh?)`** — [읽기전용]  
+  실행 환경 보고서와 장치 종류별 추천 경로 (기기 미접촉, OBSERVE, 읽기 전용). report(pweh.hostenv/v1): kind(WSL2_INTEROP | WSL2_NO_INTEROP | WSL1 | WSL_UNKNOWN | NATIVE_LINUX | MACOS | NATIVE_WINDOWS | CYGWIN | MSYS | CONTAINER), wsl{version, netwo
 - **`approval_status(approval_id)`** — [읽기전용]  
   승인 요청 상태 조회 (pending|approved|denied|consumed|expired). 사람이 `pweh approve <id>` 를 했는지 확인할 때 사용.
 - **`approvals_pending()`** — [읽기전용]  
@@ -54,9 +56,9 @@
 ## pweh-uart
 
 - **`uart_list_ports(include_links?)`** — [읽기전용]  
-  시리얼 포트 목록 (OBSERVE). ports[{device, description, hwid, vid, pid, serial_number, manufacturer, likely_usb_uart, in_use_by}]. include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(ser2net, 시뮬레이터)은 목록에 없고 uart_open 에 soc
+  시리얼 포트 목록 (OBSERVE). ports[{device, description, hwid, vid, pid, serial_number, manufacturer, likely_usb_uart, in_use_by}]. include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(이 호스트의 ser2net, 시뮬레이터)은 목록에 없고 uart_ope
 - **`uart_open(case_id, port, baudrate?, bytesize?, parity?, stopbits?, line_ending?, dtr?, rts?, profile?, label?, approval_id?)`**  
-  UART 세션 열기 (INTERACT, dtr/rts=true 면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL (socket://host:port, rfc2217://, loop://). DTR/RTS 는 열기 전에 설정하며 기본 False. line_ending 기본 "\r" (U-Boot 문맥은 항상 \r). profile 은 
+  UART 세션 열기 (INTERACT, dtr/rts=true 면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL (루프백 호스트만: socket://127.0.0.1:<포트>, rfc2217://[::1]:<포트> / 테스트용 loop:// — LAN 호스트는 validation_failed). DTR/RTS 는 열기 전에 설정하며 
 - **`uart_close(session_id)`**  
   UART 세션 닫기: 실행 중인 job 취소, 수신 스레드 정지, 포트 닫기, 로그(uart-log/uart-raw/uart-events) 아티팩트 등록. 끊어진(disconnected) 세션도 닫을 수 있다.
 - **`uart_sessions(case_id?)`** — [읽기전용]  
@@ -181,7 +183,7 @@
 ## pweh-jtagulator
 
 - **`jtagulator_connect(case_id, port, baudrate?, timeout_seconds?, allow_untested_firmware?)`**  
-  JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 pyserial URL(socket://host:port). 포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽는다. 영속 모드(OpenOCD/로직 분석기)였다면 빠져나오며 경고한
+  JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 루프백 pyserial URL(socket://127.0.0.1:<포트> — LAN 호스트는 validation_failed). 포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽
 - **`jtagulator_disconnect(case_id)`**  
   JTAGulator 연결 종료. 실행 중인 스캔이 있으면 먼저 중단(LF)하고 끝날 때까지 기다린 뒤 포트를 닫고 세션 기록을 등록한다. 권장 순서: 타깃 전원을 먼저 끈 다음 호출 (포트를 닫으면 DTR 리셋으로 VADJ 가 꺼질 수 있음).
 - **`jtagulator_version(case_id)`**  

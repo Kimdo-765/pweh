@@ -29,7 +29,7 @@
 
 | 경로 | 내용 |
 |---|---|
-| `src/pweh/` | 공통 코어: `config.py`, `case.py`, `safety/`(분류기·게이트·승인·사람 증명·비밀값 마스킹), `provenance.py`(출처 원장), `jobs.py`, `runtime.py`, `mcpkit.py`, `report.py`, `cli.py`, `audit.py`, `errors.py`, `fsutil.py`, `formats.py`(mtdparts·uImage·U-Boot env·md.b/crc32 출력 파서), `schemas/`, `mocktarget/`, `data/` |
+| `src/pweh/` | 공통 코어: `config.py`, `case.py`, `safety/`(분류기·게이트·승인·사람 증명·비밀값 마스킹), `provenance.py`(출처 원장), `jobs.py`, `runtime.py`, `mcpkit.py`(서버 생성 — 네이티브 Windows·Cygwin·MSYS 는 시작 거부), `ports.py`(포트 참조 문법: COM1–COM4096, 루프백 원격 URL, 시뮬레이터 바인드 주소), `procutil.py`(PID 생존 확인), `hostenv.py`(실행 환경 감지 — WSL1/2·interop·네트워킹 모드·usbipd·컨테이너, 추천 경로; `pweh env`·doctor·`pipeline_environment`·esp 가 쓴다), `toolsdir.py`(외부 도구 위치, esptool.exe 후보), `report.py`, `cli.py`, `audit.py`, `errors.py`, `fsutil.py`, `formats.py`(mtdparts·uImage·U-Boot env·md.b/crc32 출력 파서), `schemas/`, `mocktarget/`, `data/` |
 | `mcp-servers/<name>-mcp/<name>_mcp/` | 서버 패키지 (`server.py` 에 `server` 객체와 `main()`), `mcp-servers/<name>-mcp/README.md` |
 | `skills/<skill>/SKILL.md` | 에이전트용 워크플로 (`.claude/skills/` 에 심볼릭 링크) |
 | `orchestrator/` | `master-prompt.md`, `pipeline-config.yaml` |
@@ -209,8 +209,8 @@ cases/<case_id>/
   - `jtagulator_mcp.classify`: 코어에 JTAGulator 분류기가 없어 보낼 키 계획을 실제 장치 프롬프트 기준으로 분류한다(스캔·`D`/`T` = MODIFY, `V` 키·전압 대화(0 V 포함)·`Y`/`P`/`O`/`W`/`L`/`A`/UART 패스스루 = DESTRUCTIVE).
     UART 스캔 프로브 문자열은 코어 `classify_console_line` 결과와 worst 를 취한다. 대상 콘솔은 순열마다 프로브를 다시 받으므로,
     한 번 보낸 형태와 두 번 이어 붙인 형태(줄 끝 없는 꼬리가 다음 송신의 머리와 이어짐 — `_erase X\rflash` → `flash_erase X`)를 모두 분류한다.
-    `jtagulator_connect` 는 포트 형식을 제한하고(장치 절대경로·`COMn`·`socket://`·`rfc2217://`·`loop://`. `spy://`·`hwgrep://` 같은 다른 pyserial URL 은 거부) 포트를 exclusive 로 연다.
-    그래서 다른 세션(uart-mcp 콘솔 등)이 잡은 포트에는 재동기화 키(Ctrl-X, CR)를 보내지 않고 거부한다.
+    `jtagulator_connect` 는 포트 형식을 제한하고(장치 절대경로·루프백 호스트의 `socket://`·`rfc2217://`·`loop://`. `spy://`·`hwgrep://` 같은 다른 pyserial URL, LAN 호스트, Windows `COMn` 은 거부) 장치 경로를 exclusive 로 연다.
+    그래서 다른 세션(uart-mcp 콘솔 등)이 잡은 장치에는 재동기화 키(Ctrl-X, CR)를 보내지 않고 거부한다(`socket://`·`rfc2217://` 는 다른 프로세스가 잡은 URL 을 막지 못한다 — P1 portlock).
   - `uart_mcp.guard`: 세션이 지금까지 보낸 바이트를 기억하는 코어 `LineAssembler` 사본으로 기기에서 완성될 줄을 조립해 줄마다 분류한다(`uart_write("sa")` + `uart_write("veenv\r")` → `saveenv`).
     로컬 규칙은 결과를 더 엄격하게만 만든다.
     - DESTRUCTIVE 인 줄: 탭(자동완성)·ESC(방향키/히스토리)가 섞인 줄, U-Boot/unknown 문맥의 250자 초과 줄(CBSIZE 를 넘으면 기기가 분류한 줄과 다른 줄을 실행. linux-shell 은 1000자),
@@ -341,6 +341,9 @@ if not decision.allowed:
 - 주석·docstring·도구 설명은 **한국어**, 식별자와 기술 용어는 영어. 도구 이름은 영어 snake_case.
 - 서버 구조는 참조 구현 `mcp-servers/case-mcp/case_mcp/server.py` 를 따른다:
   - `server = create_server(NAME, title=..., instructions=...)` (`pweh.mcpkit`)
+  - `create_server` 는 `sys.platform` 이 `win32`·`cygwin`·`msys` 이면 서버를 만들지 않고 안내 문구와 함께 `SystemExit`(종료 코드 1)으로 끝낸다. 서버는 WSL 안에서 실행하고, Windows 의 MCP 클라이언트는 `wsl.exe -d <배포판> -e <저장소>/.venv/bin/pweh-<서버>-mcp` 로 띄운다(`-u root` 금지).
+  - 포트 배타: 장치 경로는 pyserial `exclusive=True`(flock)로 프로세스 사이에서 독점한다. `socket://`·`rfc2217://` 는 pyserial 이 `exclusive` 를 무시하므로 프로세스 사이 배타가 없다. 서버 안의 '사용 중' 검사는 `pweh.ports.endpoint_key` 로 같은 끝점의 다른 표기를 한 포트로 본다(루프백 URL 은 포트만 — `net-loopback:<port>`, 장치 경로는 realpath, COM 은 `COM<n>`). 프로세스 사이 배타(portlock)는 P1 이다.
+  - PID 생존 확인은 `pweh.procutil.pid_alive` 를 쓴다(`os.kill(pid, 0)` 을 직접 부르지 않는다 — Windows 에서는 콘솔 Ctrl-C 이벤트, 0 이하 pid 는 프로세스 그룹 검사). 원격 시리얼 URL·COM 이름 검사는 `pweh.ports`(`validate_net_url`, `parse_win_com`)를 쓴다.
   - `def rt() -> Runtime: return get_runtime(NAME)`
   - 도구: `@server.tool(description=..., annotations=ANN_*)` 다음 줄에 `@safe_tool`
   - 기기에 영향을 주는 도구는 `async def ...(..., ctx: Context)` 이며 블로킹 I/O 는 `await run_blocking(fn, ...)`.
@@ -364,10 +367,12 @@ if not decision.allowed:
 `case_get_step_results(case_id, skill?, summaries_only?)`, `case_register_artifact`, `case_import_file(case_id, source_path, kind?, dest_subdir?, description?)`,
 `case_hash_file(case_id, path, offset?, length?) → sha256, md5, crc32` *(추가)*,
 `case_add_finding(case_id, finding)`, `case_update_finding`, `case_list_findings`, `report_generate(case_id)`,
-`pipeline_profiles`, `pipeline_profile(name)`, `pipeline_safety_policy`, `approval_status(approval_id)`, `approvals_pending`, `schema_get(name)`.
+`pipeline_profiles`, `pipeline_profile(name)`, `pipeline_safety_policy`, `pipeline_environment(refresh?) → report, routes`, `approval_status(approval_id)`, `approvals_pending`, `schema_get(name)`.
 
 - `case_hash_file` 은 케이스 안 파일(또는 `offset`/`length` 구간, 정수 또는 `"0x50000"`·`"64k"`)의 해시를 계산한다. 덤프 교차 검증용이다:
   tftpput·SPI 클립으로 받은 파일과 UART 덤프의 같은 구간 비교, 기기 측 `md5sum`/`crc32` 값과 대조.
+- `pipeline_environment` 은 실행 환경 보고서(`pweh.hostenv/v1` — `kind`, `wsl{version, networking_mode, interop}`, `windows{build, uac_enabled, interop_elevated, smart_app_control, usbipd, tools.esptool_win}`, `linux`, `warnings`, `overridden`)와 장치 종류별 `routes[]`(`now` = 지금 되는 경로·사람 단계, `target{route, phase}` = 다음 단계 경로)를 돌려준다(OBSERVE, 기기 미접촉). 모르는 값은 `null`, 휘발 목록(COM 포트·usbipd attach 상태)은 넣지 않는다. WSL 첫 감지는 powershell.exe 고정 스크립트 smoke 로 몇 초, 이후 캐시(성공한 smoke 300 초, 실패한 감지는 30 초 뒤 다시), `refresh=true` 면 다시 감지. 표준 위치가 아닌 `$PATH` 의 usbipd 는 `windows.usbipd.found_elsewhere` 로 표시만 하고 실행하지 않는다(Windows 프로그램은 실제 경로가 정확히 맞는 System32 powershell·Program Files usbipd 만). 사람은 같은 내용을 `pweh env` 로 본다.
+  설정 `hostenv.disable` 은 좁히기만 한다: `interop` — Windows 프로그램을 실행하지 않는다(kind 는 WSL2_NO_INTEROP), `windows_tools` — Windows 판 도구를 쓰지 않는다(esp esptool.exe → `tool_missing`), `serial_helper` — (P2) 헬퍼 경로. 알 수 없는 값은 경고와 함께 무시한다.
 - `case_import_file` 은 가져온 파일을 출처 원장에 `imported-unattested` 로 기록하고 응답에 `provenance{recorded, kind: "imported-unattested", seq, sha256, note}` 를 붙인다(§4).
   기록에 실패하면 `recorded: false` 와 `reason` 이고 가져오기는 그대로 된다. 이 서버에는 기기 읽기(`device-read`)로 기록하는 경로가 없다.
 - `case_set_phase` 는 단계 이름을 검사하지 않는다(파이프라인 단계와 선택 단계 — §3).
@@ -383,8 +388,8 @@ if not decision.allowed:
 
 | 도구 | 설명 / 반환 |
 |---|---|
-| `uart_list_ports(include_links=False)` | OBSERVE. `ports[{device, description, hwid, vid, pid, serial_number, manufacturer, likely_usb_uart, in_use_by}]`, `count`(없으면 `hint`). `include_links=true` 면 `/dev/serial/by-id/…` 링크도 넣는다. TCP 시리얼(ser2net, 시뮬레이터)은 목록에 없으니 `uart_open` 에 `socket://host:port` 로 준다 |
-| `uart_open(case_id, port, baudrate=115200, bytesize=8, parity="N", stopbits=1, line_ending="\r", dtr=False, rts=False, profile=None, label=None, approval_id=None)` | INTERACT(`dtr`/`rts`=true 면 MODIFY — 리셋·부트모드 핀일 수 있음). `session_id, log_path, raw_path, events_path`(케이스 상대), `context`, `cursor`. `port` 는 장치 절대경로(이미 있으면 문자 장치여야 함) 또는 pyserial URL(`socket://`, `loop://`, `rfc2217://`)이고 장치 경로는 flock 으로 독점한다. 다른 pyserial URL(`spy://` — 포트 이름만 정해도 호스트 파일을 덮어씀, `hwgrep://` — 임의 포트를 잠금 없이 열어 봄 등), 상대 경로, 일반 파일, (Windows 가 아닌 곳의) `COMn`, 제어 문자는 게이트 전에 `validation_failed` 다(`uart_detect_baud` 도 같다). DTR/RTS 는 열기 **전에** 설정하며 기본 False 로 두어 보드 리셋을 피한다. `profile`(생략 시 케이스 프로필)이 프롬프트·autoboot 정규식과 인터럽트 키를 정한다. U-Boot 를 받을 수 있는 문맥에서는 `line_ending` 과 무관하게 `\r` 만 보낸다(`\r\n` 은 명령 + 빈 줄 = 반복). 그 밖의 반환: `port`, `baudrate`, `framing`, `line_ending`, `dtr`, `rts`, `profile`, `phase`, `artifacts`, `next_steps`, `socket://` 면 `note`(보드레이트를 전달하지 않음). 같은 서버 프로세스에서 같은 케이스·포트의 앞 세션이 U-Boot 명령을 보낸 뒤 닫혔으면 그 명령을 `inherited_last_command` 로 돌려주고 이 세션의 직전 명령으로 삼는다(빈 Enter = 그 명령의 반복. env 는 이어 받지 않음). 없으면 새 세션의 빈 Enter 는 `uart.repeat-unknown`(DESTRUCTIVE, §4) |
+| `uart_list_ports(include_links=False)` | OBSERVE. `ports[{device, description, hwid, vid, pid, serial_number, manufacturer, likely_usb_uart, in_use_by}]`, `count`(없으면 `hint`). `include_links=true` 면 `/dev/serial/by-id/…` 링크도 넣는다. TCP 시리얼(이 호스트의 ser2net, 시뮬레이터)은 목록에 없으니 `uart_open` 에 `socket://127.0.0.1:<포트>` 로 준다(루프백만 — LAN 호스트는 `validation_failed`) |
+| `uart_open(case_id, port, baudrate=115200, bytesize=8, parity="N", stopbits=1, line_ending="\r", dtr=False, rts=False, profile=None, label=None, approval_id=None)` | INTERACT(`dtr`/`rts`=true 면 MODIFY — 리셋·부트모드 핀일 수 있음). `session_id, log_path, raw_path, events_path`(케이스 상대), `context`, `cursor`. `port` 는 장치 절대경로(이미 있으면 문자 장치여야 함) 또는 pyserial URL(`socket://`, `rfc2217://`, `loop://`)이고 장치 경로는 flock 으로 독점한다. `socket://`·`rfc2217://` 는 루프백 호스트(정규형 `127.0.0.0/8`, `[::1]`, 모든 주소가 루프백으로 풀리는 `localhost`)와 포트(1–65535, 앞자리 0 없음)만 받아 `<scheme>://<host>:<port>`(소문자)로 정규화한다(반환 `port` 도 정규형. `localhost` 는 확인한 루프백 주소(IPv4 우선)로 바꿔 연결할 때 이름을 다시 풀지 않는다). 같은 루프백 포트의 다른 표기(`127.0.0.1`·다른 `127.x`·`[::1]`·`localhost`, 두 스킴)는 한 포트라, 세션이 열린 동안 다른 표기로 부른 `uart_open`·`uart_detect_baud` 는 `busy` 다. `socket://`·`rfc2217://` 는 독점하지 않으므로 다른 프로세스가 같은 URL 에 붙는 것은 막지 못한다. 다른 pyserial URL(`spy://` — 포트 이름만 정해도 호스트 파일을 덮어씀, `hwgrep://` — 임의 포트를 잠금 없이 열어 봄 등), LAN·와일드카드 호스트(LAN 의 ser2net 은 지원하지 않음), inet_aton 별칭(`127.1`, `2130706433`)·사용자 정보(`@`)·zone(`%`)·경로·질의 옵션(`?logging=`, `?timeout=` 등), 상대 경로, 일반 파일, 제어 문자는 게이트 전에 `validation_failed` 다(`uart_detect_baud` 도 같다). Windows `COMn` 도 게이트 전에 `validation_failed` 다 — 서버가 네이티브 Windows 에서 시작하지 않으므로(§5) Windows COM 을 직접 열거나 다른 경로로 돌리지 않는다. `COM1`–`COM4096`(앞자리 0 없음) 문법이 맞으면 안내(`hint`)가 붙는다: WSL2 에서는 usbipd 로 어댑터를 attach 한 뒤 `/dev/ttyUSB0`·`/dev/ttyACM0`, ESP32 보드 덤프는 pweh-esp 방법 A(§6.7). DTR/RTS 는 열기 **전에** 설정하며 기본 False 로 두어 보드 리셋을 피한다. `profile`(생략 시 케이스 프로필)이 프롬프트·autoboot 정규식과 인터럽트 키를 정한다. U-Boot 를 받을 수 있는 문맥에서는 `line_ending` 과 무관하게 `\r` 만 보낸다(`\r\n` 은 명령 + 빈 줄 = 반복). 그 밖의 반환: `port`, `baudrate`, `framing`, `line_ending`, `dtr`, `rts`, `profile`, `phase`, `artifacts`, `next_steps`, `socket://` 면 `note`(보드레이트를 전달하지 않음). 같은 서버 프로세스에서 같은 케이스·포트의 앞 세션이 U-Boot 명령을 보낸 뒤 닫혔으면 그 명령을 `inherited_last_command` 로 돌려주고 이 세션의 직전 명령으로 삼는다(빈 Enter = 그 명령의 반복. env 는 이어 받지 않음). 없으면 새 세션의 빈 Enter 는 `uart.repeat-unknown`(DESTRUCTIVE, §4) |
 | `uart_close(session_id)` | 정리 작업이라 게이트 없음. 실행 중인 job 취소 → 수신 스레드·포트 정지 → 로그 3종(`uart-log`/`uart-raw`/`uart-events`) 아티팩트 등록 → `rx_bytes`, `tx_bytes`, 로그 경로, `artifacts`, `job_cancelled`. 끊어진(`disconnected`) 세션도 닫는다 |
 | `uart_sessions(case_id=None)` | OBSERVE. `sessions[{session_id, case_id, port, state(open/disconnected), context, auto_context, manual_context, phase, boot_stage, prompt, learned_prompts, rx_bytes, tx_bytes, pending_input, pending_uncertain, device_ready, device_busy_reason, uboot_env_tracked, env_source, last_uboot_command, job_id, log_path, …}]`, `count`. `device_ready=false` 면(`device_busy_reason`: 부팅 중, 명령 실행 중 등) 지금 보내는 줄은 `uart.device-busy` 로 거부되니 프롬프트를 기다리거나 `uart_sync` 한다. `pending_uncertain` 이면 남은 미완성 입력을 `uart_sync` 로 비운다 |
 | `uart_read(session_id, since_cursor=None, max_bytes=8192, wait_seconds=0, tail=False)` | OBSERVE. `text`(CRLF→LF 정규화. 원시 바이트는 `uart/<session>.raw`), `bytes`, `cursor_start`, `cursor_end`, `more`, `context`, `prompt`, `state`, 요청한 커서 앞부분이 링 버퍼에서 밀려났으면 `lost_bytes`·`note`. `since_cursor` 생략 시 에이전트 읽기 위치(직전 `uart_read`/명령의 `cursor_end`)부터. `wait_seconds` 최대 50 |
@@ -504,7 +509,7 @@ JTAGulator(FW 1.10–1.12)의 USB-시리얼 텍스트 메뉴를 조작해 JTAG(I
 
 | 도구 | 설명 / 반환 |
 |---|---|
-| `jtagulator_connect(case_id, port, baudrate=115200, timeout_seconds=12, allow_untested_firmware=False)` | INTERACT. 포트를 열고 Ctrl-X 재동기화로 메뉴 프롬프트를 찾은 뒤 펌웨어 버전을 읽는다. `port` 는 장치 절대경로(`/dev/ttyUSB0`, `/dev/serial/by-id/…`), Windows `COMn`, `socket://`·`rfc2217://`(원격), `loop://`(테스트)만 받는다(`spy://`·`hwgrep://` 같은 다른 pyserial URL 과 제어 문자는 `validation_failed`). 포트는 exclusive(flock)로 열어, 다른 세션(uart-mcp 콘솔 등 — 대상 콘솔일 수 있음)이 잡은 포트면 재동기화 키를 한 바이트도 보내지 않고 `device_error` 로 실패한다 → `connection{port, firmware, firmware_supported, connection_token, voltage, menu, active_job_id, …}`, `firmware`, `reused`, `warnings`(영속 모드에서 빠져나왔으면 VADJ 재설정 경고), `next_steps`. FW 1.10 미만은 `allow_untested_firmware=true` 없이는 전압 설정·스캔을 거부한다. 세션 기록 `jtag/jtagulator-<n>.log`. 케이스당 연결 하나, 포트당 케이스 하나 |
+| `jtagulator_connect(case_id, port, baudrate=115200, timeout_seconds=12, allow_untested_firmware=False)` | INTERACT. 포트를 열고 Ctrl-X 재동기화로 메뉴 프롬프트를 찾은 뒤 펌웨어 버전을 읽는다. `port` 는 장치 절대경로(`/dev/ttyUSB0`, `/dev/serial/by-id/…`), 루프백 호스트의 `socket://`·`rfc2217://`(정규형 `127.0.0.0/8`·`[::1]`·`localhost` + 포트. `<scheme>://<host>:<port>` 로 정규화하고 `localhost` 는 확인한 루프백 주소로 바꾼다), `loop://`(테스트)만 받는다(`spy://`·`hwgrep://` 같은 다른 pyserial URL, LAN·와일드카드 호스트(LAN 의 ser2net·RFC2217 서버는 지원하지 않음), 사용자 정보·질의 옵션, 제어 문자는 `validation_failed`). Windows `COMn` 도 `validation_failed` 다(서버가 네이티브 Windows 에서 시작하지 않는다 — WSL2 에서는 usbipd 로 JTAGulator 를 attach 한 뒤 `/dev/ttyUSB0`). 같은 끝점의 다른 표기는 한 포트다: 다른 케이스가 잡은(또는 연결 중인) 끝점은 `busy`, 같은 케이스는 기존 연결을 재사용한다. 장치 경로는 exclusive(flock)로 열어, 다른 세션(uart-mcp 콘솔 등 — 대상 콘솔일 수 있음)이 잡은 포트면 재동기화 키를 한 바이트도 보내지 않고 `device_error` 로 실패한다. `socket://`·`rfc2217://` 에는 이 보호가 없어, uart-mcp 가 잡은 같은 URL 에 연결하면 재동기화 키가 그 콘솔로 간다(P1 portlock) → `connection{port, firmware, firmware_supported, connection_token, voltage, menu, active_job_id, …}`, `firmware`, `reused`, `warnings`(영속 모드에서 빠져나왔으면 VADJ 재설정 경고), `next_steps`. FW 1.10 미만은 `allow_untested_firmware=true` 없이는 전압 설정·스캔을 거부한다. 세션 기록 `jtag/jtagulator-<n>.log`. 케이스당 연결 하나, 포트당 케이스 하나 |
 | `jtagulator_disconnect(case_id)` | 실행 중인 스캔을 중단(LF)하고 끝나기를 기다린 뒤 포트를 닫고 세션 기록을 등록한다 → `port`, `transcript`. 정리 작업이라 소유/허가 검사와 게이트를 거치지 않는다. 포트를 닫으면 DTR 리셋으로 VADJ 가 꺼질 수 있으니 타깃 전원을 먼저 끈다 |
 | `jtagulator_version(case_id)` | 메인 메뉴 `I` → `firmware`, `supported`(1.10–1.12 여부), `version_lines` |
 | `jtagulator_status(case_id=None)` *(추가)* | 장치 I/O 없음. `connections[]`(포트, 펌웨어, 현재 메뉴, 이 연결에서 확인된 전압, 실행 중 작업), `connected`. `case_id` 를 생략하면 전체 |
@@ -586,7 +591,7 @@ Espressif 칩(ESP32·ESP32-S2·ESP32-S3·ESP32-C3 등)을 esptool 로 **읽기 �
 - `COM1` ~ `COM256`(대소문자 무관) → `windows` 백엔드(방법 A, WSL 권장): WSL interop 으로 Windows 용 `esptool.exe` 를 `--port COMn` 으로 실행한다.
   보드는 Windows 에 연결된 그대로 두므로 usbipd attach 가 필요 없다. 덤프 출력 경로는 `wslpath -w` 로 바꿔(`\\wsl.localhost\<배포판>\…\dumps\…`) esptool.exe 가 케이스 `dumps/` 에 바로 쓴다.
   실행 파일은 설정 `tools.esptool_win`(`PWEH_ESPTOOL_WIN`)이고, 비어 있으면 `~/pweh-tools/esptool-win/esptool-windows-amd64/esptool.exe`(설치 스크립트의 esptool 구성요소)를 찾는다.
-  조건은 셋이다: WSL 안, `/proc/sys/fs/binfmt_misc/WSLInterop`(또는 `WSLInterop-late`)가 `enabled`, `wslpath`.
+  조건(`pweh.hostenv` 의 smoke 없는 판정): WSL 안(컨테이너는 WSL 커널이어도 아님), `WSLInterop` 또는 `WSLInterop-late` 첫 줄이 `enabled`, `/init` 있음, `wslpath -w /` 실행. C: 드라이브 마운트는 조건이 아니다(없으면 Windows 프로세스 확인·COM 목록용 powershell 만 없다). 설정 `hostenv.disable` 에 `interop` 이 있으면 Windows 백엔드와 powershell 을 쓰지 않고, `windows_tools` 가 있으면 Windows esptool.exe 를 쓰지 않는다(`tool_missing`).
 - `/dev/ttyACM<n>`, `/dev/ttyUSB<n>`, `/dev/ttyS<n>`, `/dev/serial/by-id/<이름>` → `linux` 백엔드: 리눅스 esptool(`tools.esptool`, `PWEH_ESPTOOL`. 설치 스크립트는 esptool 5.4.0 venv).
   WSL 이면 usbipd attach 뒤에 쓴다(attach 하는 동안 Windows 에서는 그 COM 포트가 사라진다). 장치가 있어야 하고 링크의 실제 대상도 `/dev` 아래여야 한다.
 - `rfc2217://`, `socket://` 같은 네트워크 포트와 그 밖의 경로는 `validation_failed` 다.
@@ -706,6 +711,7 @@ esptool v5 는 하이픈 이름(`read-flash`), v4 는 밑줄 이름(`read_flash`
 - 사람 증명·출처 원장·마스킹 테스트(`tests/core/test_attestations.py`, `tests/core/test_provenance.py`, `tests/core/test_masking.py`)는 `workspace` fixture 의
   격리된 상태 디렉터리만 쓴다. `pweh attest` 는 하위 프로세스로 실행해 TTY 가 아닐 때의 거부를, 가상 터미널(pty)로 대화형 답·목록·철회를 시험한다.
   작업 공간의 실제 `.pweh/state` 는 건드리지 않는다.
+- 시뮬레이터(`pweh-mock-device --tcp`, `python -m jtagulator_mcp.sim --tcp`)는 IPv4 루프백(127.0.0.0/8, localhost)에만 바인드한다(IPv6 주소는 `--allow-lan` 이어도 거부 — 리스너가 IPv4 전용). 루프백이 아닌 `--host`·`--tcp` 는 `--allow-lan` 이 있어야 하고(stderr 경고), 라이브러리(`MockDevice.start_tcp`, `TcpTransport`, `SimTCPServer`)는 `allow_lan=True` 가 있어야 한다. 시험은 0.0.0.0·LAN 주소에 실제로 바인드하지 않는다(가짜 전송으로 경고 경로를 확인한다).
 - 테스트 파일 위치: `tests/servers/test_<server>.py`, `tests/core/`, `tests/uart/`(uart-mcp 파서·분류·문맥 단위), `tests/fwtriage/`(합성 입력 빌더),
   `tests/mocktarget/`, `tests/e2e/`.
 - `tests/e2e/` 의 에이전트는 Skill 순서를 스크립트로 고정한 것이다. 실제 모델이 마스터 프롬프트·Skill 만 보고 끝까지 가는지는

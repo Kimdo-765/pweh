@@ -12,9 +12,11 @@ from __future__ import annotations
 import codecs
 import math
 import re
+import sys
 from dataclasses import dataclass
 
 from pweh.errors import ValidationFailed
+from pweh.ports import WIN_COM_MAX, endpoint_key, looks_like_win_com, parse_win_com, validate_net_url
 
 # ---------------------------------------------------------------------------
 # 하드웨어/펌웨어 상수 (JTAGulatorCon.spin, JTAGulator.spin CON 섹션)
@@ -346,10 +348,16 @@ _PORT_URL_SCHEMES = ("socket://", "rfc2217://", "loop://")
 
 def validate_port(port: str) -> str:
     """jtagulator_connect 의 port 검증: 장치 절대경로(/dev/ttyUSB0, /dev/serial/by-id/...), Windows COMn,
-    또는 원격 시리얼 URL(socket://, rfc2217://, 테스트용 loop://)만 허용한다.
+    루프백 원격 시리얼 URL(socket://, rfc2217://), 테스트용 loop:// 만 허용한다.
 
     pyserial 의 다른 URL 처리기는 막는다 — ``spy://...?file=<경로>`` 는 호스트의 임의 파일에 기록하고,
     ``hwgrep://<정규식>`` 은 어떤 장치가 열릴지 정할 수 없어(대상 콘솔 어댑터일 수 있음) 재동기화 키가 엉뚱한 장치로 갈 수 있다.
+    socket://·rfc2217:// 는 호스트가 루프백(127.0.0.0/8, [::1], localhost)이고 포트가 있는 정규형만 받아
+    ``<scheme>://<host>:<port>`` 로 돌려준다(pweh.ports.validate_net_url, 설계 D4. localhost 는 확인한 루프백 주소로 바뀜).
+    LAN 의 ser2net·RFC2217 서버는 지금 지원하지 않는다 — 설계의 운영자 허용 목록(``safety.ports.remote_serial_hosts``)은
+    아직 구현하지 않았다.
+    COMn 은 Windows COM 이름 문법(COM1–COM4096, 앞자리 0 없음, 정규형 ``COM<n>``)만 받고, Windows 가 아닌 곳에서는 거부한다
+    (리눅스의 pyserial 은 ``COM3`` 을 현재 디렉터리 기준 파일로 연다 — G5. Windows COM 직접 연결은 후속 단계).
     """
     p = (port or "").strip()
     if not p:
@@ -357,18 +365,42 @@ def validate_port(port: str) -> str:
     if any(c in p for c in "\x00\r\n"):
         raise ValidationFailed(f"port 에 제어 문자가 있습니다: {port!r}")
     if "://" in p:
-        if not p.lower().startswith(_PORT_URL_SCHEMES):
+        low = p.lower()
+        if not low.startswith(_PORT_URL_SCHEMES):
             raise ValidationFailed(
                 f"지원하지 않는 포트 URL 입니다: {p!r}",
-                hint="장치 경로(/dev/ttyUSB0) 또는 socket://host:port, rfc2217://host:port 만 사용할 수 있습니다.",
+                hint="장치 경로(/dev/ttyUSB0) 또는 루프백의 socket://127.0.0.1:<포트>, rfc2217://127.0.0.1:<포트> 만 사용할 수 있습니다.",
             )
-        return p
-    if p.startswith("/") or re.fullmatch(r"COM\d{1,3}", p, re.I):
+        if low.startswith("loop://"):
+            return p
+        return validate_net_url(p)
+    com = parse_win_com(p)
+    if com is None and looks_like_win_com(p):
+        raise ValidationFailed(
+            f"Windows COM 포트 이름은 COM1–COM{WIN_COM_MAX} 이고 앞자리 0 이 없어야 합니다: {p!r}",
+            hint="예: /dev/ttyUSB0 (WSL2 는 usbipd 로 JTAGulator 를 attach 한 뒤).",
+        )
+    if com is not None:
+        if sys.platform == "win32":
+            return f"COM{com}"
+        raise ValidationFailed(
+            f"이 환경에서는 Windows COM 포트({p})를 직접 열 수 없습니다.",
+            hint="Windows COM 포트로 바로 여는 기능은 아직 없습니다(후속 단계 예정). 지금은 Windows 쪽에서 usbipd 로 JTAGulator(FT232)를 "
+                 "WSL 에 attach 한 뒤 /dev/ttyUSB0 (또는 /dev/serial/by-id/usb-FTDI_…)를 쓰세요.",
+        )
+    if p.startswith("/"):
         return p
     raise ValidationFailed(
         f"포트는 장치 절대경로여야 합니다: {p!r}",
-        hint="예: /dev/ttyUSB0, /dev/serial/by-id/usb-FTDI_..., 원격이면 socket://host:port",
+        hint="예: /dev/ttyUSB0, /dev/serial/by-id/usb-FTDI_..., 원격이면 루프백의 socket://127.0.0.1:<포트>",
     )
+
+
+def port_key(port: str) -> str:
+    """연결의 '사용 중' 비교 키. 같은 끝점의 다른 표기를 하나로 — 루프백 원격 URL 은 포트만(``net-loopback:<port>``),
+    장치 경로는 realpath, COM 은 ``COM<n>`` (``pweh.ports.endpoint_key``). socket:// 는 pyserial 이 exclusive 를 무시하므로
+    이 비교가 같은 서버 안의 유일한 배타다(uart 서버 같은 다른 프로세스가 잡은 URL 은 막지 못한다 — P1 portlock)."""
+    return endpoint_key(port)
 
 
 def validate_channels(kind: str, start_channel: int, end_channel: int) -> tuple[int, int]:

@@ -12,7 +12,7 @@
   각 단계는 `skills/` 의 Skill 을 따른다.
 
 분석 목표는 Phase 0 접수에서 먼저 고른다(§3): **보안 분석**(기본) / 게임 콘솔 분석 / RF·하드웨어 분석 / SD 카드 포렌식.
-게임 콘솔 분석은 세이브·해금 오프라인 분석(`game-save-unlock-analysis`)까지만 **일부 지원**하고, RF·하드웨어 분석과 SD 카드 포렌식은 전용 Skill 이 아직 없는 **준비 중** 목표다.
+게임 콘솔 분석은 세이브·해금 분석과 사용자가 원한 세이브 값 변경(사람이 쓴다, `game-save-unlock-analysis`)까지 **일부 지원**하고(NFC·플레이 자동화는 아직), RF·하드웨어 분석과 SD 카드 포렌식은 전용 Skill 이 아직 없는 **준비 중** 목표다.
 보안 분석이 아닌 목표는 지금 있는 Skill·도구로 할 수 있는 일만 한다(§3.1).
 보안 분석의 목표는 다음 셋이다.
 1. 기기 콘솔(UART)에 접속해 기본 정보를 수집한다.
@@ -96,8 +96,9 @@
      - SD 카드 포렌식: 카드 리더 일체형 하드웨어 쓰기 방지 장치(SDXC/exFAT 지원 여부), 희생용 시험 카드, 이미징 도구(FTK Imager 등), 분석 PC 의 여유 공간(카드 크기의 2배 이상), 카메라의 설치 형태(가정용·공개 장소·업무용 — 적용 법률이 달라진다).
    - 이미 아는 것: UART 패드 위치, 공식 펌웨어 파일 경로, 웹 UI 접속 가능 여부.
    - 범위 (보안 분석): 셸 획득만 / 펌웨어 분석 / 인증 우회 탐색까지 (기본: 전체).
-   - 실행 환경: 분석 PC 가 WSL2 인가 (그렇다면 usbipd 로 USB 장치를 attach 해야 한다. 단 ESP32 를 Windows esptool.exe 로 다루는 방법 A 는 attach 하지 않는다).
-     Windows 관리자 권한이 있는가 (드라이버·usbipd·이미징 도구 설치처럼 사람이 하는 단계에 필요하다).
+   - 실행 환경: `pipeline_environment()` 를 먼저 부른다(기기 미접촉 — `case_create` 전에 불러도 된다). `report.kind` 와 `routes`(장치별 `now` = 지금 되는 경로와 사람 단계 [관리자]·[root], `target` = 다음 단계)로 계획을 세운다.
+     WSL2+interop 에서 ESP32 는 방법 A(esptool.exe + COMn, attach 없음), UART·JTAG·로직 애널라이저는 지금은 usbipd attach(명령은 네트워킹 모드별 — routes 의 human_steps). `warnings`(High IL·bridged LAN 노출·AutoBind·brltty)는 사용자에게 알린다.
+     Windows 관리자 권한 여부는 사용자에게 묻는다 — 보고서는 이것을 답하지 않는다(`windows.interop_elevated=true` 는 interop 으로 띄운 Windows 프로그램이 이미 관리자 권한으로 돈다는 경고, `false` 는 권한이 없다는 뜻이 아니다).
 2. `pipeline_profiles` 를 보고 가장 가까운 프로필을 고른다. 모르면 `generic-ipcam` 을 쓴다.
    `pipeline_safety_policy` 로 현재 정책을 확인한다 (기본: destructive=deny).
 3. `case_create(title, authorization, target, profile, notes)` 를 호출한다. `notes` 에 고른 목표를 적어(예: `notes="목표: SD 카드 포렌식 (준비 중)"`) 세션이 끊겨도 케이스에 남긴다.
@@ -263,7 +264,7 @@
 
 | 증상 | 조치 |
 |---|---|
-| 포트가 없음 | USB 연결과 WSL `usbipd attach`, `dialout` 권한을 확인한다 (`pweh doctor`) |
+| 포트가 없음 | `pipeline_environment()` 의 routes 를 본다(WSL2+interop: ESP32 는 Windows COMn, 다른 USB 직렬은 모드별 usbipd attach / 네이티브 리눅스: dialout·brltty). 사람은 `pweh doctor`·`pweh env` |
 | 출력이 전혀 없음 | TX/RX 를 바꿔 본다, GND 를 확인한다, 기기 전원을 확인한다, 로직 애널라이저로 TX 를 찾는다 |
 | 깨진 문자 | 보드레이트를 확인한다 (`uart_detect_baud`, `sigrok_estimate_baud`). 1.8V/3.3V 레벨 불일치도 의심한다 |
 | autoboot 인터럽트 실패 | 프로필의 `interrupt_sequences` 를 확인한다. bootdelay=0 이나 키 지정 autoboot 일 수 있다 → 셸 경로나 SPI 경로로 간다. 커널 로그 없이 `Password:` 가 나오면 부트로더 잠금이다(추측하지 않음) |
@@ -289,7 +290,7 @@
 | 목표 | 추가 완료 기준 |
 |---|---|
 | 보안 분석 | 펌웨어 확보 경로와 무결성(sha256, 기기 측 crc/md5 일치 여부)이 기록되어 있다. 사용자가 범위를 줄였으면(예: 셸 획득만) 그 단계의 summary 까지 |
-| 게임 콘솔 분석 (일부 지원) | 펌웨어를 확보했으면 위와 같은 무결성 기록이 있다. `game-save-unlock-analysis` 의 summary(`save-analysis`)가 있고, 근거가 있는 해금 조건·세이브 위치는 발견사항으로, 확인하지 못한 가설과 아직 못 하는 일(값 수정·NFC·플레이)은 summary 의 limitations 에 남겼다 |
+| 게임 콘솔 분석 (일부 지원) | 펌웨어를 확보했으면 위와 같은 무결성 기록이 있다. `game-save-unlock-analysis` 의 summary(`save-analysis`)가 있고, 근거가 있는 해금 조건·세이브 위치는 발견사항으로, 확인하지 못한 가설과 아직 못 하는 일(NFC·플레이 자동화)은 summary 의 limitations 에 남겼다. 값을 바꿨으면 `fw_verify_writeback` 결과가 summary 의 patches 에 있다 |
 | RF·하드웨어 분석 (준비 중) | 보드에서 한 일(콘솔·신호·덤프)의 summary 가 있고, 하지 못한 무선 신호 분석을 `case_add_note` 로 한계에 남겼다 |
 | SD 카드 포렌식 (준비 중) | 이미지가 아티팩트로 등록되어 있고(보고서의 아티팩트 표에 sha256 앞부분), 이미징 도구 로그와의 해시 대조 결과와 이미징 기록(쓰기 방지 장치·작업자·시각)을 `case_add_note` 로 남겼다. 녹화 내용은 열지 않았다 |
 

@@ -16,6 +16,9 @@ import 하지 않는다 — 한쪽의 오타가 다른 쪽에 숨어 테스트�
 - 리셋(DTR) 모델: reset() 또는 TCP 접속 시 reset_on_connect
 
 전송: TCP(pyserial ``socket://host:port``) 또는 PTY(``/dev/pts/N``).
+TCP 는 IPv4 루프백 주소(127.0.0.0/8, localhost)에만 바인드한다(IPv6 주소는 거부 — AF_INET 전용). ``--tcp 0.0.0.0:N`` 처럼
+루프백이 아닌 주소는 ``--allow-lan``(라이브러리는 ``allow_lan=True``)이 없으면 거부하고, 있으면 stderr 로 LAN 노출을
+경고한다(인증 없는 시리얼 — 브리지 모드 WSL 이면 LAN 전체; port-routing 설계 G13).
 
 CLI::
 
@@ -37,6 +40,9 @@ import threading
 import time
 from dataclasses import dataclass, field
 from typing import Callable
+
+from pweh.errors import ValidationFailed
+from pweh.ports import check_listen_host, lan_listen_warning
 
 CR = "\r"
 LF = "\n"
@@ -1242,7 +1248,13 @@ class JTAGulatorSim:
 class SimTCPServer:
     """TCP 서버: 한 번에 클라이언트 하나. pyserial URL ``socket://127.0.0.1:<port>`` 로 접속."""
 
-    def __init__(self, sim: JTAGulatorSim, host: str = "127.0.0.1", port: int = 0, *, reset_on_connect: bool = False) -> None:
+    def __init__(self, sim: JTAGulatorSim, host: str = "127.0.0.1", port: int = 0, *, reset_on_connect: bool = False,
+                 allow_lan: bool = False) -> None:
+        # 소켓을 만들기 전에: 루프백이 아니면 allow_lan 없이는 거부 (G13)
+        try:
+            self.lan_exposed = check_listen_host(host, allow_lan=allow_lan)
+        except ValidationFailed as exc:
+            raise ValueError(f"{exc.message} ({exc.hint})") from None
         self.sim = sim
         self.reset_on_connect = reset_on_connect
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1389,10 +1401,17 @@ def _parse_ints(text: str, n_min: int, n_max: int) -> list[int]:
     return vals
 
 
+def _serve_until_interrupted() -> None:
+    """Ctrl-C(KeyboardInterrupt)까지 기다린다 (시험은 이 함수를 바꿔 끼워 바로 돌아오게 한다)."""
+    while True:
+        time.sleep(1.0)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m jtagulator_mcp.sim", description="JTAGulator 시뮬레이터 (테스트·데모용)")
     g = ap.add_mutually_exclusive_group()
-    g.add_argument("--tcp", metavar="HOST:PORT", help="TCP 로 서비스 (예: 127.0.0.1:7777, 포트 0 이면 임의)")
+    g.add_argument("--tcp", metavar="HOST:PORT",
+                   help="TCP 로 서비스 (예: 127.0.0.1:7777, 포트 0 이면 임의). IPv4 루프백 주소만 — 그 밖은 --allow-lan 필요, IPv6 는 쓸 수 없음")
     g.add_argument("--pty", action="store_true", help="PTY 로 서비스 (/dev/pts/N 출력)")
     ap.add_argument("--firmware", default="1.12", help="흉내 낼 펌웨어 (1.12, 1.11.1, 1.10)")
     ap.add_argument("--start", default="wake", choices=("wake", "menu", "ocd", "sump"))
@@ -1403,7 +1422,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--uart-response", default="\\r\\nlogin: ", help="UART 응답 (파이썬 이스케이프)")
     ap.add_argument("--time-scale", type=float, default=0.0, help="펌웨어 지연 모델 배율 (1.0 ≈ 실제 하한)")
     ap.add_argument("--reset-on-connect", action="store_true", help="TCP 접속마다 리셋(DTR 모델)")
+    ap.add_argument("--allow-lan", action="store_true",
+                    help="루프백이 아닌 --tcp 주소(예: 0.0.0.0)를 허용한다. 인증 없는 시리얼이 LAN 에 열린다(브리지 모드 WSL 이면 LAN 전체)")
     args = ap.parse_args(argv)
+    tcp_host, tcp_port = "127.0.0.1", 0
+    lan_exposed = False
+    if not args.pty:
+        host, _, port = (args.tcp or "127.0.0.1:0").rpartition(":")
+        tcp_host, tcp_port = host or "127.0.0.1", int(port or 0)
+        try:  # 시뮬레이터를 띄우기 전에 거부 (종료 코드 2)
+            lan_exposed = check_listen_host(tcp_host, allow_lan=args.allow_lan)
+        except ValidationFailed as exc:
+            ap.error(f"{exc.message} — {exc.hint}")
 
     cfg = SimConfig(firmware=args.firmware, start_state=args.start, time_scale=args.time_scale)
     if args.jtag:
@@ -1420,13 +1450,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"JTAGulator 시뮬레이터 PTY: {pty.path}", flush=True)
         closer: Callable[[], None] = pty.close
     else:
-        host, _, port = (args.tcp or "127.0.0.1:0").rpartition(":")
-        srv = SimTCPServer(sim, host or "127.0.0.1", int(port or 0), reset_on_connect=args.reset_on_connect)
+        srv = SimTCPServer(sim, tcp_host, tcp_port, reset_on_connect=args.reset_on_connect, allow_lan=args.allow_lan)
         print(f"JTAGulator 시뮬레이터 URL: {srv.url}", flush=True)
+        if lan_exposed:
+            print(lan_listen_warning(srv.host, srv.port), file=sys.stderr, flush=True)
         closer = srv.close
     try:
-        while True:
-            time.sleep(1.0)
+        _serve_until_interrupted()
     except KeyboardInterrupt:
         pass
     finally:

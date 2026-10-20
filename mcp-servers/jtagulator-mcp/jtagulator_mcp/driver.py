@@ -118,6 +118,8 @@ class SerialLink:
     MAX_BUFFER = 4 * 1024 * 1024
 
     def __init__(self, url: str, baudrate: int = 115200, *, transcript: Transcript | None = None) -> None:
+        # 도구에서 이미 검사했어도 여기서 다시 (pyserial URL 처리기는 이름만 정해도 부작용이 있고, LAN 호스트는 열지 않는다)
+        url = P.validate_port(url)
         self.url = url
         self.baudrate = baudrate
         self.transcript = transcript

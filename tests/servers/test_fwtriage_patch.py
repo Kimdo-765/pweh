@@ -453,3 +453,22 @@ async def test_dump_without_job_id_is_refused(pcase):
     async with Client(server) as c:
         r = await call(c, "fw_patch_build", case_id=case.id, base_path="dumps/nojob.bin", target=TARGET, edits=EDIT, **ARGS)
     assert "[validation_failed]" in r.get("_error", "") and "job" in r["_error"], r
+
+
+async def test_verify_warns_on_device_connection_between_reveal_and_readback(pcase):
+    """쓰기 명령 공개 뒤 읽기 확인 전에 같은 기기에 연결한 기록이 있으면 판정은 그대로 두고 경고한다."""
+    from fwtriage_mcp.server import server
+
+    case = pcase
+    d = Dumps(case)
+    base_bytes = _flash(1200)
+    base = d.dump(base_bytes)
+    backup = d.dump(base_bytes[0x9000:0xF000], offset=0x9000, after="no-reset-stub")
+    async with Client(server) as c:
+        _, ready = await _ready(c, d.rt, case, base, backup)
+        patched = bytearray(base_bytes)
+        patched[0x9000:0xF000] = (case.dir / ready["patch_path"]).read_bytes()
+        d.rt.provenance.record_device_fact(case, "esp-chip-info", {"chip": "ESP32-S3"}, {"server": "esp-mcp", "tool": "esp_chip_info", "mac": MAC})
+        rb = d.dump(bytes(patched[0x9000:0xF000]), offset=0x9000)
+        r = await call(c, "fw_verify_writeback", case_id=case.id, patch_path=ready["patch_path"], readback_path=rb)
+    assert r["outcome"] == "applied" and r["warnings"] and "다시 연결" in r["warnings"][0], r

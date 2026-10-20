@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from pweh.errors import NotFound, ToolMissing, ValidationFailed
+from pweh.procutil import pid_alive
 
 from . import semihosting
 from .parsers import parse_version
@@ -404,21 +405,8 @@ class OpenOcdProcess:
                 pass
 
 
-def pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    # 좀비는 죽은 것으로 본다
-    try:
-        stat = Path(f"/proc/{pid}/stat").read_text()
-        if ") Z " in stat or stat.split(") ")[-1].startswith("Z"):
-            return False
-    except OSError:
-        pass
-    return True
+# pid_alive 는 코어 pweh.procutil 의 것을 그대로 쓴다(좀비 = 끝남, 0 이하·깨진 pid = False, 네이티브 Windows 에서는
+# os.kill(pid, 0) 을 부르지 않음 — G9). 읽기 전용 openocd_status 와 openocd_attach 의 입양 검사가 이 이름으로 부른다.
 
 
 def pid_cmdline(pid: int) -> list[str]:

@@ -299,3 +299,30 @@ async def test_step_results_missing_counts_only_pipeline_and_started_optional_sk
         assert "game-save-unlock-analysis" in r["missing"], r
         r = await call(c, "case_get_step_results", case_id=cid, skill="game-save-unlock-analysis")
         assert r["missing"] == ["game-save-unlock-analysis"]
+
+
+async def test_pipeline_environment_reports_env_and_routes(workspace, monkeypatch):
+    """pipeline_environment: 주입한 가짜 probe 로 보고서 + routes 를 돌려준다(실제 호스트를 읽지 않음). 휘발 목록은 없다."""
+    from case_mcp.server import server
+    from core.hostenv_fixtures import wsl2
+    from pweh import hostenv
+
+    from pweh.runtime import reset_runtimes
+
+    probe = wsl2(mode="bridged")
+    monkeypatch.setattr(hostenv, "_default_probe", lambda: probe)
+    monkeypatch.delenv("PWEH_ESPTOOL_WIN", raising=False)  # 설정의 ${PWEH_ESPTOOL_WIN} 이 실제 값으로 확장되지 않게
+    reset_runtimes()
+    async with Client(server) as c:
+        tools = {t.name: t for t in (await c.list_tools()).tools}
+        assert tools["pipeline_environment"].annotations.read_only_hint is True
+        r = await call(c, "pipeline_environment")
+        assert r["ok"] and r["report"]["kind"] == "WSL2_INTEROP" and r["report"]["schema"] == "pweh.hostenv/v1"
+        assert r["report"]["wsl"]["networking_mode"] == "bridged"
+        assert {row["device"] for row in r["routes"]} >= {"serial", "esptool", "openocd", "sigrok", "block"}
+        assert not ({"ports", "listeners", "com_ports"} & set(r["report"]))
+        n = len(probe.calls)
+        again = await call(c, "pipeline_environment")
+        assert again["report"]["kind"] == "WSL2_INTEROP" and len(probe.calls) == n  # 캐시
+        fresh = await call(c, "pipeline_environment", refresh=True)
+        assert fresh["ok"] and len(probe.calls) > n

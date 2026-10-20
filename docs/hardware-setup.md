@@ -100,7 +100,8 @@ lsusb                                # 로직 애널라이저/JTAG 프로브
   - WSL2 처럼 udev 가 동작하지 않는 환경에서는 attach 할 때마다 `sudo chmod a+rw /dev/bus/usb/<bus>/<dev>` 를 실행한다.
 - fx2lafw 장치는 연결할 때마다 펌웨어를 업로드한다. 이때 USB 장치가 재열거되므로 **WSL 에서는 attach 를 한 번 더** 해야 할 수 있다.
   usbipd 4.x 는 `usbipd attach --wsl --busid X --auto-attach` 를 지원한다.
-- `pweh doctor` 가 `dialout` 그룹, 시리얼 포트 목록, WSL 여부를 점검한다.
+- `pweh env`(`--json`)와 `pweh doctor` 의 맨 앞 환경 절이 WSL1/WSL2·interop·네트워킹 모드·usbipd·UAC·brltty 를 보여 주고 장치 종류별 지금 되는 경로와 사람 단계를 알려 준다(가짜 /dev/ttyS0-7 은 숨기고 센다).
+  usbipd 는 대체 경로다: 세션 동안만 bind [관리자] 하고 끝나면 unbind, AutoBind 정책은 쓰지 않는다. attach 는 nat·mirrored·virtioproxy = 그대로 / consomme = `--host-ip 127.0.0.1` / bridged = `--host-ip <Windows LAN IP>` / none·wsl1 = 불가.
 
 ## 3. UART 찾기와 연결
 
@@ -206,6 +207,7 @@ UART 덤프가 불가능하거나 너무 느릴 때 쓴다. 16MiB 를 115200bps 
 # → {"pty": "/dev/pts/7", ...}  이 경로를 uart_open 의 port 로 사용
 # 표준입력에 power-cycle 을 입력하면 "사람이 전원을 껐다 켠" 것과 같다
 ```
+TCP 로 열 때(`--tcp --port 4321` → `port="socket://127.0.0.1:4321"`)는 IPv4 루프백에만 바인드한다(IPv6 주소는 거부). `--host 0.0.0.0` 같은 주소는 `--allow-lan` 없이는 시작하지 않는다(브리지 모드 WSL 에서는 LAN 전체에 인증 없는 콘솔이 열리기 때문).
 자세한 내용은 `tests/mock-targets/README.md` 를 본다.
 
 ## 8. ESP32 보드 (esptool)

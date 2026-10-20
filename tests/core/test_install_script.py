@@ -23,14 +23,29 @@ def _run(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedP
 
 
 def _wsl_interop() -> bool:
-    """install.sh 의 wsl_interop() 과 같은 판정: binfmt_misc 의 WSLInterop* 등록이 켜져 있다."""
-    for f in Path("/proc/sys/fs/binfmt_misc").glob("WSLInterop*"):
+    """install.sh 의 wsl_interop() 과 같은 판정(pweh.hostenv 의 감지 규칙에서 smoke 와 hostenv.disable 을 뺀 것): 컨테이너가 아니고,
+    WSLInterop 또는 WSLInterop-late 첫 줄이 enabled 이고, /init 이 있고, 고정 위치의 wslpath 로 `wslpath -w /` 가 성공한다."""
+    if Path("/.dockerenv").exists() or Path("/run/.containerenv").exists() or os.environ.get("container"):
+        return False
+    try:
+        virt = subprocess.run(["systemd-detect-virt", "-c"], capture_output=True, text=True, timeout=10).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        virt = ""
+    if virt not in ("", "none", "wsl") or not Path("/init").exists():
+        return False
+    enabled = False
+    for name in ("WSLInterop", "WSLInterop-late"):
         try:
-            if f.read_text().split("\n", 1)[0] == "enabled":
-                return True
+            enabled = enabled or (Path("/proc/sys/fs/binfmt_misc") / name).read_text().split("\n", 1)[0] == "enabled"
         except OSError:
             continue
-    return False
+    wp = next((p for p in ("/usr/bin/wslpath", "/bin/wslpath") if os.access(p, os.X_OK)), None)
+    if not enabled or not wp:
+        return False
+    try:
+        return subprocess.run([wp, "-w", "/"], capture_output=True, timeout=10).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def _fake_esptool(path: Path, version: str, crlf: bool = False) -> None:

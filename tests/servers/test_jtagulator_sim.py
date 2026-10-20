@@ -392,3 +392,98 @@ def test_resync_from_dialog_and_running_scan(make_device):
     info = drv.resync()
     assert info.get("aborted_running_scan") == "BYPASS"
     assert drv.context().state == "menu"
+
+
+# ---------------------------------------------------------------------------
+# 시뮬레이터 바인드 주소: 루프백만 (port-routing 설계 G13). 시험은 루프백이 아닌 주소에 실제로 바인드하지 않는다.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "", "192.0.2.10", "localhost.", "[::1]", "::1", "::", "127.1"])
+def test_sim_tcp_server_refuses_non_loopback_bind(host):
+    sim = JTAGulatorSim(SimConfig())  # 시작하지 않음 — 검사는 소켓을 만들기 전에 끝난다
+    with pytest.raises(ValueError, match="루프백"):
+        SimTCPServer(sim, host)
+
+
+def test_sim_tcp_server_default_is_loopback():
+    sim = JTAGulatorSim(SimConfig()).start()
+    srv = SimTCPServer(sim)
+    try:
+        assert srv.host == "127.0.0.1" and srv.lan_exposed is False and srv.url.startswith("socket://127.0.0.1:")
+    finally:
+        srv.close()
+        sim.stop()
+
+
+def _fake_sim_cli(monkeypatch):
+    """main() 을 실제 바인드·대기 없이 돌리는 가짜 (SimTCPServer 인자 기록)."""
+    from jtagulator_mcp import sim as simmod
+
+    made: dict = {}
+
+    class FakeSim:
+        def __init__(self, cfg):
+            made["sim_created"] = True
+
+        def start(self):
+            return self
+
+        def stop(self):
+            made["sim_stopped"] = True
+
+    class FakeServer:
+        def __init__(self, sim, host, port, *, reset_on_connect=False, allow_lan=False):
+            made.update(host=host, port=port, allow_lan=allow_lan)
+            self.host, self.port = host, 4321
+            self.url = f"socket://{host}:4321"
+
+        def close(self):
+            made["closed"] = True
+
+    monkeypatch.setattr(simmod, "JTAGulatorSim", FakeSim)
+    monkeypatch.setattr(simmod, "SimTCPServer", FakeServer)
+    monkeypatch.setattr(simmod, "_serve_until_interrupted", lambda: None)
+    return simmod, made
+
+
+@pytest.mark.parametrize("tcp", ["0.0.0.0:7777", "192.0.2.10:7777", "0.0.0.0:0"])
+def test_sim_cli_refuses_lan_tcp_without_allow_lan(tcp, monkeypatch, capsys):
+    simmod, made = _fake_sim_cli(monkeypatch)
+    with pytest.raises(SystemExit) as ei:
+        simmod.main(["--tcp", tcp])
+    assert ei.value.code == 2
+    err = capsys.readouterr().err
+    assert "루프백" in err and "--allow-lan" in err
+    assert made == {}  # 시뮬레이터도 서버도 만들지 않았다
+
+
+@pytest.mark.parametrize("tcp", ["::1:0", "[::1]:7777", ":::0"])
+def test_sim_cli_refuses_ipv6_listener_even_with_allow_lan(tcp, monkeypatch, capsys):
+    """리스너는 IPv4 전용 — IPv6 주소는 bind 의 gaierror(traceback) 대신 종료 코드 2 와 분명한 메시지 (리뷰 F7)."""
+    simmod, made = _fake_sim_cli(monkeypatch)
+    for extra in ([], ["--allow-lan"]):
+        with pytest.raises(SystemExit) as ei:
+            simmod.main(["--tcp", tcp, *extra])
+        assert ei.value.code == 2
+        err = capsys.readouterr().err
+        assert "IPv4" in err and "127.0.0.1" in err
+    assert made == {}
+
+
+def test_sim_cli_allow_lan_warns_on_stderr(monkeypatch, capsys):
+    simmod, made = _fake_sim_cli(monkeypatch)
+    assert simmod.main(["--tcp", "0.0.0.0:0", "--allow-lan"]) == 0
+    out, err = capsys.readouterr()
+    assert made["host"] == "0.0.0.0" and made["allow_lan"] is True and made["closed"] and made["sim_stopped"]
+    assert "socket://0.0.0.0:4321" in out
+    assert "경고" in err and "0.0.0.0:4321" in err and "LAN" in err and "socket://127.0.0.1:4321" in err
+
+
+def test_sim_cli_loopback_does_not_warn(monkeypatch, capsys):
+    simmod, made = _fake_sim_cli(monkeypatch)
+    assert simmod.main(["--tcp", "127.0.0.1:0"]) == 0
+    assert simmod.main([]) == 0  # 기본값도 127.0.0.1
+    out, err = capsys.readouterr()
+    assert made["host"] == "127.0.0.1" and made["allow_lan"] is False
+    assert "경고" not in err

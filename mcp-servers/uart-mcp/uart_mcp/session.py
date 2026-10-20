@@ -35,6 +35,7 @@ import serial
 from pweh.case import Case
 from pweh.errors import Busy, DeviceError, PwehError, ValidationFailed
 from pweh.fsutil import utcnow_iso
+from pweh.ports import WIN_COM_MAX, endpoint_key, looks_like_win_com, parse_win_com, validate_net_url
 from pweh.safety import Classification, LineAssembler, Risk
 
 from .guard import (
@@ -254,34 +255,48 @@ def is_url(port: str) -> bool:
 
 
 #: 허용하는 pyserial URL 처리기. 나머지(spy://, hwgrep://, alt://, cp2110:// …)는 거부한다.
+#: socket://·rfc2217:// 는 루프백 호스트만 받는다(pweh.ports.validate_net_url, 설계 D4).
 PORT_URL_SCHEMES = ("socket://", "rfc2217://", "loop://")
-_WIN_COM_RE = re.compile(r"COM[1-9][0-9]{0,3}", re.I)
 
 
 def validate_port(port: str) -> str:
-    """포트 문자열 검증 (열기 전, 게이트 전): 장치 절대경로, 원격 시리얼 URL(socket://, rfc2217://, 테스트용 loop://),
-    네이티브 Windows 의 COMn 만 받는다.
+    """포트 문자열 검증 (열기 전, 게이트 전): 장치 절대경로, 루프백 원격 시리얼 URL(socket://, rfc2217://), 테스트용 loop://,
+    네이티브 Windows 의 COMn(COM1–COM4096) 만 받는다. 받은 값의 정규형을 돌려준다.
 
     pyserial 의 다른 URL 처리기는 막는다. ``spy://…?file=<경로>`` 는 ``do_not_open=True`` 여도 포트 이름을 정하는 순간
     호스트 파일을 쓰기로 열어 덮어쓰고, ``hwgrep://<정규식>`` 은 어떤 장치가 열릴지 정할 수 없으며 다른 포트를 배타 잠금 없이
     (DTR/RTS 기본값으로) 열어 본다 — 대상 보드가 리셋될 수 있다. 장치 경로가 이미 있으면 문자 장치여야 한다(일반 파일 거부).
+
+    socket://·rfc2217:// 는 호스트가 루프백(127.0.0.0/8, [::1], localhost)이고 포트가 있는 정규형만 받아
+    ``<scheme>://<host>:<port>`` 로 돌려준다(사용자 정보·질의 옵션·LAN 호스트는 validation_failed). LAN 의 ser2net 은
+    지금 지원하지 않는다 — 설계의 운영자 허용 목록(``safety.ports.remote_serial_hosts``)은 아직 구현하지 않았다.
+    COMn 은 Windows COM 이름 문법(COM1–COM4096, 앞자리 0 없음)만 받고, Windows 가 아닌 곳에서는 거부한다.
     """
     p = (port or "").strip()
     if not p:
-        raise ValidationFailed("port 가 필요합니다.", hint="uart_list_ports 의 device 또는 socket://host:port")
+        raise ValidationFailed("port 가 필요합니다.", hint="uart_list_ports 의 device 또는 socket://127.0.0.1:<포트>")
     if any(c in p for c in "\x00\r\n"):
         raise ValidationFailed(f"port 에 제어 문자가 있습니다: {port!r}")
     if is_url(p):
-        if not p.lower().startswith(PORT_URL_SCHEMES):
+        low = p.lower()
+        if not low.startswith(PORT_URL_SCHEMES):
             raise ValidationFailed(
                 f"지원하지 않는 포트 URL 입니다: {p!r}",
-                hint="장치 경로(/dev/ttyUSB0, /dev/serial/by-id/…) 또는 socket://host:port, rfc2217://host:port 만 쓸 수 있습니다 "
-                     "(spy://·hwgrep:// 등 다른 pyserial URL 은 호스트 파일 쓰기·임의 포트 열기 위험 때문에 막는다).",
+                hint="장치 경로(/dev/ttyUSB0, /dev/serial/by-id/…) 또는 루프백의 socket://127.0.0.1:<포트>, rfc2217://127.0.0.1:<포트> 만 "
+                     "쓸 수 있습니다 (spy://·hwgrep:// 등 다른 pyserial URL 은 호스트 파일 쓰기·임의 포트 열기 위험 때문에 막는다).",
             )
-        return p
-    if _WIN_COM_RE.fullmatch(p):
+        if low.startswith("loop://"):
+            return p
+        return validate_net_url(p)
+    com = parse_win_com(p)
+    if com is None and looks_like_win_com(p):
+        raise ValidationFailed(
+            f"Windows COM 포트 이름은 COM1–COM{WIN_COM_MAX} 이고 앞자리 0 이 없어야 합니다: {p!r}",
+            hint="uart_list_ports 의 device 를 쓰세요.",
+        )
+    if com is not None:
         if sys.platform == "win32":
-            return p.upper()
+            return f"COM{com}"
         raise ValidationFailed(
             f"이 환경에서는 Windows COM 포트({p})를 직접 열 수 없습니다.",
             hint="WSL2 에서는 Windows 쪽에서 usbipd 로 USB-UART 어댑터를 WSL 에 attach 한 뒤 /dev/ttyUSB0·/dev/ttyACM0 을 쓰세요 "
@@ -289,7 +304,7 @@ def validate_port(port: str) -> str:
         )
     if not p.startswith("/"):
         raise ValidationFailed(f"포트는 장치 절대경로여야 합니다: {p!r}",
-                               hint="예: /dev/ttyUSB0, /dev/serial/by-id/usb-FTDI_…, 원격이면 socket://host:port")
+                               hint="예: /dev/ttyUSB0, /dev/serial/by-id/usb-FTDI_…, 원격이면 루프백의 socket://127.0.0.1:<포트>")
     try:
         st = os.stat(p)
     except OSError:
@@ -300,26 +315,28 @@ def validate_port(port: str) -> str:
 
 
 def port_key(port: str) -> str:
-    """같은 물리 포트를 가리키는 다른 표기(/dev/serial/by-id/… 링크)를 하나로."""
-    if is_url(port):
-        return port.strip()
-    with contextlib.suppress(OSError):
-        return os.path.realpath(port)
-    return port
+    """같은 포트를 가리키는 다른 표기를 하나로 (세션의 '사용 중' 검사·job 배타 키·직전 명령 기억의 키).
+
+    장치 경로는 realpath(/dev/serial/by-id/… 링크), 루프백 원격 URL 은 **포트만**(``net-loopback:<port>`` —
+    socket://127.0.0.1:P·socket://localhost:P·rfc2217://[::1]:P 는 같은 콘솔). 그래야 같은 콘솔에 세션 두 개가 붙어
+    줄 조립기가 둘로 나뉘는 일(세션 A 'sa' + 세션 B 'veenv\\r' → saveenv)이 없다. 규칙은 ``pweh.ports.endpoint_key``.
+    """
+    return endpoint_key(port)
 
 
 def open_serial(settings: PortSettings, *, timeout: float = 0.05) -> serial.SerialBase:
     """DTR/RTS 를 열기 전에 설정하고 포트를 연다. 실패는 DeviceError(+힌트)."""
-    validate_port(settings.port)  # 도구에서 이미 검사했어도 여기서 다시 (pyserial URL 처리기는 포트 이름만 정해도 부작용이 있다)
+    # 도구에서 이미 검사했어도 여기서 다시 (pyserial URL 처리기는 포트 이름만 정해도 부작용이 있다) — 검사한 정규형으로 연다
+    port = validate_port(settings.port)
     kwargs: dict[str, Any] = dict(baudrate=settings.baudrate, bytesize=settings.bytesize, parity=settings.parity,
                                   stopbits=settings.stopbits, timeout=timeout, write_timeout=5)
-    if not is_url(settings.port):
-        kwargs["exclusive"] = True
+    if not is_url(port):
+        kwargs["exclusive"] = True  # 장치 경로만: socket://·rfc2217:// 는 pyserial 이 exclusive 를 무시한다(프로세스 사이 배타 없음)
     try:
-        ser = serial.serial_for_url(settings.port, do_not_open=True, **kwargs)
+        ser = serial.serial_for_url(port, do_not_open=True, **kwargs)
     except (ValueError, serial.SerialException) as exc:
-        raise DeviceError(f"포트 설정 실패: {settings.port}: {exc}",
-                          hint="장치 경로(/dev/ttyUSB0) 또는 pyserial URL(socket://host:port, rfc2217://, loop://)을 확인하세요.")
+        raise DeviceError(f"포트 설정 실패: {port}: {exc}",
+                          hint="장치 경로(/dev/ttyUSB0) 또는 루프백 pyserial URL(socket://127.0.0.1:<포트>, rfc2217://127.0.0.1:<포트>, loop://)을 확인하세요.")
     try:
         ser.dtr = bool(settings.dtr)
         ser.rts = bool(settings.rts)
@@ -341,8 +358,8 @@ def open_serial(settings: PortSettings, *, timeout: float = 0.05) -> serial.Seri
         elif "No such file" in msg or "Errno 2" in msg:
             hint = "장치가 없습니다. USB-UART 어댑터 연결과 장치 이름을 확인하세요 (uart_list_ports)."
         elif "Connection refused" in msg:
-            hint = "TCP 포트에 연결할 수 없습니다. ser2net/시뮬레이터가 실행 중인지 확인하세요."
-        raise DeviceError(f"포트를 열 수 없습니다: {settings.port}: {msg}", hint=hint)
+            hint = "TCP 포트에 연결할 수 없습니다. 이 호스트의 ser2net/시뮬레이터가 그 루프백 포트에서 실행 중인지 확인하세요."
+        raise DeviceError(f"포트를 열 수 없습니다: {port}: {msg}", hint=hint)
     return ser
 
 

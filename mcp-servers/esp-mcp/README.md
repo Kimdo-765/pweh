@@ -191,8 +191,8 @@ Secure Download Mode 에서는 esptool 이 플래시를 읽을 수 없다(`esp_s
 리눅스 파일시스템에 푼 exe 는 실행 권한이 필요하다(`chmod +x`). 설치는 `scripts/install.sh` 의 esptool 항목(`--only esptool`)을 쓰거나
 Espressif 공식 릴리스의 `esptool-vX.Y.Z-windows-amd64.zip` 을 풀어 경로를 지정한다. 변경 후에는 MCP 서버를 다시 시작한다.
 
-Windows 백엔드의 조건은 셋이다. WSL 안이어야 하고, `/proc/sys/fs/binfmt_misc/WSLInterop` 이 `enabled` 여야 하며, `wslpath` 가 있어야 한다.
-COM 포트 목록은 `powershell.exe -NoProfile -NonInteractive` 를 현재 디렉터리 `/mnt/c` 에서 실행해 얻는다. cmd.exe 는 UNC 현재 디렉터리를 거부하므로 쓰지 않는다.
+Windows 백엔드의 조건(`pweh.hostenv` 의 smoke 없는 판정): WSL 안(컨테이너는 WSL 커널이어도 아님), `WSLInterop` 또는 `WSLInterop-late` 첫 줄이 `enabled`, `/init` 있음, `wslpath -w /` 실행. C: 드라이브 마운트는 조건이 아니다(없으면 Windows 프로세스 확인·COM 목록용 powershell 만 없다). 설정 `hostenv.disable` 에 `interop` 이 있으면 Windows 백엔드와 powershell 을 쓰지 않고, `windows_tools` 가 있으면 Windows esptool.exe 를 쓰지 않는다(`tool_missing`).
+COM 포트 목록은 System32 의 powershell.exe(hostenv H5 로 찾고 realpath 확인, $PATH 는 쓰지 않음)를 C: 마운트 지점을 현재 디렉터리로 해서 `-NoProfile -NonInteractive` 로 실행해 얻는다. cmd.exe 는 UNC 현재 디렉터리를 거부하므로 쓰지 않는다.
 Windows esptool.exe 의 출력은 조각마다 엄격한 UTF-8 로 읽고(조각 경계의 멀티바이트 문자는 이어 붙임), UTF-8 이 아니면 Windows ANSI 코드 페이지(레지스트리 ACP 를 한 번 조회, 한국어 Windows 는 cp949)로 읽는다.
 OS 오류 문구는 Windows 언어로 나오므로 서버는 esptool 의 영어 문구와 오류 번호로 판정한다. PyInstaller 로 굳힌 exe 는 `PYTHONIOENCODING` 같은 PYTHON* 변수를 무시하므로 넘기지 않는다.
 

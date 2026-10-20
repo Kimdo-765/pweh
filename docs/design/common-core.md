@@ -28,7 +28,7 @@
 
 > 전체 설계(감지 결정 트리, 장치 종류 × 플랫폼 라우팅 표 R1–R18, 현재 코드의 빈틈 G1–G16, 단계·시험·결정 D1–D8)는 [port-routing.md](port-routing.md). 여기에는 다른 문서가 기대는 결론만 둔다.
 
-- **개발 환경(검증 기준)**: WSL2(3.0.3.0, bridged, interop 켜짐), usbipd 없음. 이런 환경에서 지금 하드웨어에 닿는 경로는 pweh-esp 방법 A(esptool.exe + COMn) 하나다.
+- **검증 기준 환경**: WSL2(interop 켜짐), usbipd 없음. 이런 환경에서 지금 하드웨어에 닿는 경로는 pweh-esp 방법 A(esptool.exe + COMn) 하나다.
 - **WSL2+interop 의 기본 경로**: 장치는 Windows 에 두고 Windows 쪽 프로세스가 연다.
   직렬은 `pweh-serial-helper.exe`(stdio 프레임, 소켓 없음), 도구형은 Windows 판 도구(esptool·openocd `tcl port pipe`·sigrok-cli·ffmpeg·rtl_*)다.
   usbipd 는 사람이 고르는 대체 경로다(모든 네트워킹 모드에서 세션 동안만 bind, AutoBind 정책 금지, attach 의 `--host-ip` 는 모드별).

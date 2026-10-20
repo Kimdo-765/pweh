@@ -169,6 +169,17 @@ class Connection:
 
 _CONNS: dict[str, Connection] = {}
 _CONNS_LOCK = threading.Lock()
+# port_key → case_id: 승인 뒤 연결(열기·재동기화)이 끝나 _CONNS 에 들어가기 전까지 그 끝점을 예약한다.
+# socket://·rfc2217:// 는 pyserial 이 exclusive 를 무시하므로 같은 서버 안의 동시 연결은 이 예약과 _CONNS 비교로만 막는다.
+_CONNECTING: dict[str, str] = {}
+
+
+def _port_holder(key: str, case_id: str) -> str | None:
+    """같은 끝점(P.port_key)을 다른 케이스가 쓰고 있거나 누군가 연결 중이면 그 케이스 id. _CONNS_LOCK 안에서 부른다."""
+    for c in _CONNS.values():
+        if not c.closed and c.case_id != case_id and P.port_key(c.port) == key:
+            return c.case_id
+    return _CONNECTING.get(key)
 
 
 def _get_conn(case_id: str) -> Connection:
@@ -271,7 +282,8 @@ def _close_conn(conn: Connection, note: str) -> None:
 
 @server.tool(
     description=(
-        "JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 pyserial URL(socket://host:port). "
+        "JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 루프백 pyserial URL"
+        "(socket://127.0.0.1:<포트> — LAN 호스트는 validation_failed). "
         "포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽는다. "
         "영속 모드(OpenOCD/로직 분석기)였다면 빠져나오며 경고한다. 연결할 때마다 서버의 전압 상태는 '미설정'으로 초기화된다. "
         "세션 원시 기록은 jtag/jtagulator-<n>.log. 지원 펌웨어 1.10–1.12."
@@ -298,12 +310,15 @@ async def jtagulator_connect(
         raise ValidationFailed(f"baudrate 범위 밖: {baudrate}")
     timeout_seconds = max(3.0, min(float(timeout_seconds), 60.0))
 
+    # 같은 끝점의 다른 표기(socket://127.0.0.1:P = socket://localhost:P = rfc2217://[::1]:P, by-id 링크 = /dev/ttyUSB0)는 한 포트로 본다
+    key = P.port_key(port)
     with _CONNS_LOCK:
         existing = _CONNS.get(case_id)
-        other = next((c for c in _CONNS.values() if c.port == port and c.case_id != case_id and not c.closed), None)
-    if other is not None:
-        raise Busy(f"포트 {port} 는 이미 케이스 {other.case_id} 가 사용 중입니다.", hint="그 케이스에서 jtagulator_disconnect 를 먼저 하세요.")
-    if existing is not None and not existing.closed and existing.port != port and existing.link.alive:
+        holder = _port_holder(key, case_id)
+    if holder is not None:
+        raise Busy(f"포트 {port} 는 이미 케이스 {holder} 가 사용 중입니다(같은 끝점의 다른 표기 포함).",
+                   hint="그 케이스에서 jtagulator_disconnect 를 먼저 하세요.")
+    if existing is not None and not existing.closed and P.port_key(existing.port) != key and existing.link.alive:
         raise Busy(
             f"이 케이스는 이미 {existing.port} 에 연결되어 있습니다.",
             hint="jtagulator_disconnect 후 다시 연결하세요.",
@@ -342,6 +357,13 @@ async def jtagulator_connect(
         _register(case, existing.transcript_rel, f"JTAGulator 세션 원시 기록 ({existing.port}, 끊긴 연결)",
                   {"type": "session-transcript", "port": existing.port})
 
+    with _CONNS_LOCK:  # 승인을 기다리는 동안 다른 케이스가 같은 끝점에 붙었을 수 있다 → 다시 확인하고 예약
+        holder = _port_holder(key, case_id)
+        if holder is not None:
+            raise Busy(f"포트 {port} 는 이미 케이스 {holder} 가 사용 중이거나 연결 중입니다.",
+                       hint="그 케이스에서 jtagulator_disconnect 를 먼저 하세요.")
+        _CONNECTING[key] = case_id
+
     def work() -> Connection:
         n = _next_session_n(case)
         rel = f"jtag/jtagulator-{n:03d}.log"
@@ -374,7 +396,11 @@ async def jtagulator_connect(
         _register(case, rel, f"JTAGulator 세션 원시 기록 ({port}, FW {ver['firmware']})", {"type": "session-transcript", "port": port})
         return conn
 
-    conn = await run_blocking(work)
+    try:
+        conn = await run_blocking(work)
+    finally:
+        with _CONNS_LOCK:
+            _CONNECTING.pop(key, None)
     r.audit(
         {"event": "jtagulator_connected", "port": port, "firmware": conn.firmware, "resync": conn.connect_info,
          "transcript": conn.transcript_rel},
@@ -704,7 +730,7 @@ async def _start_scan(
                     description=f"JTAGulator {SCAN_TITLES[spec.kind]} CH{spec.start}-{spec.end} ({conn.port})",
                     case_id=case_id,
                     meta={"port": conn.port, "scan": spec.kind, "permutations": run.permutations, "raw_log": raw_rel, "result_json": json_rel},
-                    exclusive_key=f"port:{conn.port}",
+                    exclusive_key=f"port:{P.port_key(conn.port)}",
                 )
             except BaseException:
                 with contextlib.suppress(Exception):

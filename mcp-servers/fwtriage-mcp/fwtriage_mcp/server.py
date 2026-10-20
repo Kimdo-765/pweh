@@ -2477,17 +2477,24 @@ async def fw_verify_writeback(case_id: str, patch_path: str, readback_path: str)
                                       "actual": (live.get((c.get("namespace"), c.get("key"))) or {}).get("value"),
                                       "crc_ok": ((live.get((c.get("namespace"), c.get("key"))) or {}).get("crc") or {}).get("ok")}
                                      for c in (plan.get("extra") or {}).get("changes") or [] if isinstance(c, dict)]
+        # 공개 뒤 ~ 읽기 확인 사이에 같은 기기에 연결한 기록(칩 리셋 → 게임이 세이브를 바꿨을 수 있음): 판정은 그대로, 경고만
+        rb_job = (rec.get("extra") or {}).get("job_id")
+        between = [x for x in _later_device_activity(case, int(plan.get("seq") or 0), rb_job, str(mac_p).lower()) if int(x.get("seq") or 0) < int(rec.get("seq") or 0)]
+        warnings = []
+        if between:
+            warnings.append("쓰기 명령을 공개한 뒤 읽기 확인 전에 이 기기에 다시 연결한 기록이 있다(원장 seq " + ", ".join(str(x["seq"]) for x in between[:5])
+                            + ") — 그 연결로 칩이 리셋돼 게임이 세이브를 바꿨거나, 사람이 쓰기 전에 기기 상태가 달라졌을 수 있다.")
         payload = base_payload("fw_verify_writeback", case, schema="patch-verify", input_info={"readback": rb_rel, "patch": patch_rel},
                                params={"ledger_seq": plan.get("seq")})
         payload.update({"outcome": outcome, "expected_sha256": expected, "base_target_sha256": base_sha, "readback_target_sha256": got_sha,
-                        "abs_offset": abs_off, "size": size, "readback_seq": rec.get("seq"), **detail})
+                        "abs_offset": abs_off, "size": size, "readback_seq": rec.get("seq"), "warnings": warnings, **detail})
         rel = _write(case, "patch-verify", payload, f"fw_verify_writeback {patch_rel} ← {rb_rel}: {outcome}")
         rt().audit({"event": "fwtriage_patch_verify", "patch": patch_rel, "readback": rb_rel, "outcome": outcome, "ledger_seq": plan.get("seq")}, case.id)
         msg = {"applied": "기기의 대상 범위가 공개한 패치와 같다(쓰기 확인).",
                "not-applied": "기기의 대상 범위가 쓰기 전(base)과 같다 — 쓰기가 되지 않았다. 명령 출력(sha256 확인·esptool)을 확인한다.",
                "differs": "패치와도 base 와도 다르다 — 쓰기 뒤 기기가 재부팅돼 게임이 세이브를 다시 썼거나, 다른 파일을 썼을 수 있다."}[outcome]
         out = {"ok": True, "tool": "fw_verify_writeback", "result_path": rel, "outcome": outcome, "message": msg, "expected_sha256": expected,
-               "readback_target_sha256": got_sha, "target": {"abs_offset": hexs(abs_off), "size": size, "label": tgt.get("label")}, **detail}
+               "readback_target_sha256": got_sha, "target": {"abs_offset": hexs(abs_off), "size": size, "label": tgt.get("label")}, "warnings": warnings, **detail}
         if outcome == "differs":
             # 진단용: 원장 sha256 과 맞는 base·패치 파일이 남아 있으면 바이트 차이 수를 센다(증거는 아님)
             for name, rel_p, sha_p, sl in (("base", (src.get("base") or {}).get("path"), (src.get("base") or {}).get("sha256"), slice(abs_off, abs_off + size)),

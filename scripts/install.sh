@@ -828,13 +828,22 @@ version_rea() {
 # - Windows 판(방법 A): WSL 에서 interop 으로 공식 Windows 빌드 esptool.exe 를 직접 실행해 Windows 의 COM 포트를 쓴다
 #   (usbipd 없이). Linux 파일 시스템에 둔 exe 도 실행되고, 파일 경로는 `wslpath -w` 의 UNC 경로로 넘기면 된다.
 ESPTOOL_WIN_EXE="$PREFIX/esptool-win/esptool-windows-amd64/esptool.exe"
-WSL_BINFMT=/proc/sys/fs/binfmt_misc   # WSL 이 Windows 실행 파일(MZ)을 넘겨받는 등록: WSLInterop (systemd 를 쓰면 WSLInterop-late 도)
-wsl_interop() {  # WSL 에서 Windows 실행 파일을 직접 실행할 수 있는가 (interop 등록이 있고 켜져 있음). 판정은 이 함수 하나로만 한다
-  local f
-  for f in "$WSL_BINFMT"/WSLInterop*; do
-    [ -r "$f" ] && [ "$(head -n 1 "$f" 2>/dev/null)" = enabled ] && return 0
+WSL_BINFMT=/proc/sys/fs/binfmt_misc   # WSL 이 Windows 실행 파일(MZ)을 넘겨받는 등록: WSLInterop (받아 두기만 하는 이름: WSLInterop-late)
+# WSL 에서 Windows 실행 파일을 직접 실행할 수 있는가. 판정은 이 함수 하나로만 한다 — pweh.hostenv 와 같은 감지 규칙에서
+# smoke 와 설정 override(hostenv.disable)를 뺀 것: 컨테이너가 아니고(binfmt_misc 는 커널 전체라 WSL 위 docker 에도 등록이 보인다),
+# WSLInterop 또는 WSLInterop-late 첫 줄이 enabled 이고, /init 이 있고, wslpath 가 실행된다(`wslpath -w /` — C: 마운트와 무관)
+wsl_interop() {
+  local f virt wp on=0
+  { [ -e /.dockerenv ] || [ -e /run/.containerenv ] || [ -n "${container:-}" ]; } && return 1
+  virt="$(systemd-detect-virt -c 2>/dev/null || true)"   # 컨테이너가 아니면 none(종료 코드 1), WSL 은 wsl
+  case "$virt" in ""|none|wsl) ;; *) return 1 ;; esac
+  for f in "$WSL_BINFMT/WSLInterop" "$WSL_BINFMT/WSLInterop-late"; do
+    [ -r "$f" ] && [ "$(head -n 1 "$f" 2>/dev/null)" = enabled ] && on=1
   done
-  return 1
+  [ "$on" = 1 ] && [ -e /init ] || return 1
+  wp=/usr/bin/wslpath; [ -x "$wp" ] || wp=/bin/wslpath   # $PATH 가 아니라 고정 위치 (hostenv 와 같음)
+  [ -x "$wp" ] && timeout 10 "$wp" -w / >/dev/null 2>&1 || return 1
+  return 0
 }
 esptool_version() {  # esptool_version <실행 파일> — `esptool version` 의 마지막 줄 ("esptool v5.4.0" 다음 줄이 "5.4.0"). Windows 판의 CR 은 지운다
   local out

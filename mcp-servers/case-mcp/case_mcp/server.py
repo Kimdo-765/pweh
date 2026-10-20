@@ -12,11 +12,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from pweh import schemas
+from pweh import hostenv, schemas
 from pweh.case import PIPELINE_PHASES, PHASE_STATUSES
 from pweh.errors import NotFound, ValidationFailed
 from pweh.fsutil import is_within
-from pweh.mcpkit import ANN_LOCAL_WRITE, ANN_READ_ONLY, create_server, safe_tool
+from pweh.mcpkit import ANN_LOCAL_WRITE, ANN_READ_ONLY, create_server, run_blocking, safe_tool
 from pweh.report import write_report
 from pweh.runtime import Runtime, get_runtime
 
@@ -415,6 +415,26 @@ def pipeline_safety_policy() -> dict[str, Any]:
         },
         "config_file": str(cfg.path) if cfg.path else None,
     }
+
+
+@server.tool(
+    description=(
+        "실행 환경 보고서와 장치 종류별 추천 경로 (기기 미접촉, OBSERVE, 읽기 전용). report(pweh.hostenv/v1): kind(WSL2_INTEROP | "
+        "WSL2_NO_INTEROP | WSL1 | WSL_UNKNOWN | NATIVE_LINUX | MACOS | NATIVE_WINDOWS | CYGWIN | MSYS | CONTAINER), wsl{version, "
+        "networking_mode, interop{usable, entry, smoke, reason}}, windows{build, uac_enabled, interop_elevated, smart_app_control, "
+        "usbipd{present, version, autobind_policies}, tools.esptool_win}, linux{systemd, udevd, groups, brltty}, warnings, overridden. "
+        "routes[]: {device(serial|esptool|openocd|sigrok|sdr|video|block), now{route, status, available, human_steps}(지금 되는 경로), "
+        "target{route, phase}(다음 단계에서 생기는 경로), alternatives, notes}. 모르는 값은 null. 휘발 목록(COM 포트·usbipd attach 상태)은 "
+        "넣지 않는다 — 포트는 각 서버의 *_list_ports. 첫 감지는 WSL 에서 powershell.exe smoke 로 몇 초 걸리고 이후 캐시(smoke 300 초). "
+        "refresh=true 면 캐시를 버리고 다시 감지한다. Phase 0 장비 체크리스트에 쓴다(사람 단계의 [관리자]·[root] 표시)."
+    ),
+    annotations=ANN_READ_ONLY,
+)
+@safe_tool
+async def pipeline_environment(refresh: bool = False) -> dict[str, Any]:
+    cfg = rt().config
+    report = await run_blocking(hostenv.detect, refresh=bool(refresh), config=cfg)
+    return {"ok": True, "report": report, "routes": hostenv.recommend_routes(report)}
 
 
 @server.tool(

@@ -19,7 +19,7 @@
 
 | 도구 | 위험도 | 설명 |
 |---|---|---|
-| `jtagulator_connect(case_id, port, baudrate=115200, timeout_seconds=12, allow_untested_firmware=false)` | INTERACT | 포트 열기 → Ctrl-X 재동기화 → 펌웨어 버전. `port` 는 장치 절대경로(`/dev/ttyUSB0`) 또는 `socket://host:port`·`rfc2217://host:port` 만 허용(`spy://`·`hwgrep://` 등 다른 pyserial URL 거부). 포트는 exclusive(flock)로 열어, 다른 세션(uart-mcp 등)이 쓰는 포트(대상 콘솔일 수 있음)에는 재동기화 키를 보내지 않고 거부한다. 서버의 전압 상태는 항상 '미설정'으로 시작 |
+| `jtagulator_connect(case_id, port, baudrate=115200, timeout_seconds=12, allow_untested_firmware=false)` | INTERACT | 포트 열기 → Ctrl-X 재동기화 → 펌웨어 버전. `port` 는 장치 절대경로(`/dev/ttyUSB0`), 루프백 호스트의 `socket://`·`rfc2217://`(정규형 `127.0.0.0/8`·`[::1]`·`localhost` + 포트, `localhost` 는 확인한 루프백 주소로 바뀜), 테스트용 `loop://` 만 허용(`spy://`·`hwgrep://` 등 다른 pyserial URL, LAN·와일드카드 호스트, 사용자 정보·질의 옵션, Windows `COMn` 은 `validation_failed` — 서버가 네이티브 Windows 에서 시작하지 않으므로 WSL2 에서는 usbipd attach 뒤 `/dev/ttyUSB0`. LAN 의 ser2net·RFC2217 서버는 지금 지원하지 않는다 — 설계 D4 의 운영자 허용 목록 `safety.ports.remote_serial_hosts` 는 아직 구현하지 않았다). 같은 끝점의 다른 표기(루프백 URL 은 포트만 — `127.0.0.1`·`127.x`·`[::1]`·`localhost`·두 스킴, 장치 경로는 realpath)는 한 포트로 보아, 다른 케이스가 잡은 끝점은 `busy`(같은 케이스는 기존 연결 재사용). 장치 경로는 exclusive(flock)로 열어, 다른 세션(uart-mcp 등)이 쓰는 포트(대상 콘솔일 수 있음)에는 재동기화 키를 보내지 않고 거부한다. **`socket://`·`rfc2217://` 는 pyserial 이 exclusive 를 무시하므로 이 보호가 없다** — uart-mcp 세션이 잡은 시뮬레이터·ser2net URL 에 연결하면 재동기화 키(Ctrl-X, CR)가 그 콘솔로 간다(프로세스 사이 배타는 P1 portlock). 서버의 전압 상태는 항상 '미설정'으로 시작 |
 | `jtagulator_disconnect(case_id)` | – | 실행 중 스캔을 중단(LF)하고 포트를 닫음, 세션 기록 등록 |
 | `jtagulator_version(case_id)` | OBSERVE | 메인 메뉴 `I` — 버전/배너 |
 | `jtagulator_status(case_id=None)` | 장치 I/O 없음 | 연결·펌웨어·메뉴·확인된 전압·실행 중 작업 |
@@ -213,6 +213,9 @@ python -m jtagulator_mcp.sim --pty --firmware 1.11.1 --time-scale 0.05
 
 `--jtag TDI,TDO,TCK,TMS`, `--uart TXD,RXD[,BAUD]` 로 '진짜 핀아웃'을 정하면 그 순열에서만 결과가 나온다(잘못된 보드레이트에서는
 깨진 바이트). `--time-scale` 은 펌웨어 지연 모델 배율, `--start ocd|sump` 는 영속 모드 부팅, `--reset-on-connect` 는 DTR 리셋 모델.
+`--tcp` 는 IPv4 루프백 주소에만 바인드한다(IPv6 주소는 거부). `--tcp 0.0.0.0:N` 같은 주소는 `--allow-lan` 없이는 거부(종료 코드 2)하고, 있으면 stderr 로
+LAN 노출을 경고한다(인증 없는 시리얼 — 브리지 모드 WSL 이면 LAN 전체). 그때도 서버에는 `socket://127.0.0.1:N` 으로 접속한다
+(서버는 루프백 URL 만 받는다).
 
 테스트: `tests/servers/test_jtagulator_units.py`(분류기·파서·JEP106), `test_jtagulator_sim.py`(드라이버↔시뮬레이터, TCP/PTY,
 펌웨어 방언, 가드, 취소, 리셋/끊김), `test_jtagulator_mcp.py`(MCP 도구, 승인 흐름, job, 아티팩트, stdio).

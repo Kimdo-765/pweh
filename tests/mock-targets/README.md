@@ -23,7 +23,8 @@ PTY 또는 TCP(pyserial `socket://`)로 접속하면 실제 기기처럼 부트R
 .venv/bin/pweh-mock-device --profile hisilicon-like --pty
 {"ok": true, "pty": "/dev/pts/5", "profile": "hisilicon-like", "baud": 115200, ..., "credentials": {"username": "root", "password": "123456"}}
 
-# TCP 로 열기 (pyserial URL socket://127.0.0.1:4321)
+# TCP 로 열기 (pyserial URL socket://127.0.0.1:4321) — IPv4 루프백에만 바인드한다(IPv6 주소 거부). --host 0.0.0.0 같은 주소는
+# --allow-lan 없이는 거부(JSON ok=false, 종료 코드 2), 있으면 stderr 경고(인증 없는 콘솔이 LAN 에 열린다)
 .venv/bin/pweh-mock-device --profile ingenic-like --tcp --port 4321
 
 # 펌웨어 이미지만 만들기 (+ fw.bin.manifest.json)

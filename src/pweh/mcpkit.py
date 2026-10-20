@@ -26,6 +26,7 @@ from mcp.types import ToolAnnotations
 
 from . import __version__
 from .errors import PwehError
+from .hostenv import unsupported_platform  # 시작 거부 규칙·문구는 hostenv 하나에 둔다
 from .safety import GateDecision
 
 log = logging.getLogger("pweh.mcp")
@@ -51,8 +52,18 @@ SAFETY_NOTICE = (
 )
 
 
+#: PWEH MCP 서버를 실행하지 않는 플랫폼(``sys.platform`` 접두어). port-routing 설계 §12·D6 — Windows 는 장치 호스트로만 쓴다.
+
+
 def create_server(name: str, *, instructions: str, title: str | None = None, lifespan: Any = None) -> MCPServer:
-    """PWEH 표준 MCP 서버 생성. lifespan 은 MCPServer 의 lifespan(async context manager factory) 그대로 전달."""
+    """PWEH 표준 MCP 서버 생성. lifespan 은 MCPServer 의 lifespan(async context manager factory) 그대로 전달.
+
+    네이티브 Windows·Cygwin·MSYS 에서는 서버를 만들지 않고 안내 문구와 함께 SystemExit 으로 끝낸다(stderr, 종료 코드 1).
+    서버 모듈은 최상위에서 이 함수를 부르므로 import 시점에 거부된다.
+    """
+    refusal = unsupported_platform(launcher=f"pweh-{name}")
+    if refusal is not None:
+        raise SystemExit(f"[{name}] {refusal}")
     _configure_logging()
     kwargs: dict[str, Any] = {}
     if lifespan is not None:
@@ -211,4 +222,5 @@ __all__ = [
     "run_blocking",
     "run_blocking_cancellable",
     "safe_tool",
+    "unsupported_platform",
 ]

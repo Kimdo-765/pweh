@@ -10,6 +10,10 @@
 
 이 모듈은 포트를 **열지 않는다**. 목록은 Windows 쪽 PnP 정보(powershell.exe, 읽기 전용 CIM 질의)와 pyserial
 ``list_ports``(sysfs 읽기)로만 만든다.
+
+WSL·interop 판정과 Windows 쪽 경로(powershell.exe 위치, C: 드라이브 마운트 지점)는 코어 ``pweh.hostenv`` 의 규칙을 쓴다
+(컨테이너 제외, WSL1/2, ``/mnt/c`` 를 가정하지 않음). 이 모듈의 함수 이름은 그대로 두며, 서로를 모듈 전역으로 늦게 불러
+시험이 ``monkeypatch.setattr(ports, "...")`` 로 바꿔 끼울 수 있다.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from pweh import hostenv
 from pweh.errors import ToolMissing, ValidationFailed
 
 WIN_COM_RE = re.compile(r"^COM([1-9][0-9]{0,2})$", re.I)
@@ -101,29 +106,24 @@ def validate_port(port: Any) -> PortSpec:
 
 
 def is_wsl() -> bool:
-    if os.environ.get("WSL_DISTRO_NAME"):
-        return True
-    try:
-        return "microsoft" in Path("/proc/version").read_text(encoding="utf-8", errors="replace").lower()
-    except OSError:
-        return False
+    """WSL(1·2) 안인가 — ``pweh.hostenv`` 규칙(컨테이너는 WSL 커널이어도 아님, ``WSL_DISTRO_NAME`` 은 판정에 쓰지 않음)."""
+    return hostenv.is_wsl(hostenv.detect(smoke=False))
 
 
 def interop_status() -> dict[str, Any]:
-    """{wsl, interop, reason}. interop: /proc/sys/fs/binfmt_misc/WSLInterop(-late) 가 enabled 인지."""
+    """{wsl, interop, reason}. ``pweh.hostenv`` 의 interop 판정(H4)에서 smoke 만 뺀 규칙 — install.sh 의 ``wsl_interop`` 과 같다.
+
+    WSLInterop 또는 WSLInterop-late 첫 줄이 enabled, ``/init`` 있음, ``wslpath`` 실행됨(설정 ``hostenv.disable: [interop]`` 이면 거짓).
+    Windows 프로그램을 띄워 보지는 않는다(실제 실행 가능 여부는 esptool.exe 버전 확인이 본다).
+    """
     wsl = is_wsl()
     if not wsl:
         return {"wsl": False, "interop": False, "reason": "WSL 이 아님 (Windows esptool.exe 를 실행할 수 없음)"}
-    for name in ("WSLInterop", "WSLInterop-late"):
-        f = Path("/proc/sys/fs/binfmt_misc") / name
-        try:
-            first = f.read_text(encoding="utf-8", errors="replace").splitlines()[:1]
-        except OSError:
-            continue
-        if first and first[0].strip() == "enabled":
-            return {"wsl": True, "interop": True, "reason": None}
-        return {"wsl": True, "interop": False, "reason": f"{f} 가 enabled 가 아님 (wsl.conf 의 [interop] enabled=false?)"}
-    return {"wsl": True, "interop": False, "reason": "binfmt_misc 에 WSLInterop 이 등록되어 있지 않음 (wsl.conf [interop] 확인 후 wsl --shutdown)"}
+    rep = hostenv.detect(smoke=False)
+    if hostenv.interop_usable(rep):
+        return {"wsl": True, "interop": True, "reason": None}
+    return {"wsl": True, "interop": False,
+            "reason": hostenv.interop_reason(rep) or "WSL interop 을 쓸 수 없음 (wsl.conf [interop] 확인 후 wsl --shutdown)"}
 
 
 def _wslpath_exe() -> str:
@@ -205,24 +205,29 @@ def annotate_usb(vid: int | None, pid: int | None) -> dict[str, Any]:
 
 
 def powershell_exe() -> str | None:
-    found = shutil.which("powershell.exe")
-    if found:
-        return found
-    for cand in ("/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
-                 "/mnt/c/WINDOWS/System32/WindowsPowerShell/v1.0/powershell.exe"):
-        if os.path.exists(cand):
-            return cand
-    return None
+    """Windows PowerShell 절대 경로 — ``pweh.hostenv`` H5(/proc/mounts 의 drvfs ``path=C:\\`` 또는 ``wslpath -u``).
+
+    ``/mnt/c`` 를 가정하지 않고, $PATH 의 powershell.exe 도 쓰지 않는다(System32 의 고정 위치만). 없으면 None.
+    """
+    return hostenv.powershell_path()
 
 
 def run_powershell(script: str, timeout: float = 45.0) -> tuple[int, str, str]:
-    """powershell.exe -NoProfile -NonInteractive -Command <script> (cwd=/mnt/c — UNC 현재 디렉터리 경고 회피)."""
+    """powershell.exe -NoProfile -NonInteractive -Command <script> (진행률 출력 끔).
+
+    현재 디렉터리는 C: 드라이브의 마운트 지점이다(hostenv H5 — UNC 현재 디렉터리 경고 회피). 모르면 상속한다.
+    설정 ``hostenv.disable: [interop]`` 이면 실행하지 않고 ToolMissing 이다(부르는 쪽은 '확인 불가'로 다룬다 — 예약 파일은 지우지 않음).
+    """
+    if "interop" in hostenv.disabled_keys():
+        raise ToolMissing("설정 hostenv.disable 에 interop 이 있어 powershell.exe 를 실행하지 않습니다.",
+                          hint="Windows 쪽 확인(프로세스·COM 목록)이 필요하면 사람이 pipeline-config.yaml 의 hostenv.disable 을 고친다.")
     exe = powershell_exe()
     if not exe:
-        raise ToolMissing("powershell.exe 를 찾을 수 없습니다.", hint="WSL interop 과 Windows PATH 공유(appendWindowsPath) 설정을 확인하라.")
-    cwd = "/mnt/c" if os.path.isdir("/mnt/c") else None
-    out = subprocess.run([exe, "-NoProfile", "-NonInteractive", "-Command", script], stdin=subprocess.DEVNULL,
-                         capture_output=True, timeout=timeout, cwd=cwd)
+        raise ToolMissing("powershell.exe 를 찾을 수 없습니다.",
+                          hint="WSL interop 과 C: 드라이브 drvfs 마운트(/etc/wsl.conf [automount])를 확인하라 — `pweh env` 로 볼 수 있다.")
+    cwd = hostenv.drvfs_root("C")
+    out = subprocess.run([exe, "-NoProfile", "-NonInteractive", "-Command", "$ProgressPreference='SilentlyContinue';" + script],
+                         stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout, cwd=cwd if cwd and os.path.isdir(cwd) else None)
     return out.returncode, out.stdout.decode("utf-8", "replace"), out.stderr.decode("utf-8", "replace")
 
 

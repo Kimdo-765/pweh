@@ -122,7 +122,7 @@ OpenOCD 프로세스를 띄우고 TCL RPC(기본 포트 6666)로 JTAG/SWD 디버
 | 경로 | 내용 |
 |---|---|
 | `jtag/openocd-<n>.log` | OpenOCD stdout/stderr (RPC 결과도 OpenOCD 가 로그에 찍는다) — 종료 시 아티팩트(other) |
-| `jtag/openocd-<n>.json` | 세션 상태(pid, 포트, argv, 종료 정보) — 서버 재시작 후 입양에 사용 |
+| `jtag/openocd-<n>.json` | 세션 상태(pid, 포트, argv, 종료 정보) — 서버 재시작 후 입양에 사용. pid 생존 확인은 코어 `pweh.procutil.pid_alive`(좀비·0 이하·깨진 pid 는 '끝남', 네이티브 Windows 에서는 `os.kill(pid, 0)` 을 부르지 않음) |
 | `jtag/registers-<n>.json` | 레지스터 스냅샷 (jtag-dump) |
 | `jtag/<name>.bin` + `.json` | 메모리 덤프 + 메타데이터(`method: "jtag-openocd"`, `source`, `output{path, sha256, size}`, `verification`, `chunks`) |
 | `dumps/<name>.bin` + `.json` | 플래시 덤프(flash-dump), 또는 `kind=flash-dump` 메모리 덤프 |

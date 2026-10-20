@@ -43,15 +43,16 @@ def fake_unc(path: Any) -> str:
 
 
 def interop_enabled() -> bool:
-    try:
-        first = Path("/proc/sys/fs/binfmt_misc/WSLInterop").read_text().splitlines()[:1]
-    except OSError:
-        return False
-    return bool(first) and first[0].strip() == "enabled"
+    """esp 서버와 같은 판정(pweh.hostenv — 컨테이너 제외, smoke 없음). external 시험에서만 쓴다(실제 호스트를 읽는다)."""
+    from pweh import hostenv
+
+    return hostenv.interop_usable(hostenv.detect(smoke=False))
 
 
 def real_windows_esptool() -> str | None:
     """실제 Windows esptool.exe (PWEH_ESPTOOL_WIN → <도구 디렉터리>/esptool-win/…, scripts/install.sh --only esptool). interop 으로 version 이 동작해야 한다."""
+    from pweh import hostenv
+
     if not interop_enabled():
         return None
     cands = [os.environ.get("PWEH_ESPTOOL_WIN"), str(tools_dir() / "esptool-win" / "esptool-windows-amd64" / "esptool.exe")]
@@ -59,7 +60,9 @@ def real_windows_esptool() -> str | None:
         if not cand or not os.path.isfile(cand) or not os.access(cand, os.X_OK):
             continue
         try:
-            out = subprocess.run([cand, "version"], stdin=subprocess.DEVNULL, capture_output=True, timeout=120, cwd="/mnt/c" if os.path.isdir("/mnt/c") else None)
+            cwd = hostenv.drvfs_root("C")  # UNC 현재 디렉터리 경고 회피 (/mnt/c 를 가정하지 않는다)
+            out = subprocess.run([cand, "version"], stdin=subprocess.DEVNULL, capture_output=True, timeout=120,
+                                 cwd=cwd if cwd and os.path.isdir(cwd) else None)
         except (OSError, subprocess.SubprocessError):
             continue
         if out.returncode == 0 and b"esptool v" in out.stdout:

@@ -641,8 +641,9 @@ def test_validate_port_unit(tmp_path):
     from uart_mcp.session import open_serial, PortSettings, validate_port
 
     assert validate_port(" loop:// ") == "loop://"
-    assert validate_port("socket://127.0.0.1:7777").startswith("socket://")
-    assert validate_port("RFC2217://10.0.0.2:4000").lower().startswith("rfc2217://")
+    assert validate_port("socket://127.0.0.1:7777") == "socket://127.0.0.1:7777"
+    assert validate_port("RFC2217://127.0.0.1:4000") == "rfc2217://127.0.0.1:4000"  # 스킴·호스트는 소문자 정규형
+    assert validate_port("socket://[::1]:7777") == "socket://[::1]:7777"
     assert validate_port("/dev/ttyUSB-does-not-exist-0") == "/dev/ttyUSB-does-not-exist-0"  # 없는 장치는 열 때 DeviceError
     master, slave = os.openpty()
     try:
@@ -650,13 +651,133 @@ def test_validate_port_unit(tmp_path):
     finally:
         os.close(master)
         os.close(slave)
-    for bad in ("", "  ", "spy://x", "hwgrep://.*", "cp2110://0001:0002", "/dev/tty\x00USB0", str(tmp_path), "relative/path", "COM3", "com12"):
+    for bad in ("", "  ", "spy://x", "hwgrep://.*", "cp2110://0001:0002", "/dev/tty\x00USB0", str(tmp_path), "relative/path", "COM3", "com12",
+                # 원격 URL 은 루프백 호스트·포트가 있는 정규형만 (D4 — 수정 전에는 RFC2217://10.0.0.2:4000 이 유효했다)
+                "RFC2217://10.0.0.2:4000", "socket://192.0.2.10:7777", "socket://0.0.0.0:7777", "socket://127.1:7777",
+                "socket://user@127.0.0.1:7777", "socket://127.0.0.1", "rfc2217://127.0.0.1:2217?ign_set_control",
+                # COM 이름 문법: COM1–COM4096, 앞자리 0 없음
+                "COM0", "COM01", "COM4097", "COM99999"):
         with pytest.raises(ValidationFailed):
             validate_port(bad)
     # open_serial 도 직접 막는다 (작업 경로 방어)
     with pytest.raises(ValidationFailed):
         open_serial(PortSettings(port=f"spy://loop://?file={tmp_path / 's.log'}"))
     assert not (tmp_path / "s.log").exists()
+    with pytest.raises(ValidationFailed):
+        open_serial(PortSettings(port="socket://192.0.2.10:7777"))
+
+
+def test_validate_port_win_com_bound(monkeypatch):
+    """COM 이름은 COM1–COM4096(앞자리 0 없음). 범위 밖은 어느 플랫폼에서나 범위 오류, 범위 안은 Windows 가 아니면 거부."""
+    import sys
+
+    from pweh.errors import ValidationFailed
+    from uart_mcp.session import validate_port
+
+    for bad in ("COM0", "COM01", "COM007", "COM4097", "COM99999", "com10000"):
+        with pytest.raises(ValidationFailed, match="COM1–COM4096"):
+            validate_port(bad)
+    for ok_name in ("COM1", "com12", "COM4096"):
+        with pytest.raises(ValidationFailed, match="직접 열 수 없습니다"):
+            validate_port(ok_name)  # 리눅스·WSL: 문법은 맞지만 이 환경에서는 열 수 없다(usbipd 힌트)
+    with monkeypatch.context() as m:  # 가짜 win32 는 이 블록 안에서만 (fixture 정리는 실제 플랫폼에서)
+        m.setattr(sys, "platform", "win32")
+        assert validate_port("com12") == "COM12"
+        assert validate_port("COM1") == "COM1"
+        assert validate_port("COM4096") == "COM4096"
+        for bad in ("COM0", "COM01", "COM4097"):
+            with pytest.raises(ValidationFailed, match="COM1–COM4096"):
+                validate_port(bad)
+
+
+async def test_uart_refuses_lan_remote_urls_before_gate(workspace, auth, monkeypatch):
+    """socket://·rfc2217:// 는 루프백 호스트만 (D4). LAN·와일드카드·별칭·사용자 정보·질의 옵션 URL 은 게이트 전에
+    validation_failed 이고 접속을 시도하지 않으며 승인 요청도 만들지 않는다."""
+    import socket
+
+    from uart_mcp.server import server
+
+    def boom(*a, **kw):
+        raise AssertionError("LAN URL 로 접속을 시도함")
+
+    monkeypatch.setattr(socket, "create_connection", boom)
+    workspace["set_safety"](modify_policy="approve", approval_methods=["cli"])  # 검증을 지나쳤다면 승인 요청이 생겼을 것
+    cid = make_case(auth)
+    async with Client(server) as c:
+        for port in ("socket://192.0.2.10:7777", "rfc2217://10.0.0.2:4000", "socket://[2001:db8::1]:7777", "socket://0.0.0.0:7777",
+                     "socket://2130706433:7777", "socket://127.0.0.1@192.0.2.1:7777", "rfc2217://127.0.0.1:2217?timeout=1"):
+            r = await call(c, "uart_open", case_id=cid, port=port, baudrate=115200, dtr=True)
+            assert "[validation_failed]" in r.get("_error", ""), (port, r)
+            r = await call(c, "uart_detect_baud", case_id=cid, port=port, candidates=[115200], listen_seconds=0.2, probe="ctrl-c")
+            assert "[validation_failed]" in r.get("_error", ""), (port, r)
+        r = await call(c, "uart_open", case_id=cid, port="socket://192.0.2.10:7777")
+        assert "루프백" in r["_error"] and "LAN" in r["_error"], r
+        assert not (await call(c, "uart_sessions")).get("sessions")
+    assert get_runtime(SERVER).approvals.list("pending") == []
+
+
+async def test_uart_same_loopback_endpoint_is_one_port(workspace, devices, auth, monkeypatch):
+    """회귀(리뷰 F1): 같은 루프백 포트의 다른 표기(localhost·127.x·[::1]·rfc2217·대문자)는 한 포트다. 첫 세션이 열린 동안
+    두 번째 열기·보드레이트 탐지는 연결을 시도하기 전에 busy 이고, 세션 두 개로 'sa' + 'veenv\\r' 를 나눠 보내 saveenv 를
+    조립하는 우회(수정 전: 기기에서 saveenv 실행)가 통하지 않는다."""
+    import socket
+
+    from pweh import ports
+    from uart_mcp.server import server
+
+    monkeypatch.setattr(ports, "_getaddrinfo",
+                        lambda h, p: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", p or 0))])
+    assert get_runtime(SERVER).config.safety.destructive_policy == "deny"
+    dev = devices("hisilicon-like")
+    cid = make_case(auth)
+    async with Client(server) as c:
+        sid = await open_session(c, cid, dev, tcp=True)  # socket://127.0.0.1:P
+        port = (await call(c, "uart_sessions"))["sessions"][0]["port"].rsplit(":", 1)[1]
+        await to_uboot(c, sid, dev)
+        attempts: list = []
+        real_connect = socket.create_connection
+
+        def spy(addr, *a, **kw):
+            attempts.append(addr)
+            return real_connect(addr, *a, **kw)
+
+        monkeypatch.setattr(socket, "create_connection", spy)
+        for alias in (f"socket://localhost:{port}", f"SOCKET://127.0.0.1:{port}", f"socket://127.0.0.2:{port}",
+                      f"socket://[::1]:{port}", f"rfc2217://127.0.0.1:{port}", f"rfc2217://LocalHost:{port}"):
+            r = await call(c, "uart_open", case_id=cid, port=alias)
+            assert "[busy]" in r.get("_error", ""), (alias, r)
+            assert "한 포트로" in r["_error"], r  # 힌트: 같은 루프백 포트의 다른 표기는 한 포트
+            r = await call(c, "uart_detect_baud", case_id=cid, port=alias, candidates=[115200], listen_seconds=0.2, probe="none")
+            assert "[busy]" in r.get("_error", ""), (alias, r)
+        assert attempts == []  # 두 번째 연결은 시도조차 하지 않았다
+        assert [s["session_id"] for s in (await call(c, "uart_sessions"))["sessions"]] == [sid]
+        # 남은 경로는 한 세션 안에서 쪼개 보내는 것뿐이고, 그 세션의 줄 조립기가 saveenv 로 보고 거부한다
+        w1 = await call(c, "uart_write", session_id=sid, data="sa")
+        assert w1.get("ok") and w1.get("pending_input") == "sa", w1
+        w2 = await call(c, "uart_write", session_id=sid, data="veenv\r")
+        assert w2.get("status") == "denied", w2
+        await call(c, "uart_sync", session_id=sid)
+        time.sleep(0.3)
+        await call(c, "uart_close", session_id=sid)
+        # 닫은 뒤에는 별칭으로 다시 열 수 있고, localhost 는 확인한 루프백 주소로 바뀐다(연결 때 다시 풀지 않음)
+        r = await call(c, "uart_open", case_id=cid, port=f"socket://localhost:{port}")
+        assert r.get("ok") and r["port"] == f"socket://127.0.0.1:{port}", r
+        await call(c, "uart_close", session_id=r["session_id"])
+    assert dev.destructive_events == []
+
+
+async def test_uart_open_normalizes_loopback_url(workspace, devices, auth):
+    """대문자 스킴도 받아 정규형(socket://…)으로 돌려준다 — socket:// 전용 처리(보드레이트 note, 큰 읽기)가 적용된다."""
+    from uart_mcp.server import server
+
+    dev = devices("hisilicon-like")
+    host, port = dev.start_tcp()
+    cid = make_case(auth)
+    async with Client(server) as c:
+        r = await call(c, "uart_open", case_id=cid, port=f"SOCKET://{host}:{port}")
+        assert r.get("ok"), r
+        assert r["port"] == f"socket://{host}:{port}" and "note" in r, r
+        await call(c, "uart_close", session_id=r["session_id"])
 
 
 async def test_uart_mcp_stdio(workspace, devices, auth):

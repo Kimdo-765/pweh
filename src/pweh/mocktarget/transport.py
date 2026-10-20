@@ -4,6 +4,8 @@
   시뮬레이터(U-Boot/ash 흉내)가 직접 한다. 클라이언트가 슬레이브에 설정한 termios 속도가 기기 보드레이트와
   다르면, 출력은 실제 UART 수신기가 잘못된 속도로 샘플링했을 때와 같은 결정적 쓰레기 바이트로 바꾸고 입력은 버린다.
 - TCP: 여러 클라이언트를 받아 출력은 모두에게 보내고 입력은 어느 쪽이든 받는다. 보드레이트 개념 없음.
+  IPv4 루프백 주소(127.0.0.0/8, localhost)에만 바인드한다(IPv6 주소는 거부 — AF_INET 전용). 그 밖(0.0.0.0, 빈 문자열,
+  LAN 주소)은 ``allow_lan=True`` 일 때만(인증 없는 콘솔이 LAN 에 열린다 — 브리지 모드 WSL 이면 LAN 전체; port-routing 설계 G13).
 - 연결된 수신자가 없거나 너무 느리면 출력은 버려진다(실제 UART 와 같다). 버린 바이트 수는 통계로 남긴다.
 """
 
@@ -23,6 +25,8 @@ import time
 import tty
 from collections import deque
 from typing import Callable
+
+from ..ports import check_listen_host
 
 log = logging.getLogger("pweh.mocktarget")
 
@@ -341,11 +345,13 @@ class TcpTransport:
     kind = "tcp"
 
     def __init__(self, *, on_input: Callable[[bytes], None], on_event: Callable[[dict], None] | None = None,
-                 host: str = "127.0.0.1", port: int = 0, drop_timeout: float = 0.5) -> None:
+                 host: str = "127.0.0.1", port: int = 0, drop_timeout: float = 0.5, allow_lan: bool = False) -> None:
         self._on_input = on_input
         self._on_event = on_event or (lambda ev: None)
         self.host = host
         self.port = port
+        self.allow_lan = allow_lan
+        self.lan_exposed = False  # start() 가 루프백이 아닌 주소에 바인드하면 True
         self._drop_timeout = drop_timeout
         self._server: socket.socket | None = None
         self._clients: list[socket.socket] = []
@@ -355,6 +361,8 @@ class TcpTransport:
         self._threads: list[threading.Thread] = []
 
     def start(self) -> tuple[str, int]:
+        # 소켓을 만들기 전에: 루프백이 아니면 allow_lan 없이는 ValidationFailed (G13)
+        self.lan_exposed = check_listen_host(self.host, allow_lan=self.allow_lan)
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind((self.host, self.port))

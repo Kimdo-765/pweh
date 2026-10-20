@@ -114,6 +114,13 @@ _RESERVED: dict[str, str] = {}  # port_key → 용도 (열기 중/보드레이�
 _PORT_MEMORY: dict[tuple[str, str], dict[str, Any]] = {}
 _LOCK = threading.Lock()
 
+
+def _busy_hint(base: str, port: str) -> str:
+    """busy 힌트. 원격 URL 이면 port_key 가 포트만으로 같은 포트를 판정한다는 설명을 덧붙인다."""
+    if not is_url(port):
+        return base
+    return f"{base} 같은 루프백 포트를 가리키는 다른 표기(127.0.0.1·다른 127.x·[::1]·localhost, socket/rfc2217)는 한 포트로 봅니다."
+
 USB_UART_VIDS = {0x0403: "FTDI", 0x067B: "Prolific", 0x10C4: "Silicon Labs", 0x1A86: "WCH", 0x04E2: "Exar", 0x04D8: "Microchip",
                  0x0557: "ATEN", 0x0BDA: "Realtek", 0x2E8A: "Raspberry Pi", 0x1D50: "OpenMoko/BMP", 0x0483: "STMicro"}
 CONTEXT_CHOICES = ("uboot", "linux-shell", "login", "password", "booting", "unknown", "auto")
@@ -331,7 +338,8 @@ def _rel(s: UartSession, p: Path) -> str:
 @server.tool(
     description=(
         "시리얼 포트 목록 (OBSERVE). ports[{device, description, hwid, vid, pid, serial_number, manufacturer, likely_usb_uart, in_use_by}]. "
-        "include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(ser2net, 시뮬레이터)은 목록에 없고 uart_open 에 socket://host:port 로 준다."
+        "include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(이 호스트의 ser2net, 시뮬레이터)은 목록에 없고 uart_open 에 "
+        "socket://127.0.0.1:<포트> 로 준다(루프백만 — LAN 호스트는 validation_failed)."
     ),
     annotations=ANN_READ_ONLY,
 )
@@ -358,14 +366,15 @@ def uart_list_ports(include_links: bool = False) -> dict[str, Any]:
         })
     out: dict[str, Any] = {"ok": True, "ports": ports, "count": len(ports)}
     if not ports:
-        out["hint"] = "시리얼 포트가 없습니다. USB-UART 어댑터를 연결하세요 (WSL2 는 usbipd 로 장치를 붙여야 함). TCP 시리얼은 socket://host:port."
+        out["hint"] = ("시리얼 포트가 없습니다. USB-UART 어댑터를 연결하세요 (WSL2 는 usbipd 로 장치를 붙여야 함). "
+                       "TCP 시리얼은 루프백의 socket://127.0.0.1:<포트> 만 (LAN 의 ser2net 은 지원하지 않음).")
     return out
 
 
 @server.tool(
     description=(
         "UART 세션 열기 (INTERACT, dtr/rts=true 면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL "
-        "(socket://host:port, rfc2217://, loop://). DTR/RTS 는 열기 전에 설정하며 기본 False. line_ending 기본 \"\\r\" (U-Boot 문맥은 항상 \\r). "
+        "(루프백 호스트만: socket://127.0.0.1:<포트>, rfc2217://[::1]:<포트> / 테스트용 loop:// — LAN 호스트는 validation_failed). DTR/RTS 는 열기 전에 설정하며 기본 False. line_ending 기본 \"\\r\" (U-Boot 문맥은 항상 \\r). "
         "profile 은 pipeline_profiles 이름(생략 시 케이스 프로필) — 프롬프트/autoboot 정규식과 인터럽트 키를 정한다. "
         "반환: session_id, log_path/raw_path/events_path(케이스 상대), context, cursor. 세션이 열려 있는 동안 수신 스레드가 계속 기록한다."
     ),
@@ -412,7 +421,7 @@ async def uart_open(
     with _LOCK:
         used = _port_in_use(key)
     if used:
-        raise Busy(f"포트 {port} 는 이미 사용 중입니다 ({used}).", hint="기존 세션을 쓰거나 uart_close 후 다시 여세요.")
+        raise Busy(f"포트 {port} 는 이미 사용 중입니다 ({used}).", hint=_busy_hint("기존 세션을 쓰거나 uart_close 후 다시 여세요.", port))
     decision = await r.authorize(tool="uart_open", action={"port": port, "baudrate": settings.baudrate, "framing": settings.framing,
                                                             "dtr": settings.dtr, "rts": settings.rts},
                                  classification=cls, case_id=case_id, approval_id=approval_id, ctx=ctx,
@@ -825,7 +834,7 @@ async def uart_detect_baud(case_id: str, port: str, ctx: Context, candidates: li
     with _LOCK:
         used = _port_in_use(key)
     if used:
-        raise Busy(f"포트 {port} 는 사용 중입니다 ({used}).", hint="uart_close 로 세션을 닫은 뒤 탐지하세요.")
+        raise Busy(f"포트 {port} 는 사용 중입니다 ({used}).", hint=_busy_hint("uart_close 로 세션을 닫은 뒤 탐지하세요.", port))
     if probe == "ctrl-c":
         cls = Classification(Risk.MODIFY, "uart.detect-baud.probe",
                              "후보 보드레이트마다 0x03 을 한 번 보냄 — 속도가 다르면 기기에서 다른 바이트(예: 0x04 Ctrl-D)로 읽혀 셸이 종료되는 등 휘발성 변화 가능")

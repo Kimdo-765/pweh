@@ -19,7 +19,7 @@ md.b 덤프 job)와 BusyBox 리눅스 셸(로그인, 식별, dd 덤프 job), 보
 | 도구 | 위험도 | 설명 |
 |---|---|---|
 | `uart_list_ports(include_links=False)` | OBSERVE | 시리얼 포트 목록 + `likely_usb_uart`, `in_use_by` |
-| `uart_open(case_id, port, baudrate=115200, bytesize=8, parity="N", stopbits=1, line_ending="\r", dtr=False, rts=False, profile=None, label=None, approval_id=None)` | INTERACT (dtr/rts=true 면 MODIFY) | 세션 시작 → `session_id`, `log_path`/`raw_path`/`events_path`, `context`. `port` 는 장치 절대경로 또는 `socket://`·`rfc2217://`·`loop://` 만(`spy://`·`hwgrep://` 같은 다른 pyserial URL·상대 경로·일반 파일은 `validation_failed` — `uart_detect_baud` 도 같다). DTR/RTS 는 **열기 전에** 설정(기본 False). 장치 경로는 flock 으로 독점. 같은 케이스·포트의 앞 세션이 보낸 마지막 U-Boot 명령을 이어 받으면 `inherited_last_command` (§2.3) |
+| `uart_open(case_id, port, baudrate=115200, bytesize=8, parity="N", stopbits=1, line_ending="\r", dtr=False, rts=False, profile=None, label=None, approval_id=None)` | INTERACT (dtr/rts=true 면 MODIFY) | 세션 시작 → `session_id`, `log_path`/`raw_path`/`events_path`, `context`. `port` 는 장치 절대경로 또는 `socket://`·`rfc2217://`·`loop://` 만(`spy://`·`hwgrep://` 같은 다른 pyserial URL·상대 경로·일반 파일은 `validation_failed` — `uart_detect_baud` 도 같다). `socket://`·`rfc2217://` 는 **루프백 호스트만**(정규형 `127.0.0.0/8`·`[::1]`·모든 주소가 루프백으로 풀리는 `localhost`) 포트(1–65535)와 함께 받고 `<scheme>://<host>:<port>`(소문자)로 정규화한다(`localhost` 는 확인한 루프백 주소 — IPv4 우선 — 로 바꿔 연결 때 다시 풀지 않는다). 같은 루프백 포트의 다른 표기(`127.0.0.1`·다른 `127.x`·`[::1]`·`localhost`, 두 스킴)는 **한 포트**로 본다: 세션이 열린 동안 다른 표기로 연 `uart_open`·`uart_detect_baud` 는 `busy`(세션 둘로 줄 조립기를 나눠 `sa` + `veenv\r` → `saveenv` 를 만드는 우회를 막는다). LAN·와일드카드 호스트, inet_aton 별칭(`127.1`·`2130706433`), 사용자 정보(`@`), zone(`%`), 경로·질의 옵션(`?logging=`·`?timeout=` 등)은 `validation_failed` — LAN 의 ser2net 은 지금 지원하지 않는다(설계 D4 의 운영자 허용 목록 `safety.ports.remote_serial_hosts` 는 아직 구현하지 않았다). Windows `COMn` 은 `validation_failed` — 서버가 네이티브 Windows 에서 시작하지 않으므로 WSL2 에서는 usbipd 로 어댑터를 attach 한 뒤 `/dev/ttyUSB0`·`/dev/ttyACM0`(ESP32 보드 덤프는 pweh-esp 방법 A). DTR/RTS 는 **열기 전에** 설정(기본 False). 장치 경로는 flock 으로 독점한다 — `socket://`·`rfc2217://` 는 pyserial 이 exclusive 를 무시하므로 독점하지 않는다(같은 서버 안에서만 위 규칙으로 `busy`, 다른 프로세스·서버가 같은 URL 에 붙는 것은 막지 못한다). 같은 케이스·포트의 앞 세션이 보낸 마지막 U-Boot 명령을 이어 받으면 `inherited_last_command` (§2.3) |
 | `uart_close(session_id)` | — | job 취소 → 수신 스레드 정지 → 로그 3종 아티팩트 등록 (정리 작업이라 게이트 없음) |
 | `uart_sessions(case_id=None)` | OBSERVE | 상태(open/disconnected), 문맥/phase/프롬프트, rx/tx, 미완성 입력(`pending_uncertain`), `device_ready`/`device_busy_reason`(§2.2 규칙 10), 실행 중 job |
 | `uart_read(session_id, since_cursor=None, max_bytes=8192, wait_seconds=0, tail=False)` | OBSERVE | 링 버퍼 읽기. 커서 = 누적 수신 바이트. 생략 시 에이전트 읽기 위치부터 → `text, cursor_start, cursor_end, more, context, prompt, state, lost_bytes` |
@@ -233,7 +233,7 @@ case_record_step(… summary …)        ← uart-recon / firmware-dump 스키�
 .venv/bin/pweh-mock-device --profile hisilicon-like --pty --no-autostart   # 첫 줄 JSON 의 pty 경로
 # 에이전트: uart_open(case_id, port="/dev/pts/N") → uboot_interrupt → (터미널에서) power-on
 ```
-TCP: `--tcp --port 4321` → `port="socket://127.0.0.1:4321"`. 프로필별 출력 차이는 `tests/mock-targets/README.md`.
+TCP: `--tcp --port 4321` → `port="socket://127.0.0.1:4321"`. 시뮬레이터는 IPv4 루프백에만 바인드한다(IPv6 주소는 거부, `--host 0.0.0.0` 같은 주소는 `--allow-lan` 없이는 거부, 있으면 stderr 경고 — 인증 없는 콘솔이 LAN 에 열린다). 프로필별 출력 차이는 `tests/mock-targets/README.md`.
 
 ## 8. 한계
 

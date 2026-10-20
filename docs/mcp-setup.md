@@ -251,7 +251,8 @@ signals/boot-001.sr 을 REA decode_signal_recording 으로 UART 디코딩해서 
 | `/mcp` 에 서버가 `Failed to connect` | `bash scripts/mcp-launch.sh pweh-case-mcp < /dev/null` 로 직접 실행해 오류를 본다. `.venv` 설치 여부도 확인한다 |
 | `Pending approval` | `claude` 를 대화형으로 실행해 승인한다. 또는 `claude mcp reset-project-choices` 후 다시 승인한다 |
 | REA 도구가 Ghidra 없다고 함 | env.sh 의 `GHIDRA_INSTALL_DIR`/`JAVA_HOME` 을 확인하고 `rea doctor --provider ghidra` 를 실행한다 |
-| 시리얼 포트 권한 오류 | `pweh doctor` → `dialout` 그룹, WSL 이면 `usbipd attach` |
+| 시리얼 포트 권한 오류 | `pweh doctor`(맨 앞 환경 절)·`pweh env` → `dialout` 그룹, WSL 이면 네트워킹 모드별 `usbipd attach` |
+| Windows(네이티브·Cygwin·MSYS)에서 서버가 바로 끝남 | 지원하지 않는다(안내 문구와 함께 종료 코드 1). 서버는 WSL 안에서 실행하고, Windows 의 MCP 클라이언트는 `wsl.exe -d <배포판> -e <저장소>/.venv/bin/pweh-<서버>-mcp` 형식으로 띄운다(`-u root` 는 넣지 않는다) |
 | REA 의 Ghidra 분석이 `spawn ps ENOENT` 로 실패 | `ps`(procps)가 없는 시스템이다. `scripts/install.sh --only rea` 가 개인 경로에 `ps` 를 둔다 (MCP 서버는 env.sh 의 PATH 로 찾음) |
 | `pweh doctor` 가 도구를 `!!` (종료 코드 …) 로 표시 | 실행 파일은 있지만 깨진 설치다. 표시된 명령을 직접 실행해 보고 `scripts/install.sh --force --only <구성요소>` 로 다시 설치한다. 로그는 `~/pweh-tools/_logs/` |
 | 게이트가 계속 `denied` | `pipeline_safety_policy` 로 정책을 확인한다. 정책 변경은 사람이 하고 서버를 재시작해야 반영된다 |

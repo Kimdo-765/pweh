@@ -252,7 +252,11 @@ pweh-esp 도 같다. esptool 의 쓰기·삭제·eFuse·RAM 실행 같은 DESTRU
     남아 있는 동안 예약 파일을 지우지 않는다. 이때 남는 `%TEMP%\_MEI*` 압축 해제 디렉터리는 막을 수 없다.
 - **JTAGulator · sigrok**
   - JTAGulator UART 스캔 프로브는 대상 콘솔이 여러 번 받으므로, 두 번 이어 붙인 형태까지 콘솔 분류기로 검사한다(`_erase X\rflash` → `flash_erase X`).
-    `jtagulator_connect` 는 장치 경로·`socket://`·`rfc2217://` 형식만 받고 포트를 exclusive 로 열어, 다른 세션이 쓰는 대상 콘솔에 재동기화 키를 보내지 않는다.
+    `jtagulator_connect` 는 장치 경로·루프백 호스트의 `socket://`·`rfc2217://`(·테스트용 `loop://`) 형식만 받는다(LAN 호스트와 Windows `COMn` 은 `validation_failed`). 장치 경로는 exclusive(flock)로 열어, 다른 세션이 쓰는 대상 콘솔에 재동기화 키를 보내지 않는다.
+    **`socket://`·`rfc2217://` 에는 이 배타가 없다** — pyserial 이 `exclusive` 를 무시하기 때문이다. 한 서버 안에서는 같은 루프백 포트를 가리키는 모든 표기(`127.0.0.1`·다른 `127.x`·`[::1]`·`localhost`, 두 스킴)를 한 포트로 보고 두 번째 열기·연결을 `busy` 로 거부하지만,
+    다른 서버 프로세스가 잡은 URL 은 막지 못한다(예: pweh-uart 세션이 연 시뮬레이터·ser2net 포트에 pweh-jtagulator 가 연결하면 재동기화 키 Ctrl-X·CR — U-Boot 에서 CR 은 빈 Enter = 직전 명령 반복 — 이 그 콘솔로 간다). 원격 URL 은 한 서버에만 넘긴다(프로세스 사이 배타는 P1 portlock).
+- **원격 시리얼·리스너·플랫폼**: uart·jtagulator 는 `socket://`·`rfc2217://` 를 루프백 호스트만 받는다(인증 없는 시리얼을 LAN 에 열지 않고, 뒤에 어떤 장치가 있는지 식별할 수 없기 때문. 운영자 허용 목록 `safety.ports.remote_serial_hosts` 는 아직 구현하지 않았다).
+  시뮬레이터는 루프백에만 바인드하고, 루프백이 아닌 주소는 `--allow-lan` 이 있을 때만 stderr 경고와 함께 연다. PWEH MCP 서버는 네이티브 Windows·Cygwin·MSYS 에서 시작하지 않는다(PID 생존 확인·프로세스 그룹 종료·점유 검사가 안전하게 동작하지 않음).
   - sigrok 디코드는 sigrok-cli 를 띄우기 직전에 오프라인 명령인지 다시 확인한다.
 
 ### 3.4 위협 모델과 한계 (정직하게)

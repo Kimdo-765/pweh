@@ -9,6 +9,10 @@
 시작 후 stdout 에 **JSON 한 줄**(접속 정보)을 출력하고, stdin 에서 제어 명령을 한 줄씩 읽어 JSON 한 줄로 답한다:
 ``power-cycle`` ``power-off`` ``power-on`` ``status`` ``events [N]`` ``destructive`` ``console [N]`` ``wait STATE [SEC]``
 ``quit``. stdin 이 닫히면(EOF) 종료한다. 로그는 stderr 로만 나간다.
+
+``--tcp`` 는 IPv4 루프백 주소(기본 127.0.0.1, 127.0.0.0/8, localhost)에만 바인드한다(IPv6 주소는 거부 — 리스너가 IPv4 전용).
+``--host 0.0.0.0`` 처럼 루프백이 아닌 주소는 ``--allow-lan`` 이 없으면 시작하지 않고(JSON ``ok: false``, ``validation_failed``,
+종료 코드 2), 있으면 stderr 로 LAN 노출을 경고한다(인증 없는 콘솔 — 브리지 모드 WSL 이면 LAN 전체; port-routing 설계 G13).
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from typing import Any
 import yaml
 
 from ..errors import PwehError
+from ..ports import check_listen_host, lan_listen_warning
 from .device import STATES, MockDevice
 from .firmware import build_image
 from .profiles import list_profiles
@@ -65,7 +70,10 @@ def build_parser() -> argparse.ArgumentParser:
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--pty", action="store_true", help="원시 모드 PTY 를 연다 (기본)")
     mode.add_argument("--tcp", action="store_true", help="TCP 서버를 연다 (pyserial socket://host:port)")
-    ap.add_argument("--host", default="127.0.0.1", help="--tcp 바인드 주소 (기본 127.0.0.1)")
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="--tcp 바인드 주소 (기본 127.0.0.1). IPv4 루프백(127.0.0.0/8, localhost)만 — 그 밖은 --allow-lan 필요, IPv6 는 쓸 수 없음")
+    ap.add_argument("--allow-lan", action="store_true",
+                    help="루프백이 아닌 --host(예: 0.0.0.0)를 허용한다. 인증 없는 콘솔이 LAN 에 열린다(브리지 모드 WSL 이면 LAN 전체)")
     ap.add_argument("--port", type=int, default=0, help="--tcp 포트 (0=임의)")
     ap.add_argument("--link", default=None, help="--pty 슬레이브 경로에 만들 심볼릭 링크 (예: /tmp/ttyMOCK0)")
     ap.add_argument("--baud", type=int, default=None, help="기기 보드레이트 (기본: 프로필 값, 보통 115200)")
@@ -100,6 +108,8 @@ def main(argv: list[str] | None = None) -> int:
                 Path(manifest["image"]["path"]).name + ".manifest.json")), "fallbacks": manifest["fallbacks"],
                 "planted_issues": [p["id"] for p in manifest["planted_issues"]]})
             return 0
+        # 루프백이 아닌 바인드는 펌웨어를 만들기 전에 거부한다 (allow-lan 이면 노출 여부만 기억해 두고 바인드 뒤 경고)
+        lan_exposed = check_listen_host(args.host, allow_lan=args.allow_lan) if args.tcp else False
         flash: Any = args.firmware
         if flash is None and not args.fast_firmware:
             from .firmware import build_image_bytes
@@ -112,7 +122,10 @@ def main(argv: list[str] | None = None) -> int:
         if flash is not None and not isinstance(flash, str) and dev.firmware_manifest is None:
             dev.firmware_manifest = manifest  # type: ignore[possibly-undefined]
         if args.tcp:
-            host, port = dev.start_tcp(args.host, args.port)
+            host, port = dev.start_tcp(args.host, args.port, allow_lan=args.allow_lan)
+            if lan_exposed:
+                sys.stderr.write(lan_listen_warning(host, port) + "\n")
+                sys.stderr.flush()
             info: dict[str, Any] = {"ok": True, "url": f"socket://{host}:{port}", "host": host, "port": port}
         else:
             path = dev.start_pty(link=args.link)
