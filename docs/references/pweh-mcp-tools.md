@@ -257,6 +257,10 @@
   세이브 체크섬 찾기: 시간 순서 스냅샷(2~16개, 3개 이상 권장)에서 '저장값 = 알고리즘(데이터 범위)' 이 모든 스냅샷에 맞는 (알고리즘, 엔디언, 위치, 범위) 후보. 알고리즘: sum8/16/32, xor8, negsum8, crc8(-maxim), crc16(ccitt-false/xmodem/modbus/arc), crc32, adler32, fletcher16. 위치 후보는 스
 - **`fw_find_seq_tables(case_id, path, offset?, length?, partition?, base_addr?, min_len?, max_results?, max_seconds?, background?)`**  
   치트 입력(버튼 시퀀스) 표 후보 찾기: 작은 알파벳(버튼 id 0–15 또는 비트마스크)의 u8/u16/u32 배열, 코나미형(AABBCDCDEF) 모양, 반복 구조 점수. ESP 앱 이미지(partition=label 또는 offset 이 앱 이미지)면 플래시 rodata·데이터 세그먼트를 각자의 load 주소로 훑고(address = 디컴파일러 주소), 그 밖에는 범위를 base_add
+- **`fw_patch_build(case_id, base_path, target, edits, purpose, unlock_source, online_capable, backup_path?, description?)`**  
+  세이브 값 패치 이미지 만들기(소유 기기, 사용자가 명시적으로 원할 때만). base_path = 이 케이스에서 esp_read_flash_start 로 두 번 읽어 일치한 전체 플래시 덤프(offset 0). target = {type: 'nvs', partition} (기존 정수 NVS 항목, edits=[{namespace, key, value}]) 또는 {type: 'raw-regio
+- **`fw_verify_writeback(case_id, patch_path, readback_path)`**  
+  세이브 패치를 쓴 결과 확인: patch_path = fw_patch_build(stage=ready) 가 출처 원장(patch-plan)에 남긴 패치, readback_path = 쓰기 명령 뒤 esp_read_flash_start 로 대상 범위를 두 번 읽은 덤프(같은 MAC, 원장에서 patch-plan 보다 뒤). 기대값은 원장의 sha256 만 쓴다(패치 파일·결과 파일은 증거가 아
 
 ## pweh-esp
 

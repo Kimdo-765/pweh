@@ -40,6 +40,7 @@ description: Dump the SPI flash of an ESP32-family MCU (ESP32, ESP32-S2/S3/C3/C6
 2. **읽기 전용이다.** 다음은 실행하지도 제안하지도 않는다.
    - esptool `write-flash`, `erase-flash`, `erase-region`, `write-flash-status`, `write-mem`, `load-ram`, `run` (v4 이름 `write_flash`·`erase_flash` 도 같다).
    - espefuse 의 `burn-efuse`·`burn-key`·`burn-bit` 같은 `burn-*` 명령, `write-protect-efuse`, `read-protect-efuse` (eFuse 는 되돌릴 수 없다). espsecure 전체.
+   - 예외: 게임 세이브 패치(`game-save-unlock-analysis`)는 `fw_patch_build` 가 검증된 새 백업과 사람 증명 뒤 사람이 실행할 `write-flash` 명령(파티션 범위만)을 보여 준다. 사람이 별도 터미널에서 실행하고 에이전트는 실행하지 않는다.
    - 서버에는 이런 명령을 보내는 도구가 없다. 만든 argv 가 읽기 명령이 아니면 게이트에 넘기지 않고 **바로 거부**한다(`status: "denied"`, `gate.via: "esp-policy"`). 승인 레코드가 생기지 않으므로 `pweh approve` 로도 풀 수 없다.
    - 호스트 셸에서 esptool·espefuse·espsecure 를 직접 실행하지 않는다(오프라인 `image-info` 포함, `docs/safety.md` §4-11). 앱 이미지 헤더는 pweh-fwtriage 의 `fw_esp_image_info` 로 본다.
 3. **보안 기능을 우회하지 않는다.** Secure Download Mode, 플래시 암호화, Secure Boot 를 글리칭·전압 조작·eFuse 조작·키 추출·다른 도구로 다시 읽기로 넘으려 하지 않는다.

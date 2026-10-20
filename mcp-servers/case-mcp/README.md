@@ -49,7 +49,7 @@ logic-analyzer-protocol-decode → `signal-capture`, firmware-static-analysis �
 - 경로 인자(`path`)는 케이스 안으로 제한된다(`case.resolve_path`). `case_import_file` 의 `source_path` 만 케이스 밖을 읽는다.
 - `case_import_file` 은 가져온 파일을 출처 원장(`.pweh/state/provenance/<case_id>.jsonl`)에 `imported-unattested` 로 기록한다(architecture §4).
   이 서버에는 기기 읽기(`device-read`)로 기록하는 경로가 없고, 출처는 `case_register_artifact` 의 `producer` 같은 자유 인자로 바뀌지 않는다.
-  출처가 중요한 작업은 사람의 `provenance-import` 증명이 있을 때만 그 파일을 쓴다(그런 작업을 하는 도구는 아직 없다).
+  출처가 중요한 작업은 사람의 `provenance-import` 증명이 있을 때만 그 파일을 쓴다(지금 `fw_patch_build` 는 가져온 파일을 base 로 쓰지 않는다 — 기기에서 이중으로 읽은 덤프만).
 - 사람 증명(`att-…`)도 결정·조회하는 도구가 없다. `approval_status`·`approvals_pending` 은 승인(`ap-…`)만 보고, 증명은 사람이 별도 터미널에서
   `pweh attest <id>` 로 답한다. 케이스의 `attestations.json` 은 보고서용 읽기 전용 사본이라 증거가 아니다.
 - `case_hash_file`, `case_paths` 를 포함한 읽기 전용 도구는 `readOnlyHint` 가 붙어 있다. `.claude/settings.json` 은 이 서버 도구 전체를 허용한다(`mcp__pweh-case__*`).

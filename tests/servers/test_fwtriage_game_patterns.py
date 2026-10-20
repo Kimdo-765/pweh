@@ -524,7 +524,8 @@ _DELETE = object()
     ("unlock_conditions.2.unlock_source", "in-device"),   # sold-token 은 출처도 sold-token (보고만)
     ("unlock_conditions.3.kind", "online-purchase"),      # online-purchase 인데 출처 unknown
     ("unlock_conditions.0.description", "x"),
-    ("patches", [{"purpose": "score"}]),                  # 패치 빌드 단계 전까지 빈 목록
+    ("patches", [{"purpose": "score"}]),                  # 필수 필드(result_path·stage·unlock_source) 없음
+    ("patches", [{"result_path": "analysis/patch-build-001.json", "stage": "ready", "purpose": "score", "unlock_source": "sold-token"}]),  # 판매 토큰 해금은 패치하지 않는다
 ])
 def test_save_analysis_schema_rejects_invalid(path, value):
     with pytest.raises(ValidationFailed):

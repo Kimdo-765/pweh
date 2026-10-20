@@ -315,7 +315,7 @@ pweh-esp 도 같다. esptool 의 쓰기·삭제·eFuse·RAM 실행 같은 DESTRU
 ### 3.5 사람 증명(attestation)과 출처 원장(provenance), 보호 상태
 
 - **사람 증명**은 에이전트가 확인할 수 없는 사실을 사람이 직접 답한 기록이다(콘솔 오프라인, 결제 수단 제거, 배선과 멀티미터로 잰 전압, 태그의 목적·소유,
-  쓰기 방지 장치 사용, 가져온 파일의 출처 …). 지금은 코어와 `pweh attest` 명령만 있고, 증명을 요구하는 도구는 아직 없다(그런 사실이 필요한 서버를 만들 때 쓴다).
+  쓰기 방지 장치 사용, 가져온 파일의 출처 …). 증명을 요구하는 도구는 지금 `fw_patch_build` 하나다(세이브 쓰기 명령을 보여 주기 전 — 네트워크 차단·재부팅 없음·변경 의사·판매 토큰 콘텐츠 아님). 요약·질문의 제어 문자는 이스케이프해 보여 준다.
   서버가 `status: "attestation_required"` 와 `attestation_id` 를 돌려주면, 사람이 **별도 터미널**에서 `pweh attest <id>` 를 실행해
   종류·대상·바인딩을 확인하고 항목마다 y/n 또는 직접 잰 값을 입력한다. 승인이 되는 답이면 화면의 4자리 확인 코드도 입력한다(대화형 터미널 전용).
   클라이언트가 elicitation 을 지원하면 같은 항목이 확인 폼으로 뜬다(4자리 확인 코드. 폼을 거절·취소하면 거부로 기록된다).
@@ -326,7 +326,7 @@ pweh-esp 도 같다. esptool 의 쓰기·삭제·eFuse·RAM 실행 같은 DESTRU
     `cases/<id>/attestations.json`(사람이 보는 읽기 전용 사본 — 보고서 생성기는 아직 읽지 않는다), 승인 id 는 증거가 아니다. 서버가 확인 항목을 늘리면 예전 증명은 쓰이지 않고 다시 묻는다. 증명을 결정하거나 조회하는 MCP 도구는 없다.
 - **출처 원장**(`.pweh/state/provenance/<case_id>.jsonl`)은 기기 읽기 코드 경로가 쓴 산출물(device-read — 지금은 끝까지 성공한 pweh-esp 덤프)과
   기기 사실(device-fact — `esp_chip_info`·`esp_security_info` 결과)을 해시 체인으로 남긴다. `case_import_file` 로 가져온 파일은 `imported-unattested` 다.
-  출처가 중요한 작업(에뮬레이션·올리기·패치 base·계측기 플래시 절차)을 하는 서버는 가져온 파일을 사람의 `provenance-import` 증명이 있을 때만 쓴다(그런 도구는 아직 없다).
+  출처가 중요한 작업(에뮬레이션·올리기·패치 base·계측기 플래시 절차)을 하는 서버는 가져온 파일을 사람의 `provenance-import` 증명이 있을 때만 쓴다(`fw_patch_build` 는 가져온 파일을 base 로 쓰지 않는다 — 기기에서 이중으로 읽은 덤프만).
   체인이 하나라도 깨지면 그 케이스의 출처 확인은 모두 실패한다(fail closed). 기록한 뒤 바뀐 파일도 신뢰하지 않는다. 출처 확인은 `case.json` 의 `producer` 를 보지 않는다.
   device-read 는 출처(기기에서 읽음)이지 무결성이 아니다 — 이중 읽기가 어긋난 덤프(`source.match=false`)는 기록하지만 출처 확인에서 신뢰하지 않는다(`device-read-mismatch`).
 - **보호 상태**: `.pweh/state/` 의 `approvals/`, `attestations/`, `provenance/`, `salts/`, `audit.jsonl` 은 에이전트가 만들거나 고치거나 지우지 않는다.
@@ -369,6 +369,9 @@ pweh-esp 도 같다. esptool 의 쓰기·삭제·eFuse·RAM 실행 같은 DESTRU
     (§3.4 의 cwd 추적과 한계 참고). 시스템 디렉터리로 `cd` 한 뒤 상대 경로로 쓰지 않는다.
 11. ESP32 는 pweh-esp 의 읽기 도구(`esp_chip_info`, `esp_security_info`, `esp_read_flash_start`)로만 다룬다. 셸에서 esptool·espefuse 를 직접 실행하지 않는다.
     연결할 때마다 기기가 재부팅된다는 것을 사용자에게 알린다. Secure Download Mode(`read_flash_possible=false`)와 플래시 암호화는 우회하지 않고 보고한다.
+   예외: 게임 세이브 패치는 `fw_patch_build` 가 검증된 새 백업과 사람 증명을 확인한 뒤 사람이 실행할 esptool 쓰기 명령을 보여 준다(§4 규칙 6, master-prompt §1 규칙 3).
+   그 명령은 사람이 별도 터미널에서만 실행하고(쓰기 전에 패치 sha256 을 확인, 섹터 경계가 맞고 다른 영역과 겹치지 않는 파티션 범위만, erase·`--force` 없음), 에이전트는 실행하지 않는다.
+   백업 뒤에 그 기기에 다시 연결하면(esp 도구는 연결마다 칩을 리셋한다) 서버가 백업을 낡은 것으로 보고 명령을 주지 않는다. 원장에 남지 않는 연결(같은 포트의 uart-mcp 등)은 서버가 알 수 없으므로 하지 않는다.
 12. `attestation_required` 를 받으면 사용자에게 무엇을 직접 확인해야 하는지(물리 작업이면 그 작업도) 설명하고, 사람이 별도 터미널에서 `pweh attest <id>` 로 답하게 한다.
     에이전트가 사실을 대신 답하거나 `attested_*` 인자·케이스 파일로 증명을 대신하지 않는다. 거부(`denied`)면 우회하지 않고 보고한다.
 

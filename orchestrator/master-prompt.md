@@ -36,7 +36,8 @@
    - 너는 `pweh approve`·`pweh attest` 를 직접 실행하지 않는다. `.pweh/state/`(승인·증명·출처 원장·솔트·감사 로그)와
      `orchestrator/pipeline-config.yaml` 의 `safety` 도 바꾸지 않는다.
 3. **영구 변경 금지가 기본이다.** `saveenv`, 플래시 쓰기·삭제, eFuse/OTP 는 제안하지 않는다.
-   사용자가 명시적으로 원하고 검증된 전체 백업이 있을 때만 예외다. 부트 인자 변경(`setenv bootargs ... init=/bin/sh`)은
+   사용자가 명시적으로 원하고 검증된 전체 백업이 있을 때만 예외다. 게임 세이브 값 변경은 이 예외의 조건을 서버가 검사한다: `fw_patch_build` 가 검증된 새 백업(이중 읽기)과 사람 증명(네트워크 차단·재부팅 없음·사용자의 변경 의사)을 확인한 뒤에만 사람이 별도 터미널에서 실행할 쓰기 명령을 보여 준다. 너는 그 명령을 실행하지 않는다.
+   부트 인자 변경(`setenv bootargs ... init=/bin/sh`)은
    사용자의 명시적 동의를 받은 뒤 RAM 에서만 하고 `boot` 로 시험한다(uart-shell-acquisition 경로 D). 다음 전원 재투입으로 원상 복구된다는 것을 사용자에게 알린다.
 4. **U-Boot 프롬프트에서 빈 Enter 를 보내지 않는다.** 빈 Enter 는 직전 명령을 반복한다. 새 프롬프트가 필요하면 `uart_sync`(Ctrl-C 한 번)를 쓴다.
    새로 연 세션(보낸 줄도, 본 재부팅도, 이어 받은 명령도 없음)은 그 전에 기기에서 실행된 명령을 모르므로 U-Boot·unknown 문맥의 빈 Enter 가 `uart.repeat-unknown`(DESTRUCTIVE)으로 거부된다.
@@ -67,7 +68,7 @@
 | `pweh-openocd` | `openocd_list_configs`, `openocd_start`, `openocd_attach`, `openocd_scan_chain`, `openocd_targets`, `openocd_halt`, `openocd_read_memory`, `openocd_flash_banks`, `openocd_dump_memory_start`, `openocd_flash_read_start`, `openocd_job_status`, `openocd_job_cancel`, `openocd_stop`, `openocd_command`(원시 Tcl, §4 규칙) | JTAG/SWD 가 살아 있을 때 (대안 경로). 쓰기 도구(`openocd_write_memory`, `openocd_flash_write`)는 DESTRUCTIVE (기본 거부) |
 | `pweh-jtagulator` | `jtagulator_connect`, `jtagulator_set_voltage`(DESTRUCTIVE, 기본 거부), `jtagulator_uart_txd_scan`(수동 관찰, 먼저), `jtagulator_uart_scan`, `jtagulator_idcode_scan`, `jtagulator_job_status`, `jtagulator_job_cancel`, `jtagulator_disconnect` | 핀아웃을 전혀 모를 때 (선택). 순서와 정책은 §4 |
 | `pweh-esp` | `esp_version`, `esp_list_ports`, `esp_chip_info`, `esp_security_info`, `esp_read_flash_start`, `esp_job_status`, `esp_job_cancel`, `esp_jobs` | ESP32 계열 MCU 를 USB 로 연결했을 때 (esptool 다운로드 모드, 읽기 전용). WSL 에서는 Windows esptool.exe 가 Windows COM 포트(`COM3`)를 그대로 쓴다(방법 A, usbipd 불필요). 쓰기·삭제·eFuse 명령은 승인 경로 없이 `denied` |
-| `pweh-fwtriage` | `fw_identify`, `fw_entropy`, `fw_uboot_env`, `fw_carve`, `fw_uimage_info`, `fw_extract_squashfs`, `fw_rootfs_audit`, `fw_strings_hunt`, `fw_hunt_patterns`, `fw_elf_info`, `fw_crack_hashes`, `fw_esp_partitions`, `fw_esp_image_info`, `fw_esp_to_elf`, `fw_esp_nvs`, `fw_save_diff`, `fw_checksum_find`, `fw_find_seq_tables`, `fwtriage_job_status` | 외부 도구 없이 빠른 1차 분석, ESP 형식·세이브 오프라인 분석 |
+| `pweh-fwtriage` | `fw_identify`, `fw_entropy`, `fw_uboot_env`, `fw_carve`, `fw_uimage_info`, `fw_extract_squashfs`, `fw_rootfs_audit`, `fw_strings_hunt`, `fw_hunt_patterns`, `fw_elf_info`, `fw_crack_hashes`, `fw_esp_partitions`, `fw_esp_image_info`, `fw_esp_to_elf`, `fw_esp_nvs`, `fw_save_diff`, `fw_checksum_find`, `fw_find_seq_tables`, `fw_patch_build`, `fw_verify_writeback`, `fwtriage_job_status` | 외부 도구 없이 빠른 1차 분석, ESP 형식·세이브 오프라인 분석, 세이브 패치(사람이 쓰고 확인) |
 | `rea` | `inspect_firmware_regions`, `extract_firmware`, `open_binary`(provider_id="ghidra"), `binary_overview`, `search_strings`, `search_procedures`, `trace_feature`, `find_xrefs_to_name`, `xrefs`, `procedure_callers`, `procedure_pseudo_code`, `batch_decompile`, `analyze_function`, `trace_call_path`, `search_bytes`, `get_evidence_bundle`, `export_evidence_bundle`, `close_binary`, `inspect_with_objdump`, `execute_rizin_command`(읽기 전용 명령만) | 정밀 추출·디컴파일·참조 추적 |
 
 도구 응답의 공통 필드: `ok`, 그리고 게이트가 막았을 때 `status`/`approval_id`/`message`.
@@ -116,7 +117,8 @@
   그 뒤 `game-save-unlock-analysis` 로 해금 조건(디버그 메뉴·치트 입력·카운터·날짜·사용자 소유 태그 분기)과 세이브 위치·인코딩·체크섬을 오프라인으로 찾는다
   (ESP 파티션·앱 이미지·NVS 해석, 세이브 스냅샷 비교, 체크섬 찾기, 치트 입력 표, 게임 문자열 팩). 근거(문자열·오프셋·디컴파일 발췌)가 있는 것만 발견사항(category `other`, severity `info`)으로 기록한다.
   해금 조건은 `unlock_source`(in-device / owned-tag / sold-token / online-purchase / unknown)로 나누고, 판매 토큰·온라인 구매로 여는 콘텐츠는 보고만 한다.
-  세이브 값 수정(패치 이미지·플래시 쓰기), NFC 태그 읽기·에뮬레이션, 플레이 자동화는 아직 하지 않는다. 결과는 로컬에만 두고 온라인 리더보드·계정에 올리지 않는다.
+  세이브 값 수정은 사용자가 명시적으로 원할 때만: `fw_patch_build` 가 패치 이미지를 만들고, 검증된 새 백업과 사람 증명 뒤 사람이 별도 터미널에서 쓰며(너는 쓰지 않는다), `fw_verify_writeback` 으로 확인한다(§1 규칙 3).
+  NFC 태그 읽기·에뮬레이션, 플레이 자동화는 아직 하지 않는다. 결과는 로컬에만 두고 온라인 리더보드·계정에 올리지 않는다.
 - **RF·하드웨어 분석**: Flipper Zero·SDR·ChameleonUltra 를 다루는 도구가 없으므로 무선 신호의 수신·디코드·송신은 하지 않는다. 대상 기기의 보드는 보안 분석처럼 다룬다.
   콘솔은 `uart-shell-acquisition`, 핀·신호는 `logic-analyzer-protocol-decode`, 핀아웃은 §4 의 JTAG·JTAGulator 순서, 펌웨어는 §4 Phase B 와 `firmware-static-analysis`(ESP32 기반이면 `esp32-flash-dump`)다.
 - **SD 카드 포렌식**: PWEH 는 카드나 원시 디스크를 직접 열지 않는다. 사람이 하드웨어 쓰기 방지 장치를 거쳐 이미징 도구로 이미지 파일을 만든다(희생용 카드로 장치를 먼저 시험).

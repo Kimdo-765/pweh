@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import stat
 import struct
 import threading
@@ -27,9 +28,13 @@ import anyio.to_thread
 from pweh.errors import ValidationFailed
 from pweh.fsutil import atomic_write_bytes
 from pweh.jobs import JobCancelled
-from pweh.mcpkit import ANN_LOCAL_WRITE, ANN_READ_ONLY, create_server, register_job_tools, safe_tool
+from pweh.mcpkit import ANN_LOCAL_WRITE, ANN_READ_ONLY, Context, create_server, register_job_tools, safe_tool
+from pweh.provenance import KIND_PATCH_PLAN
 from pweh.runtime import Runtime, get_runtime
+from pweh.safety import attestation_response
+from pweh.safety.attestations import display_text
 from pweh.safety.masking import mask_secret as core_mask_secret
+from pweh.toolsdir import tools_env
 
 from . import elfinfo, espfmt, saves
 from .common import (
@@ -42,6 +47,7 @@ from .common import (
     base_payload,
     clamp_int,
     claim_numbered_dir,
+    claim_numbered_file,
     clip,
     compact_list,
     file_info,
@@ -2005,6 +2011,498 @@ async def fw_find_seq_tables(
         }
 
     return await _execute(kind="fw_find_seq_tables", case_id=case.id, background=background, max_seconds=secs, description=f"fw_find_seq_tables {case.rel(src)}", fn=work)
+
+
+# ---------------------------------------------------------------------------
+# 세이브 패치 (fw_patch_build, fw_verify_writeback) — 기기에는 사람이 쓰고, PWEH 는 패치를 만들고 쓴 결과를 확인한다
+# docs/design/game-console-flipper-rf.md §3.5, master-prompt §1 규칙 3 의 예외(사용자가 명시적으로 원함 + 검증된 새 백업)
+# ---------------------------------------------------------------------------
+
+#: provenance 의 칩 이름 → esptool --chip 값. 이 밖의 칩은 쓰기 명령을 만들지 않는다.
+_ESPTOOL_CHIPS = {"ESP32": "esp32", "ESP32-S2": "esp32s2", "ESP32-S3": "esp32s3", "ESP32-C3": "esp32c3", "ESP32-C2": "esp32c2",
+                  "ESP32-C6": "esp32c6", "ESP32-H2": "esp32h2", "ESP32-P4": "esp32p4", "ESP32-C5": "esp32c5", "ESP32-C61": "esp32c61"}
+_WIN_PORT_RE = re.compile(r"^COM[1-9][0-9]{0,3}$")
+_LINUX_PORT_RE = re.compile(r"^/dev/(?:tty(?:ACM|USB)[0-9]{1,3}|serial/by-id/[A-Za-z0-9._:+-]{1,200})$")
+PATCH_TARGET_TYPES = ("nvs", "raw-region")
+PATCH_PURPOSES = ("score", "progress", "in-device-unlock")
+PATCH_UNLOCK_SOURCES = ("in-device", "owned-tag")
+PATCH_ONLINE = ("no", "unknown")
+PATCH_MAX_EDITS = 16
+#: 케이스당 patches/ 의 패치 파일 상한(같은 패치는 다시 쓰지 않고 재사용한다)
+PATCH_MAX_FILES = 64
+#: 사람 증명 요약의 최대 길이 — 넘으면 자르지 않고 거부한다(사람이 보는 변경 목록이 잘리지 않게)
+PATCH_SUMMARY_MAX = 2000
+#: 쓰기 전 사람 증명의 유효 시간(초) — 네트워크 차단·재부팅 없음은 시간이 지나면 의미가 없다
+PATCH_ATTEST_VALID_S = 1800
+PATCH_QUESTIONS: tuple[dict[str, Any], ...] = (
+    {"id": "offline", "type": "yesno", "expected": "yes",
+     "text": "기기의 네트워크(Wi-Fi·앱 연동)를 끊었고, 쓰기와 확인이 끝날 때까지 다시 연결하지 않는다"},
+    {"id": "no_reboot", "type": "yesno", "expected": "yes",
+     "text": "백업을 읽은 뒤 기기를 끄거나 재부팅·리셋하지 않았다(USB 케이블도 그대로다)"},
+    {"id": "want_change", "type": "yesno", "expected": "yes",
+     "text": "요약에 적힌 값 변경을 내가 직접 원하며, 결과를 온라인 순위·계정에 올리지 않는다"},
+    {"id": "not_sold", "type": "yesno", "expected": "yes",
+     "text": "바꾸는 값은 기기 안의 조건(점수·진행·내 태그)으로 여는 것이며, 따로 파는 토큰·DLC·온라인 구매로 여는 콘텐츠가 아니다"},
+)
+
+
+def _chip_arg(chip: Any) -> str | None:
+    m = re.match(r"\s*(ESP32(?:-[A-Z0-9]+)?)", str(chip or "").upper())
+    return _ESPTOOL_CHIPS.get(m.group(1)) if m else None
+
+
+def _dump_record(case: Any, path: str, what: str) -> tuple[dict[str, Any], bytes, str]:
+    """이 케이스에서 기기로 두 번 읽어 일치한 덤프(출처 원장 device-read)의 (원장 항목, 바이트, 케이스 상대 경로).
+    바이트는 한 번만 읽고 원장의 sha256 과 맞춰 본 뒤 그 바이트만 쓴다(확인과 사용 사이에 파일이 바뀌어도 영향 없음)."""
+    p = resolve_input_file(case, path)
+    rel = case.rel(p)
+    if p.stat().st_size > ESP_MAX_BYTES:
+        raise ValidationFailed(f"{what} 이 너무 큽니다.")
+    v = rt().provenance.verify(case, rel)
+    if not v.get("trusted") or v.get("kind") != "device-read":
+        raise ValidationFailed(f"{what} 은 이 케이스에서 기기로 읽은 덤프여야 합니다 (출처 확인: {v.get('reason')}).",
+                               hint="esp_read_flash_start(verify='double') 로 읽은 파일을 쓴다. 가져온 파일·고친 파일은 쓸 수 없다.")
+    rec = v["record"]
+    src = rec.get("source") or {}
+    if src.get("verify") != "double-read" or src.get("match") is not True:
+        raise ValidationFailed(f"{what} 은 두 번 읽어 sha256 이 같은 덤프여야 합니다 (verify={src.get('verify')}, match={src.get('match')}).",
+                               hint="esp_read_flash_start 를 verify='double'(기본)로 다시 읽는다.")
+    if not (rec.get("extra") or {}).get("job_id"):
+        raise ValidationFailed(f"{what} 의 원장 기록에 덤프 작업(job) id 가 없습니다.", hint="esp_read_flash_start 로 읽은 덤프만 쓴다.")
+    data = _pread_regular(p, 0, p.stat().st_size)
+    if hashlib.sha256(data).hexdigest() != rec.get("sha256"):
+        raise ValidationFailed(f"{what} 이 원장 기록 뒤에 바뀌었습니다.", hint="기기에서 다시 읽는다.")
+    return rec, data, rel
+
+
+def _dump_offset(rec: dict[str, Any]) -> int:
+    off = (rec.get("extra") or {}).get("offset")
+    return int(off) if isinstance(off, int) and off >= 0 else 0
+
+
+def _check_patch_args(target: Any, edits: Any, purpose: str, unlock_source: str, online_capable: str) -> tuple[str, str, dict[str, Any] | None]:
+    if not isinstance(target, dict) or target.get("type") not in PATCH_TARGET_TYPES or not isinstance(target.get("partition"), str) or not target["partition"]:
+        raise ValidationFailed("target 은 {type: 'nvs'|'raw-region', partition: <파티션 label>} 입니다(raw-region 은 checksum 선택).")
+    if purpose not in PATCH_PURPOSES:
+        raise ValidationFailed(f"purpose 는 {', '.join(PATCH_PURPOSES)} 중 하나입니다.")
+    if unlock_source not in PATCH_UNLOCK_SOURCES:
+        raise ValidationFailed(f"unlock_source={unlock_source!r} 인 패치는 만들지 않습니다.",
+                               hint="판매 토큰·온라인 구매로 여는 콘텐츠(sold-token·online-purchase)는 보고만 한다. 출처를 모르면(unknown) 먼저 확인한다(in-device·owned-tag 만).")
+    if online_capable not in PATCH_ONLINE:
+        raise ValidationFailed("온라인과 동기화되는 기기(online_capable='yes')의 값은 바꾸지 않습니다(결과가 순위·계정에 올라갈 수 있다).",
+                               hint="online_capable 은 'no' 또는 'unknown' 이어야 한다.")
+    if not isinstance(edits, list) or not 1 <= len(edits) <= PATCH_MAX_EDITS or not all(isinstance(e, dict) for e in edits):
+        raise ValidationFailed(f"edits 는 1~{PATCH_MAX_EDITS}개의 객체 목록입니다.")
+    checksum = target.get("checksum")
+    if checksum is not None:
+        if target["type"] != "raw-region" or not isinstance(checksum, dict):
+            raise ValidationFailed("checksum 은 raw-region 대상에만 줄 수 있다(fw_checksum_find 후보 그대로).")
+        if int(checksum.get("range_variants") or 1) > 1:
+            raise ValidationFailed("이 체크섬 후보는 범위가 하나로 정해지지 않았다(range_variants > 1) — 다시 계산하면 틀릴 수 있어 패치하지 않는다.",
+                                   hint="스냅샷을 더 모아 fw_checksum_find 로 범위를 좁힌다.")
+    return target["type"], target["partition"], checksum
+
+
+def _flash_encryption_evidence(case: Any, base_rec: dict[str, Any], table: dict[str, Any], ent: dict[str, Any]) -> dict[str, Any]:
+    """플래시 암호화 근거. 원장의 esp_security_info 가 켜짐이면 거부. 모르면(원조 ESP32 등) 파티션 단위 근거로 판단하고 무엇을 썼는지 남긴다."""
+    mac = str((base_rec.get("source") or {}).get("mac") or "").lower()
+    if not mac:
+        raise ValidationFailed("base 의 원장 기록에 기기 MAC 이 없습니다.")
+    # 같은 기기(MAC)의 사실만 쓴다 — MAC 없는 사실이나 다른 기기의 사실은 근거가 아니다. 하나라도 켜짐이면 거부
+    facts = [f for f in rt().provenance.facts(case, "esp-security-info") if str((f.get("source") or {}).get("mac") or "").lower() == mac]
+    if any((f.get("data") or {}).get("flash_encryption") is True for f in facts):
+        raise ValidationFailed("플래시 암호화가 켜진 기기(esp_security_info)에는 세이브 패치를 만들지 않습니다.", hint="우회하지 않고 보고한다.")
+    fact = facts[-1] if facts else None
+    fe = (fact.get("data") or {}).get("flash_encryption") if fact else None
+    evidence: dict[str, Any] = {"esp_security_info": "flash_encryption=false" if fe is False else "미확인(원장에 없음 또는 미지원 칩)",
+                                "fact_seq": (fact or {}).get("seq"), "partition_encrypted_flag": bool(ent.get("encrypted")),
+                                "nvs_keys_present": bool(table.get("nvs_keys_present")), "table_md5": (table.get("md5") or {}).get("ok")}
+    if fe is not True and fe is not False and not (table.get("md5") or {}).get("ok"):
+        raise ValidationFailed("플래시 암호화 여부를 확인할 수 없습니다(esp_security_info 없음·미지원, 파티션 표 MD5 확인 불가).",
+                               hint="esp_security_info 를 먼저 실행하거나(지원 칩), 파티션 표에 MD5 항목이 있는 덤프에서만 패치한다.")
+    return evidence
+
+
+def _geometry_problems(table: dict[str, Any], ent: dict[str, Any]) -> list[str]:
+    """대상 파티션의 경계 문제(쓰기 명령이 파티션 밖을 쓰거나 지우게 되는 경우). 펌웨어의 파티션 표는 조작됐을 수 있다."""
+    probs: list[str] = []
+    off, size = int(ent.get("offset") or 0), int(ent.get("size") or 0)
+    if size <= 0:
+        probs.append("크기가 0 이다")
+    if off % 0x1000 or size % 0x1000:
+        probs.append(f"오프셋·크기가 4 KiB 섹터 경계가 아니다({hexs(off)}+{hexs(size)}) — esptool 은 섹터 단위로 지워 옆 파티션까지 지운다")
+    tbl_end = int(table.get("offset") or espfmt.PARTITION_TABLE_DEFAULT_OFFSET) + 0x1000
+    if off < tbl_end:
+        probs.append(f"부트로더·파티션 표 영역(0x0–{hexs(tbl_end)})과 겹친다")
+    for other in table.get("entries") or []:
+        if other.get("index") == ent.get("index"):
+            continue
+        o, z = int(other.get("offset") or 0), int(other.get("size") or 0)
+        if o < off + size and off < o + z:
+            probs.append(f"파티션 '{display_text(other.get('label'), 40)}'({hexs(o)}+{hexs(z)}) 과 겹친다")
+    if [e.get("label") for e in table.get("entries") or []].count(ent.get("label")) > 1:
+        probs.append("같은 이름의 파티션이 여럿이다")
+    md5 = table.get("md5") or {}
+    if md5.get("present") and md5.get("ok") is False:
+        probs.append("파티션 표 MD5 가 맞지 않는다")
+    if table.get("errors"):
+        probs.append("파티션 표 오류: " + display_text("; ".join(str(x) for x in table["errors"][:3]), 200))
+    return probs
+
+
+def _later_device_activity(case: Any, after_seq: int, job_id: Any, mac: str) -> list[dict[str, Any]]:
+    """원장에서 after_seq 뒤에 같은 기기(MAC — 모르면 같은 기기로 본다)에 연결한 기록(device-read·device-fact, 그 job 제외).
+    esp 도구는 연결할 때마다 칩을 리셋해 게임이 돌 수 있으므로, 백업 뒤에 이런 기록이 있으면 백업은 낡았다."""
+    out = []
+    for e in rt().provenance.entries(case):
+        if int(e.get("seq") or 0) <= after_seq or e.get("kind") not in ("device-read", "device-fact"):
+            continue
+        if job_id and (e.get("extra") or {}).get("job_id") == job_id:
+            continue
+        if str((e.get("source") or {}).get("mac") or mac).lower() == mac:
+            out.append({"seq": e.get("seq"), "kind": e.get("kind"), "tool": (e.get("source") or {}).get("tool"), "fact_kind": e.get("fact_kind")})
+    return out
+
+
+def _patch_prepare(case: Any, base_path: str, target: Any, edits: Any, purpose: str, unlock_source: str, online_capable: str,
+                   backup_path: str | None, description: str | None) -> dict[str, Any]:
+    """base 확인 → 파티션·암호화 근거 → 패치를 메모리에서 만든다(파일은 쓰지 않음). backup_path 가 있으면 백업도 확인한다."""
+    ttype, label, checksum = _check_patch_args(target, edits, purpose, unlock_source, online_capable)
+    base_rec, base, base_rel = _dump_record(case, base_path, "base")
+    if _dump_offset(base_rec) != 0:
+        raise ValidationFailed("base 는 플래시 처음(offset 0)부터 읽은 전체 덤프여야 합니다(파티션 표로 위치를 정한다).")
+    table = _lib(espfmt.parse_partition_table, base, data_len=len(base))
+    if not table.get("found"):
+        raise ValidationFailed("base 에서 파티션 표를 찾지 못했습니다(플래시 암호화·옮긴 표·잘못 읽은 덤프).")
+    ent = espfmt.find_partition(table, label)
+    if ent is None:
+        raise ValidationFailed(f"파티션 '{label}' 이 없습니다.", hint="있는 파티션: " + ", ".join(str(e.get("label")) for e in table.get("entries") or []))
+    want = "nvs" if ttype == "nvs" else "raw-user-data"
+    if ent.get("write_class") != want:
+        raise ValidationFailed(f"파티션 '{label}' 은 {ttype} 패치 대상이 아닙니다(write_class={ent.get('write_class')}).")
+    if ent.get("write_blockers"):
+        raise ValidationFailed(f"파티션 '{label}' 에는 쓰지 않습니다: {'; '.join(ent['write_blockers'])}")
+    geo = _geometry_problems(table, ent)
+    if geo:
+        raise ValidationFailed(f"파티션 '{display_text(label, 40)}' 의 경계를 믿을 수 없어 쓰지 않습니다: {'; '.join(geo)}")
+    off, size = int(ent["offset"]), int(ent["size"])
+    if off + size > len(base):
+        raise ValidationFailed("base 덤프가 대상 파티션 끝까지 닿지 않습니다(잘린 덤프).")
+    fe = _flash_encryption_evidence(case, base_rec, table, ent)
+    region = base[off:off + size]
+    shown: list[dict[str, Any]] = []
+    if ttype == "nvs":
+        nvs = _lib(espfmt.parse_nvs, region, include_erased=False)
+        raws = _secret_raws(list(nvs.get("items") or []) + list(nvs.get("blobs") or []))
+        live = {(it.get("namespace"), it.get("key")): it for it in nvs.get("items") or [] if it.get("live")}
+        norm = []
+        for e in edits:
+            ns, key, val = e.get("namespace"), e.get("key"), e.get("value")
+            if not isinstance(ns, str) or not isinstance(key, str) or isinstance(val, bool) or not isinstance(val, int):
+                raise ValidationFailed("NVS edits 는 [{namespace, key, value: 정수}] 입니다(기존 정수 항목만).")
+            it = live.get((ns, key))
+            if it is not None and _is_secret(it, raws):
+                raise ValidationFailed(f"비밀로 보이는 키는 바꾸지 않습니다: {ns}/{key}")
+            norm.append({"namespace": ns, "key": key, "value": val})
+        new_region, changes = _lib(espfmt.nvs_set_primitives, region, norm)
+        shown = [{k: c.get(k) for k in ("namespace", "key", "type_name", "before", "after")} for c in changes]
+    else:
+        new_region, changes = _lib(saves.apply_raw_edits, region, edits, checksum=checksum)
+        shown = [c for c in changes]
+    if new_region == region:
+        raise ValidationFailed("바뀌는 값이 없습니다(이미 그 값이다).")
+    src_b = base_rec.get("source") or {}
+    prep: dict[str, Any] = {
+        "ttype": ttype, "label": label, "abs_offset": off, "size": size, "region_sha256": hashlib.sha256(region).hexdigest(),
+        "patch": bytes(new_region), "patch_sha256": hashlib.sha256(new_region).hexdigest(), "changes": shown, "checksum": checksum,
+        "base": {"path": base_rel, "sha256": base_rec.get("sha256"), "seq": base_rec.get("seq"), "job_id": (base_rec.get("extra") or {}).get("job_id")},
+        "device": {"chip": src_b.get("chip"), "mac": src_b.get("mac")}, "evidence": fe,
+        "purpose": purpose, "unlock_source": unlock_source, "online_capable": online_capable, "description": clip(description or "", 300) or None,
+        "partition": {k: ent.get(k) for k in ("label", "type_name", "subtype_name", "offset", "size", "write_class")},
+    }
+    if backup_path is not None:
+        prep["backup"] = _check_backup(case, backup_path, base_rec, prep, region)
+    return prep
+
+
+def _check_backup(case: Any, backup_path: str, base_rec: dict[str, Any], prep: dict[str, Any], region: bytes) -> dict[str, Any]:
+    """쓰기 직전 백업: base 뒤에 다른 job 으로 새로 두 번 읽었고, 마지막 읽기 뒤 앱이 돌지 않았고(after=no-reset-stub),
+    같은 기기(MAC)이고, 대상 범위를 덮으며 그 바이트가 base 와 같아야 한다. 쓰기 명령의 포트·칩은 이 백업의 기록에서 가져온다."""
+    rec, data, rel = _dump_record(case, backup_path, "백업")
+    ex, src = rec.get("extra") or {}, rec.get("source") or {}
+    if int(rec.get("seq") or 0) <= int(base_rec.get("seq") or 0):
+        raise ValidationFailed("백업은 base 보다 뒤에 새로 읽은 덤프여야 합니다.")
+    if ex.get("job_id") == (base_rec.get("extra") or {}).get("job_id"):
+        raise ValidationFailed("백업은 base 와 다른 덤프 작업(job)이어야 합니다(같은 덤프의 두 번째 읽기는 백업이 아니다).")
+    job_reads = [e for e in rt().provenance.entries(case, "device-read") if (e.get("extra") or {}).get("job_id") == ex.get("job_id")]
+    final = [e for e in job_reads if (e.get("extra") or {}).get("role") == "verification-read"]
+    if not final or (final[-1].get("extra") or {}).get("after") != "no-reset-stub":
+        raise ValidationFailed("백업의 마지막 읽기 뒤에 기기가 재부팅됐습니다(after≠no-reset-stub) — 그사이 게임이 세이브를 바꿨을 수 있다.",
+                               hint="esp_read_flash_start(…, verify='double', after='no-reset') 로 백업을 다시 읽는다(칩이 다운로드 모드에 머문다).")
+    mac_b, mac_k = (base_rec.get("source") or {}).get("mac"), src.get("mac")
+    if not mac_b or not mac_k or str(mac_b).lower() != str(mac_k).lower():
+        raise ValidationFailed(f"백업과 base 가 같은 기기인지 확인할 수 없습니다(MAC {mac_b} / {mac_k}).")
+    b_off = _dump_offset(rec)
+    off, size = prep["abs_offset"], prep["size"]
+    if not (b_off <= off and b_off + len(data) >= off + size):
+        raise ValidationFailed(f"백업이 대상 범위({hexs(off)}+{hexs(size)})를 덮지 않습니다.",
+                               hint=f"esp_read_flash_start(offset='{hexs(off)}', size='{hexs(size)}', verify='double', after='no-reset')")
+    if data[off - b_off: off - b_off + size] != region:
+        raise ValidationFailed("백업의 대상 범위가 base 와 다릅니다 — 그사이 기기의 세이브가 바뀌었다.",
+                               hint="플래시 전체(offset 0)를 다시 두 번 읽어 새 base 로 패치를 다시 만든다.")
+    last_seq = max(int(e.get("seq") or 0) for e in job_reads)
+    later = _later_device_activity(case, last_seq, ex.get("job_id"), str(mac_k).lower())
+    if later:
+        raise ValidationFailed(f"백업 뒤에 이 기기에 다시 연결했습니다(원장 seq {', '.join(str(x['seq']) for x in later[:5])}: "
+                               f"{', '.join(str(x.get('fact_kind') or x.get('tool')) for x in later[:3])}) — 그 연결로 칩이 리셋돼 게임이 세이브를 바꿨을 수 있다.",
+                               hint="esp_read_flash_start(…, verify='double', after='no-reset') 로 백업을 새로 읽고, 그 뒤에는 기기에 연결하지 않는다.")
+    chip_arg = _chip_arg(src.get("chip"))
+    if chip_arg is None:
+        raise ValidationFailed(f"쓰기 명령을 만들 수 없는 칩입니다: {src.get('chip')!r}")
+    backend, port = src.get("backend"), str(src.get("port") or "")
+    if backend == "windows":
+        if not _WIN_PORT_RE.match(port):
+            raise ValidationFailed(f"Windows 포트 형식이 아닙니다: {port!r}")
+    elif backend == "linux":
+        if not _LINUX_PORT_RE.match(port):
+            raise ValidationFailed(f"리눅스 포트 형식이 아닙니다: {port!r}")
+    else:
+        raise ValidationFailed(f"알 수 없는 esptool 백엔드: {backend!r}")
+    return {"path": rel, "sha256": rec.get("sha256"), "seq": rec.get("seq"), "job_id": ex.get("job_id"), "offset": b_off, "last_seq": last_seq,
+            "chip": src.get("chip"), "chip_arg": chip_arg, "backend": backend, "port": port, "mac": str(mac_k).lower()}
+
+
+def _write_patch_file(case: Any, label: str, data: bytes) -> tuple[Path, bool]:
+    """패치 파일을 patches/ 에 쓴다. 같은 내용(sha256)의 파일이 이미 있으면 그것을 쓴다(반복 호출로 파일이 늘지 않게). 반환: (경로, 재사용 여부)."""
+    d = case.subdir("patches")
+    sha = hashlib.sha256(data).hexdigest()
+    existing = sorted(x for x in d.glob("*.bin") if x.is_file() and not x.is_symlink())
+    for x in existing:
+        if x.stat().st_size == len(data) and hashlib.sha256(_pread_regular(x, 0, len(data))).hexdigest() == sha:
+            return x, True
+    if len(existing) >= PATCH_MAX_FILES:
+        raise ValidationFailed(f"patches/ 의 패치 파일이 {PATCH_MAX_FILES}개를 넘었습니다.", hint="사람이 쓰지 않을 패치 파일을 정리한 뒤 다시 만든다.")
+    out = claim_numbered_file(d, f"{safe_name(label, 'part')}-patch", ".bin")
+    atomic_write_bytes(out, data)
+    return out, False
+
+
+def _write_command(case: Any, patch_rel: str, sha: str, bk: dict[str, Any], abs_offset: int) -> str:
+    """사람이 WSL(또는 리눅스) bash 터미널에서 실행할 쓰기 명령. 쓰기 전에 증명된 sha256 을 확인하고, 끝나면 칩을 다운로드 모드에 둔다
+    (after=no-reset-stub — 읽기 확인 전에 게임이 세이브를 다시 쓰지 않게). 인자는 모두 검증·인용한다."""
+    exe = '"$PWEH_ESPTOOL_WIN"' if bk["backend"] == "windows" else '"$PWEH_ESPTOOL"'
+    target = f'"$(wslpath -w {shlex.quote(patch_rel)})"' if bk["backend"] == "windows" else shlex.quote(patch_rel)
+    return (f"source {shlex.quote(str(tools_env()))} && cd {shlex.quote(str(case.dir))} && "
+            f"echo {shlex.quote(f'{sha}  {patch_rel}')} | sha256sum -c - && "
+            f"{exe} --chip {bk['chip_arg']} --port {bk['port']} --after no-reset-stub write-flash {hexs(abs_offset)} {target}")
+
+
+def _patch_payload(case: Any, prep: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    payload = base_payload("fw_patch_build", case, schema="patch-build", input_info={"base": prep["base"]},
+                           params={"target": {"type": prep["ttype"], "partition": prep["label"]}, "purpose": prep["purpose"],
+                                   "unlock_source": prep["unlock_source"], "online_capable": prep["online_capable"]})
+    payload.update({k: prep[k] for k in ("abs_offset", "size", "region_sha256", "patch_sha256", "changes", "checksum", "device", "evidence",
+                                          "partition", "description") if k in prep})
+    if prep.get("backup"):
+        payload["backup"] = {k: prep["backup"][k] for k in ("path", "sha256", "seq", "job_id", "offset")}
+    payload.update(extra)
+    return payload
+
+
+@server.tool(
+    description=(
+        "세이브 값 패치 이미지 만들기(소유 기기, 사용자가 명시적으로 원할 때만). base_path = 이 케이스에서 esp_read_flash_start 로 두 번 읽어 일치한 "
+        "전체 플래시 덤프(offset 0). target = {type: 'nvs', partition} (기존 정수 NVS 항목, edits=[{namespace, key, value}]) 또는 "
+        "{type: 'raw-region', partition, checksum?} (사용자 데이터 파티션, edits=[{offset(파티션 기준), encoding, value}], checksum 은 fw_checksum_find 후보). "
+        "purpose: score|progress|in-device-unlock, unlock_source: in-device|owned-tag(판매 토큰·온라인 구매는 거부), online_capable: no|unknown('yes' 는 거부). "
+        "거부: 파티션 encrypted 플래그·nvs_keys(NVS 암호화)·플래시 암호화 켜짐, NVS CRC 규칙이 이 이미지에서 재현되지 않음, live 중복 키, 비밀로 보이는 키. "
+        "backup_path 없이 부르면 패치를 patches/ 에 만들고(stage=planned) 백업 절차를 알려 준다. "
+        "backup_path(base 뒤 다른 job 으로 새로 읽은 이중 읽기, after='no-reset', 같은 MAC, 대상 범위가 base 와 같음, 그 뒤 이 기기에 다른 연결 없음)를 주면 "
+        "사람 증명(네트워크 차단·재부팅 없음·변경 의사·판매 토큰 콘텐츠 아님, 30분 — 패치·백업·편집·선언에 묶임)을 받고, 패치 sha256 을 출처 원장(patch-plan)에 남긴 뒤 "
+        "사람이 별도 터미널에서 실행할 쓰기 명령을 보여 준다(stage=ready). 파티션 경계를 믿을 수 없으면(섹터 경계 아님·겹침·이름 중복) 거부한다. "
+        "에이전트는 그 명령을 실행하지 않는다. 쓴 뒤 다시 읽어 fw_verify_writeback 으로 확인한다. 결과: analysis/patch-build-NNN.json."
+    ),
+    annotations=ANN_LOCAL_WRITE,
+)
+@safe_tool
+async def fw_patch_build(
+    case_id: str,
+    base_path: str,
+    target: dict[str, Any],
+    edits: list[dict[str, Any]],
+    purpose: str,
+    unlock_source: str,
+    online_capable: str,
+    ctx: Context,
+    backup_path: str | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    case = rt().case(case_id, hardware=True)  # 기기에 쓸 명령을 다루므로 소유/허가 증명이 있는 케이스만
+    prep = await anyio.to_thread.run_sync(lambda: _patch_prepare(case, base_path, target, edits, purpose, unlock_source, online_capable,
+                                                                 backup_path, description))
+    tgt = {"type": prep["ttype"], "partition": prep["label"], "abs_offset": hexs(prep["abs_offset"]), "size": prep["size"]}
+    if "backup" not in prep:
+        def plan_work() -> dict[str, Any]:
+            out, _reused = _write_patch_file(case, prep["label"], prep["patch"])
+            art = case.register_artifact(out, kind="other", producer=PRODUCER, description=f"세이브 패치(계획) {display_text(prep['label'], 40)}",
+                                         extra={"type": "save-patch", "stage": "planned", "sha256": prep["patch_sha256"]})
+            rel = _write(case, "patch-build", _patch_payload(case, prep, stage="planned", patch_path=art["path"]),
+                         f"fw_patch_build planned {prep['label']}")
+            rt().audit({"event": "fwtriage_patch_planned", "patch": art["path"], "sha256": prep["patch_sha256"], "target": tgt}, case.id)
+            return {"rel": rel, "patch": art["path"]}
+        done = await anyio.to_thread.run_sync(plan_work)
+        backup_call = (f"esp_read_flash_start(case_id='{case.id}', port='<포트>', offset='{hexs(prep['abs_offset'])}', size='{hexs(prep['size'])}', "
+                       f"verify='double', after='no-reset', output_name='{safe_name(prep['label'], 'part')}-backup')")
+        return {
+            "ok": True, "tool": "fw_patch_build", "stage": "planned", "result_path": done["rel"], "patch_path": done["patch"],
+            "patch_sha256": prep["patch_sha256"], "target": tgt, "changes": prep["changes"], "evidence": prep["evidence"],
+            "next_steps": [
+                "[사람 작업 필요] 기기를 네트워크에서 끊는다(Wi-Fi 공유기 차단·앱 연동 해제). 기기는 USB 로 연결된 그대로 둔다.",
+                f"백업(쓰기 직전 새로 읽기): {backup_call} — 끝나면 칩이 다운로드 모드에 머문다(재부팅하지 않는다).",
+                "같은 인자 + backup_path=<백업 파일> 로 fw_patch_build 를 다시 부른다 → 사람 증명(pweh attest) → 쓰기 명령.",
+                "쓰기는 사람이 별도 터미널에서 한다. 이 패치 파일은 아직 증명되지 않았다(쓰지 않는다).",
+            ],
+        }
+    bk = prep["backup"]
+    edit_lines = []
+    for c in prep["changes"]:
+        if not isinstance(c, dict):
+            continue
+        if "key" in c:
+            edit_lines.append(f"{display_text(c.get('namespace'), 40)}/{display_text(c.get('key'), 40)}: {display_text(c.get('before'), 40)} → {display_text(c.get('after'), 40)}")
+        elif "checksum" in c:
+            ck = c.get("checksum") or {}
+            edit_lines.append(f"체크섬 {display_text(ck.get('algorithm'), 30)} @ {hexs(ck.get('location'))}: {display_text(ck.get('before'), 30)} → {display_text(ck.get('after'), 30)}")
+        elif "offset" in c:
+            edit_lines.append(f"{hexs(c.get('offset'))} ({display_text(c.get('encoding'), 12)}): {display_text(c.get('before_value'), 40)} → {display_text(c.get('after_value'), 40)}")
+    summary = (f"세이브 패치 쓰기 전 확인 — 파티션 '{display_text(prep['label'], 40)}' @ {hexs(prep['abs_offset'])} ({prep['size']} B), 기기 {prep['device']['mac']}. "
+               f"목적 {prep['purpose']}, 해금 출처 {prep['unlock_source']}, 온라인 가능 {prep['online_capable']}. 백업 {bk['path']}. "
+               f"변경 {len(edit_lines)}건: " + "; ".join(edit_lines))
+    if len(summary) > PATCH_SUMMARY_MAX:
+        raise ValidationFailed(f"변경 목록이 너무 길어 사람이 한 번에 확인할 수 없습니다({len(summary)}자).", hint="편집을 나눠 여러 번에 걸쳐 패치한다.")
+    edits_digest = hashlib.sha256(json.dumps(prep["changes"], sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+    subject = {"chip": prep["device"]["chip"], "mac": str(prep["device"]["mac"]).lower(), "partition": safe_name(prep["label"], "part"),
+               "abs_offset": prep["abs_offset"], "size": prep["size"], "patch_sha256": prep["patch_sha256"],
+               "edits": len(edit_lines), "edits_sha256": edits_digest, "purpose": prep["purpose"], "unlock_source": prep["unlock_source"],
+               "online_capable": prep["online_capable"], "backup": {"sha256": bk["sha256"], "seq": bk["seq"], "job_id": bk["job_id"]}}
+    dec = await rt().attest("console-offline", subject, {"scope": "case", "case_id": case.id}, list(PATCH_QUESTIONS), case.id, ctx, summary,
+                            tool="fw_patch_build", valid_seconds=PATCH_ATTEST_VALID_S)
+    if not dec.satisfied:
+        return attestation_response(dec, tool="fw_patch_build", stage="awaiting-attestation", target=tgt, patch_sha256=prep["patch_sha256"],
+                                    changes=prep["changes"])
+
+    def ready_work() -> dict[str, Any]:
+        # 증명을 기다리는 동안 다른 호출이 기기에 연결했을 수 있다 — 기록 직전에 다시 확인한다
+        later = _later_device_activity(case, int(bk["last_seq"]), bk["job_id"], bk["mac"])
+        if later:
+            raise ValidationFailed("증명을 기다리는 동안 이 기기에 다시 연결했습니다(원장 seq " + ", ".join(str(x["seq"]) for x in later[:5]) + ") — 백업이 낡았다.",
+                                   hint="백업을 새로 읽고 다시 시작한다.")
+        out, _reused = _write_patch_file(case, prep["label"], prep["patch"])
+        patch_rel = case.rel(out)
+        source = {"server": SERVER_NAME, "tool": "fw_patch_build",
+                  "base": {**prep["base"], "target_sha256": prep["region_sha256"]},
+                  "backup": {k: bk[k] for k in ("path", "sha256", "seq", "job_id", "offset")},
+                  "target": {"type": prep["ttype"], "label": prep["label"], "abs_offset": prep["abs_offset"], "size": prep["size"]},
+                  "device": {"chip": bk["chip"], "mac": bk["mac"], "port": bk["port"], "backend": bk["backend"]}}
+        extra = {"changes": prep["changes"], "purpose": prep["purpose"], "unlock_source": prep["unlock_source"],
+                 "online_capable": prep["online_capable"], "evidence": prep["evidence"]}
+        prior = rt().provenance.latest(case, KIND_PATCH_PLAN, patch_rel)
+        if (prior and prior.get("sha256") == prep["patch_sha256"] and prior.get("attestation_id") == dec.attestation_id
+                and ((prior.get("source") or {}).get("backup") or {}).get("seq") == bk["seq"]):
+            entry = prior  # 같은 패치·백업·증명의 공개 기록이 이미 있다(반복 호출로 원장이 늘지 않게)
+        else:
+            entry = rt().provenance.record_patch_plan(case, patch_rel, source, extra, sha256=prep["patch_sha256"], attestation_id=dec.attestation_id)
+        art = case.register_artifact(out, kind="other", producer=PRODUCER, description=f"세이브 패치(쓰기 준비) {display_text(prep['label'], 40)}",
+                                     extra={"type": "save-patch", "stage": "ready", "sha256": prep["patch_sha256"], "ledger_seq": entry["seq"]})
+        command = _write_command(case, patch_rel, prep["patch_sha256"], bk, prep["abs_offset"])
+        rel = _write(case, "patch-build", _patch_payload(case, prep, stage="ready", patch_path=patch_rel, ledger_seq=entry["seq"],
+                                                         attestation_id=dec.attestation_id, command=command), f"fw_patch_build ready {prep['label']}")
+        rt().audit({"event": "fwtriage_patch_ready", "patch": patch_rel, "sha256": prep["patch_sha256"], "target": tgt, "ledger_seq": entry["seq"],
+                    "attestation_id": dec.attestation_id, "command": command}, case.id)
+        readback = (f"esp_read_flash_start(case_id='{case.id}', port='{bk['port']}', offset='{hexs(prep['abs_offset'])}', size='{hexs(prep['size'])}', "
+                    f"verify='double', after='no-reset', output_name='{safe_name(prep['label'], 'part')}-readback')")
+        return {
+            "ok": True, "tool": "fw_patch_build", "stage": "ready", "result_path": rel, "patch_path": art["path"], "patch_sha256": prep["patch_sha256"],
+            "ledger_seq": entry["seq"], "attestation_id": dec.attestation_id, "target": tgt, "changes": prep["changes"], "evidence": prep["evidence"],
+            "command": command,
+            "command_note": ("사람이 별도의 WSL(또는 리눅스) bash 터미널에서 직접 실행한다(PowerShell 아님). 에이전트는 이 명령을 실행하지 않는다. "
+                             "명령은 먼저 패치 파일의 sha256 을 확인하고(다르면 쓰지 않음), 파티션 범위만 쓰며(erase·--force 없음), 끝나면 칩을 다운로드 모드에 둔다."),
+            "next_steps": ["[사람 작업 필요] 위 명령을 별도 터미널에서 실행하고 결과를 알려 준다(기기는 재부팅하지 않는다).",
+                           f"읽기 확인: {readback} → fw_verify_writeback(case_id='{case.id}', patch_path='{patch_rel}', readback_path=<읽은 파일>)",
+                           "확인이 applied 면 사람이 RESET 으로 일반 부팅하고 오프라인 상태에서 화면으로 값을 확인한다(not-applied·differs 면 부팅하기 전에 사용자와 정한다)."],
+        }
+
+    return await anyio.to_thread.run_sync(ready_work)
+
+
+@server.tool(
+    description=(
+        "세이브 패치를 쓴 결과 확인: patch_path = fw_patch_build(stage=ready) 가 출처 원장(patch-plan)에 남긴 패치, readback_path = 쓰기 명령 뒤 "
+        "esp_read_flash_start 로 대상 범위를 두 번 읽은 덤프(같은 MAC, 원장에서 patch-plan 보다 뒤). 기대값은 원장의 sha256 만 쓴다(패치 파일·결과 파일은 "
+        "증거가 아님). outcome: applied(패치와 같음) / not-applied(base 와 같음 — 쓰기가 안 됨) / differs(둘 다 아님 — 바뀐 바이트 수와 NVS 면 편집한 키의 값). "
+        "결과: analysis/patch-verify-NNN.json."
+    ),
+    annotations=ANN_LOCAL_WRITE,
+)
+@safe_tool
+async def fw_verify_writeback(case_id: str, patch_path: str, readback_path: str) -> dict[str, Any]:
+    case = rt().case(case_id)
+
+    def work(ctl: Ctl) -> dict[str, Any]:
+        patch_rel = case.rel(case.resolve_path(patch_path))
+        plan = rt().provenance.latest(case, KIND_PATCH_PLAN, patch_rel)
+        if plan is None:
+            raise ValidationFailed(f"출처 원장에 공개된 패치 기록이 없습니다: {patch_rel}", hint="fw_patch_build(…, backup_path=…) 가 stage=ready 로 공개한 패치만 확인한다.")
+        src = plan.get("source") or {}
+        tgt = src.get("target") or {}
+        abs_off, size = int(tgt.get("abs_offset") or 0), int(tgt.get("size") or 0)
+        expected, base_sha = plan.get("sha256"), (src.get("base") or {}).get("target_sha256")
+        rec, data, rb_rel = _dump_record(case, readback_path, "읽기 확인 덤프")
+        if int(rec.get("seq") or 0) <= int(plan.get("seq") or 0):
+            raise ValidationFailed("읽기 확인 덤프는 쓰기 명령을 공개한 뒤(원장의 patch-plan 다음)에 새로 읽은 것이어야 합니다.")
+        mac_p, mac_r = (src.get("device") or {}).get("mac"), (rec.get("source") or {}).get("mac")
+        if not mac_p or not mac_r or str(mac_p).lower() != str(mac_r).lower():
+            raise ValidationFailed(f"읽기 확인 덤프가 같은 기기인지 확인할 수 없습니다(MAC {mac_p} / {mac_r}).")
+        r_off = _dump_offset(rec)
+        if not (r_off <= abs_off and r_off + len(data) >= abs_off + size):
+            raise ValidationFailed(f"읽기 확인 덤프가 대상 범위({hexs(abs_off)}+{hexs(size)})를 덮지 않습니다.")
+        got = data[abs_off - r_off: abs_off - r_off + size]
+        got_sha = hashlib.sha256(got).hexdigest()
+        outcome = "applied" if got_sha == expected else ("not-applied" if got_sha == base_sha else "differs")
+        detail: dict[str, Any] = {}
+        if outcome != "applied" and tgt.get("type") == "nvs":
+            nvs = espfmt.parse_nvs(got, include_erased=False)
+            live = {(it.get("namespace"), it.get("key")): it for it in nvs.get("items") or [] if it.get("live")}
+            detail["edited_keys"] = [{"namespace": c.get("namespace"), "key": c.get("key"), "expected": c.get("after"),
+                                      "actual": (live.get((c.get("namespace"), c.get("key"))) or {}).get("value"),
+                                      "crc_ok": ((live.get((c.get("namespace"), c.get("key"))) or {}).get("crc") or {}).get("ok")}
+                                     for c in (plan.get("extra") or {}).get("changes") or [] if isinstance(c, dict)]
+        payload = base_payload("fw_verify_writeback", case, schema="patch-verify", input_info={"readback": rb_rel, "patch": patch_rel},
+                               params={"ledger_seq": plan.get("seq")})
+        payload.update({"outcome": outcome, "expected_sha256": expected, "base_target_sha256": base_sha, "readback_target_sha256": got_sha,
+                        "abs_offset": abs_off, "size": size, "readback_seq": rec.get("seq"), **detail})
+        rel = _write(case, "patch-verify", payload, f"fw_verify_writeback {patch_rel} ← {rb_rel}: {outcome}")
+        rt().audit({"event": "fwtriage_patch_verify", "patch": patch_rel, "readback": rb_rel, "outcome": outcome, "ledger_seq": plan.get("seq")}, case.id)
+        msg = {"applied": "기기의 대상 범위가 공개한 패치와 같다(쓰기 확인).",
+               "not-applied": "기기의 대상 범위가 쓰기 전(base)과 같다 — 쓰기가 되지 않았다. 명령 출력(sha256 확인·esptool)을 확인한다.",
+               "differs": "패치와도 base 와도 다르다 — 쓰기 뒤 기기가 재부팅돼 게임이 세이브를 다시 썼거나, 다른 파일을 썼을 수 있다."}[outcome]
+        out = {"ok": True, "tool": "fw_verify_writeback", "result_path": rel, "outcome": outcome, "message": msg, "expected_sha256": expected,
+               "readback_target_sha256": got_sha, "target": {"abs_offset": hexs(abs_off), "size": size, "label": tgt.get("label")}, **detail}
+        if outcome == "differs":
+            # 진단용: 원장 sha256 과 맞는 base·패치 파일이 남아 있으면 바이트 차이 수를 센다(증거는 아님)
+            for name, rel_p, sha_p, sl in (("base", (src.get("base") or {}).get("path"), (src.get("base") or {}).get("sha256"), slice(abs_off, abs_off + size)),
+                                           ("patch", patch_rel, expected, slice(0, size))):
+                try:
+                    fp = case.resolve_path(rel_p)
+                    blob = _pread_regular(fp, 0, fp.stat().st_size) if fp.is_file() and fp.stat().st_size <= ESP_MAX_BYTES else b""
+                except Exception:  # noqa: BLE001 - 진단 정보일 뿐이다
+                    blob = b""
+                if blob and hashlib.sha256(blob).hexdigest() == sha_p:
+                    ref = blob[sl]
+                    out[f"bytes_differing_from_{name}"] = sum(1 for a, b in zip(got, ref) if a != b)
+        return out
+
+    return await _execute(kind="fw_verify_writeback", case_id=case.id, background=False, max_seconds=120.0, description=f"fw_verify_writeback {case.rel(case.resolve_path(patch_path))}", fn=work)
 
 
 def main() -> None:

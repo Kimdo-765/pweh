@@ -208,16 +208,16 @@ def _attest_refuse_without_tty() -> int | None:
 
 
 def _show_attestation(r: dict[str, Any]) -> None:
-    from .safety.attestations import ATTESTATION_KINDS
+    from .safety.attestations import ATTESTATION_KINDS, display_text
 
     req = r.get("requested_by") or {}
     print("=" * 72)
     print(f" 사람 증명 요청 {r['id']}  (상태: {r['status']})")
     print("=" * 72)
     print(f" 종류      : {r.get('kind')} — {ATTESTATION_KINDS.get(r.get('kind'), '(알 수 없는 종류)')}")
-    print(f" 요약      : {r.get('summary')}")
+    print(f" 요약      : {display_text(r.get('summary'))}")
     print(f" 케이스    : {r.get('case_id')}")
-    print(f" 요청 서버 : {req.get('server')} / {req.get('tool')}")
+    print(f" 요청 서버 : {display_text(req.get('server'))} / {display_text(req.get('tool'))}")
     print(f" 바인딩    : {json.dumps(r.get('binding'), ensure_ascii=False)}")
     validity = r.get("valid_seconds")
     print(f" 생성/만료 : {r.get('created_at')} / {r.get('expires_at') or '철회할 때까지'}"
@@ -229,7 +229,7 @@ def _show_attestation(r: dict[str, Any]) -> None:
     for i, q in enumerate(r.get("questions") or [], 1):
         kind = "예/아니오" if q.get("type") == "yesno" else "값 입력"
         need = ", '예'여야 증명됨" if q.get("expected") == "yes" else ""
-        print(f"   {i}. [{kind}{need}] {q.get('text')}")
+        print(f"   {i}. [{kind}{need}] {display_text(q.get('text'))}")
     if r.get("answers"):
         print(f" 답        : {json.dumps(r.get('answers'), ensure_ascii=False)}")
     if r.get("decided_at"):
@@ -242,7 +242,9 @@ def _show_attestation(r: dict[str, Any]) -> None:
 def _ask_attest_question(i: int, n: int, q: dict[str, Any]) -> str | None:
     """질문 하나. yesno → 'yes'/'no', value → 입력값. 빈 입력·EOF·Ctrl-C 는 None(취소)."""
     yesno = q.get("type") == "yesno"
-    print(f"[{i}/{n}] {q.get('text')}")
+    from .safety.attestations import display_text
+
+    print(f"[{i}/{n}] {display_text(q.get('text'))}")
     hint = "y/n" if yesno else "직접 확인한 값"
     while True:
         try:

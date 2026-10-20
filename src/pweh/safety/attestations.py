@@ -327,6 +327,19 @@ def os_user() -> str:
         return "unknown"
 
 
+_UNSAFE_DISPLAY_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
+
+
+def display_text(value: Any, limit: int | None = None) -> str:
+    """사람에게 보여 줄 문자열: 제어·서식 문자(ESC 시퀀스, 양방향 재정렬 등)를 \\xHH / \\uHHHH 로 바꾼다.
+    기기에서 온 문자열(파티션 이름·NVS 키)이 터미널 화면이나 확인 폼을 조작하지 못하게 한다."""
+    text = "" if value is None else str(value)
+    out = _UNSAFE_DISPLAY_RE.sub(lambda m: f"\\x{ord(m.group()):02x}" if ord(m.group()) < 0x100 else f"\\u{ord(m.group()):04x}", text)
+    if limit is not None and len(out) > limit:
+        out = out[:limit] + "…"
+    return out
+
+
 def how_text(attestation_id: str | None) -> str:
     return (f"사람이 별도 터미널에서 `pweh attest {attestation_id or '<id>'}` 를 실행해 항목마다 직접 답한다 "
             "(대화형 터미널 전용 — 에이전트는 실행하지 않는다).")
@@ -852,7 +865,7 @@ class Attestor:
         # 폼 필드 이름은 'q_<질문 id>' — 질문 id 가 pydantic BaseModel 이름(model_config, schema, json …)과 겹쳐도 폼을 만들 수 있게
         fields: dict[str, Any] = {}
         for q in questions:
-            label = q["text"] + (" (예 필요)" if q.get("expected") == "yes" else "")
+            label = display_text(q["text"]) + (" (예 필요)" if q.get("expected") == "yes" else "")
             fields[_form_field(q["id"])] = ((bool, Field(description=label)) if q["type"] == "yesno"
                                             else (str, Field(description=q["text"])))
         fields["code"] = (str, Field(description="메시지에 표시된 4자리 확인 코드"))
@@ -867,7 +880,7 @@ class Attestor:
         message = (
             "🧾 사람 증명 요청 — 에이전트가 확인할 수 없는 사실입니다\n"
             f"- 종류: {t.kind} ({ATTESTATION_KINDS.get(t.kind, '')})\n"
-            f"- 요약: {rec.get('summary')}\n"
+            f"- 요약: {display_text(rec.get('summary'))}\n"
             f"- 케이스: {case_id or '-'}\n"
             f"- 바인딩: {canonical_json(rec.get('binding'))}\n"
             f"- 대상: {subject_text}\n\n"
@@ -923,6 +936,7 @@ __all__ = [
     "BINDING_SCOPES",
     "DECIDED_VIA",
     "attestation_fingerprint",
+    "display_text",
     "answers_satisfy",
     "attestation_response",
     "canonical_json",

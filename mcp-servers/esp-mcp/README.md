@@ -110,7 +110,7 @@ esptool 은 **모든 데이터를 받은 뒤에만** 파일을 쓰고, 서버는
 - 실패·취소 때 보존한 1차 읽기는 기록하지 않는다(`recorded: false`). 두 읽기가 달라도(`match=false`) 기록하고 source 에 `match` 를 남기지만,
   출처 확인(`verify`)은 그런 덤프를 신뢰하지 않는다(`device-read-mismatch` — 출처는 무결성이 아니다).
 - 원장 기록에 실패해도 도구 결과와 덤프는 그대로다(`recorded: false`, `reason`. 덤프는 `warnings` 에도 적는다). 메타데이터를 쓴 뒤에 기록하므로 이 경고는 `dumps/<name>.json` 에는 없다.
-- 출처 확인(예: 계측기로 플래시하기 전의 백업 확인)은 `case.json` 아티팩트의 `producer` 가 아니라 이 원장으로 한다. 지금 이 원장을 확인하는 도구는 없다.
+- 출처 확인(예: 계측기로 플래시하기 전의 백업 확인)은 `case.json` 아티팩트의 `producer` 가 아니라 이 원장으로 한다. 이 원장을 확인하는 도구는 지금 pweh-fwtriage 의 `fw_patch_build`(base·백업)와 `fw_verify_writeback`(읽기 확인)이다. 이 서버는 여전히 쓰지 않는다(쓰기는 사람이 별도 터미널에서).
 
 ## 안전 정책
 

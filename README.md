@@ -117,7 +117,7 @@ Codex 는 `$pweh-start` 로 시작한다 (설정은 `pweh mcp-config --client co
 ### 사람 증명 (`pweh attest`)
 
 에이전트가 확인할 수 없는 사실(콘솔 오프라인, 배선과 잰 전압, 가져온 파일의 출처 등)이 필요한 도구는 `status: attestation_required` 와 `attestation_id` 를 돌려준다
-(지금은 코어와 이 명령만 있고 그런 도구는 아직 없다 — 게임 콘솔·RF·SD 포렌식·계측기 서버가 쓸 기반이다).
+(지금은 세이브 패치의 쓰기 명령을 보여 주기 전 `fw_patch_build` 가 요구한다 — 게임 콘솔·RF·SD 포렌식·계측기 서버가 쓸 기반이다).
 사람이 **별도 터미널**에서 `.venv/bin/pweh attest <attestation_id>` 를 실행해 항목마다 직접 답하고, 승인이 되는 답이면 화면의 확인 코드를 입력한다(대화형 터미널 전용).
 클라이언트가 지원하면 같은 항목이 확인 폼으로 뜬다.
 승인과 달리 한 번 쓰고 사라지지 않고, 대상·범위(케이스·연결·job·계측기)와 만료에 묶여 재사용된다. 목록은 `pweh attest --list`, 철회는 `pweh attest --revoke <id>` 다.

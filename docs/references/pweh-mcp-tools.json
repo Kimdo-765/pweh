@@ -4780,6 +4780,104 @@
      "openWorldHint": false
     },
     "meta": null
+   },
+   {
+    "name": "fw_patch_build",
+    "description": "세이브 값 패치 이미지 만들기(소유 기기, 사용자가 명시적으로 원할 때만). base_path = 이 케이스에서 esp_read_flash_start 로 두 번 읽어 일치한 전체 플래시 덤프(offset 0). target = {type: 'nvs', partition} (기존 정수 NVS 항목, edits=[{namespace, key, value}]) 또는 {type: 'raw-region', partition, checksum?} (사용자 데이터 파티션, edits=[{offset(파티션 기준), encoding, value}], checksum 은 fw_checksum_find 후보). purpose: score|progress|in-device-unlock, unlock_source: in-device|owned-tag(판매 토큰·온라인 구매는 거부), online_capable: no|unknown('yes' 는 거부). 거부: 파티션 encrypted 플래그·nvs_keys(NVS 암호화)·플래시 암호화 켜짐, NVS CRC 규칙이 이 이미지에서 재현되지 않음, live 중복 키, 비밀로 보이는 키. backup_path 없이 부르면 패치를 patches/ 에 만들고(stage=planned) 백업 절차를 알려 준다. backup_path(base 뒤 다른 job 으로 새로 읽은 이중 읽기, after='no-reset', 같은 MAC, 대상 범위가 base 와 같음, 그 뒤 이 기기에 다른 연결 없음)를 주면 사람 증명(네트워크 차단·재부팅 없음·변경 의사·판매 토큰 콘텐츠 아님, 30분 — 패치·백업·편집·선언에 묶임)을 받고, 패치 sha256 을 출처 원장(patch-plan)에 남긴 뒤 사람이 별도 터미널에서 실행할 쓰기 명령을 보여 준다(stage=ready). 파티션 경계를 믿을 수 없으면(섹터 경계 아님·겹침·이름 중복) 거부한다. 에이전트는 그 명령을 실행하지 않는다. 쓴 뒤 다시 읽어 fw_verify_writeback 으로 확인한다. 결과: analysis/patch-build-NNN.json.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "base_path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "target",
+      "type": "object",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "edits",
+      "type": "array",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "purpose",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "unlock_source",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "online_capable",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "backup_path",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "description",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_verify_writeback",
+    "description": "세이브 패치를 쓴 결과 확인: patch_path = fw_patch_build(stage=ready) 가 출처 원장(patch-plan)에 남긴 패치, readback_path = 쓰기 명령 뒤 esp_read_flash_start 로 대상 범위를 두 번 읽은 덤프(같은 MAC, 원장에서 patch-plan 보다 뒤). 기대값은 원장의 sha256 만 쓴다(패치 파일·결과 파일은 증거가 아님). outcome: applied(패치와 같음) / not-applied(base 와 같음 — 쓰기가 안 됨) / differs(둘 다 아님 — 바뀐 바이트 수와 NVS 면 편집한 키의 값). 결과: analysis/patch-verify-NNN.json.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "patch_path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "readback_path",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
    }
   ]
  },

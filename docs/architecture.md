@@ -70,6 +70,7 @@ cases/<case_id>/
   notes/               보드 사진 같은 사람 자료 (case_import_file(dest_subdir="notes")). case_add_note 메모는 case.json 에 저장
   findings.json        발견사항 목록 (각 항목은 schemas/finding.schema.json)
   report.md            report_generate 결과
+  patches/             세이브 패치 이미지(fw_patch_build — 계획·쓰기 준비. 권위 기록은 출처 원장의 patch-plan)
   attestations.json    사람 증명의 읽기 전용 사본(0400, 그 케이스의 증명 레코드가 바뀔 때 다시 만든다. 사람이 보는 용도 — 보고서 생성기는 아직 읽지 않는다).
                        권위 기록은 .pweh/state/attestations/ — 서버는 이 파일을 증거로 읽지 않는다
 ```
@@ -264,7 +265,8 @@ if not decision.allowed:
 - **사람 증명(attestation)** — `src/pweh/safety/attestations.py`. 사람만 확인할 수 있는 사실(콘솔 오프라인, 결제 수단 제거, 배선 = 채널 라벨과 잰 전압,
   태그의 목적·소유, 쓰기 방지 장치, 가져온 파일의 출처 …)이나 물리 부작용이 있는 MODIFY 의 전제 조건을 에이전트가 스스로 채우지 못하게 한다.
   승인(1회 소비, 짧은 만료)과 달리 **소비되지 않고** 대상·바인딩·만료에 묶여 재사용된다.
-  **아직 증명을 요구하는 도구는 없다.** 코어(저장소, `rt().attest`, `pweh attest`)만 있고, 그런 사실이 필요한 서버를 만들 때 쓴다.
+  증명을 요구하는 도구는 지금 `fw_patch_build` 하나다(세이브 쓰기 명령을 보여 주기 전 `console-offline` — 네트워크 차단·재부팅 없음·변경 의사·판매 토큰 콘텐츠 아님, 30분 유효, 패치·백업·편집·선언에 묶임).
+  사람에게 보이는 요약·질문은 `display_text` 로 제어·서식 문자를 이스케이프한다(`pweh attest` 화면, elicitation 폼 — 기기에서 온 문자열이 화면을 조작하지 못하게).
   - 레코드: `.pweh/state/attestations/att-<16진 10자>.json`(`pweh.attestation/v1`). `kind` 는 닫힌 집합이다(`tag-purpose`, `wiring`, `console-offline`,
     `payment-locked`, `hdmi-source`, `bridge-serial`, `write-blocker`, `provenance-import`, `instrument-pin`, `radio-target`, `module-kc` — 코드에서만 늘린다).
     `subject`(서버가 만든 정규화 JSON + `subject_sha256`), `binding{scope: case|connection|job|instrument, case_id|connection_id|job_id|instrument_id}`, `fingerprint`,
@@ -313,7 +315,10 @@ if not decision.allowed:
     `device-read` 는 출처(기기에서 읽음)이지 무결성이 아니다 — 이중 읽기가 어긋난 덤프(`source.match=false`)는 기록하지만 `verify` 는 신뢰하지 않는다(`device-read-mismatch`).
     검증하지 않은 단일 읽기(`match=null`)는 출처로 신뢰하므로, 무결성이 필요한 쪽(패치 base 등)은 `record.source.verify` 를 따로 확인한다.
   - 확인과 사용 사이에 에이전트가 케이스 파일을 바꿀 수 있다. 쓰는 쪽은 `verify` 가 돌려준 sha256 을 승인 지문·job 인자에 묶고, 실행 직전 같은 sha256 인지 다시 해시하거나 확인한 바이트를 그대로 쓴다.
-    **아직 `verify` 를 부르는 도구는 없다.** 출처가 중요한 작업(에뮬레이션·올리기·패치 base·계측기 플래시 절차)을 만드는 서버가 이 함수로 확인한다.
+    `verify` 를 부르는 도구는 지금 `fw_patch_build`(base·백업)와 `fw_verify_writeback`(읽기 확인 덤프)이다. 출처가 중요한 다른 작업(에뮬레이션·올리기·계측기 플래시 절차)도 이 함수로 확인한다.
+  - 원장 kind 를 늘린 뒤에는 모든 MCP 서버를 다시 시작한다 — 옛 코드의 서버는 모르는 kind 를 깨진 체인으로 보고 그 케이스의 출처 확인을 모두 실패시킨다(fail closed).
+  - `patch-plan`(fw_patch_build 가 쓰기 명령을 보여 줄 때): 패치 파일 sha256, base·백업의 원장 seq, 대상(절대 오프셋·크기), 기기(MAC·포트), 증명 id. 기기에서 읽은 것이 아니므로 `verify` 의 신뢰 근거가 되지 않고,
+    `fw_verify_writeback` 이 기대 sha256 의 권위 기록으로만 쓴다(패치 파일·결과 JSON 은 에이전트가 바꿀 수 있어 증거가 아니다).
   - 기록 실패는 기기 결과를 막지 않는다. 응답의 `provenance: {recorded: false, reason}` 로 알리고(덤프는 job `result.warnings` 에도), 원장에 없는 파일은 불신이다(fail closed).
   - 한계: 해시 체인과 증명 레코드의 재확인에는 비밀 키가 없다. 실수와 단순 변조를 드러낼 뿐, 같은 OS 계정의 프로세스가 원장 전체를 일관되게 다시 쓰거나,
     올바른 `prev` 로 끝에 줄을 덧붙이거나, 레코드를 처음부터 위조하는 것은 막지 못한다(docs/safety.md §3.5). 보호 상태는 케이스 id 로만 묶인다
@@ -553,13 +558,15 @@ JTAGulator(FW 1.10–1.12)의 USB-시리얼 텍스트 메뉴를 조작해 JTAG(I
 | `fw_save_diff(case_id, paths, labels=None, offset=None, length=None, partition=None, mode="auto", observations=None, merge_gap=0, max_results=50)` | 시간 순서 스냅샷 2~16개(점수·진행이 바뀔 때마다 덤프)의 같은 범위 비교. `mode="bytes"`: `ranges[{offset, offset_abs, length, values_hex, interpretations[{encoding, values, trend, offset_abs}]}]`(u8/u16/u32 LE·BE, 부호, BCD), `ranges_total`(전체 개수), 합계 64 MiB 까지. `mode="nvs"`: 키 단위 `changed`·`added`·`removed`(`[{namespace, key, type_name, values}]`, 비밀 값은 모두 마스킹), `unchanged_count`, 스냅샷마다 1 MiB·합계 4 MiB 까지. `auto` 는 NVS 파티션이거나 NVS 형식(어느 페이지든 상태·헤더 CRC)이면 nvs. **바이트 비교는 비밀값을 가리지 못하므로 NVS 를 담은 범위(NVS 파티션과 겹치거나 NVS 형식)는 bytes 로 비교하지 않는다**(`validation_failed` — NVS 는 nvs 모드, blob 안 값은 `fw_esp_nvs(export_blobs=true)` 로 내보낸 파일). `observations=[{label, values}]`(스냅샷마다 화면에서 본 값, 음수·`"0x…"` 가능, 모르면 null — 서로 다른 값이 둘 이상 필요)와 정확히 같은 위치·인코딩(또는 changed·added·removed 의 NVS 키) → `observation_matches`. 범위는 모든 스냅샷에 같게 적용하고 파티션 위치가 다르면 거부한다. `analysis/save-diff-NNN.json` |
 | `fw_checksum_find(case_id, paths, offset=None, length=None, partition=None, algorithms=None, max_results=20, max_seconds=120, background=False)` | 모든 스냅샷에서 `저장값 = 알고리즘(데이터 범위)` 인 `(algorithm, endian, location, range)` 후보 → `candidates[{algorithm, width, endian, location_abs, range_abs, matches, distinct_values, strength, expected_false_positives, range_variants}]`, `tested`, `bytes_hashed`, `truncated`, `notes`. 알고리즘 24종(바이트·워드 합, xor8, negsum8/notsum8, CRC-8 2종, CRC-16 6종, CRC-32 4종, adler32, fletcher16). 위치 후보는 스냅샷 사이에 바뀐 바이트에서만, 범위는 위치 바로 앞에서 끝나거나 바로 뒤에서 시작한다(자기 필드를 덮는 체크섬은 찾지 않는다). 합 계열은 전수, CRC 는 바이트 예산 안에서 경계 정렬 순서로 — 큰 범위는 `offset`/`length`/`algorithms` 로 좁힌다. 스냅샷 합계 8 MiB 까지, **NVS 를 담은 범위는 거부한다**(NVS 는 자체 CRC — 후보의 저장값이 비밀값의 단서가 될 수 있다). `weak`: 서로 다른 저장값이 2종 미만, 또는 8비트이면서 저장값 2종 이하, 또는 기대 오탐 ≥ 0.01 — 8비트는 저장값 3종부터, 16/32비트는 2종부터 strong 이 될 수 있다(바뀐 바이트·범위가 크면 시험 수가 늘어 더 필요). `analysis/checksum-find-NNN.json` |
 | `fw_find_seq_tables(case_id, path, offset=None, length=None, partition=None, base_addr=None, min_len=6, max_results=50, max_seconds=120, background=False)` | 치트 입력(버튼 시퀀스) 표 후보: 작은 알파벳(버튼 id 0–15 또는 비트마스크)의 u8/u16/u32 배열, 코나미형(AABBCDCDEF) 모양·반복 구조 점수 → `candidates[{address_hex, file_offset, element_size, length, values, alphabet_kind, konami_like, score, reasons}]`, `mode`(`esp-app-segments`: 앱 이미지면 코드가 아닌 세그먼트를 각자의 load 주소로 — `address` 가 디컴파일러 주소, `raw`: 범위를 `base_addr`(기본 offset) 기준으로), `scanned`, `truncated`·`notes`(시간·후보 상한으로 일부만 본 경우). 입력 16 MiB 까지. `analysis/seq-tables-NNN.json` |
+| `fw_patch_build(case_id, base_path, target, edits, purpose, unlock_source, online_capable, backup_path=None, description=None)` | 세이브 값 패치(사용자가 명시적으로 원할 때만, 소유/허가 케이스). **base** = 이 케이스에서 기기로 두 번 읽어 일치한(출처 원장 device-read, `double-read`·`match`) 전체 플래시 덤프(offset 0) — 바이트를 한 번 읽어 원장 sha256 과 맞춘 뒤 그 바이트만 쓴다. **target** = `{type: "nvs", partition}`(기존 live 정수 항목, `edits=[{namespace, key, value}]` — `nvs_set_primitives` 가 CRC 규칙을 이 이미지에서 먼저 재현한다) 또는 `{type: "raw-region", partition, checksum?}`(write_class `raw-user-data`, `edits=[{offset(파티션 기준), encoding, value}]`, checksum 은 `fw_checksum_find` 후보 — `range_variants > 1` 은 거부). 거부: `unlock_source` 가 in-device·owned-tag 가 아님, `online_capable="yes"`, 파티션 `encrypted` 플래그·`nvs_keys`, **파티션 경계를 믿을 수 없음**(4 KiB 섹터 경계가 아님, 다른 파티션·부트로더·파티션 표 영역과 겹침, 같은 이름의 파티션, 표 MD5 불일치·오류 — 펌웨어의 표는 조작됐을 수 있다), 같은 기기(MAC)의 esp_security_info 가 플래시 암호화 켜짐(모르면 파티션 단위 근거와 표 MD5 를 `evidence` 에 남기고 진행), 비밀로 보이는 키, live 중복, 덤프의 job id 없음. 같은 내용의 패치 파일·공개 기록은 다시 만들지 않고 재사용한다(`patches/` 는 64개까지). `range_variants > 1` 거부는 정확성 보조다(서버는 체크섬이 base 에서 재현되는지 검사하고, raw 편집은 어차피 파티션의 어느 바이트든 바꿀 수 있다). `backup_path` 없이 → `stage: "planned"`(패치 `patches/<label>-patch-NNN.bin`, `changes`, 백업 절차). `backup_path`(base 보다 원장 seq 가 뒤, 다른 job, 마지막 읽기 `after=no-reset-stub`, 같은 MAC, 대상 범위를 덮고 그 바이트가 base 와 같음, **그 뒤 원장에 같은 기기의 연결 기록(device-read·device-fact)이 없음** — 기록 직전에도 다시 확인) → 사람 증명 `console-offline`(네트워크 차단·재부팅 없음·변경 의사·판매 토큰 콘텐츠 아님, 30분, 패치 sha256·위치·MAC·백업(sha·seq·job)·편집 목록 다이제스트·선언(purpose·unlock_source·online_capable)에 묶임. 요약에는 모든 편집과 선언이 잘리지 않고 들어가며(2000자를 넘으면 거부), 기기 문자열의 제어 문자는 이스케이프된다; 없으면 `attestation_required`) → 패치 sha256 을 출처 원장 `patch-plan` 에 남기고 `stage: "ready"`, `command`(사람이 WSL bash 터미널에서 실행: env.sh → 케이스 폴더 → `sha256sum -c` 로 패치 확인 → `esptool --chip <허용 목록> --port <검증한 포트> --after no-reset-stub write-flash <오프셋> <패치>`, 포트·칩은 백업의 원장 기록에서), `ledger_seq`. 에이전트는 명령을 실행하지 않는다. `analysis/patch-build-NNN.json` |
+| `fw_verify_writeback(case_id, patch_path, readback_path)` | 쓴 결과 확인. 기대값은 출처 원장의 `patch-plan`(sha256·대상·MAC)만 쓴다(패치 파일·결과 JSON 은 증거가 아님). `readback_path` 는 그 뒤에(원장 seq) 같은 MAC 으로 대상 범위를 두 번 읽은 덤프 → `outcome`: `applied`(패치와 같음) / `not-applied`(base 와 같음) / `differs`(NVS 면 편집한 키의 실제 값·CRC, 남아 있는 base·패치 파일과의 바이트 차이 수). `analysis/patch-verify-NNN.json` |
 | `fwtriage_job_status(job_id, wait_seconds=0)`, `fwtriage_job_cancel(job_id)`, `fwtriage_jobs(active_only=False)` | `background=true` 로 시작한 작업. `result` 는 인라인 응답과 같다 |
 
 - squashfs 만 직접 추출한다. jffs2/UBI/UBIFS/cramfs/ext/erofs/romfs 는 위치·크기·메타데이터만 식별하므로 `fw_carve` 로 분리한 뒤 REA `extract_firmware` 로 추출한다.
 - **ESP·세이브 도구**(`fw_esp_*`, `fw_save_diff`, `fw_checksum_find`, `fw_find_seq_tables` — 게임 세이브·해금 오프라인 분석, `game-save-unlock-analysis` Skill)는 읽기만 한다.
   `partition=label` 은 전체 플래시 덤프의 파티션 표로 범위를 정하고, 위치는 파일 기준 절대 오프셋(`*_abs`, `file_offset`)으로 돌려준다.
   파티션 표·NVS 는 로컬 정답(oracle)이 없어 합성 이미지로만 시험했고, 앱 이미지·ELF 는 esptool `image-info`·`elf2image` 와 대조해 시험한다.
-  세이브 값 수정(패치 이미지)은 아직 없다 — 위치·인코딩·체크섬을 찾아 보고까지 한다.
+  세이브 값 수정은 `fw_patch_build`(패치 이미지, 검증된 새 백업·사람 증명 뒤 사람이 실행할 쓰기 명령)와 `fw_verify_writeback`(쓴 결과 확인)이다 — 기기에는 사람만 쓴다.
 - 결과는 모두 휴리스틱 후보다. 발견사항 증거로 쓸 때는 `evidence[].type="triage"`, `ref=result_path` 와 항목의 파일/줄을 남긴다.
   `items`, `hits`, `binaries_of_interest` 의 rootfs 경로는 rootfs 절대 경로(`/etc/passwd`)라 `finding.location.file` 에 그대로 쓴다.
   `fw_strings_hunt` 의 `hits[].file` 은 디렉터리·단일 파일 모드 모두 rootfs 절대 경로이고(rootfs 밖의 덤프·파티션 이미지는 `null`), 케이스 상대 경로는 `hits[].path` 에 있다.

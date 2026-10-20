@@ -1,11 +1,11 @@
 ---
 name: game-save-unlock-analysis
-description: Offline save and unlock analysis of an owned game console or toy (ESP32 toys and handhelds, MCU+EEPROM devices, Linux handhelds) with pweh-fwtriage. It reads the ESP partition table, app image and NVS (fw_esp_partitions, fw_esp_image_info, fw_esp_nvs, fw_esp_to_elf), hunts game leads with the game string pack (fw_strings_hunt patterns="game" - debug menus, cheat inputs, unlock conditions, save formats, online sync), finds cheat-input button tables (fw_find_seq_tables), diffs save snapshots against the values the human saw on screen (fw_save_diff) and finds the checksum that protects them (fw_checksum_find), classifies every unlock by unlock_source (in-device, owned-tag, sold-token, online-purchase) and records the save-analysis summary. Analysis only - no save writes, no NFC, no play automation, sold-token/online-purchase content is report-only, results stay local. Triggers - hidden game unlock, high score, save file, NVS, cheat code, debug menu. 게임 세이브 분석, 해금 조건, 하이 스코어, 숨은 게임, 치트 입력.
+description: Offline save and unlock analysis of an owned game console or toy (ESP32 toys, MCU+EEPROM devices, Linux handhelds) with pweh-fwtriage - ESP partitions/app/NVS (fw_esp_partitions, fw_esp_image_info, fw_esp_nvs, fw_esp_to_elf), the game string pack (fw_strings_hunt patterns="game"), cheat-input tables (fw_find_seq_tables), save snapshot diffs against on-screen values (fw_save_diff) and save checksums (fw_checksum_find); classifies unlocks by unlock_source and records the save-analysis summary. Save value changes only on explicit request - fw_patch_build makes the patch and, after a fresh verified backup and the human's attestation, shows a write command the human runs in a separate terminal (never the agent); fw_verify_writeback checks the readback. No NFC, no play automation, sold-token content report-only, results stay local. Triggers - hidden game unlock, high score, save file, NVS, cheat code. 게임 세이브 분석, 해금 조건, 하이 스코어, 숨은 게임, 치트 입력.
 ---
 
 # 게임 세이브·해금 분석 (game-save-unlock-analysis)
 
-`orchestrator/master-prompt.md` §3.1 의 게임 콘솔 분석 경로다. 소유/서면 허가가 기록된 케이스에서만 쓴다. 기기에는 아무것도 쓰지 않는다(분석만).
+`orchestrator/master-prompt.md` §3.1 의 게임 콘솔 분석 경로다. 소유/서면 허가가 기록된 케이스에서만 쓴다. 기기에는 에이전트가 아무것도 쓰지 않는다 — 사용자가 원한 세이브 값 변경은 사람이 쓴다(9단계).
 결과는 연구·방어용이고 로컬에만 둔다(온라인 리더보드·대회·계정에 제출하지 않는다). 설계 근거는 `docs/design/game-console-flipper-rf.md` §1.3·§1.4·§3.5·§4 다.
 
 ## 목적
@@ -21,7 +21,7 @@ description: Offline save and unlock analysis of an owned game console or toy (E
 - **쓰지 않는다**
   - 케이스나 소유/허가 증명이 없다 → master-prompt Phase 0.
   - 펌웨어가 아직 없다 → ESP32 면 `esp32-flash-dump`, 리눅스·MCU 기기면 master-prompt §4 Phase A·B 가 먼저다.
-  - 세이브 값을 바꿔 기기에 쓰기, NFC 태그 읽기·에뮬레이션, 플레이 자동화 → 아직 없다(사용자에게 그렇게 알린다).
+  - NFC 태그 읽기·에뮬레이션, 플레이 자동화 → 아직 없다(사용자에게 그렇게 알린다). 세이브 값 변경은 9단계(사용자가 명시적으로 원할 때만).
   - 시판 콘솔(Switch·PlayStation·Xbox)의 세이브 → 암호화·서명돼 있어 분석·수정 대상이 아니다(복제 방지 우회 경계).
 
 ## 전제 조건
@@ -33,7 +33,8 @@ description: Offline save and unlock analysis of an owned game console or toy (E
 ## 안전 규칙
 
 1. **소유/허가 확인과 `case_create` 가 먼저다.** 스냅샷을 다시 덤프할 때의 하드웨어 규칙은 `esp32-flash-dump` 를 그대로 따른다(연결마다 칩 리셋).
-2. **분석만 한다.** 세이브·플래시·eFuse 에 쓰지 않고, 쓰기 명령(esptool `write-flash` 등)을 실행하거나 사용자에게 건네지 않는다. 패치 이미지도 만들지 않는다(아직 없는 기능).
+2. **기기에는 사람만 쓴다.** 에이전트는 세이브·플래시·eFuse 에 쓰지 않고, 쓰기 명령을 실행하지 않는다(셸이 있어도). 값 변경은 사용자가 명시적으로 원할 때만 `fw_patch_build` 로 패치를 만들고,
+   서버가 검증된 새 백업과 사람 증명을 확인한 뒤 보여 주는 명령을 사람이 별도 터미널에서 실행한다(master-prompt §1 규칙 3 의 예외). 그 밖의 쓰기 명령은 만들거나 건네지 않는다.
 3. **범위 밖 (항상 거부)**: 결제·교통·출입·호텔·신분 자격증명, 남의 태그·피규어 복제, 다운로드한 덤프 에뮬레이션, amiibo 류 콘솔 키 기반 태그 암호(복호·재암호·재서명),
    판매 토큰·DLC·온라인 구매로 여는 콘텐츠(entitlement)의 해금, 온라인 동기화되는 서명·HMAC 위조, 키 복구·PWD 무차별 대입. 이런 단서는 **보고만** 한다.
 4. **게이트**: 스냅샷 덤프가 `status: approval_required` 면 무엇을·왜·위험을 설명하고, 사용자가 **별도 터미널**에서 `pweh approve <approval_id>` 하면 같은 인자 + `approval_id` 로 한 번만 재시도한다.
@@ -138,7 +139,22 @@ case_add_finding(case_id="<id>", finding={
 ### 8. 요약 기록과 마무리
 
 `case_record_step(case_id="<id>", skill="game-save-unlock-analysis", step="summary", status, summary, data=<save-analysis>)` 를 호출한다(아래 출력 절).
-해금 조건이 sold-token·online-purchase 뿐이면 그 사실을 보고하고 끝낸다. 값 수정은 아직 지원하지 않는다고 사용자에게 알린다.
+해금 조건이 sold-token·online-purchase 뿐이면 그 사실을 보고하고 끝낸다. 값 변경을 원하면 아래 9단계로 간다(원하지 않으면 여기서 끝).
+
+### 9. 값 변경 (선택 — 사용자가 명시적으로 원할 때만)
+
+ESP NVS 정수 항목(`target={"type": "nvs", "partition": "nvs"}`)이나 사용자 데이터 파티션(`raw-region` + 6단계의 strong 체크섬)만 바꾼다. 순서를 건너뛰지 않는다.
+1. 사용자에게 무엇을 어떤 값으로 바꿀지 확인한다(템플릿 B 와 같은 `[확인 필요]`). `unlock_source` 가 in-device·owned-tag 가 아니거나 `online_capable` 이 yes 면 만들지 않는다.
+2. 계획: `fw_patch_build(case_id="<id>", base_path="dumps/esp-flash.bin", target={"type": "nvs", "partition": "nvs"}, edits=[{"namespace": "game", "key": "hiscore", "value": 999999}], purpose="score", unlock_source="in-device", online_capable="unknown")`
+   → stage `planned`(패치 이미지, 바뀌는 값, 플래시 암호화 근거). 거부되면(암호화·nvs_keys·CRC 규칙 불일치·비밀 키) 우회하지 않고 보고한다.
+3. 쓰기 직전 백업: 템플릿 D 로 네트워크를 끊게 한 뒤 응답 `next_steps` 의 `esp_read_flash_start(…, verify="double", after="no-reset")` 로 대상 범위를 새로 읽는다(칩이 다운로드 모드에 머문다).
+4. 같은 인자 + `backup_path` 로 다시 부른다. `status: attestation_required` 면 사용자가 **별도 터미널**에서 `pweh attest <attestation_id>` 로 답한다(네트워크 차단·재부팅 없음·변경 의사·판매 토큰 콘텐츠 아님). 같은 인자로 다시 부르면 stage `ready` 와 `command` 가 온다.
+   백업을 읽은 뒤에는 쓰기가 끝날 때까지 그 기기에 어떤 esp 도구로도 연결하지 않는다(연결마다 칩이 리셋된다 — 서버가 원장에서 보고 백업을 낡은 것으로 거부한다).
+5. `command` 를 사용자에게 그대로 전하고(템플릿 E), 사용자가 별도 WSL 터미널에서 실행한다. 에이전트는 실행하지 않는다. 명령이 sha256 확인에서 멈추면 파일이 바뀐 것이다 — 다시 4로.
+6. 읽기 확인: `next_steps` 의 `esp_read_flash_start` 로 대상 범위를 다시 읽고 `fw_verify_writeback(case_id="<id>", patch_path="<응답의 patch_path>", readback_path="<읽은 파일>")`.
+   `applied` 면 사람이 RESET 으로 부팅해 오프라인에서 화면 확인, `not-applied`·`differs` 면 부팅하기 전에 사용자와 정한다.
+   되돌리려면 플래시 전체를 다시 두 번 읽어 새 base 로 원래 값으로 바꾸는 패치를 같은 절차로 만들거나, 사람이 PWEH 밖에서 백업 파일을 쓴다(`docs/safety.md` §5).
+7. summary 의 `patches[]` 에 `result_path`·`stage`(applied 등)·`purpose`·`unlock_source`·`ledger_seq` 를 적는다.
 
 ## 사람에게 요청할 일 (템플릿)
 
@@ -165,6 +181,23 @@ case_add_finding(case_id="<id>", finding={
 - 복제 방지·저작권 보호 경계라 해금·패치하지 않고 보고만 합니다.
 ```
 
+**D. 쓰기 전 네트워크 차단**
+```
+[사람 작업 필요] 값 변경 준비 (네트워크 차단)
+1. 기기를 네트워크에서 끊어 주세요(Wi-Fi 공유기 차단 또는 앱 연동 해제). 쓰기와 확인이 끝날 때까지 다시 연결하지 않습니다.
+2. 기기는 USB 로 연결된 그대로 두고, 끄거나 리셋하지 마세요. 제가 대상 영역을 한 번 더 읽어 백업합니다(읽은 뒤 기기는 다운로드 모드에 머뭅니다).
+3. "완료" 라고 해 주세요.
+```
+
+**E. 쓰기 명령 실행 (사람)**
+```
+[승인 필요] 세이브 값 쓰기 — 사람이 직접 실행
+- 바꾸는 값: <changes 의 before → after>. 백업: <backup 경로>. 패치 sha256: <앞 16자>.
+- 별도의 WSL(또는 리눅스) bash 터미널에서 아래 명령을 그대로 실행해 주세요(PowerShell 아님). 저는 실행하지 않습니다.
+  <command>
+- 명령은 먼저 패치 파일의 sha256 을 확인하고(다르면 쓰지 않음), 파티션 범위만 씁니다. 끝나면 기기는 다운로드 모드에 머뭅니다 — 리셋하지 말고 결과를 알려 주세요.
+```
+
 ## 실패 처리
 
 | 상황 | 대응 |
@@ -178,7 +211,7 @@ case_add_finding(case_id="<id>", finding={
 
 ## 출력 (요약 기록)
 
-data 는 `save-analysis` 스키마다(`schema_get(name="save-analysis")`). `patches` 는 아직 늘 빈 목록이다.
+data 는 `save-analysis` 스키마다(`schema_get(name="save-analysis")`). `patches` 는 9단계로 만든 패치만 적는다(없으면 빈 목록).
 아래 예시는 합성 데이터(`tests/fwtriage/esp_builders.py`, ESP32-S3 흉내)로 이 서버를 돌린 흐름을 바탕으로 한 값이다. 실제 기기 값이 아니다. 이 data 는 save-analysis 스키마 검증을 통과한다.
 
 ```json
@@ -197,7 +230,7 @@ data 는 `save-analysis` 스키마다(`schema_get(name="save-analysis")`). `patc
   "online_evidence": ["online-sync 범주 히트 없음", "NVS 에 nvs.net80211 Wi-Fi 설정 있음 (값은 마스킹)"],
   "patches": [],
   "finding_ids": ["F-001"],
-  "limitations": ["ESP32-S3(Xtensa) ELF 는 REA 가 열지 못해 디컴파일로 확인하지 못함", "세이브 값 수정(패치)은 아직 지원하지 않음",
+  "limitations": ["ESP32-S3(Xtensa) ELF 는 REA 가 열지 못해 디컴파일로 확인하지 못함", "사용자가 값 변경을 원하지 않아 패치를 만들지 않음",
                   "NVS CRC 규칙은 실기 검증 전 — 이 덤프는 항목 CRC 가 모두 일치"],
   "next_actions": ["사람이 소유 기기에서 치트 입력 후보를 입력해 화면 확인"],
   "notes": ["스냅샷 3개(nvs-snap-01..03), 관찰값 score=[1200, 3450, 5100]"]

@@ -47,7 +47,7 @@
 
 > **구현 상태 (I1, 2026-10-20)**: 코어 구현 — `src/pweh/safety/attestations.py`(`AttestationStore`·`Attestor`), `rt().attest(...)` → `AttestationDecision`
 > (충족이 아니면 `attestation_response(...)`), 사람 명령 `pweh attest <id>`·`pweh attest --list`(`--all`)·`pweh attest --revoke <id>`(모두 TTY 전용),
-> 케이스 사본 `attestations.json`(0400, 증거 아님). 계약은 architecture.md §4, safety.md §3.5·§4 규칙 12. **증명을 요구하는 도구는 아직 없다.**
+> 케이스 사본 `attestations.json`(0400, 증거 아님). 계약은 architecture.md §4, safety.md §3.5·§4 규칙 12. **증명을 요구하는 도구는 I2b 의 `fw_patch_build` 하나다**(세이브 쓰기 명령을 보여 주기 전 `console-offline`).
 > 설계와 다른 점: 사람 쪽은 `pweh approve` 의 증명 화면이 아니라 별도 명령 `pweh attest` 다. `require` 에 서버가 지금 묻는 질문을 넘겨 질문이 늘면 예전 증명을 쓰지 않는다.
 > 유효 기간은 범위별 코드 기본값(case 7일·connection 12시간·job 24시간·instrument 는 철회까지, 서버가 `valid_seconds` 60초~90일), pending 은 `approval_ttl_seconds`,
 > 확인 경로는 `safety.approval_methods`(새 설정 키 없음)다. 연결 해제·재연결·장치 시리얼 변화에 따른 무효화는 바인딩·subject 지문으로만 된다(연결 토큰을 쓰는 서버가 아직 없다).
@@ -72,7 +72,7 @@
 > **구현 상태 (I1)**: 코어 구현 — `src/pweh/provenance.py`(`ProvenanceLedger`: 정규화 JSON 줄의 해시 체인, 파일 잠금, 깨지면 모두 불신, `verify`).
 > 기록하는 곳은 지금 둘이다: pweh-esp(`esp_read_flash_start` 의 끝까지 성공한 덤프 = `device-read`, `esp_chip_info`·`esp_security_info` = `device-fact`)와
 > `case_import_file`(`imported-unattested`). 나머지 기록 지점(Flipper·CU·수신 job·espprobe·SD 이미지 검증)과 확인 지점(에뮬레이션·SD 올리기·패치 base·
-> `espprobe_flash_plan`)은 그 서버를 만들 때 붙인다 — **지금 `verify` 를 부르는 도구는 없다.** `provenance-import` 증명의 대상은 `provenance_import_target(case_id, sha256)`·
+> `espprobe_flash_plan`)은 그 서버를 만들 때 붙인다 — `verify` 를 부르는 도구는 I2b 의 `fw_patch_build`·`fw_verify_writeback` 이고, 원장에 `patch-plan` kind(쓰기 확인의 권위 기록)가 더해졌다. `provenance-import` 증명의 대상은 `provenance_import_target(case_id, sha256)`·
 > `PROVENANCE_IMPORT_QUESTIONS` 하나로 정했다. 기록 실패는 도구 결과를 막지 않고 응답의 `provenance.recorded=false` 로 알린다.
 > 반박 검증 뒤 보강: 이중 읽기가 어긋난 덤프(`source.match=false`)는 기록하되 `verify` 가 불신한다(`device-read-mismatch` — 출처 ≠ 무결성). `case_import_file` 은 state_dir 의 파일을 거부하고,
 > 대상을 `O_EXCL` 로 만들며 복사하면서 해시한다. 확인과 사용 사이의 변경(TOCTOU)은 소비자가 sha256 을 승인 지문·job 인자에 묶어 막는다(architecture §4).

@@ -150,7 +150,7 @@ def case_paths(case_id: str, purpose: str = "extract", label: str = "run") -> di
 def _paths(case) -> dict[str, Any]:
     return {
         "case_dir": str(case.dir),
-        **{f"{d}_dir": str(case.dir / d) for d in ("uart", "dumps", "extract", "analysis", "signals", "jtag", "steps")},
+        **{f"{d}_dir": str(case.dir / d) for d in ("uart", "dumps", "extract", "analysis", "signals", "jtag", "steps", "patches")},
         "findings": str(case.findings_path),
         "report": str(case.dir / "report.md"),
     }

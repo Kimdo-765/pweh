@@ -6,6 +6,7 @@ UART/JTAG/SPI 로 얻은 플래시 덤프나 벤더 펌웨어에서 "어디에 �
 
 - 대상: 운영자가 **소유**하거나 **서면 허가**를 받은 기기의 펌웨어
 - 하드웨어를 건드리지 않는다 (안전 게이트 대상 아님). 펌웨어 안의 어떤 것도 **실행하지 않는다**.
+  `fw_patch_build` 는 기기에 쓰지 않고, 검증된 새 백업과 사람 증명 뒤 사람이 별도 터미널에서 실행할 쓰기 명령만 보여 준다.
   우리가 실행하는 외부 프로그램은 `unsquashfs`/`sasquatch` 뿐이며 비root·시간 제한·디스크 사용량 감시 아래에서만 돈다.
 - 모든 입력은 케이스 디렉터리 안의 경로(케이스 상대 경로 권장), 모든 출력은 `analysis/` 또는 `extract/<label>-NNN/` 에
   쓰고 `case.register_artifact` 로 등록한다.
@@ -51,6 +52,8 @@ jffs2/UBI/cramfs/ext 파티션은 `fw_carve` 로 분리한 뒤 REA `extract_firm
 | `fw_save_diff(case_id, paths, labels=None, offset=None, length=None, partition=None, mode="auto", observations=None, merge_gap=0, max_results=50)` | 시간 순서 스냅샷 2~16개 비교. bytes: 바뀐 범위·인코딩 해석(u8/u16/u32 LE·BE, BCD)·추세, nvs: 키 단위 변화(changed·added·removed, 비밀 값 마스킹). NVS 를 담은 범위는 bytes 로 비교하지 않는다. `observations`(스냅샷마다 화면에서 본 값)와 정확히 같은 위치·인코딩(또는 NVS 키)을 찾는다 | `analysis/save-diff-NNN.json` |
 | `fw_checksum_find(case_id, paths, offset=None, length=None, partition=None, algorithms=None, max_results=20, max_seconds=120, background=False)` | 모든 스냅샷에서 `저장값 = 알고리즘(범위)` 인 체크섬 후보(합·xor·CRC-8/16/32·adler32·fletcher16 등 24종). 위치 후보는 바뀐 바이트에서만. 시험한 후보 수, 기대 오탐 수, `strong`/`weak`. 합계 8 MiB 까지, NVS 를 담은 범위는 거부 | `analysis/checksum-find-NNN.json` |
 | `fw_find_seq_tables(case_id, path, offset=None, length=None, partition=None, base_addr=None, min_len=6, max_results=50, max_seconds=120, background=False)` | 치트 입력(버튼 시퀀스) 표 후보: 작은 알파벳의 배열, 코나미형 모양 점수. ESP 앱 이미지면 코드가 아닌 세그먼트를 load 주소(디컴파일러 주소)로 훑는다 | `analysis/seq-tables-NNN.json` |
+| `fw_patch_build(case_id, base_path, target, edits, purpose, unlock_source, online_capable, backup_path=None, description=None)` | 세이브 값 패치(사용자가 원할 때만). base = 기기에서 두 번 읽어 일치한 전체 플래시 덤프(출처 원장 확인), target = NVS 정수 항목 또는 사용자 데이터 파티션(+체크섬). backup_path 없이 → 계획(패치 이미지), 새 백업과 사람 증명 뒤 → 출처 원장 `patch-plan` 기록 + 사람이 실행할 쓰기 명령(sha256 확인 → esptool write-flash, 에이전트는 실행하지 않음) | `patches/<label>-patch-NNN.bin`, `analysis/patch-build-NNN.json` |
+| `fw_verify_writeback(case_id, patch_path, readback_path)` | 쓴 뒤 다시 읽은 덤프를 출처 원장의 패치 sha256 과 비교 → applied / not-applied / differs | `analysis/patch-verify-NNN.json` |
 | `fwtriage_job_status(job_id, wait_seconds=0)`, `fwtriage_job_cancel(job_id)`, `fwtriage_jobs(active_only=False)` | `background=true` 로 시작한 작업 폴링/취소. `result` 는 인라인 응답과 같다 | `jobs/<job_id>.json` |
 
 ## 데이터 파일
@@ -99,7 +102,7 @@ jffs2/UBI/cramfs/ext 파티션은 `fw_carve` 로 분리한 뒤 REA `extract_firm
 - REA 는 Xtensa(ESP32·S2·S3) ELF 를 열지 못한다. 이 칩들은 디컴파일 없이 문자열·패턴·표 도구와 세이브 비교로 분석한다.
 - 세이브 도구 결과는 후보다. 체크섬은 자기 필드를 덮는 형태·HMAC·서명은 찾지 않고, 큰 범위의 CRC 는 바이트 예산 안에서만 찾는다(`truncated`).
 - NVS 비밀값 마스킹은 키 이름 휴리스틱(+ 같은 원문을 담은 값)이다. 평범한 이름에 숨긴 비밀은 못 가릴 수 있다. 바이트 비교·체크섬 찾기는 NVS 를 담은 범위를 거부한다.
-  세이브 값 수정(패치 이미지)은 아직 없다.
+  세이브 값 변경은 `fw_patch_build`·`fw_verify_writeback` — 이 서버는 기기에 쓰지 않고, 사람이 실행할 명령만 만든다(검증된 새 백업·사람 증명 뒤).
 
 ## 테스트
 

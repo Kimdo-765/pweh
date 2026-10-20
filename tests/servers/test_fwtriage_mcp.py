@@ -34,6 +34,8 @@ CONTRACT_TOOLS = {
     "fw_rootfs_audit", "fw_strings_hunt", "fw_elf_info", "fw_crack_hashes",
     # 게임 세이브·해금 오프라인 분석 (ESP 형식·세이브 비교)
     "fw_esp_partitions", "fw_esp_image_info", "fw_esp_to_elf", "fw_esp_nvs", "fw_save_diff", "fw_checksum_find", "fw_find_seq_tables",
+    # 세이브 패치 (사람이 쓰고 확인)
+    "fw_patch_build", "fw_verify_writeback",
 }
 
 

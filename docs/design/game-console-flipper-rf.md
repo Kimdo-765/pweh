@@ -142,7 +142,12 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 > `fw_esp_to_elf(rea_compat=true)` 가 e_flags 를 RVC|double-float(0x5)로 표시한다(실제 ESP 칩은 soft/single-float — 부동소수점 인자 해석만 틀릴 수 있다). 이 표시로 C3 ELF 가 열리고 디컴파일된다.
 > 아래 설계의 Ghidra headless 대체(`fw_ghidra_decompile`)는 fwtriage 에 넣지 않는다 — Xtensa 디컴파일 경로는 따로 정할 일이다(사용자 결정).
 > 설계와 다른 점: 비밀로 보이는 NVS 값은 응답·결과 파일 모두 마스킹 + 케이스 솔트 다이제스트(게임 값 credits·tokens·stage_passed 등은 가리지 않는다).
-> 체크섬 찾기는 알고리즘 24종, 위치 후보는 스냅샷 사이에 바뀐 바이트에서만, 기대 오탐 수로 strong/weak 를 나눈다. 패치 빌드·쓰기 검증(`fw_patch_build`, `fw_verify_writeback`)은 I2b.
+> 체크섬 찾기는 알고리즘 24종, 위치 후보는 스냅샷 사이에 바뀐 바이트에서만, 기대 오탐 수로 strong/weak 를 나눈다.
+> **구현 상태 (I2b)**: `fw_patch_build`·`fw_verify_writeback`. 대상은 ESP NVS 정수 항목과 사용자 데이터 파티션(+체크섬)이고, 가져온 원시 세이브(EEPROM·SD)는 아직 아니다.
+> 설계와 다른 점: base 의 '마지막 읽기 after=no-reset-stub' 조건은 쓰지 않고(기본 이중 읽기는 hard-reset 으로 끝남) **쓰기 직전 새 백업**에 건다(다른 job, 원장 seq 가 뒤, after=no-reset-stub,
+> 같은 MAC, 대상 범위가 base 와 같음). 플래시 암호화를 모르면(원조 ESP32) 거부하지 않고 파티션 단위 근거(encrypted 플래그·nvs_keys 없음, 표 MD5, NVS CRC 자기검증)를 manifest 에 남긴다.
+> 쓰기 명령은 사람이 WSL bash 에서 실행한다(케이스 폴더로 cd → `sha256sum -c` → esptool `--after no-reset-stub write-flash` — 읽기 확인 전에 게임이 세이브를 다시 쓰지 않게).
+> 공개 기록은 출처 원장의 새 kind `patch-plan`(패치 sha256·base/백업 seq·대상·MAC·증명 id)이고 `fw_verify_writeback` 은 그것만 믿는다.
 
 - ESP: `fw_esp_partitions`(쓰기 후보는 **NVS 와 원시 사용자 데이터만** — fat/spiffs/littlefs 는 "파일 시스템 수준 분석 필요"로 보고), `fw_esp_image_info`, `fw_esp_to_elf`, `fw_esp_nvs`.
 - 공통: `fw_save_diff`, `fw_checksum_find`, `fw_patch_build`, `fw_verify_writeback`.

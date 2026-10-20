@@ -15,6 +15,8 @@
                                출처이지 무결성이 아니다 — 이중 읽기 불일치(source.match=false)도 기록하지만 verify 는 신뢰하지 않는다
     - ``device-fact``          산출물이 아닌 기기 사실 (예: esp_chip_info·esp_security_info 결과). sha256 = data 정규화 JSON 의 해시
     - ``imported-unattested``  case_import_file 등으로 밖에서 가져온 파일. ``provenance-import`` 사람 증명이 있을 때만 신뢰한다
+    - ``patch-plan``           세이브 패치 이미지의 공개 기록(fw_patch_build 가 백업 확인·사람 증명 뒤 쓰기 명령을 보여 줄 때). 기기에서 읽은 것이 아니다 —
+                               ``verify`` 는 이 kind 를 신뢰 근거로 쓰지 않고, 쓰기 확인(fw_verify_writeback)이 기대 sha256 의 권위 기록으로만 쓴다
 
 읽을 때 체인 전체를 검증한다. 하나라도 깨지면(해석 불가 줄, 정규화가 아닌 줄, seq 불연속, prev 불일치, 잘린 마지막 줄)
 **모두 신뢰하지 않는다**(fail closed: ``verify`` → ``reason='ledger-chain-broken'``, 기록·사실 조회는 ``ProvenanceError``).
@@ -41,7 +43,8 @@ SCHEMA = "pweh.provenance/v1"
 KIND_DEVICE_READ = "device-read"
 KIND_DEVICE_FACT = "device-fact"
 KIND_IMPORTED = "imported-unattested"
-LEDGER_KINDS = (KIND_DEVICE_READ, KIND_DEVICE_FACT, KIND_IMPORTED)
+KIND_PATCH_PLAN = "patch-plan"
+LEDGER_KINDS = (KIND_DEVICE_READ, KIND_DEVICE_FACT, KIND_IMPORTED, KIND_PATCH_PLAN)
 CHAIN_BROKEN = "ledger-chain-broken"
 #: verify 의 reason: 기기에서 읽었지만 이중 읽기가 어긋난 덤프(source.match=false) — 신뢰하지 않는다
 READ_MISMATCH = "device-read-mismatch"
@@ -265,6 +268,22 @@ class ProvenanceLedger:
         cid = _case_id_of(case)
         return self._append(cid, self._file_body(case, path, KIND_IMPORTED, source, extra, sha256, None))
 
+    def record_patch_plan(self, case: Case, path: str | Path, source: dict[str, Any], extra: dict[str, Any] | None = None, *,
+                          sha256: str, attestation_id: str | None = None) -> dict[str, Any]:
+        """세이브 패치 이미지의 공개 기록(patch-plan). sha256 은 서버가 메모리에서 만든 패치의 해시 — 지금 파일과 같아야 기록한다.
+
+        이 항목은 쓰기 확인의 기대값(권위 기록)이다. 기기에서 읽은 것이 아니므로 ``verify`` 의 신뢰 근거가 되지 않는다.
+        """
+        cid = _case_id_of(case)
+        return self._append(cid, self._file_body(case, path, KIND_PATCH_PLAN, source, extra, sha256, attestation_id))
+
+    def latest(self, case: Case | str, kind: str, path: str | None = None) -> dict[str, Any] | None:
+        """kind(와 케이스 상대 path)가 맞는 가장 최근 항목. 체인이 깨졌으면 ProvenanceError."""
+        for e in reversed(self.entries(case, kind)):
+            if path is None or e.get("path") == path:
+                return e
+        return None
+
     def record_device_fact(self, case: Case | str, fact_kind: str, data: dict[str, Any], source: dict[str, Any], *,
                            attestation_id: str | None = None) -> dict[str, Any]:
         """산출물이 아닌 기기 사실을 기록한다(device-fact, 예: 칩 정보·보안 설정). data 는 원장 안에 그대로 남는다."""
@@ -349,6 +368,7 @@ __all__ = [
     "KIND_DEVICE_FACT",
     "KIND_DEVICE_READ",
     "KIND_IMPORTED",
+    "KIND_PATCH_PLAN",
     "LEDGER_KINDS",
     "PROVENANCE_IMPORT_QUESTIONS",
     "ProvenanceError",
