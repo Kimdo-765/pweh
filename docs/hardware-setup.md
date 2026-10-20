@@ -228,7 +228,8 @@ ESP32 계열(ESP32·ESP32-S2·ESP32-S3·ESP32-C3 …) 보드와 모듈은 UART �
 - WSL interop 을 쓸 수 없거나 네이티브 리눅스면 §2.2 대로 `usbipd bind`·`usbipd attach` 한 뒤 리눅스 포트를 쓴다.
 - 포트 이름은 연결 방식에 따라 다르다.
   - ESP 내장 USB-Serial/JTAG(`303a:1001`, ESP32-S3·C3·C6·H2 의 네이티브 USB): `/dev/ttyACM0`.
-  - USB-UART 브리지(CP210x `10c4:ea60`, CH340 `1a86:7523`, CH343, CH9102, FTDI): `/dev/ttyUSB0`.
+  - USB-UART 브리지(CP210x `10c4:ea60`, CH340 `1a86:7523`, CH343, CH9102, FTDI): `/dev/ttyUSB0`(CH343 처럼 CDC-ACM 인 브리지는 `/dev/ttyACM0`).
+  - 앱이 내장 USB 로 만든 포트(TinyUSB CDC — 예: MicroPython `303a:4001`): 자동 리셋이 대개 안 된다. 'UART' 커넥터가 있으면 그쪽을 쓴다.
 - 내장 USB-Serial/JTAG 는 esptool 이 칩을 리셋할 때(다운로드 모드 진입·종료 포함) USB 를 다시 열거해 WSL 에서 떨어진다.
   `usbipd attach --wsl --busid <BUSID> --auto-attach` 를 쓴다(§2.2 의 4). ESP32-S3 ROM 의 USB-OTG 다운로드 모드(`303a:0009`)처럼 다른 VID:PID 로 나타나면 그 항목도 bind 한다.
   다시 열거되면 장치 번호(`/dev/ttyACM0` → `/dev/ttyACM1`)가 바뀔 수 있으니 `esp_list_ports` 로 다시 확인한다.

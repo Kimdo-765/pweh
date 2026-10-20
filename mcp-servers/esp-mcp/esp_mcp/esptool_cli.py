@@ -990,8 +990,10 @@ _HINT_BUSY = (
 )
 _HINT_BOOT = (
     f"칩이 다운로드 모드에 들어가지 않았다: 사람이 {BOOT_PIN_KO} 버튼을 누른 채 RESET(EN)을 눌렀다 떼고 BOOT 를 놓은 뒤 "
-    "before='no-reset' 으로 다시 시도하라. 네이티브 USB(USB-Serial/JTAG, 303a:1001) 포트와 USB-UART 브리지(CP210x/CH34x) 포트 중 "
-    "맞는 것을 쓰는지, 데이터 케이블(충전 전용 아님)인지, 다른 장치가 TX/RX 를 잡고 있지 않은지 확인하라."
+    "before='no-reset' 으로 다시 시도하라. 칩 내장 USB 포트(앱의 TinyUSB CDC 등, esp_list_ports 의 kind esp-usb)면 다운로드 모드에서 "
+    "장치가 다시 잡혀 포트 이름(COM 번호)이 바뀌므로 esp_list_ports 로 새 포트를 찾는다. 보드에 USB-UART 브리지(CP210x/CH34x, 'UART') 커넥터가 "
+    "있으면 케이블을 그쪽으로 옮기면 자동 리셋이 된다. 네이티브 USB(USB-Serial/JTAG, 303a:1001) 포트와 브리지 포트 중 맞는 것을 쓰는지, "
+    "데이터 케이블(충전 전용 아님)인지, 다른 장치가 TX/RX 를 잡고 있지 않은지 확인하라."
 )
 _HINT_NOISE = "전송 오류: baud 를 낮추고(921600 → 460800 → 115200) 짧은 케이블로 다시 시도하라. 다른 프로그램이 같은 포트를 읽고 있지 않은지 확인하라."
 _HINT_BAUD_SWITCH = (

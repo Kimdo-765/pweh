@@ -74,6 +74,8 @@ PWEH 는 물리 작업을 사람에게 맡긴다. 에이전트는 무엇을 연�
   실행 중이던 펌웨어가 멈추고 기기가 재부팅된다. 제품(카메라·IoT 기기) 안의 ESP32 면 제품 전체가 재부팅되므로 사용자에게 미리 알린다.
 - 덤프가 끝나면 기본(`after="hard-reset"`)으로 앱이 다시 실행된다. `after="no-reset-stub"`(`after="no-reset"` 요청도 이것으로 실행)이거나 덤프를 취소했으면 칩이 다운로드 모드에 남으므로, 일반 부팅이 필요하면 사람이 RESET 을 누른다.
 - 방법 A(Windows esptool.exe)에서 취소·시간 초과 뒤 esptool.exe 가 남았다고 에이전트가 알리면(PID), 사람이 작업 관리자나 Windows 터미널의 `taskkill /F /PID <PID>` 로 끝내거나 보드 USB 를 뽑았다 꽂는다. 그동안 그 COM 포트는 쓸 수 없다.
+- USB 커넥터가 둘인 보드(ESP32-S3-DevKitC-1 의 'USB'·'UART')는 'UART'(USB-UART 브리지) 쪽이 자동 리셋에 확실하다. 'USB'(칩 내장) 쪽은 펌웨어에 따라 다르다 —
+  앱이 TinyUSB CDC 를 쓰면(MicroPython `303a:4001` 등) 자동 리셋이 안 되고, 다운로드 모드로 넣으면 장치가 다시 잡혀 포트 번호가 바뀐다.
 - 자동 리셋이 안 되는 보드는 사람이 BOOT(부트 스트랩 핀. ESP32·ESP32-S2·ESP32-S3 는 GPIO0, ESP32-C3·C6·H2 는 GPIO9 — 그 밖의 칩은 데이터시트로 확인)를 누른 채 RESET(EN)을 눌렀다 떼고 BOOT 를 놓아 다운로드 모드로 넣는다.
   그 뒤에 에이전트가 `before="no-reset"` 으로 호출한다.
 - 같은 포트를 연 시리얼 모니터(Arduino IDE, `idf.py monitor`, PuTTY)는 먼저 닫는다.

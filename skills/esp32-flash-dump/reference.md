@@ -12,7 +12,7 @@
 | esp-usb-serial-jtag | 303a:1001 | ESP 내장 USB-Serial/JTAG. ESP32-S3·C3·C6·H2 의 "USB" 커넥터 | 기본값. esptool 이 USB-JTAG 리셋으로 다운로드 모드에 넣는다(before="default-reset" 또는 "usb-reset"). baud 는 속도와 무관 |
 | usb-uart-bridge | 10c4:ea60 (CP210x), 1a86:7523 (CH340), 1a86:55d3 (CH343), 1a86:55d4 (CH9102), 0403:6001·6010·6014·6015 (FTDI) | 보드의 USB-UART 브리지. 원조 ESP32 보드는 이것뿐이다 | 기본값. DevKit 의 자동 리셋 회로(DTR/RTS → EN·GPIO0)를 쓴다. 921600 이 불안정하면 460800·115200 |
 | esp-usb-otg-rom | 303a:0009 (S3), 303a:0002 (S2) | 칩이 이미 ROM 의 USB-OTG 다운로드 모드다 | before="no-reset", after="no-reset-stub"(after="no-reset" 을 줘도 서버가 no-reset-stub 으로 바꿔 실행). 끝나면 사람이 RESET |
-| esp-usb | 그 밖의 303a | 앱이 USB 를 직접 쓴다(TinyUSB CDC 등). 다운로드 모드가 아니다 | 템플릿 B 로 다운로드 모드에 넣고 `esp_list_ports` 를 다시 부른다(ROM 포트로 바뀐다) |
+| esp-usb | 그 밖의 303a (예: MicroPython 303a:4001) | 앱이 USB 를 직접 쓴다(TinyUSB CDC 등). 다운로드 모드가 아니고 DTR/RTS 자동 리셋이 대개 안 된다 | 'UART' 커넥터가 있으면 그쪽으로 옮긴다(자동 리셋). 없으면 템플릿 B 로 다운로드 모드에 넣고 `esp_list_ports` 를 다시 부른다(ROM 포트로 바뀌고 COM 번호도 바뀐다) |
 | unknown | 그 밖 | 알 수 없는 장치 | 사람에게 보드·커넥터를 확인한다 |
 
 - 내장 USB-Serial/JTAG 는 리셋 때 USB 가 다시 열거될 수 있다. Windows COM 번호가 바뀌면 `esp_list_ports` 로 다시 확인한다(서버도 notes 에 알린다).

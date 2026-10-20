@@ -114,7 +114,7 @@ esp_list_ports()   → windows{available, ports[{port, name, usb_id, kind, descr
 | esp-usb-serial-jtag (303a:1001) | ESP 내장 USB-Serial/JTAG (S3·C3·C6·H2 의 "USB" 커넥터) | 기본값(before="default-reset"). baud 는 속도와 무관. 리셋 때 다시 열거될 수 있다 |
 | usb-uart-bridge (CP210x, CH34x, FTDI) | 보드의 USB-UART 브리지("UART"·"COM" 커넥터, 원조 ESP32 보드) | 기본값. 자동 리셋 회로가 없으면 템플릿 B. 전송 오류면 baud 를 낮춘다 |
 | esp-usb-otg-rom (303a:0009, 303a:0002) | 칩이 이미 ROM USB-OTG 다운로드 모드(S2·S3) | before="no-reset", after="no-reset-stub"(after="no-reset" 도 서버가 no-reset-stub 으로 바꿔 실행). 끝나면 사람이 RESET |
-| esp-usb (그 밖의 303a) | 앱이 USB 를 직접 쓴다(TinyUSB CDC) | 템플릿 B 로 다운로드 모드에 넣은 뒤 `esp_list_ports` 를 다시 부른다 |
+| esp-usb (그 밖의 303a, 예: MicroPython 303a:4001) | 앱이 USB 를 직접 쓴다(TinyUSB CDC). 자동 리셋이 대개 안 된다 | 보드에 'UART' 커넥터가 있으면 템플릿 A 로 그쪽에 다시 꽂게 한다(자동 리셋). 없으면 템플릿 B 로 다운로드 모드에 넣은 뒤 `esp_list_ports` 를 다시 부른다(COM 번호가 바뀐다) |
 | unknown, 포트 없음 | 충전 전용 케이블, 드라이버 없음, usbipd 로 WSL 에 붙어 있음 | 템플릿 A 를 다시 확인한다(Windows 장치 관리자) |
 
 - 후보가 여럿이면 `[확인 필요]` 로 어느 포트가 대상 보드인지 묻는다. 추측하지 않는다.

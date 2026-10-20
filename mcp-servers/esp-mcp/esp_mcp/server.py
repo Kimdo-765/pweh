@@ -731,12 +731,18 @@ async def esp_list_ports() -> dict[str, Any]:
     every = (win.get("ports") or []) + lin
     jtag = [p["port"] for p in every if p.get("kind") == "esp-usb-serial-jtag"]
     otg = [p["port"] for p in every if p.get("kind") == "esp-usb-otg-rom"]
+    app_usb = [p["port"] for p in every if p.get("kind") == "esp-usb"]
     if jtag:
         hints.append(f"ESP 내장 USB-Serial/JTAG 포트: {', '.join(jtag)} — esptool 이 USB-JTAG 리셋으로 다운로드 모드에 넣는다"
                      "(before='default-reset' 또는 'usb-reset').")
     if otg:
         hints.append(f"ROM USB-OTG 다운로드 모드 포트: {', '.join(otg)} — 칩(ESP32-S2/S3)이 이미 ROM USB-OTG 다운로드 모드다. "
                      "before='no-reset', after='no-reset'(서버가 no-reset-stub 으로 바꿔 실행)으로 부르고, 끝나면 사람이 RESET 을 눌러 일반 부팅한다.")
+    if app_usb:
+        hints.append(f"앱이 칩 내장 USB 로 만든 포트: {', '.join(app_usb)} (TinyUSB CDC — 예: MicroPython 303a:4001). esptool 의 자동 리셋(DTR/RTS)이 "
+                     "듣지 않는 경우가 많다. 보드에 'UART' 커넥터(USB-UART 브리지)가 있으면 사람에게 케이블을 그쪽으로 옮기게 하고(자동 리셋), "
+                     "없으면 BOOT 를 누른 채 RESET 하게 한 뒤 esp_list_ports 로 새 포트를 찾는다(다운로드 모드에서는 303a:1001 등으로 다시 잡혀 "
+                     "COM 번호가 바뀐다) → before='no-reset'.")
     if win.get("ports"):
         hints.append("방법 A: Windows 포트는 port='COMn' 그대로 esp_chip_info / esp_read_flash_start 에 준다.")
     if not out["count"]:

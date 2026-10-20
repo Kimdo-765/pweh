@@ -727,6 +727,8 @@ async def test_list_ports_windows_and_linux(fake, monkeypatch):
          "Status": "OK", "Service": "silabser"},
         {"Name": "USB 직렬 장치(COM9)", "PNPDeviceID": "USB\\VID_303A&PID_0009\\0", "Manufacturer": "Microsoft", "Status": "OK",
          "Service": "usbser"},
+        {"Name": "USB 직렬 장치(COM5)", "PNPDeviceID": "USB\\VID_303A&PID_4001&MI_00\\1&ABCDEF&0&0000", "Manufacturer": "Microsoft",
+         "Status": "OK", "Service": "usbser"},
         {"Name": "USB Audio", "PNPDeviceID": "USB\\VID_1234&PID_5678\\X", "Manufacturer": "x", "Status": "OK", "Service": "x"},
     ])
     seen = {}
@@ -750,7 +752,7 @@ async def test_list_ports_windows_and_linux(fake, monkeypatch):
         r = await call(c, "esp_list_ports")
     assert "Win32_PnPEntity" in seen["script"] and "(COM" in seen["script"]
     w = {p["port"]: p for p in r["windows"]["ports"]}
-    assert list(w) == ["COM3", "COM7", "COM9"] and r["windows"]["available"]
+    assert list(w) == ["COM3", "COM5", "COM7", "COM9"] and r["windows"]["available"]
     assert w["COM3"]["usb_id"] == "303a:1001" and w["COM3"]["kind"] == "esp-usb-serial-jtag" and "USB-Serial/JTAG" in w["COM3"]["description_ko"]
     assert w["COM7"]["kind"] == "usb-uart-bridge" and "CP210x" in w["COM7"]["description_ko"] and w["COM7"]["serial_number"] == "0001"
     assert w["COM9"]["kind"] == "esp-usb-otg-rom"
@@ -762,6 +764,10 @@ async def test_list_ports_windows_and_linux(fake, monkeypatch):
     otg = next(h for h in r["hints"] if "USB-OTG" in h)
     assert "COM3" in jtag and "/dev/ttyACM0" in jtag and "COM9" not in jtag and "usb-reset" in jtag
     assert "COM9" in otg and "before='no-reset'" in otg and "after='no-reset'" in otg and "no-reset-stub" in otg and "RESET" in otg
+    # 앱이 내장 USB 로 만든 포트(TinyUSB CDC): 자동 리셋이 안 될 수 있다 → UART 커넥터로 옮기거나 BOOT+RESET 뒤 새 포트(번호가 바뀜)
+    assert w["COM5"]["usb_id"] == "303a:4001" and w["COM5"]["kind"] == "esp-usb"
+    app = next(h for h in r["hints"] if "TinyUSB" in h)
+    assert "COM5" in app and "COM3" not in app and "UART" in app and "BOOT" in app and "esp_list_ports" in app and "COM 번호" in app
     # interop/powershell 이 없으면 리눅스 목록 + note
     monkeypatch.setattr(ports, "interop_status", lambda: {"wsl": False, "interop": False, "reason": "WSL 이 아님"})
     async with Client(server) as c:

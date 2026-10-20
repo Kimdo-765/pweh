@@ -230,7 +230,8 @@ signals/boot-001.sr 을 REA decode_signal_recording 으로 UART 디코딩해서 
 - **MCP 서버 다시 시작:** env.sh 가 바뀌었으므로 Claude Code 를 다시 시작한다(`scripts/mcp-launch.sh` 가 env.sh 를 읽어 서버를 띄운다).
   새 프로젝트 MCP 서버 `pweh-esp` 의 승인 다이얼로그가 뜨면 승인하고 `/mcp` 에서 연결됐는지 확인한다. Codex 는 `pweh mcp-config --client codex` 출력의 `pweh-esp` 항목을 설정에 더한다.
 - **포트 이름:** 에이전트는 `esp_version()` 으로 `backends.windows.available` 과 버전을 본 뒤 `esp_list_ports()` 의 `windows.ports[].port` 에서 COM 포트를 고른다(추측하지 않는다).
-  `303a:1001` 은 ESP 내장 USB-Serial/JTAG 이고, 리셋 뒤 COM 번호가 바뀌면 다시 조회한다. 그다음 소유/허가 확인 → `case_create` → `esp_chip_info` → `esp_security_info` → `esp_read_flash_start` → `esp_job_status` 순서다.
+  `303a:1001` 은 ESP 내장 USB-Serial/JTAG 이고, 리셋 뒤 COM 번호가 바뀌면 다시 조회한다. `303a:4001` 같은 그 밖의 `303a` 는 앱(MicroPython 등)의 TinyUSB CDC 라 자동 리셋이 대개 안 된다.
+  보드에 USB 커넥터가 둘이면(ESP32-S3-DevKitC-1 의 'USB'·'UART') 'UART'(USB-UART 브리지) 쪽에 꽂는 것이 자동 리셋에 확실하다. 그다음 소유/허가 확인 → `case_create` → `esp_chip_info` → `esp_security_info` → `esp_read_flash_start` → `esp_job_status` 순서다.
 - **같은 장치를 동시에 붙이지 않는다:** usbipd 로 WSL 에 attach 한 장치는 Windows 에서 COM 포트가 사라져 방법 A 로 열 수 없다. 방법 A 를 쓰려면 `usbipd detach` 한다.
 
 ## 7. 환경변수 요약
