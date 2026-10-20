@@ -24,6 +24,7 @@ SKILL_DATA_SCHEMAS: dict[str, str] = {
     "firmware-static-analysis": "static-analysis",
     "logic-analyzer-protocol-decode": "signal-capture",
     "cctv-auth-bypass-hunt": "auth-hunt",
+    "game-save-unlock-analysis": "save-analysis",
 }
 
 

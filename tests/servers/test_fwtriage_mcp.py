@@ -32,6 +32,8 @@ pytestmark = pytest.mark.anyio
 CONTRACT_TOOLS = {
     "fw_identify", "fw_entropy", "fw_uboot_env", "fw_carve", "fw_uimage_info", "fw_extract_squashfs",
     "fw_rootfs_audit", "fw_strings_hunt", "fw_elf_info", "fw_crack_hashes",
+    # 게임 세이브·해금 오프라인 분석 (ESP 형식·세이브 비교)
+    "fw_esp_partitions", "fw_esp_image_info", "fw_esp_to_elf", "fw_esp_nvs", "fw_save_diff", "fw_checksum_find", "fw_find_seq_tables",
 }
 
 

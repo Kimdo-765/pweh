@@ -284,3 +284,18 @@ def test_import_file_never_writes_through_destination_link(workspace, auth, tmp_
     art = case.import_file(big, "dumps", kind="firmware-image", producer="test")
     assert art["sha256"] == hashlib.sha256(data).hexdigest() and art["size"] == len(data)
     assert (case.dir / "dumps" / "fw.bin").read_bytes() == data
+
+
+async def test_step_results_missing_counts_only_pipeline_and_started_optional_skills(workspace, auth):
+    """missing 은 보안 분석 파이프라인 Skill 과 이 케이스에서 시작한 선택 Skill 만 센다(CCTV 케이스에 게임 Skill 이 끼지 않음)."""
+    from case_mcp.server import server
+
+    async with Client(server) as c:
+        cid = (await call(c, "case_create", title="missing", authorization=auth))["case"]["id"]
+        r = await call(c, "case_get_step_results", case_id=cid)
+        assert "game-save-unlock-analysis" not in r["missing"] and "firmware-static-analysis" in r["missing"], r
+        await call(c, "case_set_phase", case_id=cid, phase="game-save-unlock-analysis", status="in-progress")
+        r = await call(c, "case_get_step_results", case_id=cid)
+        assert "game-save-unlock-analysis" in r["missing"], r
+        r = await call(c, "case_get_step_results", case_id=cid, skill="game-save-unlock-analysis")
+        assert r["missing"] == ["game-save-unlock-analysis"]

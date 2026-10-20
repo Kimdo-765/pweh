@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/save-analysis.schema.json",
+  "title": "game-save-unlock-analysis 요약 data",
+  "description": "사용자 소유 게임기·장난감의 펌웨어·세이브 오프라인 분석 요약: 세이브 위치·인코딩·체크섬, 해금 조건과 unlock_source, 온라인 가능 여부. sold-token·online-purchase 로 여는 콘텐츠는 보고만 한다(패치 없음).",
+  "type": "object",
+  "required": ["device", "firmware", "saves", "unlock_conditions", "online_capable"],
+  "properties": {
+    "device": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["esp32-toy", "mcu-eeprom", "linux-handheld", "commercial-console", "arcade", "other"], "description": "esp32-toy = ESP32 장난감·휴대기, mcu-eeprom = STM32 등 MCU + EEPROM/FRAM, linux-handheld = 리눅스 휴대기(SD 세이브), commercial-console = 시판 콘솔(세이브 암호화·서명 — 분석·수정 불가), arcade = 아케이드 기판(NVRAM)"},
+        "chip": {"type": ["string", "null"], "description": "예: ESP32-S3 (esp_chip_info), STM32F103"},
+        "model": {"type": ["string", "null"]},
+        "firmware_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "firmware": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1, "description": "분석한 펌웨어·플래시 덤프 또는 가져온 세이브·SD 이미지의 케이스 상대 경로 (dumps/*.bin)"},
+        "partitions_path": {"type": ["string", "null"], "description": "파티션 표 해석 결과(analysis/*.json) 또는 파티션 파일의 케이스 상대 경로"},
+        "elf_path": {"type": ["string", "null"], "description": "앱 이미지를 ELF 로 바꾼 파일의 케이스 상대 경로 (REA open_binary 입력)"}
+      }
+    },
+    "saves": {
+      "type": "array",
+      "description": "찾은 세이브 값(점수·진행·해금 플래그 등). 없으면 빈 목록",
+      "items": {
+        "type": "object",
+        "required": ["location", "value_label", "encoding", "confidence"],
+        "properties": {
+          "location": {
+            "type": "object",
+            "description": "가능한 한 구체적으로. 최소 하나의 필드는 채울 것",
+            "minProperties": 1,
+            "properties": {
+              "partition": {"type": ["string", "null"], "description": "파티션 이름 (예: nvs)"},
+              "offset": {"type": ["integer", "string", "null"], "description": "파티션 또는 파일 안 오프셋 (정수 또는 \"0x9000\")"},
+              "length": {"type": ["integer", "string", "null"]},
+              "nvs_namespace": {"type": ["string", "null"]},
+              "nvs_key": {"type": ["string", "null"]},
+              "file": {"type": ["string", "null"], "description": "파일 기반 세이브의 경로 (rootfs 절대 경로 또는 케이스 상대 경로)"}
+            }
+          },
+          "value_label": {"type": "string", "minLength": 1, "description": "무슨 값인지 (예: high score, stage progress, unlock flags)"},
+          "encoding": {"type": "string", "minLength": 1, "description": "예: u8, u16le, u32le, i32le, bcd, ascii, nvs-u32, nvs-blob, bitfield, unknown"},
+          "checksum": {
+            "type": ["object", "null"],
+            "description": "이 값을 덮는 체크섬·MAC. 없거나 모르면 null",
+            "required": ["algorithm", "strength"],
+            "properties": {
+              "algorithm": {"type": "string", "minLength": 1, "description": "예: sum8, xor8, crc16-ccitt, crc32, adler32, sha256, hmac-sha256, unknown"},
+              "range": {"type": ["object", "string", "null"], "description": "체크섬이 덮는 범위 ({offset, length} 또는 설명)", "properties": {"offset": {"type": ["integer", "string", "null"]}, "length": {"type": ["integer", "string", "null"]}}},
+              "location": {"type": ["object", "string", "null"], "description": "체크섬 값이 저장된 위치 ({offset, length} 또는 설명)", "properties": {"offset": {"type": ["integer", "string", "null"]}, "length": {"type": ["integer", "string", "null"]}}},
+              "strength": {"enum": ["non-cryptographic", "cryptographic-hash", "keyed-mac", "signature", "unknown"], "description": "non-cryptographic = 합·XOR·CRC 류, cryptographic-hash = 키 없는 해시, keyed-mac = 키가 있는 MAC, signature = 비대칭 서명. 온라인 동기화되는 서명·MAC 은 재계산하지 않는다"}
+            }
+          },
+          "evidence": {"type": "array", "items": {"type": "string"}, "description": "result_path, <rootfs 경로>@<오프셋>, REA evidence id 등"},
+          "confidence": {"enum": ["confirmed", "likely", "possible"]}
+        }
+      }
+    },
+    "unlock_conditions": {
+      "type": "array",
+      "description": "찾은 해금 조건. 없으면 빈 목록",
+      "items": {
+        "type": "object",
+        "required": ["kind", "unlock_source", "description", "confidence"],
+        "properties": {
+          "kind": {"enum": ["counter", "date", "cheat-input", "debug-menu", "owned-tag", "sold-token", "online-purchase", "unknown"]},
+          "unlock_source": {"enum": ["in-device", "owned-tag", "sold-token", "online-purchase", "unknown"], "description": "sold-token·online-purchase 는 보고만 (패치·우회 금지)"},
+          "description": {"type": "string", "minLength": 3},
+          "evidence": {"type": "array", "items": {"type": "string"}},
+          "confidence": {"enum": ["confirmed", "likely", "possible"]},
+          "finding_id": {"type": ["string", "null"]}
+        },
+        "allOf": [
+          {"if": {"required": ["kind"], "properties": {"kind": {"const": "owned-tag"}}}, "then": {"properties": {"unlock_source": {"const": "owned-tag"}}}},
+          {"if": {"required": ["kind"], "properties": {"kind": {"const": "sold-token"}}}, "then": {"properties": {"unlock_source": {"const": "sold-token"}}}},
+          {"if": {"required": ["kind"], "properties": {"kind": {"const": "online-purchase"}}}, "then": {"properties": {"unlock_source": {"const": "online-purchase"}}}},
+          {"if": {"required": ["kind"], "properties": {"kind": {"enum": ["counter", "date", "cheat-input", "debug-menu"]}}}, "then": {"properties": {"unlock_source": {"enum": ["in-device", "unknown"]}}}}
+        ]
+      }
+    },
+    "online_capable": {"enum": ["yes", "no", "unknown"], "description": "기기·게임이 네트워크·앱과 동기화할 수 있는지"},
+    "online_evidence": {"type": "array", "items": {"type": "string"}},
+    "patches": {"type": "array", "maxItems": 0, "description": "패치 빌드 단계가 생기기 전까지 항상 빈 목록. sold-token·online-purchase 해금은 그 뒤에도 패치하지 않는다"},
+    "finding_ids": {"type": "array", "items": {"type": "string"}},
+    "limitations": {"type": "array", "items": {"type": "string"}},
+    "next_actions": {"type": "array", "items": {"type": "string"}},
+    "notes": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,343 @@
+# game-hunt-patterns.yaml
+# 게임 패턴 팩: fw_strings_hunt(patterns="game") / fw_hunt_patterns(pack="game") 가 쓰는 오프라인 문자열 휴리스틱.
+# 구조·정규식 규칙은 cctv-hunt-patterns.yaml 과 같다: 모든 정규식은 작은따옴표로 감싼 YAML 스칼라(백슬래시는 그대로 전달되고,
+# 작은따옴표는 '' 로 이스케이프). 이 저장소에서 쓴 일반 키워드·API 이름 휴리스틱이라 docs/references 원본이 없다.
+# 대상: 사용자가 소유했거나 서면 허가를 받은 게임기·장난감의 펌웨어와 세이브. 히트는 "조사 출발점"일 뿐 해금 조건·세이브 위치의 확정이 아니다.
+# 범위(docs/design/game-console-flipper-rf.md §1.3·§1.4): 기기 안의 조건(카운터·날짜·치트 입력·디버그 메뉴·사용자 소유 태그)만 패치 대상이고,
+# 판매 토큰·DLC·온라인 구매(entitlement), amiibo 류 태그 암호, 온라인 동기화되는 서명·HMAC 은 보고만 (패치·우회 금지).
+
+version: 1
+
+string_heuristics:
+  # ---------------- debug-menu: 디버그·테스트·서비스 메뉴와 디버그 기능 ----------------
+  - id: game-debug-menu
+    pattern: '(?i)(?:debug|test|service|factory|developer|hidden|secret|dev)[ _-]?(?:menu|mode|screen|options?)'
+    category: debug-menu
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '디버그·테스트·서비스·공장 메뉴 이름. REA search_strings → xrefs 로 메뉴를 그리는 함수를 찾고 procedure_pseudo_code 로 진입 조건(버튼 조합·플래그·빌드 옵션)을 확인.'
+    references: []
+  - id: game-level-sound-select
+    pattern: '(?i)(?:level|stage|area|world|map|round|scene)[ _-]?(?:select|skip|warp)|(?:sound|music|sfx|bgm|audio|voice)[ _-]?test'
+    category: debug-menu
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '레벨 선택·스테이지 스킵·사운드 테스트(전형적인 숨은 디버그 기능). 문자열 xref → 메뉴 항목 표 → 진입 분기(입력 시퀀스·플래그)를 확인.'
+    references: []
+  - id: game-god-mode
+    pattern: '(?i)god[ _-]?mode|invincib(?:le|ility)|invulnerab(?:le|ility)|(?:infinite|unlimited)[ _-]?(?:lives|life|health|hp|ammo|time|energy|continues?)|no[ _-]?clip|one[ _-]?hit[ _-]?kill|max[ _-]?(?:lives|stats)'
+    category: debug-menu
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '무적·무한 목숨 같은 디버그/치트 효과 이름. 효과 플래그를 켜는 위치(디버그 메뉴 처리기 또는 치트 입력 처리기)를 xrefs → procedure_pseudo_code 로 찾는다.'
+    references: []
+  - id: game-debug-console
+    pattern: 'esp_console_[a-z_]{3,40}|linenoise[A-Za-z]{0,20}|to get the list of commands|Unrecognized command'
+    category: debug-menu
+    severity_hint: low
+    scope: any
+    vendor: esp-idf
+    rationale: 'ESP-IDF UART 콘솔(REPL). 등록된 명령 이름·도움말 문자열에서 숨은 명령(점수·해금·디버그 설정)을 찾는다. 콘솔을 실제로 쓰는 것은 uart-shell-acquisition 경로로.'
+    references: []
+
+  # ---------------- cheat-input: 치트·비밀 코드·버튼 시퀀스 ----------------
+  - id: game-cheat-keywords
+    pattern: '(?i)cheat[ _-]?(?:codes?|mode|menu|enabled?|on|off|list)|cheats?|secret[ _-]?(?:codes?|combos?|inputs?|passwords?|commands?)|konami(?:[ _-]?code)?|pass[ _-]?codes?|easter[ _-]?eggs?'
+    category: cheat-input
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '치트·비밀 코드·이스터 에그 문자열. xrefs 로 입력 처리 루프와 비교 대상(버튼 시퀀스 표·코드 문자열)을 찾고 성공 시 켜지는 플래그·카운터를 확인.'
+    references: []
+  - id: game-konami-sequence
+    pattern: '(?i)up[ ,_-]{0,3}up[ ,_-]{0,3}down[ ,_-]{0,3}down[ ,_-]{0,3}left[ ,_-]{0,3}right[ ,_-]{0,3}left[ ,_-]{0,3}right|uuddlrlr(?:ba|ab)?'
+    category: cheat-input
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '코나미 커맨드(위위아래아래왼오왼오 B A) 텍스트. 버튼 시퀀스 비교 코드의 강한 앵커 — xrefs 로 입력 버퍼 비교 루틴과 성공 시 세우는 플래그를 확인.'
+    references: []
+  - id: game-input-sequence
+    pattern: '(?i)(?:button|key|pad|joy(?:stick)?)[ _-]?(?:seq(?:uence)?s?|combos?|history)|combo[ _-]?(?:matched|complete|ok|found|index|idx|table)'
+    category: cheat-input
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '버튼 시퀀스·콤보 처리 변수·로그 이름. 시퀀스 표(버튼 비트마스크 배열)와 비교 인덱스를 procedure_pseudo_code 로 확인해 치트 입력을 복원한다.'
+    references: []
+
+  # ---------------- unlock-condition: 해금 상태·숨은 콘텐츠·진행 카운터 ----------------
+  - id: game-unlock-keywords
+    pattern: '(?i)(?<![a-z])unlock(?:ables?|[ _-]?(?:all|char(?:acter)?s?|stages?|levels?|items?|modes?|skins?|bonus|flags?|mask|bits?|state|conditions?|progress|list|table))|(?<![a-z_])unlocked|(?:all|is)[ _-]?unlocked'
+    category: unlock-condition
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '해금 상태 문자열·변수 이름. xrefs → procedure_pseudo_code 로 해금 플래그를 세우는 조건(카운터·날짜·입력·태그)을 찾고 unlock_source(in-device/owned-tag/sold-token/online-purchase)를 판정.'
+    references: []
+  - id: game-hidden-content
+    pattern: '(?i)(?:hidden|bonus|secret|unlockable)[ _-]?(?:char(?:acter)?s?|stages?|levels?|items?|modes?|rooms?|rounds?|areas?|worlds?|endings?|boss(?:es)?|tracks?|songs?|skins?|costumes?|games?|vehicles?|cars?)'
+    category: unlock-condition
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '숨은·보너스·비밀 캐릭터/스테이지 이름. 문자열 표의 xref 로 잠김 여부를 검사하는 분기와 그 조건 변수를 확인.'
+    references: []
+  - id: game-progress-counters
+    pattern: '(?i)(?<!dis)play[ _-]?(?:count|cnt|times?)|games?[ _-]?played|total[ _-]?(?:plays|wins|games|kills|steps|playtime|play[ _-]?time)|win[ _-]?(?:count|streak|cnt)|clear[ _-]?(?:count|cnt|time|rank)|(?:max|cur|current|last|unlocked|cleared|reached)[ _-]?(?:level|stage|world|chapter)|(?:level|stage|world)[ _-]?(?:unlocked|cleared|clear|reached|progress)|achievements?|trophy|trophies|completion[ _-]?(?:rate|pct|percent)'
+    category: unlock-condition
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '플레이 횟수·클리어 수·진행 단계 카운터. 해금이 카운터 임계값이면 비교 상수(예: >= 10)를 디컴파일로 찾고 세이브 위치(스냅샷 비교)와 연결한다.'
+    references: []
+
+  # ---------------- save-format: 세이브 값·저장 매체·저장 API ----------------
+  - id: game-highscore
+    pattern: '(?i)hi[ _-]?scores?|high[ _-]?scores?|(?:best|top|max)[ _-]?scores?|(?:best|top)[ _-]?(?:times?|laps?|records?)|score[ _-]?(?:max|best|hi|high|table|board|list|entry|entries|rank)|leader[ _-]?boards?|(?<![a-z])rankings?'
+    category: save-format
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '최고 점수·랭킹 저장값 이름(NVS 키·파일 이름일 수 있음). nvs_get/nvs_set 인자로 쓰이는지 xrefs 로 보고 스냅샷 비교로 위치·인코딩을 확정. leaderboard 는 온라인 제출 여부도 확인.'
+    references: []
+  - id: game-save-keywords
+    pattern: '(?i)save[ _-]?(?:games?|data|files?|slots?|states?|points?|version|magic|header|ok|failed|error|corrupt)|savegame|savedata|load[ _-]?(?:games?|slots?|states?|save)|factory[ _-]?reset|reset[ _-]?(?:save|progress|scores?|high[ _-]?scores?|game[ _-]?data)|(?:erase|clear|delete|wipe)[ _-]?(?:save|scores?|progress)'
+    category: save-format
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '세이브·로드·초기화 문자열. xrefs 로 저장 루틴을 찾아 저장 매체(NVS 키·파일·EEPROM 주소)·레이아웃·버전 필드를 확인. factory reset 경로는 세이브 위치를 알려 준다.'
+    references: []
+  - id: game-nvs-api
+    pattern: 'nvs_(?:open(?:_from_partition)?|get_(?:[iu](?:8|16|32|64)|str|blob)|set_(?:[iu](?:8|16|32|64)|str|blob)|commit|erase_(?:key|all)|flash_init(?:_partition)?|flash_erase|entry_find|get_stats)|ESP_ERR_NVS_[A-Z_]{3,40}|components/nvs_flash/'
+    category: save-format
+    severity_hint: info
+    scope: any
+    vendor: esp-idf
+    rationale: 'ESP-IDF NVS API(로그·assert 문자열). 호출부의 namespace·key 문자열 인자를 xrefs 로 찾아 세이브 키 후보를 만들고 값은 NVS 파싱·스냅샷 비교로 확인. nvs.net80211(Wi-Fi 설정)은 세이브가 아니다.'
+    references: []
+  - id: game-arduino-storage
+    pattern: '(?<![A-Za-z0-9_])(?:Preferences|EEPROM|SPIFFS|LittleFS|FFat|SD_MMC)\.(?:cpp|h)\b'
+    category: save-format
+    severity_hint: info
+    scope: any
+    vendor: arduino
+    rationale: 'Arduino-ESP32 저장 라이브러리 소스 경로(로그 문자열). Preferences/EEPROM 은 NVS 위(namespace 는 begin() 인자), SPIFFS/LittleFS/FFat/SD_MMC 는 파일 시스템 세이브(파일 시스템 수준 분석 필요).'
+    references: []
+  - id: game-fs-save-paths
+    pattern: '/(?:spiffs|littlefs|sdcard|ffat|fatfs|saves?)/[A-Za-z0-9_.%-]{1,64}'
+    category: save-format
+    severity_hint: info
+    scope: any
+    vendor: generic
+    rationale: 'ESP32 VFS 마운트(/spiffs, /littlefs, /sdcard, /ffat)나 saves 디렉터리 아래 파일 경로. 파일 기반 세이브 후보 — FAT/SPIFFS/LittleFS 내부는 지금은 위치·형식 분석만 (패치 대상 아님).'
+    references: []
+  - id: game-save-file-ext
+    pattern: '(?i)\.(?:savestate|save|sav|srm|state[0-9]?|nvram|eep|fla)\b'
+    category: save-format
+    severity_hint: info
+    scope: any
+    vendor: generic
+    rationale: '세이브 파일 확장자(.sav/.srm/.state/.nvram/.eep). 리눅스 휴대기·에뮬레이터형 기기의 세이브 파일 — 파일을 케이스로 가져와(case_import_file) 스냅샷끼리 비교.'
+    references: []
+  - id: game-currency
+    pattern: '(?i)(?<![a-z])(?:coins?|gems?|gold|diamonds?|crystals?|credits?|stars?|tickets?)[ _-]?(?:count|total|balance|num|amount)'
+    category: save-format
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '재화·크레딧 저장값 이름. 세이브 위치 후보지만 구매 가능한 유료 재화면 entitlement 경계 → 보고만 (패치·우회 금지).'
+    references: []
+  - id: game-eeprom-storage
+    pattern: '(?i)(?<![a-z0-9])(?:e2prom|eeprom|fram|nvram|bbram)(?![a-z])|sram[ _-]?save|battery[ _-]?(?:backed|save)|(?:at24c|24lc|24aa|fm24[clvw]{1,2}|mb85rc|cat24c)[0-9]{2,4}'
+    category: save-format
+    severity_hint: info
+    scope: any
+    vendor: generic
+    rationale: 'EEPROM/FRAM/NVRAM 세이브 저장소(MCU+EEPROM 기기, 아케이드 NVRAM). 칩 이름·I2C 주소 상수 근처의 읽기/쓰기 루틴에서 세이브 레이아웃을 찾고, 덤프는 사람이 가져온 원시 영역으로 분석.'
+    references: []
+
+  # ---------------- save-integrity: 체크섬·CRC·해시·MAC ----------------
+  - id: game-checksum-keywords
+    pattern: '(?i)check[ _-]?sums?|chksum|cksum|crc[ _-]?(?:8|16|32|ccitt|check|error|err|mismatch|fail(?:ed|ure)?)|bad[ _-]?(?:crc|checksum|sum)|(?:invalid|wrong)[ _-]?(?:checksum|crc|save)|(?:save|data)[ _-]?(?:corrupt(?:ed|ion)?|invalid|checksum|crc|hash|signature)|corrupt(?:ed)?[ _-]?(?:save|data)'
+    category: save-integrity
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '세이브 검증 문자열. ESP-IDF 부트로더·OTA 이미지 검사(esp_image "Checksum failed")와 구분하려면 xrefs 가 세이브 로드 함수로 이어지는지 본 뒤 알고리즘·범위·저장 위치를 확정.'
+    references: []
+  - id: game-crc-hash-api
+    pattern: '(?:esp_rom_)?crc(?:8|16|32)_(?:le|be)|esp_crc8|(?<![A-Za-z0-9_])(?:crc32|adler32)(?![A-Za-z0-9])|mbedtls_(?:md|md5|sha1|sha256|sha512)(?:_[a-z_]{2,24})?|(?:MD5|SHA1|SHA256|SHA512)_(?:Init|Update|Final)|EVP_Digest(?:Init_ex|Update|Final_ex)|HMAC(?:_Init_ex|_Update|_Final)?(?![A-Za-z0-9_])'
+    category: save-integrity
+    severity_hint: info
+    scope: any
+    vendor: generic
+    rationale: 'CRC·해시·HMAC 구현/임포트 이름. 세이브 저장 직전 호출인지 xrefs → procedure_pseudo_code 로 보고 범위·초기값·키 유무를 기록. 온라인 동기화되는 세이브의 서명·HMAC 재계산은 보고만 (위조 금지).'
+    references: []
+
+  # ---------------- nfc-tag: NFC 태그 판정·인증·UID 비교 ----------------
+  - id: game-nfc-chips
+    pattern: '(?i)(?<![a-z0-9])(?:ntag[ _-]?(?:21[0-6]|2[0-9]{2}|i2c)?|mifare|ultralight|iso(?:/iec)?[ _-]?(?:14443|15693)|pn532|pn5180|pn7150|mfrc522|rc522|clrc663|st25(?:dv|tv|ta|tb|r95|r3916)?|ndef[ _-]?(?:records?|messages?|msg|text|uri|tlv|parse|read|write))(?![a-z])'
+    category: nfc-tag
+    severity_hint: info
+    scope: any
+    vendor: generic
+    rationale: 'NFC 리더 칩·태그 계열 이름. 리더 드라이버 xrefs → 태그 판정(GET_VERSION·SAK·UID)과 페이지 읽기 뒤의 분기를 찾는다. 동작 확인은 내 태그로만, 결제·교통·출입 계열은 범위 밖.'
+    references: []
+  - id: game-nfc-commands
+    pattern: '(?<![A-Za-z0-9_])(?:PWD_AUTH|PWDAUTH|READ_SIG|READ_CNT|INCR_CNT|GET_VERSION|FAST_READ|COMPAT_WRITE|WRITE_SIG|LOCK_SIG|AUTH0|AUTHLIM|AUTH_LIM)(?![A-Za-z0-9_])'
+    category: nfc-tag
+    severity_hint: low
+    scope: any
+    vendor: nxp
+    rationale: 'NTAG21x/Ultralight 명령 이름(PWD_AUTH, READ_SIG, GET_VERSION 등) 로그 문자열. 태그 인증·서명 확인 분기 앵커 — PWD 값은 케이스 파일에만 두고 응답·보고서에는 다이제스트만.'
+    references: []
+  - id: game-ntag-version-raw
+    pattern: '\x00\x04\x04\x02\x01\x00[\x0f\x11\x13]\x03|\x00\x04\x03[\x01\x02]\x01\x00[\x0b\x0e]\x03'
+    category: nfc-tag
+    severity_hint: low
+    scope: raw
+    vendor: nxp
+    rationale: 'NTAG213/215/216·Ultralight EV1 GET_VERSION 응답 상수(NXP 데이터시트: 00 04 04 02 01 00 0F|11|13 03 등). 태그 종류를 확인하는 비교 코드 — xrefs 로 판정 뒤의 해금 분기를 찾는다.'
+    references: []
+  - id: game-tag-uid-checks
+    pattern: '(?i)(?<![a-z])(?:nfc|figure|figurine|toy)[ _-]?(?:uid|ids?|serial|types?|data|pages?|blocks?|sectors?|dump|present|detected|removed|found|scanned|valid|invalid|unknown|registered|lost)|(?<![a-z])tag[ _-]?(?:uid|detected|present|removed|found|scanned|lost|registered|dump)|(?<![a-z])uid[ _-]?(?:len(?:gth)?|match|mismatch|list|table|whitelist|allow(?:ed)?|check|compare)|(?<![a-z])card[ _-]?uid'
+    category: nfc-tag
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '태그 감지·UID·페이지 비교 문자열. 이 케이스 인벤토리의 내 태그 분기면 owned-tag, 판매용 피규어·카드(토큰)로 여는 콘텐츠면 sold-token → 보고만 (패치·합성 태그 금지).'
+    references: []
+  - id: game-amiibo
+    pattern: '(?i)amiibo'
+    category: nfc-tag
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: 'amiibo 류 콘솔 키 기반 태그 암호. 복호·재암호·재서명은 범위 밖 — 존재만 보고 (패치·우회 금지). 태그 동작 관찰은 내 태그 읽기·비교로만.'
+    references: []
+
+  # ---------------- clock: 날짜·시각 기반 해금과 시계 출처 ----------------
+  - id: game-time-api
+    pattern: '(?<![A-Za-z0-9_])(?:localtime|gmtime|mktime|timegm|difftime|strftime|strptime|gettimeofday|settimeofday|clock_gettime)(?:_r)?(?![A-Za-z0-9])'
+    category: clock
+    severity_hint: info
+    scope: any
+    vendor: posix
+    rationale: '날짜·시각 함수(로그 문자열·동적 임포트). 해금·이벤트가 날짜 조건이면 비교 상수(월·일·요일)를 procedure_pseudo_code 로 찾고 시각 출처(RTC·SNTP·수동 설정)도 기록.'
+    references: []
+  - id: game-sntp-ntp
+    pattern: '(?:esp_)?sntp_[a-z_]{3,40}|(?:pool|time|ntp[0-9]?)\.(?:ntp\.org|nist\.gov|google\.com|windows\.com|apple\.com|cloudflare\.com)|NTPClient'
+    category: clock
+    severity_hint: info
+    scope: any
+    vendor: generic
+    rationale: 'SNTP/NTP 시각 동기화(네트워크 시계). 날짜 해금이 네트워크 시각에 의존하는지와 online-capable 근거를 기록 — 오프라인 검증에서는 시계 출처가 바뀐다.'
+    references: []
+  - id: game-rtc-chips
+    pattern: '(?i)(?<![a-z0-9])(?:ds1302|ds1307|ds3231|ds3232|pcf8523|pcf8563|pcf85063|pcf85263|rv-?3028|rv-?8803|rx8010|mcp7940[nm]?|bm8563)(?![0-9])|(?<![a-z])rtc[ _-]?(?:date|alarm|datetime)(?![a-z])'
+    category: clock
+    severity_hint: info
+    scope: any
+    vendor: generic
+    rationale: '외부 RTC 칩·RTC 날짜 접근 문자열. 날짜·경과 시간 해금의 시계 출처 — 비교 상수와 백업 배터리 유무를 확인 (시계를 바꾸는 검증은 오프라인 상태에서).'
+    references: []
+  - id: game-date-events
+    pattern: '(?i)daily[ _-]?(?:bonus|rewards?|login|challenges?|missions?|quests?|gifts?)|login[ _-]?(?:bonus|rewards?|streak)|days?[ _-]?(?:played|since|elapsed|streak|passed)|event[ _-]?(?:dates?|calendar|period)|birthday|anniversary|christmas|xmas|halloween|new[ _-]?year|valentine|season(?:al)?[ _-]?(?:event|unlock|items?)'
+    category: clock
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '날짜 기반 이벤트·일일 보상 문자열. 해금이 날짜·연속 접속 조건이면 비교 날짜와 세이브에 저장된 마지막 날짜 값을 찾는다 (unlock_source 는 in-device).'
+    references: []
+  - id: game-date-format
+    pattern: '%Y-%m-%d|%Y/%m/%d|%d/%m/%Y|%m/%d/%Y|%d\.%m\.%Y|%Y%m%d|%y%m%d|%04d-%02d-%02d|%04d/%02d/%02d|%02d/%02d/%04d|%02d\.%02d\.%04d'
+    category: clock
+    severity_hint: info
+    scope: any
+    vendor: generic
+    rationale: '날짜 서식 문자열. 날짜를 표시·비교·저장하는 코드 앵커 — xrefs 로 날짜 조건 해금이 있는지 확인.'
+    references: []
+
+  # ---------------- online-sync: 네트워크·클라우드·OTA (online_capable 근거) ----------------
+  - id: game-net-client-api
+    pattern: '(?i)esp_http_client_[a-z_]{3,40}|esp_https_ota(?:_[a-z_]{3,40})?|esp_mqtt_client_[a-z_]{3,40}|esp_websocket_client_[a-z_]{3,40}|esp_tls_[a-z_]{3,40}|mqtt_event_[a-z_]{3,30}|http_event_[a-z_]{3,30}|components/(?:esp_http_client|esp_https_ota|mqtt|esp-tls|tcp_transport|esp_websocket_client)/|(?<![a-z0-9])(?:http_?client|mqtt_?client|websocket_?client|esp-tls|transport_(?:base|ssl|tcp|ws))(?![a-z0-9])'
+    category: online-sync
+    severity_hint: info
+    scope: any
+    vendor: esp-idf
+    rationale: 'ESP-IDF HTTP/MQTT/WebSocket/OTA 클라이언트. 세이브·점수를 올리거나 받는 경로를 xrefs 로 확인해 online_capable 에 기록 — 업로드·동기화 경로가 읽는 세이브 키는 패치하지 않는다.'
+    references: []
+  - id: game-arduino-net
+    pattern: '(?<![A-Za-z0-9_])(?:HTTPClient|WiFiClientSecure|ssl_client|PubSubClient|HTTPUpdate|ArduinoOTA|WebServer|AsyncTCP|AsyncWebServer|BluetoothSerial|BLEDevice)\.(?:cpp|h)\b'
+    category: online-sync
+    severity_hint: info
+    scope: any
+    vendor: arduino
+    rationale: 'Arduino-ESP32 네트워크·OTA·BLE 라이브러리 소스 경로(로그 문자열). 온라인·휴대폰 앱 연동 가능성 근거 → online_capable 판단과 동기화 경로 xrefs.'
+    references: []
+  - id: game-wifi-ble
+    pattern: 'esp_wifi_(?:init|start|connect|set_config|set_mode|sta_get_ap_info)|WIFI_EVENT_STA_[A-Z_]{3,30}|IP_EVENT_STA_GOT_IP|nvs\.net80211|esp_ble_gatts_[a-z_]{3,40}|esp_bt_controller_(?:init|enable)|esp_bluedroid_[a-z_]{3,30}|nimble_port_[a-z_]{3,30}|ble_gap_[a-z_]{3,30}'
+    category: online-sync
+    severity_hint: info
+    scope: any
+    vendor: esp-idf
+    rationale: 'Wi-Fi 접속·BLE 서비스 코드. 네트워크·휴대폰 앱과 동기화할 수 있다는 근거 — NVS 에 Wi-Fi 정보가 있으면 첫 부팅에 재접속하므로 검증 전에 네트워크를 차단한다.'
+    references: []
+  - id: game-urls
+    pattern: '(?i)(?:https?|mqtts?|wss?|coaps?)://[a-z0-9.-]{3,80}(?::[0-9]{2,5})?(?:/[a-z0-9._~%/?&=+-]{0,120})?'
+    category: online-sync
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: 'URL 문자열(서버 주소). 점수·세이브 업로드, 리더보드, 계정·구매 API 경로인지 확인해 online_capable·online_evidence 에 기록 (결과를 온라인에 제출하지 않는다).'
+    references: []
+  - id: game-sync-keywords
+    pattern: '(?i)cloud[ _-]?(?:saves?|sync|backup|storage|data)|(?:scores?|saves?|progress|records?|results?)[ _-]?(?:upload|sync|submit|backup|restore)|(?:upload|submit|sync|post)[ _-]?(?:scores?|saves?|progress|records?|results?)|leader[ _-]?boards?[ _-]?(?:upload|submit|sync|api|url)|online[ _-]?(?:rank(?:ing)?s?|leaderboards?|scores?|sync|play|mode)|account[ _-]?(?:link|login|sync|bind)'
+    category: online-sync
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '클라우드 세이브·점수 업로드·온라인 랭킹 문자열. online_capable=yes 근거 — 동기화되는 값은 수정하지 않고 결과를 온라인에 제출하지 않는다.'
+    references: []
+  - id: game-ota-update
+    pattern: '(?i)(?<![a-z])ota[ _-]?(?:url|uri|server|host|update|begin|check|version)|(?:firmware|fw)[ _-]?(?:url|uri|server|download|update[ _-]?url)|update[ _-]?(?:url|uri|server|host|check)'
+    category: online-sync
+    severity_hint: info
+    scope: any
+    vendor: generic
+    rationale: 'OTA·업데이트 서버 설정. 펌웨어·콘텐츠를 네트워크로 받는 기기 — online_capable 근거이고, 업데이트가 세이브 형식을 바꿀 수 있음을 limitations 에 적는다.'
+    references: []
+
+  # ---------------- entitlement: 판매 토큰·DLC·구매·라이선스 (보고만) ----------------
+  - id: game-dlc-purchase
+    pattern: '(?i)dlc[ _-]?(?:content|packs?|unlock(?:ed)?|ids?|owned|installed|available|list|data|items?|check|purchase)|downloadable[ _-]?content|in[ _-]?app[ _-]?purchases?|purchase[ _-]?(?:ids?|tokens?|receipts?|verify|verification|state|items?|history|check)|purchased|entitlements?|entitled|paid[ _-]?(?:content|items?|version|dlc)|premium[ _-]?(?:content|unlock|pack|version|mode|items?|account)|redeem(?:[ _-]?codes?)?|activation[ _-]?(?:codes?|keys?)|(?<![a-z_])store[ _-]?(?:items?|unlock|purchase)'
+    category: entitlement
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '보고만 (패치·우회 금지). DLC·인앱 구매·프리미엄 콘텐츠 문자열 — 판매 토큰·온라인 구매로 여는 콘텐츠(sold-token/online-purchase)는 위치·조건만 기록하고 패치·합성 태그를 만들지 않는다.'
+    references: []
+  - id: game-license-token
+    pattern: '(?i)licen[cs]e[ _-]?(?:keys?|check|tokens?|valid(?:ation)?|invalid|verify|verification|files?|server|status|expired)|(?:unlock|content|product|access)[ _-]?(?:keys?|tokens?|codes?)|serial[ _-]?(?:keys?|codes?)'
+    category: entitlement
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: '보고만 (패치·우회 금지). 라이선스·언록 키·계정 토큰 검사 문자열 — 플랫폼·DRM 키는 존재만 보고(값 마스킹, 내보내기·복호 금지)하고 검사 분기를 우회하지 않는다.'
+    references: []
+
+notes:
+  - '게임 패턴 팩. fw_strings_hunt(patterns="game") 은 팩 전체, patterns="game:<category|id|vendor|severity|접두사*>" 는 일부를 쓴다. CCTV 팩(cctv-hunt-patterns.yaml)과 한 호출에서 섞지 않는다(사용자 패턴 re:/raw:/lit: 는 함께 가능).'
+  - '정규식 방언과 scope 의미는 cctv-hunt-patterns.yaml notes 와 같다: Python re + re.MULTILINE, (?i) 가 붙은 패턴만 대소문자 무시, strings = 바이너리의 ASCII·UTF-16LE 문자열 줄, text = 텍스트 파일 줄, raw = 파일 전체 바이트(\xHH 이스케이프), any = strings + text.'
+  - '식별자 안의 키워드(save_highscore, levelSelect)도 잡도록 복합어 패턴은 \b 를 쓰지 않고, 짧거나 흔한 단어(dlc, ota, rtc, fram, uid, ndef 등)만 영숫자 전후방 탐색으로 경계를 둔다. 범위 플래그((?i:...))는 쓰지 않는다 — 사전 필터 리터럴이 전역 플래그 기준이기 때문.'
+  - 'category 어휘(고정 9종): debug-menu, cheat-input, unlock-condition, save-format, save-integrity, nfc-tag, clock, online-sync, entitlement. finding.schema.json 에 대응 카테고리가 없으므로 히트의 finding_category 는 other 다(발견사항으로 올릴 때 제목·요약에 범주를 적는다).'
+  - 'severity_hint 는 info(플랫폼·API 위치 앵커)와 low(게임 논리를 직접 가리키는 키워드, 오탐 가능) 두 가지뿐이다. 취약점 심각도가 아니라 조사 우선순위이며, min_severity="low" 는 게임 논리 단서만 남긴다.'
+  - 'vendor 는 플랫폼·라이브러리 이름이다: generic, esp-idf, arduino, nxp, posix. fw_strings_hunt 의 summary.vendor_family_guess 는 CCTV 팩 전용이라 게임 팩에서는 null 이다.'
+  - '다음 단계: 히트 → REA search_strings → xrefs → procedure_pseudo_code 로 조건 분기·저장 루틴을 확인하고, 세이브 위치·인코딩은 점수·진행이 바뀔 때마다 뜬 스냅샷 비교로 확정한다. 결과는 로컬에만 두고 온라인 리더보드·대회·계정에 제출하지 않는다.'
+  - 'unlock_source(in-device / owned-tag / sold-token / online-purchase / unknown): sold-token·online-purchase 로 여는 콘텐츠와 entitlement 히트는 보고만 (패치·우회 금지). amiibo 류 태그 암호는 존재만 보고하고, 온라인 동기화되는 서명·HMAC 은 재계산하지 않는다.'
+  - 'references 는 검증된 근거 문서가 있을 때만 채운다(이 팩은 일반 키워드·API 이름이라 모두 빈 목록). 근거 문서 이름은 rationale 에 적었다.'

@@ -134,6 +134,16 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 
 ### 3.5 pweh-fwtriage 확장 (오프라인 세이브·해금 분석)
 
+> **구현 상태 (I2a, 2026-10-20)**: `fw_esp_partitions`, `fw_esp_image_info`, `fw_esp_to_elf`, `fw_esp_nvs`, `fw_save_diff`, `fw_checksum_find`, `fw_find_seq_tables`,
+> 게임 팩(`src/pweh/data/game-hunt-patterns.yaml`, `fw_strings_hunt(patterns="game")`, `fw_hunt_patterns(pack=...)`), `save-analysis` 스키마, `game-save-unlock-analysis` Skill(분석만 — `patches` 는 빈 목록).
+> 계약은 architecture §6.6, fwtriage README. 앱 이미지·ELF 는 esptool `image-info`·`elf2image` 와 대조해 시험했고 파티션 표·NVS 는 로컬 정답이 없어 합성 이미지로만 시험했다
+> (NVS CRC 규칙 `zlib.crc32(x, 0xFFFFFFFF)` 는 실기 덤프로 확인 전 — `crc_summary` 로 드러난다).
+> **REA 확인 결과**: REA 는 Xtensa ELF(e_machine 94 — ESP32·S2·S3)를 자체 ELF 검사에서 거부한다(지원 아키텍처 아님). RISC-V ELF 는 double-float ABI 표시가 있을 때만 받아서,
+> `fw_esp_to_elf(rea_compat=true)` 가 e_flags 를 RVC|double-float(0x5)로 표시한다(실제 ESP 칩은 soft/single-float — 부동소수점 인자 해석만 틀릴 수 있다). 이 표시로 C3 ELF 가 열리고 디컴파일된다.
+> 아래 설계의 Ghidra headless 대체(`fw_ghidra_decompile`)는 fwtriage 에 넣지 않는다 — Xtensa 디컴파일 경로는 따로 정할 일이다(사용자 결정).
+> 설계와 다른 점: 비밀로 보이는 NVS 값은 응답·결과 파일 모두 마스킹 + 케이스 솔트 다이제스트(게임 값 credits·tokens·stage_passed 등은 가리지 않는다).
+> 체크섬 찾기는 알고리즘 24종, 위치 후보는 스냅샷 사이에 바뀐 바이트에서만, 기대 오탐 수로 strong/weak 를 나눈다. 패치 빌드·쓰기 검증(`fw_patch_build`, `fw_verify_writeback`)은 I2b.
+
 - ESP: `fw_esp_partitions`(쓰기 후보는 **NVS 와 원시 사용자 데이터만** — fat/spiffs/littlefs 는 "파일 시스템 수준 분석 필요"로 보고), `fw_esp_image_info`, `fw_esp_to_elf`, `fw_esp_nvs`.
 - 공통: `fw_save_diff`, `fw_checksum_find`, `fw_patch_build`, `fw_verify_writeback`.
   - `fw_patch_build` 의 대상: ESP NVS 파티션(파티션 전체 이미지) 또는 **raw-region**(사람이 가져온 원시 덤프·세이브 파일의 `{offset, length}` 또는 파일 전체 — EEPROM/FRAM/NVRAM/SD 세이브). 파일 시스템 내부 원시 패치는 거부.

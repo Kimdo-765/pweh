@@ -1,4 +1,10 @@
-"""cctv-hunt-patterns.yaml 로더 (src/pweh/data/cctv-hunt-patterns.yaml, 원본: docs/references/cctv-hunt-patterns.yaml).
+"""패턴 팩 로더 (src/pweh/data/<팩>-hunt-patterns.yaml).
+
+팩 (PACKS, 고정 목록):
+- cctv (기본): cctv-hunt-patterns.yaml (원본: docs/references/cctv-hunt-patterns.yaml). fw_strings_hunt 기본값,
+  fw_rootfs_audit·fw_elf_info·fw_crack_hashes 가 쓰는 credential_patterns/function_heuristics/known_hashes 도 이 팩에만 있다.
+- game: game-hunt-patterns.yaml. fw_strings_hunt(patterns="game" / "game:<선택자>") 의 string_heuristics 만 있다.
+두 팩은 한 호출에서 섞지 않는다 (split_pack_spec).
 
 YAML 의 notes 에 정의된 의미를 그대로 따른다:
 - 정규식: Python re, re.MULTILINE 으로 컴파일 (^/$ 는 줄 단위), (?i) 가 붙은 것만 대소문자 무시
@@ -24,6 +30,8 @@ from typing import Any
 
 import yaml
 
+from pweh.errors import ValidationFailed
+
 try:  # Python 3.11+ 에서 sre_parse 는 re._parser 로 이동
     import re._parser as _sre_parse  # type: ignore[import-not-found]
     import re._constants as _sre_c  # type: ignore[import-not-found]
@@ -34,6 +42,11 @@ except ImportError:  # pragma: no cover - 3.10
 log = logging.getLogger("pweh.fwtriage")
 
 DATA_FILE_NAME = "cctv-hunt-patterns.yaml"
+DEFAULT_PACK = "cctv"
+#: 패턴 팩 이름 → src/pweh/data 아래 파일 이름. 고정 목록이다 — 팩 이름으로 경로를 만들지 않는다.
+PACKS: dict[str, str] = {"cctv": DATA_FILE_NAME, "game": "game-hunt-patterns.yaml"}
+#: 어느 팩과도 함께 쓸 수 있는 사용자 패턴 접두사
+CUSTOM_PREFIXES = ("re:", "raw:", "lit:")
 
 # YAML category → finding.schema.json category (YAML notes 의 매핑 규칙)
 FINDING_CATEGORY = {
@@ -53,10 +66,68 @@ def finding_category(cat: str | None) -> str:
     return c if c in FINDING_CATEGORIES else "other"
 
 
-def data_file_path() -> Path:
+def pack_name(pack: Any = None) -> str:
+    """팩 이름 정규화·검증 (None/빈 문자열 = 기본 cctv 팩). 알 수 없는 팩이면 ValidationFailed."""
+    if pack is None or (isinstance(pack, str) and not pack.strip()):
+        return DEFAULT_PACK
+    name = str(pack).strip().lower()
+    if name not in PACKS:
+        raise ValidationFailed(f"알 수 없는 패턴 팩: {pack!r}", hint=f"사용 가능한 팩: {', '.join(PACKS)}")
+    return name
+
+
+def data_file_path(pack: str = DEFAULT_PACK) -> Path:
     import pweh.data as _data
 
-    return Path(_data.__file__).resolve().parent / DATA_FILE_NAME
+    return Path(_data.__file__).resolve().parent / PACKS[pack_name(pack)]
+
+
+def split_pack_spec(spec: Any) -> tuple[str, Any]:
+    """fw_strings_hunt 의 patterns 인자 → (팩 이름, 그 팩의 PatternSet.select 에 넘길 선택자).
+
+    - 기본이 아닌 팩(지금은 'game')의 이름이나 '<팩>:<선택자>' 가 하나라도 있으면 그 팩이다:
+      '<팩>' → 팩 전체, '<팩>:<x>' → x(id/category/vendor/severity/'<접두사>*'), 사용자 패턴(re:/raw:/lit:)은 그대로.
+      접두사 없는 다른 선택자('cctv', 'xm-*', 일반 단어)는 CCTV 팩 문법이라 섞을 수 없다 → ValidationFailed.
+    - 그 밖에는 기본(cctv) 팩이고 spec 을 손대지 않고 돌려준다 (기존 동작 그대로).
+    """
+    items = [] if spec is None else ([spec] if isinstance(spec, str) else list(spec))
+    others = [p for p in PACKS if p != DEFAULT_PACK]
+
+    def pack_of(item: Any) -> str | None:
+        low = str(item).strip().lower()
+        return next((p for p in others if low == p or low.startswith(p + ":")), None)
+
+    named = sorted({p for p in map(pack_of, items) if p})
+    if not named:
+        return DEFAULT_PACK, spec
+    if len(named) > 1:
+        raise ValidationFailed(f"한 호출에서 여러 패턴 팩을 섞을 수 없습니다: {', '.join(named)}", hint="팩마다 따로 호출하세요.")
+    pack = named[0]
+    local: list[str] = []
+    mixed: list[str] = []
+    for raw_item in items:
+        item = str(raw_item).strip()
+        if not item:
+            continue
+        low = item.lower()
+        if low == pack:
+            local.append(pack)
+        elif low.startswith(pack + ":"):
+            sel = item[len(pack) + 1 :].strip()
+            if not sel:
+                raise ValidationFailed(f"'{item}' 뒤에 선택자가 없습니다.", hint=f"'{pack}'(팩 전체) 또는 '{pack}:<category|id|vendor|접두사*>' 를 쓰세요.")
+            local.append(sel)
+        elif low.startswith(CUSTOM_PREFIXES):
+            local.append(item)
+        else:
+            mixed.append(item)
+    if mixed:
+        raise ValidationFailed(
+            f"{pack} 팩 선택과 다른 팩의 선택자를 한 호출에서 섞을 수 없습니다: {', '.join(repr(m) for m in mixed[:5])}",
+            hint=f"{pack} 팩 안에서 고르려면 '{pack}:<category|id|vendor|접두사*>', 문자열 그대로 찾으려면 'lit:<문자열>' 을 쓰고, "
+            "CCTV 팩 선택자는 따로 호출하세요.",
+        )
+    return pack, local
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +174,10 @@ def _req(seq: Any, ignorecase: bool) -> list[str] | None:
                 ic = True
             if del_flags & _sre_c.SRE_FLAG_IGNORECASE:
                 ic = False
+            if ic != ignorecase:
+                # 범위 플래그((?i:...)/(?-i:...))로 대소문자 모드가 바뀐 구간의 리터럴은 사전 필터(전역 플래그 기준 비교)로
+                # 표현할 수 없다 → 정보 없음으로 둔다. (예: 're:(?i:secret)' 의 'secret' 을 대소문자 구분으로 비교하면 'SECRET' 을 놓친다)
+                continue
             consider(_req(sub, ic))
         elif op is _sre_c.BRANCH:
             alts: list[str] = []
@@ -211,6 +286,10 @@ class PatternSet:
     errors: list[str]
     known_hashes: dict[str, dict[str, Any]]
     candidate_passwords: list[str]
+    pack: str = DEFAULT_PACK
+
+    def categories(self) -> list[str]:
+        return sorted({h.category for h in self.string_heuristics})
 
     def web_binary_vendor(self) -> dict[str, str]:
         out: dict[str, str] = {}
@@ -219,13 +298,15 @@ class PatternSet:
                 out.setdefault(str(n), vendor)
         return out
 
-    def select(self, spec: Any, *, min_severity: str | None = None) -> tuple[list[StringHeuristic], list[str]]:
-        """patterns 인자 해석: 'cctv'/'all' = 전체, 목록이면 id/category/vendor/severity 선택자 또는
+    def select(self, spec: Any, *, min_severity: str | None = None, strict: bool = False) -> tuple[list[StringHeuristic], list[str]]:
+        """patterns 인자 해석: '<팩 이름>'(cctv 팩이면 'cctv')/'all'/'default' = 전체, 목록이면 id/category/vendor/severity 선택자 또는
         're:<정규식>'(scope any), 'raw:<정규식>'(바이트), 'lit:<문자열>' 사용자 패턴. 일치하는 선택자가 없는 일반
-        문자열은 대소문자 무시 리터럴로 취급한다."""
+        문자열은 대소문자 무시 리터럴로 취급한다. strict=True(기본이 아닌 팩, split_pack_spec 뒤)면 리터럴로 바꾸지 않고
+        ValidationFailed — 'game:<오타>' 가 조용히 리터럴 검색이 되지 않게."""
         notes: list[str] = []
         sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-        if spec is None or spec == "" or (isinstance(spec, str) and spec.lower() in ("cctv", "all", "default")):
+        whole = (self.pack, "all", "default")
+        if spec is None or spec == "" or (isinstance(spec, str) and spec.lower() in whole):
             chosen = list(self.string_heuristics)
         else:
             items = [spec] if isinstance(spec, str) else list(spec)
@@ -236,7 +317,7 @@ class PatternSet:
                 if not item:
                     continue
                 low = item.lower()
-                if low in ("cctv", "all", "default"):
+                if low in whole:
                     sel = list(self.string_heuristics)
                 elif low.startswith(("re:", "raw:", "lit:")):
                     kind, body = item.split(":", 1)
@@ -251,6 +332,12 @@ class PatternSet:
                     sel = [h]
                 else:
                     sel = [h for h in self.string_heuristics if low in (h.id.lower(), h.category.lower(), h.vendor.lower(), h.severity.lower()) or h.id.lower().startswith(low.rstrip("*")) and low.endswith("*")]
+                    if not sel and strict:
+                        raise ValidationFailed(
+                            f"'{self.pack}:{item}' 와 일치하는 {self.pack} 팩 휴리스틱이 없습니다 (id/category/vendor/severity 또는 '<접두사>*').",
+                            hint=f"{self.pack} 팩 category: {', '.join(self.categories())}. 목록은 fw_hunt_patterns(pack='{self.pack}'), "
+                            "문자열 그대로 찾으려면 'lit:<문자열>'.",
+                        )
                     if not sel:
                         h = make_custom(custom_id("lit", item), item, "lit")
                         sel = [h] if h else []
@@ -360,13 +447,19 @@ def _unescape_regex_literal(s: str) -> str | None:
     return "".join(out)
 
 
-_CACHE: dict[str, tuple[float, PatternSet]] = {}
+_CACHE: dict[tuple[str, str], tuple[float, PatternSet]] = {}
 _CACHE_LOCK = threading.Lock()
 
 
-def load_patterns(path: str | Path | None = None) -> PatternSet:
-    p = Path(path) if path else data_file_path()
-    key = str(p)
+def load_patterns(path: str | Path | None = None, *, pack: str = DEFAULT_PACK) -> PatternSet:
+    """패턴 팩 로드 (팩·파일별 캐시, 파일 mtime 이 바뀌면 다시 읽는다).
+
+    load_patterns() 는 예전과 같은 CCTV 팩이다. pack='game' 은 game-hunt-patterns.yaml. path 를 주면 그 파일을
+    pack 이름(전체 선택 키워드 등)으로 읽는다. 알 수 없는 pack 은 ValidationFailed.
+    """
+    name = pack_name(pack)
+    p = Path(path) if path else data_file_path(name)
+    key = (name, str(p))
     try:
         mtime = p.stat().st_mtime
     except OSError:
@@ -375,13 +468,13 @@ def load_patterns(path: str | Path | None = None) -> PatternSet:
         hit = _CACHE.get(key)
         if hit and hit[0] == mtime:
             return hit[1]
-    ps = _load(p)
+    ps = _load(p, name)
     with _CACHE_LOCK:
         _CACHE[key] = (mtime, ps)
     return ps
 
 
-def _load(p: Path) -> PatternSet:
+def _load(p: Path, pack: str = DEFAULT_PACK) -> PatternSet:
     errors: list[str] = []
     raw_bytes = b""
     data: dict[str, Any] = {}
@@ -485,7 +578,7 @@ def _load(p: Path) -> PatternSet:
         source=str(p), sha256=hashlib.sha256(raw_bytes).hexdigest(), version=data.get("version"),
         string_heuristics=sh, credential_patterns=cps, function_heuristics=fhs, web_server_binaries=wsb,
         interesting_paths=ip, interesting_rx=ip_rx, notes=[str(n) for n in (data.get("notes") or [])], errors=errors,
-        known_hashes=known, candidate_passwords=cand_unique,
+        known_hashes=known, candidate_passwords=cand_unique, pack=pack,
     )
 
 

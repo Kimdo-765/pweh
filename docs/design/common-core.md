@@ -91,6 +91,7 @@
 > (솔트 `.pweh/state/salts/<case_id>.key`, 32 바이트, 0600, 처음 쓸 때 만듦), 표시용 `mask_secret`. 테스트는 게이트 action·감사 로그·승인 레코드에 원문이 없음을 확인한다
 > (`approval_status` 응답·보고서는 그 레코드·감사 로그에서 나오므로 따로 시험하지 않았다). 비밀을 게이트에 넣는 새 도구가 없어 다이제스트를 쓰는 서버는 아직 없다
 > (기존 `shell_login` 은 `<given>`). pweh-fwtriage 의 자체 마스킹(앞 1–2자 + `*`)은 코어 `mask_secret` 으로 통일하지 않았다.
+> I2a: `fw_esp_nvs`·`fw_save_diff` 가 NVS 비밀값 표시에 코어 `mask_secret` + `rt().secret_digest` 를 쓴다(첫 소비자 — 게이트 action 이 아니라 응답·결과 파일).
 > 반박 검증으로 확인한 한계: 솔트는 같은 계정의 에이전트가 읽을 수 있다(자동 허용된 REA `open_binary` + `read_bytes`). 다이제스트는 보고서·감사 로그를 읽는 제3자에게서만 원문을 가린다
 > — 낮은 엔트로피 값은 게이트에 넣지 않는다(safety.md §3.5). 자동 허용된 REA `export_evidence_bundle`·`close_binary` 는 `.pweh/state` 를 덮어쓸 수 있다(위조는 안 되고 실패 쪽으로 닫힘)
 > — allow 에서 빼고 묻기(ask)로 둘지는 사용자 결정(지금은 그대로). 비밀번호 프롬프트에 `uart_send_command` 로 입력하면 원문이 감사 로그에 남는다 → 로그인은 `shell_login`.

@@ -34,7 +34,7 @@
 | 단계 | 내용 | 사용자 장비 |
 |---|---|---|
 | **0 공통 기반** | common-core(증명·출처·마스킹·safety 설정·목표 분기·호스트 위험 규칙) + 포트 라우팅 P0(감지 통일, doctor 환경 절, 원격 URL 루프백, Windows 네이티브 시작 거부) + 테스트 기반 정리<br>**구현 상태: 일부 완료(I1, 2026-10-20)** — 증명·출처 원장·마스킹(코어, 소비자 서버는 아직 없음)·목표 분기·테스트 기반 정리(common-core §3·§4·§5·§7·§9 의 구현 상태). 남음: safety 설정 위치(common-core §6 — 새 `safety.*` 키 없음), 포트 라우팅 P0. 호스트 위험 규칙(settings deny·AGENTS.md)은 넣지 않았다(사용자 결정, 2026-10-20) | 없음 |
-| **1a 오프라인 트랙** | ESP32 세이브·해금 분석(fwtriage ESP 도구·패치 빌드·쓰기 검증), SD 포렌식 F1(접수·해시·보관 기록·FAT/exFAT·삭제 복구·증거 목록 + 펌웨어 SD 표면), ESP32 계측기 펌웨어·프로토콜·시뮬레이터·재현 빌드(오프라인), espprobe 거부 규칙(pweh-esp/uart/sigrok/jtagulator)·코어 이동 | 없음(ESP32 덤프는 기존 pweh-esp) |
+| **1a 오프라인 트랙** | ESP32 세이브·해금 분석(fwtriage ESP 도구·패치 빌드·쓰기 검증)<br>**구현 상태: 게임 분석 부분 완료(I2a, 2026-10-20)** — ESP 파티션·앱 이미지·ELF·NVS, 세이브 비교·체크섬·치트 입력 표, 게임 문자열 팩, `game-save-unlock-analysis`(분석만). 남음: 패치 빌드·쓰기 검증(I2b). REA 는 Xtensa ELF 를 열지 못한다(game-console-flipper-rf §3.5 구현 상태)<br>SD 포렌식 F1(접수·해시·보관 기록·FAT/exFAT·삭제 복구·증거 목록 + 펌웨어 SD 표면), ESP32 계측기 펌웨어·프로토콜·시뮬레이터·재현 빌드(오프라인), espprobe 거부 규칙(pweh-esp/uart/sigrok/jtagulator)·코어 이동 | 없음(ESP32 덤프는 기존 pweh-esp) |
 | **관문** | 포트 라우팅 P1(portlock·식별) + P2 헬퍼 실기 점검: DTR → Flipper `>: `, 1 MB 왕복, CU 응답, USB-UART 루프백, ESP32 `probe-hello` 확인(MI_00/MI_02·부팅 창·다운로드 모드 핀·303a:1001 iSerial — esp32-instrument §9). 실패하면 즉시 대체(PowerShell 또는 usbipd) | Flipper/CU/ESP32/USB-UART |
 | **1b·1c 장치 트랙** | pweh-uart Windows COM, pweh-flipper(CLI), pweh-nfc(오프라인 + CU 읽기), pweh-sdr(RTL-SDR), NFC 읽기·비교 흐름 / pweh-espprobe 1차 역할(전압 조사·핀 활동·로직 캡처·SPI·I2C 읽기) | 장비별 |
 | **2 확장** | 2a NFC 에뮬레이션 캡처, 2b 자동화 MVP, 2c 플레이 job / SD F2(카빙·CCTV 인덱스·타임라인·비밀·암호화 판정) / 포트 P3(Windows 판 openocd·sigrok) / espprobe 2d(핀 스캔·UART 브리지) | 캡처 카드·브리지 보드 등 |

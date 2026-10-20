@@ -110,7 +110,8 @@ def case_update_target(case_id: str, target: dict[str, Any]) -> dict[str, Any]:
 
 
 @server.tool(
-    description=f"파이프라인 단계 상태 수동 갱신. phase: {', '.join(PIPELINE_PHASES)}; status: {', '.join(PHASE_STATUSES)}.",
+    description=(f"파이프라인 단계 상태 수동 갱신. phase: {', '.join(PIPELINE_PHASES)}; status: {', '.join(PHASE_STATUSES)}. "
+                 "다른 목표의 Skill 도 자기 이름을 phase 로 쓴다(예: game-save-unlock-analysis — 처음 기록할 때 생긴다. 이름은 검사하지 않는다)."),
     annotations=ANN_LOCAL_WRITE,
 )
 @safe_tool
@@ -193,6 +194,7 @@ def case_record_step(
 @server.tool(
     description=(
         "이전 Skill 들의 단계 결과 조회 (다음 Skill 의 입력으로 사용). skill 을 지정하지 않으면 모든 Skill 의 최신 summary. "
+        "missing 은 summary 가 없는 Skill 이다 — 보안 분석 파이프라인 Skill 과, 다른 목표의 Skill 은 이 케이스에서 시작한 것만 센다. "
         "summaries_only=false 면 해당 skill 의 모든 단계."
     ),
     annotations=ANN_READ_ONLY,
@@ -202,7 +204,12 @@ def case_get_step_results(case_id: str, skill: str | None = None, summaries_only
     case = rt().cases.get(case_id)
     if skill and not summaries_only:
         return {"ok": True, "results": case.steps(skill, load=True)}
-    skills = [skill] if skill else list(schemas.SKILL_DATA_SCHEMAS)
+    if skill:
+        skills = [skill]
+    else:
+        # 선택 단계(다른 목표의 Skill)는 이 케이스에서 시작했을 때(phases 에 있을 때)만 — CCTV 케이스의 missing 에 게임 Skill 이 끼지 않게
+        started = case.load().get("phases") or {}
+        skills = [s for s in schemas.SKILL_DATA_SCHEMAS if s in PIPELINE_PHASES or s in started]
     out = {}
     for s in skills:
         summ = case.latest_summary(s)

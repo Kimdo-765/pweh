@@ -12,7 +12,8 @@
   각 단계는 `skills/` 의 Skill 을 따른다.
 
 분석 목표는 Phase 0 접수에서 먼저 고른다(§3): **보안 분석**(기본) / 게임 콘솔 분석 / RF·하드웨어 분석 / SD 카드 포렌식.
-뒤의 셋은 전용 Skill 이 아직 없는 **준비 중** 목표라, 지금 있는 도구로 할 수 있는 일만 한다(§3.1).
+게임 콘솔 분석은 세이브·해금 오프라인 분석(`game-save-unlock-analysis`)까지만 **일부 지원**하고, RF·하드웨어 분석과 SD 카드 포렌식은 전용 Skill 이 아직 없는 **준비 중** 목표다.
+보안 분석이 아닌 목표는 지금 있는 Skill·도구로 할 수 있는 일만 한다(§3.1).
 보안 분석의 목표는 다음 셋이다.
 1. 기기 콘솔(UART)에 접속해 기본 정보를 수집한다.
 2. 펌웨어를 확보한다 (덤프 또는 공식 이미지).
@@ -66,7 +67,7 @@
 | `pweh-openocd` | `openocd_list_configs`, `openocd_start`, `openocd_attach`, `openocd_scan_chain`, `openocd_targets`, `openocd_halt`, `openocd_read_memory`, `openocd_flash_banks`, `openocd_dump_memory_start`, `openocd_flash_read_start`, `openocd_job_status`, `openocd_job_cancel`, `openocd_stop`, `openocd_command`(원시 Tcl, §4 규칙) | JTAG/SWD 가 살아 있을 때 (대안 경로). 쓰기 도구(`openocd_write_memory`, `openocd_flash_write`)는 DESTRUCTIVE (기본 거부) |
 | `pweh-jtagulator` | `jtagulator_connect`, `jtagulator_set_voltage`(DESTRUCTIVE, 기본 거부), `jtagulator_uart_txd_scan`(수동 관찰, 먼저), `jtagulator_uart_scan`, `jtagulator_idcode_scan`, `jtagulator_job_status`, `jtagulator_job_cancel`, `jtagulator_disconnect` | 핀아웃을 전혀 모를 때 (선택). 순서와 정책은 §4 |
 | `pweh-esp` | `esp_version`, `esp_list_ports`, `esp_chip_info`, `esp_security_info`, `esp_read_flash_start`, `esp_job_status`, `esp_job_cancel`, `esp_jobs` | ESP32 계열 MCU 를 USB 로 연결했을 때 (esptool 다운로드 모드, 읽기 전용). WSL 에서는 Windows esptool.exe 가 Windows COM 포트(`COM3`)를 그대로 쓴다(방법 A, usbipd 불필요). 쓰기·삭제·eFuse 명령은 승인 경로 없이 `denied` |
-| `pweh-fwtriage` | `fw_identify`, `fw_entropy`, `fw_uboot_env`, `fw_carve`, `fw_uimage_info`, `fw_extract_squashfs`, `fw_rootfs_audit`, `fw_strings_hunt`, `fw_hunt_patterns`, `fw_elf_info`, `fw_crack_hashes`, `fwtriage_job_status` | 외부 도구 없이 빠른 1차 분석 |
+| `pweh-fwtriage` | `fw_identify`, `fw_entropy`, `fw_uboot_env`, `fw_carve`, `fw_uimage_info`, `fw_extract_squashfs`, `fw_rootfs_audit`, `fw_strings_hunt`, `fw_hunt_patterns`, `fw_elf_info`, `fw_crack_hashes`, `fw_esp_partitions`, `fw_esp_image_info`, `fw_esp_to_elf`, `fw_esp_nvs`, `fw_save_diff`, `fw_checksum_find`, `fw_find_seq_tables`, `fwtriage_job_status` | 외부 도구 없이 빠른 1차 분석, ESP 형식·세이브 오프라인 분석 |
 | `rea` | `inspect_firmware_regions`, `extract_firmware`, `open_binary`(provider_id="ghidra"), `binary_overview`, `search_strings`, `search_procedures`, `trace_feature`, `find_xrefs_to_name`, `xrefs`, `procedure_callers`, `procedure_pseudo_code`, `batch_decompile`, `analyze_function`, `trace_call_path`, `search_bytes`, `get_evidence_bundle`, `export_evidence_bundle`, `close_binary`, `inspect_with_objdump`, `execute_rizin_command`(읽기 전용 명령만) | 정밀 추출·디컴파일·참조 추적 |
 
 도구 응답의 공통 필드: `ok`, 그리고 게이트가 막았을 때 `status`/`approval_id`/`message`.
@@ -79,12 +80,12 @@
 | 목표 | 대상 예 | 상태 | 진행 |
 |---|---|---|---|
 | **보안 분석** (기본) | CCTV·IP 카메라, DVR/NVR, IoT 기기, ESP32 보드 | 지원 | §4 결정 트리 |
-| 게임 콘솔 분석 | ESP32 장난감·휴대기, MCU+EEPROM 기기, 리눅스 휴대기 | 준비 중 | §3.1 |
+| 게임 콘솔 분석 | ESP32 장난감·휴대기, MCU+EEPROM 기기, 리눅스 휴대기 | 일부 지원 | §3.1 (`game-save-unlock-analysis`) |
 | RF·하드웨어 분석 | 리모컨·센서 같은 RF 기기와 그 보드 | 준비 중 | §3.1 |
 | SD 카드 포렌식 | 카메라·블랙박스의 SD 카드 (증거 분석·보안 분석) | 준비 중 | §3.1 |
 
 1. 사용자의 첫 메시지(또는 `ARGUMENTS:` 줄)에서 목표와 기기 정보를 읽는다. 다음 항목 중 모르는 것만 **한 번에 모아서** 묻는다.
-   - 목표 (위 표). 카메라·DVR·IoT 기기 설명이면 따로 묻지 않고 보안 분석으로 정해 4번의 계획에 적는다. 준비 중인 목표(게임 콘솔·RF 기기·SD 카드)를 가리키거나 모호할 때만 묻는다.
+   - 목표 (위 표). 카메라·DVR·IoT 기기 설명이면 따로 묻지 않고 보안 분석으로 정해 4번의 계획에 적는다. 다른 목표(게임 콘솔·RF 기기·SD 카드)를 가리키거나 모호할 때만 묻는다.
    - 제조사/모델/하드웨어 리비전 (라벨 사진이 있으면 좋다). SD 카드면 카드를 꺼낸 기기의 모델과 카드 용량.
    - **소유 또는 서면 허가 여부**. 서면 허가면 문서 식별자도 묻는다.
    - 보유 장비. 목표에 해당하는 줄만 묻는다.
@@ -101,18 +102,21 @@
 3. `case_create(title, authorization, target, profile, notes)` 를 호출한다. `notes` 에 고른 목표를 적어(예: `notes="목표: SD 카드 포렌식 (준비 중)"`) 세션이 끊겨도 케이스에 남긴다.
    이후 모든 하드웨어 도구에 `case_id` 를 넘긴다.
 4. 계획을 사용자에게 짧게 보여 준다. 예: "UART 접속 → U-Boot 진입 → 플래시 덤프(약 N시간) → 펌웨어 분석 → 인증 우회 탐색 → 보고서".
-   ESP32 보드면 예: "USB 연결 → 칩·보안 정보 확인 → 플래시 두 번 읽기(수 분) → 펌웨어 분석(일반 분석만) → 보고서".
+   ESP32 보드면 예: "USB 연결 → 칩·보안 정보 확인 → 플래시 두 번 읽기(수 분) → 펌웨어 분석(ESP 파티션·앱·NVS 해석) → 보고서".
+   게임 콘솔(ESP32)이면 예: "플래시 두 번 읽기 → 파티션·앱·NVS 해석 → 게임 문자열·치트 입력 표 → (점수가 바뀔 때마다) 세이브 스냅샷 3개 이상 → 세이브 비교·체크섬 → 보고서".
    SD 카드면 예: "사람이 쓰기 방지 장치를 거쳐 이미징 → 케이스로 가져오기 → 해시 대조 → 구조 확인 → 보고서".
    각 단계에서 사람이 할 일을 미리 알려 준다. 준비 중인 목표면 지금 할 수 없는 일도 함께 알린다.
 
-### 3.1 준비 중인 목표
+### 3.1 일부 지원·준비 중인 목표
 
-게임 콘솔·RF·SD 포렌식용 Skill 과 서버는 아직 없다. 사용자에게 먼저 알리고, 지금 있는 Skill·도구로 할 수 있는 아래 일만 한다.
+게임 콘솔은 세이브·해금 오프라인 분석 Skill(`game-save-unlock-analysis`)만 있고, RF·SD 포렌식용 Skill 과 서버는 아직 없다. 사용자에게 먼저 알리고, 지금 있는 Skill·도구로 할 수 있는 아래 일만 한다.
 없는 기능을 셸이나 외부 프로그램으로 대신하지 않고, `case_record_step` 에 없는 Skill 이름을 지어 넣지 않는다. 결과는 아티팩트·발견사항·`case_add_note` 로 남긴다.
 
-- **게임 콘솔 분석**: ESP32 기반 기기는 `esp32-flash-dump` 로 플래시를 확보하고 `firmware-static-analysis` 로 일반 분석을 한다(ESP 이미지 해석·디컴파일의 한계는 §4).
-  리눅스 기반 기기와 MCU+EEPROM 기기는 보안 분석의 콘솔·덤프 경로(§4 Phase A·B)와 같다. 해금 조건·세이브 위치는 근거(문자열·오프셋·디컴파일 발췌)가 있는 것만 발견사항(category `other`, severity `info`)으로 기록한다.
-  NFC 태그 읽기·에뮬레이션, 세이브 값 수정(플래시 쓰기), 플레이 자동화는 아직 하지 않는다. 결과는 로컬에만 두고 온라인 리더보드·계정에 올리지 않는다.
+- **게임 콘솔 분석** (일부 지원): 펌웨어는 ESP32 기반이면 `esp32-flash-dump`, 리눅스 기반·MCU+EEPROM 기기면 보안 분석의 콘솔·덤프 경로(§4 Phase A·B)로 확보한다.
+  그 뒤 `game-save-unlock-analysis` 로 해금 조건(디버그 메뉴·치트 입력·카운터·날짜·사용자 소유 태그 분기)과 세이브 위치·인코딩·체크섬을 오프라인으로 찾는다
+  (ESP 파티션·앱 이미지·NVS 해석, 세이브 스냅샷 비교, 체크섬 찾기, 치트 입력 표, 게임 문자열 팩). 근거(문자열·오프셋·디컴파일 발췌)가 있는 것만 발견사항(category `other`, severity `info`)으로 기록한다.
+  해금 조건은 `unlock_source`(in-device / owned-tag / sold-token / online-purchase / unknown)로 나누고, 판매 토큰·온라인 구매로 여는 콘텐츠는 보고만 한다.
+  세이브 값 수정(패치 이미지·플래시 쓰기), NFC 태그 읽기·에뮬레이션, 플레이 자동화는 아직 하지 않는다. 결과는 로컬에만 두고 온라인 리더보드·계정에 올리지 않는다.
 - **RF·하드웨어 분석**: Flipper Zero·SDR·ChameleonUltra 를 다루는 도구가 없으므로 무선 신호의 수신·디코드·송신은 하지 않는다. 대상 기기의 보드는 보안 분석처럼 다룬다.
   콘솔은 `uart-shell-acquisition`, 핀·신호는 `logic-analyzer-protocol-decode`, 핀아웃은 §4 의 JTAG·JTAGulator 순서, 펌웨어는 §4 Phase B 와 `firmware-static-analysis`(ESP32 기반이면 `esp32-flash-dump`)다.
 - **SD 카드 포렌식**: PWEH 는 카드나 원시 디스크를 직접 열지 않는다. 사람이 하드웨어 쓰기 방지 장치를 거쳐 이미징 도구로 이미지 파일을 만든다(희생용 카드로 장치를 먼저 시험).
@@ -151,7 +155,7 @@
 - 사용자가 목표를 줄였다면 그 단계에서 멈춘다. 예: 셸 획득만 원하면 Phase A 까지 하고 보고서를 만든다.
 - 한 단계가 실패해도 다음 대안으로 넘어간다. 실패 이유는 `case_record_step(status="failed", blockers=[...])` 로 남긴다.
 - ESP32 계열 MCU 는 Phase A(UART 콘솔) 없이 Phase B 의 esp32-flash-dump 로 간다(USB 로 esptool 다운로드 모드). 요약은 §5 대로 skill="firmware-dump-via-uart" 로 남는다.
-  Phase C 는 일반 분석만 된다(fwtriage 는 ESP 이미지 형식을 해석하지 않고, REA open_binary 는 ESP 앱 이미지를 열 수 없다 — ELF 가 아닌 raw 이미지인데 raw-binary 는 x86/x86_64/arm/arm64/6502 만 받아 Xtensa·RISC-V 모두 거부. Ghidra 자체에는 두 언어가 있어 사람이 PWEH 밖에서 직접 로드할 수는 있다). Phase D(cctv-auth-bypass-hunt)는 리눅스 rootfs 를 전제로 하므로 맞지 않는다.
+  Phase C 에서 ESP 형식은 `fw_esp_partitions`·`fw_esp_image_info`·`fw_esp_nvs`·`fw_esp_to_elf` 로 본다. REA 는 Xtensa(ESP32·S2·S3) ELF 를 열지 못한다(지원 아키텍처 아님). RISC-V(C3·C6·H2 …)는 `fw_esp_to_elf(..., rea_compat=true)` 로 만든 ELF 를 open_binary 로 연다(e_flags 를 double-float ABI 로 표시 — 부동소수점 인자·반환값 해석만 틀릴 수 있다) — Xtensa 는 사람이 PWEH 밖의 Ghidra 로 직접 로드할 수는 있다. Phase D(cctv-auth-bypass-hunt)는 리눅스 rootfs 를 전제로 하므로 맞지 않는다.
 - **JTAGulator 순서** (전용 Skill 없음): `jtagulator_connect` → 사람이 멀티미터로 대상 I/O 전압 측정(추측 금지) → `jtagulator_set_voltage(volts=<측정값>)`
   → `jtagulator_uart_txd_scan`(대상에 아무것도 보내지 않는 수동 관찰, 사람이 대상 재부팅) → 필요할 때만 `jtagulator_uart_scan` → 사람이 대상 전원을 끈 뒤 `jtagulator_disconnect`.
   찾은 TXD/RXD·보드레이트(`summary.best`)를 uart-shell-acquisition 에 넘긴다(baud_detection.method 는 `manual`, notes 에 "JTAGulator 측정" 이라고 출처를 적는다).
@@ -182,6 +186,7 @@
 | logic-analyzer-protocol-decode | `signal-capture` |
 | firmware-static-analysis | `static-analysis` |
 | cctv-auth-bypass-hunt | `auth-hunt` |
+| game-save-unlock-analysis | `save-analysis` |
 
 - 다음 Skill 은 시작할 때 `case_get_step_results(case_id)` 로 이전 요약을 읽는다. 대화 기억에 의존하지 않는다.
   세션이 끊겨도 케이스만 있으면 이어서 할 수 있어야 한다.
@@ -282,7 +287,7 @@
 | 목표 | 추가 완료 기준 |
 |---|---|
 | 보안 분석 | 펌웨어 확보 경로와 무결성(sha256, 기기 측 crc/md5 일치 여부)이 기록되어 있다. 사용자가 범위를 줄였으면(예: 셸 획득만) 그 단계의 summary 까지 |
-| 게임 콘솔 분석 (준비 중) | 펌웨어를 확보했으면 위와 같은 무결성 기록이 있다. 근거가 있는 해금 조건·세이브 위치는 발견사항으로, 확인하지 못한 가설과 아직 못 하는 일은 `case_add_note` 로 남겼다 |
+| 게임 콘솔 분석 (일부 지원) | 펌웨어를 확보했으면 위와 같은 무결성 기록이 있다. `game-save-unlock-analysis` 의 summary(`save-analysis`)가 있고, 근거가 있는 해금 조건·세이브 위치는 발견사항으로, 확인하지 못한 가설과 아직 못 하는 일(값 수정·NFC·플레이)은 summary 의 limitations 에 남겼다 |
 | RF·하드웨어 분석 (준비 중) | 보드에서 한 일(콘솔·신호·덤프)의 summary 가 있고, 하지 못한 무선 신호 분석을 `case_add_note` 로 한계에 남겼다 |
 | SD 카드 포렌식 (준비 중) | 이미지가 아티팩트로 등록되어 있고(보고서의 아티팩트 표에 sha256 앞부분), 이미징 도구 로그와의 해시 대조 결과와 이미징 기록(쓰기 방지 장치·작업자·시각)을 `case_add_note` 로 남겼다. 녹화 내용은 열지 않았다 |
 

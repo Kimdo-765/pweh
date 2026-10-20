@@ -41,7 +41,7 @@ description: Dump the SPI flash of an ESP32-family MCU (ESP32, ESP32-S2/S3/C3/C6
    - esptool `write-flash`, `erase-flash`, `erase-region`, `write-flash-status`, `write-mem`, `load-ram`, `run` (v4 이름 `write_flash`·`erase_flash` 도 같다).
    - espefuse 의 `burn-efuse`·`burn-key`·`burn-bit` 같은 `burn-*` 명령, `write-protect-efuse`, `read-protect-efuse` (eFuse 는 되돌릴 수 없다). espsecure 전체.
    - 서버에는 이런 명령을 보내는 도구가 없다. 만든 argv 가 읽기 명령이 아니면 게이트에 넘기지 않고 **바로 거부**한다(`status: "denied"`, `gate.via: "esp-policy"`). 승인 레코드가 생기지 않으므로 `pweh approve` 로도 풀 수 없다.
-   - 호스트 셸에서 esptool·espefuse·espsecure 를 직접 실행하지 않는다(오프라인 `image-info` 포함, `docs/safety.md` §4-11). 오프라인 확인이 필요하면 사람에게 요청한다(다음 단계 절).
+   - 호스트 셸에서 esptool·espefuse·espsecure 를 직접 실행하지 않는다(오프라인 `image-info` 포함, `docs/safety.md` §4-11). 앱 이미지 헤더는 pweh-fwtriage 의 `fw_esp_image_info` 로 본다.
 3. **보안 기능을 우회하지 않는다.** Secure Download Mode, 플래시 암호화, Secure Boot 를 글리칭·전압 조작·eFuse 조작·키 추출·다른 도구로 다시 읽기로 넘으려 하지 않는다.
    Secure Download Mode 면 덤프하지 않고 템플릿 D 로 보고한다. 암호화된 덤프를 복호화하려 하지 않는다.
 4. **게이트**: `status: approval_required`(예: `modify_policy: approve`)면 무엇을·왜·위험·되돌리는 법을 설명한다(템플릿 G). 사용자가 **별도 터미널**에서 `pweh approve <approval_id>` 하면 같은 인자 + `approval_id` 로 한 번만 재시도한다. 덤프는 호출 한 번의 승인이 두 번의 읽기를 덮는다.
@@ -70,7 +70,7 @@ description: Dump the SPI flash of an ESP32-family MCU (ESP32, ESP32-S2/S3/C3/C6
 | `esp_job_status`, `esp_job_cancel`, `esp_jobs` | 덤프 진행 폴링(wait_seconds ≤ 50), 취소, 실행 중 job 확인 |
 | `case_update_target`, `case_add_note` | soc·flash 갱신, 사람이 한 물리 작업 기록 |
 | `case_hash_file` | 덤프 파일 sha256 재확인 (선택) |
-| `fw_carve`, `fw_strings_hunt`, `fw_entropy` | 내용 확인: 파티션 표 읽기, 암호문·잘못 읽은 덤프 판별 (선택, 오프라인) |
+| `fw_esp_partitions`, `fw_esp_image_info`, `fw_entropy` | 내용 확인: 파티션 표·앱 이미지 헤더 읽기, 암호문·잘못 읽은 덤프 판별 (선택, 오프라인) |
 | `case_record_step`, `approval_status` | 실패 기록과 최종 summary(skill="firmware-dump-via-uart"), 승인 상태 확인 |
 
 ## 절차
@@ -192,14 +192,11 @@ esp_job_status(job_id="<job_id>", wait_seconds=50)
 
 1. **job 결과**: verification.match=true, size == 4단계 flash.size_bytes(전체 덤프), source.chip == 4단계 chip.
 2. **파일 재확인(선택)**: `case_hash_file(case_id="<id>", path="dumps/esp-flash.bin")` → sha256 이 result.sha256 과 같다(.read2.bin 은 sha256_read2).
-3. **파티션 표(선택, 오프라인, 권장)**: fw_identify 는 ESP 구조(앱 이미지 헤더 0xE9, 파티션 표, NVS)를 모른다. 결과가 비어도 실패가 아니다. 파티션 표는 아래처럼 읽는다.
-   ```
-   fw_carve(case_id="<id>", path="dumps/esp-flash.bin", partitions=[{"name": "bootloader", "offset": "0x0", "size": "0x8000"}, {"name": "partition-table", "offset": "0x8000", "size": "0x1000"}])
-   fw_strings_hunt(case_id="<id>", path_or_dir="extract/parts-001/01-partition-table.bin", patterns=["raw:\xaa\x50[\x00-\xff]{30}"])
-   ```
-   - path_or_dir 는 fw_carve 응답의 partitions[].path 를 쓴다. hits[] 하나가 파티션 항목 32바이트다(offset_hex 0x0, 0x20 …). match 를 [reference.md §4](reference.md#4-파티션-표-읽기) 대로 풀어 이름·종류·오프셋·크기를 요약 partitions[] 에 넣는다.
-   - 부트로더 위치는 칩마다 다르다: ESP32·ESP32-S2 는 0x1000, ESP32-S3·C3·C6·H2 는 0x0(위 예는 S3). 파티션 표는 기본 0x8000 이지만 프로젝트 설정으로 옮길 수 있다.
-   - 항목이 하나도 없으면 플래시 암호화(암호문), 옮긴 파티션 표, 잘못 읽은 덤프 중 하나다. `fw_entropy(case_id="<id>", path="dumps/esp-flash.bin")` 에서
+3. **파티션 표(선택, 오프라인, 권장)**: `fw_esp_partitions(case_id="<id>", path="dumps/esp-flash.bin")` 로 읽는다(기본 0x8000, 없으면 4 KiB 경계를 찾고 MD5 항목을 검증한다).
+   fw_identify 는 ESP 구조(앱 이미지 헤더 0xE9, 파티션 표, NVS)를 모르므로 결과가 비어도 실패가 아니다.
+   - 응답 partitions[] 의 label·type·subtype·offset·size 를 요약 partitions[] 에 옮긴다(offset·size 는 플래시 기준 정수). 부트로더(ESP32·ESP32-S2 는 0x1000, ESP32-S3·C3·C6·H2 는 0x0)와 파티션 표 자체(0x8000, 0x1000)는 표의 항목이 아니므로 직접 넣는다.
+   - 앱 이미지 헤더(빌드 버전·ESP-IDF 버전·엔트리)는 `fw_esp_image_info(case_id="<id>", path="dumps/esp-flash.bin", partition="<앱 label>")` 로 확인한다(선택).
+   - found 가 false 면 플래시 암호화(암호문), 옮긴 파티션 표, 잘못 읽은 덤프 중 하나다(표를 직접 읽는 방법은 [reference.md §4](reference.md#4-파티션-표-읽기)). `fw_entropy(case_id="<id>", path="dumps/esp-flash.bin")` 에서
      균일 고엔트로피가 이미지 대부분이면 암호문, 거의 전부 0xFF/0x00 패딩이면 잘못 읽은 덤프로 보고 사용자에게 알린다.
 4. 결과를 data.verification.content_checks 와 partitions[] 에 적는다. 확인하지 못한 것은 확인했다고 적지 않는다.
 
@@ -371,7 +368,7 @@ partitions 는 같은 크기의 합성 파티션 표를 8단계 방법으로 읽
     "method": "double-read", "expected": "059f292ac5beebe86ad496fb91ec6956f479df01789827d8d7f25f93a60c08b0", "actual": "059f292ac5beebe86ad496fb91ec6956f479df01789827d8d7f25f93a60c08b0", "match": true,
     "read2_path": "dumps/esp-flash.read2.bin",
     "detail": "같은 영역을 두 번 읽어 sha256 비교 (1차는 --after no-reset-stub 으로 칩을 다운로드 모드에 둬 앱이 실행되지 않게 함). esptool 스텁은 읽기마다 전송 MD5 를 검증한다.",
-    "content_checks": ["파티션 표 @0x8000: 항목 6개 (fw_strings_hunt raw 0xAA50)", "case_hash_file: dumps/esp-flash.bin sha256 일치"]
+    "content_checks": ["파티션 표 @0x8000: 항목 6개, MD5 일치 (fw_esp_partitions)", "case_hash_file: dumps/esp-flash.bin sha256 일치"]
   },
   "partitions": [
     {"name": "bootloader", "offset": 0, "size": 32768, "note": "ESP32-S3 기본 위치 (파티션 표 밖)"},
@@ -391,7 +388,7 @@ partitions 는 같은 크기의 합성 파티션 표를 8단계 방법으로 읽
     "방법 A: WSL interop 으로 Windows esptool.exe 실행, port COM3 (usbipd attach 없음)",
     "1차 읽기는 --after no-reset-stub(칩을 다운로드 모드에 둬 앱이 실행되지 않게 — FLASH_BEGIN 을 보내는 no-reset 은 쓰지 않음), 2차 읽기 뒤 --after hard-reset.",
     "플래시·eFuse 쓰기 명령 없음(flash-id·get-security-info·read-flash 만 실행). 마지막 읽기 뒤 hard-reset 으로 펌웨어 재실행",
-    "ESP 이미지: fwtriage 가 앱 헤더·파티션 표·NVS 를 해석하지 않음 → partitions 는 파티션 표를 직접 풀어 얻음"
+    "partitions: fw_esp_partitions 결과(analysis/esp-partitions-001.json) + 부트로더·파티션 표 위치"
   ]
 }
 ```
@@ -401,30 +398,23 @@ case_record_step(case_id="<id>", skill="firmware-dump-via-uart", step="summary",
   summary="ESP32-S3 8 MB 플래시를 esptool read-flash 로 두 번 읽어 sha256 일치 (방법 A, COM3). Secure Download Mode·플래시 암호화 꺼짐",
   data=<위 JSON>,
   artifacts=["dumps/esp-flash.bin", "dumps/esp-flash.read2.bin", "dumps/esp-flash.json", "uart/esptool-security-info-001.log"],
-  next_actions=["firmware-static-analysis: dumps/esp-flash.bin — ESP 이미지는 일반 분석만 가능, data.partitions 를 fw_carve 의 partitions 로 명시"],
+  next_actions=["firmware-static-analysis: dumps/esp-flash.bin — fw_esp_image_info·fw_esp_nvs 로 ESP 형식 해석, 게임 기기면 game-save-unlock-analysis"],
   blockers=[])
 ```
 서버가 스키마 검증에 실패하면 메시지대로 data 를 고쳐 다시 저장한다(`schema_get(name="firmware-dump")`).
 
 ## 다음 단계
 
-- **firmware-static-analysis**: data.output.path 를 펌웨어로 쓴다(firmware.source 는 "esptool-dump"). ESP 이미지에서 할 수 있는 것은 제한적이다. 사실대로 알린다.
-  - pweh-fwtriage 는 ESP 앱 이미지 헤더·파티션 표·NVS 를 해석하지 않는다. fw_identify 결과가 거의 비고, fw_carve 자동 레이아웃도 찾지 못한다 → data.partitions[] 를 partitions 인자로 명시한다.
-  - 일반 분석은 된다: fw_entropy, 사용자 패턴(`lit:`, `re:`)의 fw_strings_hunt, PEM 인증서·키, 압축 블롭. NVS 에는 Wi-Fi 설정이 평문으로 있을 수 있다(비밀값은 마스킹해 기록).
-  - REA `open_binary` 는 ESP 앱 이미지를 열 수 없다. 플래시의 앱 이미지는 ELF 가 아니라 raw 세그먼트 이미지라 raw-binary 로 열어야 하는데, REA 6.5 의 raw-binary 는 x86/x86_64/arm/arm64/6502 만 받으므로
-    Xtensa(ESP32·S2·S3)와 RISC-V(C3·C6·H2) 모두 거부된다. 이 사유를 rea.limitations 에 적는다. Ghidra 자체에는 Xtensa·RISC-V 언어가 있어 사람이 PWEH 밖에서 직접 로드할 수는 있다(사실대로 알린다).
-  - 앱 이미지 헤더 해석(esptool `image-info`)은 pweh-esp 가 범위 밖 명령으로 거부하고, 에이전트가 셸에서 실행하지도 않는다. 필요하면 아래처럼 사람에게 요청한다.
+- **firmware-static-analysis**: data.output.path 를 펌웨어로 쓴다(firmware.source 는 "esptool-dump").
+  - ESP 형식은 pweh-fwtriage 의 ESP 도구로 본다: `fw_esp_partitions`(파티션 표), `fw_esp_image_info`(앱 헤더·세그먼트·앱 설명), `fw_esp_nvs`(NVS 설정 — Wi-Fi 비밀번호 같은 비밀은 마스킹된다), `fw_esp_to_elf`(ELF 변환).
+    fw_identify·fw_carve 자동 레이아웃은 ESP 구조를 모르므로, 파티션 파일이 필요하면 fw_esp_partitions 의 값을 fw_carve 의 partitions 인자로 준다.
+  - REA 는 Xtensa(ESP32·S2·S3) ELF 를 열지 못한다(지원 아키텍처 아님). RISC-V(C3·C6·H2 …)는 `fw_esp_to_elf(..., rea_compat=true)` 로 만든 ELF 를 open_binary 로 연다(e_flags 를 double-float ABI 로 표시 — 부동소수점 인자·반환값 해석만 틀릴 수 있다). 열 수 없으면 그 사유를 rea.limitations 에 적는다.
+  - 일반 분석도 된다: fw_entropy, 사용자 패턴(`lit:`, `re:`)의 fw_strings_hunt, PEM 인증서·키, 압축 블롭.
   - cctv-auth-bypass-hunt 는 리눅스 rootfs 를 전제로 하므로 ESP 펌웨어에는 맞지 않는다.
+- **game-save-unlock-analysis**: 게임 콘솔·장난감이면 해금 조건·세이브 위치·인코딩·체크섬을 오프라인으로 찾는다(master-prompt §3.1).
 - verification.match 가 true 가 아니면 분석으로 넘기지 않는다. 다시 읽는 것이 먼저다.
 - 사용자가 목표를 펌웨어 확보까지로 줄였으면 `report_generate(case_id="<id>")` 후 master-prompt §10 형식으로 보고한다.
 
-```
-[확인 필요] (선택) 앱 이미지 헤더 확인
-제가 쓰는 도구는 ESP 앱 헤더(빌드 버전, ESP-IDF 버전, 엔트리 주소)를 해석하지 못합니다. 원하시면 별도 터미널에서
-  ~/pweh-tools/bin/esptool image-info <fw_carve 로 잘라 낸 앱 파티션 파일의 절대 경로, 예: …/extract/parts-002/04-app0.bin>
-을 실행해 결과를 붙여 주세요(파일만 읽는 오프라인 명령, 보드 연결 불필요. 설치 위치가 다르면 ~/pweh-tools/env.sh 의 PWEH_ESPTOOL).
-원치 않으시면 일반 분석만 하겠습니다.
-```
 
 ## 참고
 

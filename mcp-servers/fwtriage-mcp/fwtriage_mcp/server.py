@@ -11,8 +11,11 @@ extract/<label>-NNN/ 에 쓰고 아티팩트로 등록한다. 응답은 요약 +
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
+import stat
 import struct
 import threading
 from pathlib import Path
@@ -22,19 +25,23 @@ import anyio
 import anyio.to_thread
 
 from pweh.errors import ValidationFailed
+from pweh.fsutil import atomic_write_bytes
 from pweh.jobs import JobCancelled
 from pweh.mcpkit import ANN_LOCAL_WRITE, ANN_READ_ONLY, create_server, register_job_tools, safe_tool
 from pweh.runtime import Runtime, get_runtime
+from pweh.safety.masking import mask_secret as core_mask_secret
 
-from . import elfinfo
+from . import elfinfo, espfmt, saves
 from .common import (
     DEFAULT_MAX_RESULTS,
     HARD_MAX_RESULTS,
+    PRODUCER,
     Cancelled,
     Ctl,
     ResultFile,
     base_payload,
     clamp_int,
+    claim_numbered_dir,
     clip,
     compact_list,
     file_info,
@@ -47,13 +54,15 @@ from .common import (
     sanitize,
     resolve_input_dir,
     resolve_input_file,
+    safe_label,
+    safe_name,
     severity_key,
 )
 from .entropy import entropy_scan
 from .fswalk import walk_tree
 from .hashes import crack_entries, crypt_module_available, parse_hash_input
 from .hunt import hunt
-from .patterns import glob_to_regex, load_default_passwords, load_patterns
+from .patterns import DEFAULT_PACK, PACKS, glob_to_regex, load_default_passwords, load_patterns, split_pack_spec
 from .rootfs import Auditor
 from .signatures import MARKER_KINDS, ScanCtx, padding_runs, scan_regions
 from .squashfs import extract_squashfs
@@ -68,7 +77,7 @@ server = create_server(
         "오프라인 펌웨어 트리아지 서버 (외부 도구 없이 동작, REA 를 보완). 권장 순서: "
         "fw_identify(덤프 지도: uImage/FIT/squashfs/jffs2/UBI/env 위치) → fw_uboot_env(env, mtdparts) → "
         "fw_carve(파티션 분할) → fw_extract_squashfs(rootfs 추출) → fw_rootfs_audit(계정/부팅 서비스/웹/키/자격증명) → "
-        "fw_strings_hunt(CCTV 인증 우회·백도어 문자열 휴리스틱) → fw_elf_info(웹 서버/CGI 의 위험 임포트·보호기법) → "
+        "fw_strings_hunt(CCTV 인증 우회·백도어 문자열 휴리스틱, patterns='game' 이면 게임 세이브·해금 단서) → fw_elf_info(웹 서버/CGI 의 위험 임포트·보호기법) → "
         "fw_crack_hashes(펌웨어 해시를 공개 기본 비밀번호와 오프라인 대조). 결과는 '후보'이며 확정은 REA "
         "(search_strings→xrefs→procedure_pseudo_code)와 소유 기기 검증으로 한다. 모든 결과 JSON 은 케이스의 "
         "analysis/ 에, 추출물은 extract/<label>-NNN/ 에 저장되고 아티팩트로 등록된다. 큰 입력은 background=true 로 실행 후 "
@@ -810,14 +819,52 @@ async def fw_rootfs_audit(
 # ---------------------------------------------------------------------------
 
 
+#: 게임 팩 히트 문맥에서 가리는 값: key=값 꼴(토큰·키·코드·비밀번호·PIN·라이선스·시리얼), URL 의 사용자:비밀번호@, Bearer 토큰, JWT
+_HIT_SECRET_RXS = (
+    re.compile(r"(?i)((?:token|key|code|secret|pass(?:word|wd)?|pwd|pin|license|licence|serial)[\w.-]{0,24}\s*[=:]\s*[\"']?)([^\s&;,\"'<>]{3,})"),
+    re.compile(r"(://[^/@:\s]+:)([^@/\s]+)@"),
+    re.compile(r"(?i)(bearer\s+)([A-Za-z0-9._~+/=-]{8,})"),
+    re.compile(r"()(\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{4,}(?:\.[A-Za-z0-9_-]*)?)"),
+)
+
+
+def _mask_hit_secrets(hits: Any) -> int:
+    """히트의 match·context 에서 비밀 모양의 값을 <masked> 로 바꾼다(제자리). 한 히트에서 찾은 값은 두 필드 모두에서 가린다. 반환: 가린 히트 수."""
+    n = 0
+    for h in hits or []:
+        if not isinstance(h, dict):
+            continue
+        texts = [h.get(k) for k in ("match", "context") if isinstance(h.get(k), str)]
+        found: set[str] = set()
+        for t in texts:
+            for rx in _HIT_SECRET_RXS:
+                found.update(m.group(2) for m in rx.finditer(t) if len(m.group(2)) >= 3)
+        if not found:
+            continue
+        for k in ("match", "context"):
+            v = h.get(k)
+            if isinstance(v, str):
+                for sec in sorted(found, key=len, reverse=True):
+                    v = v.replace(sec, "<masked>")
+                h[k] = v
+        h["masked"] = True
+        n += 1
+    return n
+
+
 @server.tool(
     description=(
-        "인증 우회/백도어/명령 주입/하드코딩 자격증명 문자열 휴리스틱 검색 (src/pweh/data/cctv-hunt-patterns.yaml 의 string_heuristics, "
+        "인증 우회/백도어/명령 주입/하드코딩 자격증명 문자열 휴리스틱 검색 (기본 CCTV 팩: src/pweh/data/cctv-hunt-patterns.yaml 의 string_heuristics, "
         "scope: strings=바이너리의 ASCII·UTF-16LE 문자열, text=텍스트 파일 줄, raw=바이트). patterns='cctv'(전체) 또는 목록: 휴리스틱 id/"
-        "category/vendor/severity 선택자, 'xm-*' 접두사, 're:<정규식>', 'raw:<바이트 정규식>', 'lit:<문자열>'. 파일/디렉터리 모두 가능. "
+        "category/vendor/severity 선택자, 'xm-*' 접두사, 're:<정규식>', 'raw:<바이트 정규식>', 'lit:<문자열>'. "
+        "게임 팩: patterns='game' 이면 src/pweh/data/game-hunt-patterns.yaml 전체(debug-menu/cheat-input/unlock-condition/save-format/"
+        "save-integrity/nfc-tag/clock/online-sync/entitlement 단서, severity info/low — 소유 게임기·장난감의 해금 조건·세이브 위치 출발점, "
+        "entitlement 는 보고만), 'game:<category|id|vendor|severity|접두사*>'(목록 가능)는 그 일부이고 게임 팩에 없는 선택자는 오류다. "
+        "두 팩은 한 호출에서 섞지 않는다(CCTV 선택자를 함께 주면 오류, 사용자 패턴 re:/raw:/lit: 는 함께 가능). 파일/디렉터리 모두 가능. "
         "히트마다 파일/오프셋(텍스트는 줄)/패턴 id/category/severity/문맥. checks 목록은 auth-hunt 스키마 checks[] 로 바로 쓸 수 있다. "
         "max_hits 는 저장 상한(패턴별 per_pattern_cap), 응답에는 max_results 개. 히트의 file 은 두 모드 모두 rootfs 절대 경로(rootfs 밖의 "
-        "덤프·파티션 이미지는 null), path 는 케이스 상대 경로. 결과: analysis/strings-hunt-NNN.json"
+        "덤프·파티션 이미지는 null), path 는 케이스 상대 경로. 쓴 팩은 응답 patterns.pack 과 결과 JSON params.pack(게임 팩이면 "
+        "summary.vendor_family_guess 는 null, 히트의 key=값·URL 자격증명·Bearer·JWT 값은 <masked> — summary.masked_values). 결과: analysis/strings-hunt-NNN.json"
     ),
     annotations=ANN_LOCAL_WRITE,
 )
@@ -842,14 +889,17 @@ async def fw_strings_hunt(
     is_dir = p.is_dir()
     if not is_dir:
         p = resolve_input_file(case, path_or_dir)
-    ps = load_patterns()
+    # 팩 결정: 'game' / 'game:<선택자>' 가 있으면 게임 팩(다른 팩 선택자와 섞으면 ValidationFailed), 아니면 기존 CCTV 팩 그대로
+    pack, spec = split_pack_spec(patterns)
+    ps = load_patterns(pack=pack)
     if min_severity is not None and min_severity not in ("critical", "high", "medium", "low", "info"):
         raise ValidationFailed("min_severity 는 critical|high|medium|low|info 중 하나입니다.")
-    selected, notes = ps.select(patterns, min_severity=min_severity)
+    selected, notes = ps.select(spec, min_severity=min_severity, strict=pack != DEFAULT_PACK)
     if not selected:
         # 건너뛴 이유(컴파일 실패, 빈 문자열과 일치하는 패턴 등)를 함께 알려 준다
         raise ValidationFailed("선택된 패턴이 없습니다." + (" " + " / ".join(notes[:5]) if notes else ""),
-                               hint="fw_hunt_patterns 로 사용 가능한 id/category/vendor 를 확인하세요.")
+                               hint="fw_hunt_patterns 로 사용 가능한 id/category/vendor 를 확인하세요." if pack == DEFAULT_PACK
+                               else f"fw_hunt_patterns(pack='{pack}') 로 사용 가능한 id/category/vendor/severity 를 확인하세요.")
     mh = clamp_int(max_hits, 1, 100000, "max_hits")
     mr = clamp_int(max_results, 0, HARD_MAX_RESULTS, "max_results")
     ml = clamp_int(min_length, 3, 64, "min_length")
@@ -861,13 +911,20 @@ async def fw_strings_hunt(
     def work(ctl: Ctl) -> dict[str, Any]:
         info = {"path": case.rel(p), "type": "directory"} if is_dir else file_info(case, p, with_hash=False)
         res = hunt(p, is_dir, case.dir, ctl, selected, max_hits=mh, per_pattern_cap=ppc, max_file_size=mfs, min_len=ml, utf16=utf16, include_rx=inc)
+        if pack != DEFAULT_PACK:
+            # vendor_family_guess 는 auth-hunt 의 vendor_family(CCTV 팩의 벤더 키) 추정이라 다른 팩에서는 의미가 없다
+            res["summary"]["vendor_family_guess"] = None
+            # 게임 팩은 라이선스·구매·URL 단서를 찾으므로 히트 문맥에 토큰·키·URL 자격증명이 섞이기 쉽다 → 값만 가린다
+            masked = _mask_hit_secrets(res.get("hits")) + _mask_hit_secrets(res.get("commented_hits"))
+            if masked:
+                res["summary"]["masked_values"] = masked
         payload = base_payload("fw_strings_hunt", case, schema="strings-hunt", input_info=info,
-                               params={"patterns": patterns, "min_severity": min_severity, "include": include, "max_hits": mh, "per_pattern_cap": ppc, "pattern_source": ps.source, "pattern_sha256": ps.sha256})
+                               params={"patterns": patterns, "pack": pack, "min_severity": min_severity, "include": include, "max_hits": mh, "per_pattern_cap": ppc, "pattern_source": ps.source, "pattern_sha256": ps.sha256})
         payload.update(res)
         payload["notes"] = notes + ([f"패턴 파일 경고: {e}" for e in ps.errors[:10]])
         payload["elapsed_seconds"] = ctl.elapsed()
         rel = _write(case, "strings-hunt", payload, f"fw_strings_hunt {info['path']}")
-        rt().audit({"event": "fwtriage_strings_hunt", "input": info["path"], "result": rel, "hits": res["summary"]["hits_total"]}, case.id)
+        rt().audit({"event": "fwtriage_strings_hunt", "input": info["path"], "result": rel, "hits": res["summary"]["hits_total"], "pack": pack}, case.id)
         hits, tr = compact_list(res["hits"], mr)
         matched = [{"id": c["id"], "count": c["count"], "severity": c["severity"], "evidence_ref": c["evidence_ref"]} for c in res["checks"] if c["result"] == "match"]
         matched.sort(key=lambda c: (severity_key(c["severity"]), -c["count"]))
@@ -882,7 +939,7 @@ async def fw_strings_hunt(
             "matched_checks": matched[:60],
             "no_match_checks": sum(1 for c in res["checks"] if c["result"] == "no-match"),
             "top_files": res["top_files"][:10],
-            "patterns": {"source": ps.source, "sha256": ps.sha256[:16], "selected": len(selected)},
+            "patterns": {"pack": pack, "source": ps.source, "sha256": ps.sha256[:16], "selected": len(selected)},
             "notes": notes[:10],
         }
 
@@ -890,15 +947,23 @@ async def fw_strings_hunt(
 
 
 @server.tool(
-    description="fw_strings_hunt / fw_rootfs_audit / fw_elf_info 가 쓰는 휴리스틱 목록(cctv-hunt-patterns.yaml: id/category/severity/scope/vendor, function_heuristics, web_server_binaries)과 패턴 파일 출처·해시·오류.",
+    description=(
+        "휴리스틱 목록과 패턴 파일 출처·해시·오류. pack='cctv'(기본): fw_strings_hunt / fw_rootfs_audit / fw_elf_info 가 쓰는 "
+        "cctv-hunt-patterns.yaml(string_heuristics 의 id/category/severity/scope/vendor, function_heuristics, web_server_binaries). "
+        "pack='game': fw_strings_hunt(patterns='game') 이 쓰는 game-hunt-patterns.yaml(string_heuristics 만, category 9종: debug-menu/"
+        "cheat-input/unlock-condition/save-format/save-integrity/nfc-tag/clock/online-sync/entitlement). vendor·category 로 거른다. "
+        "응답 pack·packs(사용 가능한 팩)."
+    ),
     annotations=ANN_READ_ONLY,
 )
 @safe_tool
-def fw_hunt_patterns(vendor: str | None = None, category: str | None = None) -> dict[str, Any]:
-    ps = load_patterns()
+def fw_hunt_patterns(vendor: str | None = None, category: str | None = None, pack: str = "cctv") -> dict[str, Any]:
+    ps = load_patterns(pack=pack)
     sh = [h.brief() | {"references": h.references} for h in ps.string_heuristics if (not vendor or h.vendor == vendor) and (not category or h.category == category)]
     return {
         "ok": True,
+        "pack": ps.pack,
+        "packs": list(PACKS),
         "source": ps.source,
         "sha256": ps.sha256,
         "version": ps.version,
@@ -1015,6 +1080,931 @@ async def fw_crack_hashes(
         }
 
     return await _execute(kind="fw_crack_hashes", case_id=case.id, background=background, max_seconds=None, description=f"fw_crack_hashes ({len(entries)} hashes)", fn=work)
+
+
+# ---------------------------------------------------------------------------
+# ESP32 형식 (fw_esp_*) — 게임 세이브·해금 오프라인 분석 (docs/design/game-console-flipper-rf.md §3.5)
+# ---------------------------------------------------------------------------
+
+#: ESP 도구가 한 번에 읽는 최대 크기 (ESP 플래시는 수십 MiB 이하)
+ESP_MAX_BYTES = 128 << 20
+#: 세이브 비교·체크섬 도구의 스냅샷 수 한도
+SNAPSHOT_MIN, SNAPSHOT_MAX = 2, 16
+#: 스냅샷 전체 크기 상한(메모리 보호 — 세이브는 작다): 바이트 비교 합계 64 MiB, 체크섬 찾기 합계 8 MiB(합 계열 접두합이 입력의
+#: 10배 남짓 메모리를 쓴다), 치트 표 16 MiB
+SAVE_DIFF_MAX_TOTAL = 64 << 20
+CHECKSUM_MAX_TOTAL = 8 << 20
+SEQ_TABLES_MAX_BYTES = 16 << 20
+#: NVS 해석 입력 상한 (NVS 파티션은 보통 수십 KiB — 항목마다 dict 를 만들므로 큰 입력을 NVS 로 해석하지 않게), nvs 비교 합계 상한
+NVS_MAX_BYTES = 1 << 20
+NVS_DIFF_MAX_TOTAL = 4 << 20
+#: REA 호환 RISC-V e_flags: EF_RISCV_RVC(0x1) | EF_RISCV_FLOAT_ABI_DOUBLE(0x4)
+ELF_RISCV_REA_EFLAGS = 0x5
+#: 치트 입력 표를 찾지 않는 세그먼트 kind (코드·패딩)
+_CODE_SEGMENT_KINDS = ("flash-text", "iram", "rtc-text", "rom-text", "padding")
+#: 세이브로 보이는 NVS 키 이름 (다음 단계 안내용)
+_SAVE_KEY_RE = re.compile(r"score|hiscore|high|best|rank|level|stage|world|unlock|coin|gold|gem|life|lives|progress|save|slot|clear|star|exp|xp", re.I)
+
+
+_LIB_ERRORS = (espfmt.EspFormatError, espfmt.NvsError, saves.SaveFormatError)
+
+
+def _lib(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """라이브러리 호출: 형식·인자 오류(EspFormatError·NvsError·SaveFormatError)는 validation_failed 로 알린다."""
+    try:
+        return fn(*args, **kwargs)
+    except _LIB_ERRORS as exc:
+        raise ValidationFailed(str(exc)) from None
+
+
+def _pread_regular(path: Path, start: int, n: int) -> bytes:
+    """일반 파일의 [start, start+n) 을 읽는다(심볼릭 링크·특수 파일 거부)."""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(str(path), flags)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise ValidationFailed(f"일반 파일이 아닙니다: {path.name}")
+        chunks: list[bytes] = []
+        pos, left = start, n
+        while left > 0:
+            b = os.pread(fd, min(left, 1 << 20), pos)
+            if not b:
+                break
+            chunks.append(b)
+            pos += len(b)
+            left -= len(b)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def _esp_table(src: Path, size: int) -> dict[str, Any]:
+    """파일 앞부분(최대 1 MiB + 4 KiB)에서 파티션 표를 찾는다. 범위 검사는 실제 파일 크기(data_len)로 한다."""
+    head = _pread_regular(src, 0, min(size, 0x101000))
+    return _lib(espfmt.parse_partition_table, head, data_len=size)
+
+
+def _esp_range(src: Path, offset: Any, length: Any, partition: str | None, *, what: str) -> dict[str, Any]:
+    """offset/length 또는 partition(전체 플래시 덤프의 파티션 label)으로 읽을 범위를 정한다."""
+    size = src.stat().st_size
+    off = parse_int_arg(offset, "offset")
+    ln = parse_int_arg(length, "length")
+    ent = None
+    table_offset = None
+    if partition:
+        if off is not None or ln is not None:
+            raise ValidationFailed("partition 과 offset/length 는 함께 줄 수 없습니다.", hint="파티션 전체를 쓰거나, offset/length 로 범위를 직접 준다.")
+        table = _esp_table(src, size)
+        if not table.get("found"):
+            raise ValidationFailed("파티션 표를 찾지 못했습니다 — partition 은 ESP 전체 플래시 덤프에만 쓸 수 있습니다.",
+                                   hint="offset/length 로 범위를 직접 주거나 fw_esp_partitions 로 표 위치를 확인하세요.")
+        ent = espfmt.find_partition(table, partition)
+        if ent is None:
+            labels = ", ".join(str(e.get("label")) for e in table.get("entries", []))
+            raise ValidationFailed(f"파티션 '{partition}' 이 없습니다.", hint=f"있는 파티션: {labels}")
+        off, ln = int(ent["offset"]), int(ent["size"])
+        table_offset = table.get("offset")
+    start = off or 0
+    if start < 0 or start > size:
+        raise ValidationFailed(f"offset 이 파일 밖입니다: {hexs(start)} (파일 크기 {size})")
+    avail = size - start
+    n = avail if ln is None else min(int(ln), avail)
+    if n > ESP_MAX_BYTES:
+        raise ValidationFailed(f"{what} 입력이 너무 큽니다 ({n} 바이트).", hint="offset/length 또는 partition 으로 범위를 좁히세요.")
+    out: dict[str, Any] = {"start": start, "length": n, "start_hex": hexs(start), "end_hex": hexs(start + n)}
+    if ent is not None:
+        out["partition"] = {k: ent.get(k) for k in ("label", "type_name", "subtype_name", "offset", "size", "encrypted", "write_class")}
+        out["table_offset"] = table_offset
+        if ln is not None and int(ln) > avail:
+            out["truncated"] = True
+    return out
+
+
+def _esp_read(src: Path, rng: dict[str, Any]) -> bytes:
+    return _pread_regular(src, rng["start"], rng["length"])
+
+
+def _seg_brief(s: dict[str, Any], base: int = 0) -> dict[str, Any]:
+    """세그먼트 요약. file_offset 은 이미지 기준, file_offset_abs 는 입력 파일 기준(base = 이미지 시작)."""
+    fo = s.get("file_offset")
+    return {"index": s.get("index"), "load_addr": hexs(s.get("load_addr")), "size": s.get("size"),
+            "file_offset": hexs(fo), "file_offset_abs": hexs(base + fo) if isinstance(fo, int) else None,
+            "region": s.get("region"), "kind": s.get("kind")}
+
+
+def _abs_segments(img: dict[str, Any], base: int) -> None:
+    """결과 파일의 세그먼트에 입력 파일 기준 오프셋(file_offset_abs)을 더한다."""
+    for sg in img.get("segments") or []:
+        if isinstance(sg.get("file_offset"), int):
+            sg["file_offset_abs"] = base + sg["file_offset"]
+
+
+@server.tool(
+    description=(
+        "ESP32 계열 플래시 덤프의 파티션 표 해석(기본 0x8000, 없으면 4 KiB 경계 탐색): label, type/subtype 이름, offset, size, flags(암호화·읽기 전용), "
+        "MD5 항목 검증, 겹침·범위 밖 경고, 세이브 쓰기 분류 write_class(nvs / raw-user-data / filesystem-analysis-only / not-a-save)와 "
+        "write_blockers(암호화 플래그, nvs_keys 파티션 = NVS 암호화 가능). fat/spiffs/littlefs 는 파일 시스템 해석 전까지 분석만 한다. "
+        "결과: analysis/esp-partitions-NNN.json. 앱은 fw_esp_image_info, NVS 는 fw_esp_nvs(partition=label) 로 이어 간다."
+    ),
+    annotations=ANN_LOCAL_WRITE,
+)
+@safe_tool
+async def fw_esp_partitions(case_id: str, path: str, offset: int | str | None = None, max_results: int = DEFAULT_MAX_RESULTS) -> dict[str, Any]:
+    case = rt().case(case_id)
+    src = resolve_input_file(case, path)
+    off = parse_int_arg(offset, "offset")
+    mr = clamp_int(max_results, 0, HARD_MAX_RESULTS, "max_results")
+
+    def work(ctl: Ctl) -> dict[str, Any]:
+        info = file_info(case, src)
+        size = info["size"]
+        if off is not None:
+            if off < 0 or off >= size:
+                raise ValidationFailed(f"offset 이 파일 밖입니다: {hexs(off)}")
+            # 표 자리(최대 0xC00 + MD5 항목)만 읽는다 — 큰 offset 에서 [0, offset) 을 읽지 않게
+            data = _pread_regular(src, off, min(size - off, espfmt.PARTITION_TABLE_MAX_LEN + 32))
+            table = _lib(espfmt.parse_partition_table, data, off, data_len=size, base_offset=off)  # offset 은 절대 위치
+        else:
+            table = _esp_table(src, size)
+        payload = base_payload("fw_esp_partitions", case, schema="esp-partitions", input_info=info, params={"offset": off})
+        payload.update(table)
+        rel = _write(case, "esp-partitions", payload, f"fw_esp_partitions {info['path']}")
+        ents = table.get("entries") or []
+        rt().audit({"event": "fwtriage_esp_partitions", "input": info["path"], "result": rel, "found": bool(table.get("found")), "entries": len(ents)}, case.id)
+        steps: list[str] = []
+        brief = []
+        for e in ents:
+            brief.append({"label": e.get("label"), "type": e.get("type_name"), "subtype": e.get("subtype_name"), "offset": hexs(e.get("offset")),
+                          "size": e.get("size"), "encrypted": e.get("encrypted"), "readonly": e.get("readonly"),
+                          "write_class": e.get("write_class"), "write_blockers": e.get("write_blockers") or []})
+            if e.get("type_name") == "app" and e.get("offset", 0) + 0x20 <= size:
+                steps.append(f"앱 '{e.get('label')}' → fw_esp_image_info(path='{info['path']}', partition='{e.get('label')}') → fw_esp_to_elf")
+            elif e.get("write_class") == "nvs":
+                steps.append(f"NVS '{e.get('label')}' → fw_esp_nvs(path='{info['path']}', partition='{e.get('label')}'), 스냅샷 여러 개면 fw_save_diff(partition='{e.get('label')}')")
+            elif e.get("write_class") == "raw-user-data":
+                steps.append(f"원시 데이터 '{e.get('label')}' → 스냅샷 비교 fw_save_diff(partition='{e.get('label')}') · fw_checksum_find")
+            elif e.get("write_class") == "filesystem-analysis-only":
+                steps.append(f"'{e.get('label')}' 은 파일 시스템({e.get('subtype_name')}) — 파일 시스템 해석 전까지 분석만 (REA extract_firmware 로 풀어 본다)")
+        if not table.get("found"):
+            steps.append("파티션 표를 찾지 못함 → 전체 플래시 덤프인지 확인(esp32-flash-dump), 플래시 암호화면 표도 암호문이다(fw_entropy, esp_security_info)")
+        items, tr = compact_list(brief, mr)
+        return {
+            "ok": True,
+            "tool": "fw_esp_partitions",
+            "result_path": rel,
+            "input": info,
+            "found": bool(table.get("found")),
+            "table_offset": hexs(table.get("offset")),
+            "partitions": items,
+            "partitions_total": len(brief),
+            "truncated": tr,
+            "md5": table.get("md5"),
+            "nvs_keys_present": table.get("nvs_keys_present"),
+            "warnings": (table.get("warnings") or [])[:12],
+            "errors": (table.get("errors") or [])[:12],
+            "next_steps": steps[:12],
+        }
+
+    return await _execute(kind="fw_esp_partitions", case_id=case.id, background=False, max_seconds=60.0, description=f"fw_esp_partitions {case.rel(src)}", fn=work)
+
+
+@server.tool(
+    description=(
+        "ESP32 계열 앱(또는 2단계 부트로더) 이미지 해석: 칩(chip_id → 이름·아키텍처), entry, SPI 설정, 세그먼트(load 주소·크기·메모리 영역), "
+        "체크섬·덧붙은 SHA256 검증, 앱 설명(esp_app_desc: 프로젝트 이름, 버전, IDF 버전, 빌드 시각, ELF sha256). "
+        "partition=label(전체 플래시 덤프의 앱 파티션) 또는 offset 으로 위치를 준다. 결과: analysis/esp-image-NNN.json. ELF 로 바꾸려면 fw_esp_to_elf."
+    ),
+    annotations=ANN_LOCAL_WRITE,
+)
+@safe_tool
+async def fw_esp_image_info(case_id: str, path: str, offset: int | str | None = None, partition: str | None = None) -> dict[str, Any]:
+    case = rt().case(case_id)
+    src = resolve_input_file(case, path)
+
+    def work(ctl: Ctl) -> dict[str, Any]:
+        info = file_info(case, src)
+        rng = _esp_range(src, offset, None, partition, what="앱 이미지")
+        img = _lib(espfmt.parse_app_image, _esp_read(src, rng), 0)
+        _abs_segments(img, rng["start"])
+        payload = base_payload("fw_esp_image_info", case, schema="esp-image", input_info=info, params={"offset": rng["start"], "partition": partition})
+        payload.update({"range": rng, "image": img})
+        rel = _write(case, "esp-image", payload, f"fw_esp_image_info {info['path']}@{rng['start_hex']}")
+        rt().audit({"event": "fwtriage_esp_image_info", "input": info["path"], "offset": rng["start_hex"], "result": rel, "ok": bool(img.get("ok")), "chip": img.get("chip")}, case.id)
+        steps = []
+        warnings = list(img.get("warnings") or [])
+        if (rng.get("partition") or {}).get("encrypted"):
+            warnings.insert(0, "파티션에 암호화 플래그가 있다 — 플래시 암호화면 이 이미지는 암호문이라 해석이 맞지 않는다")
+        if img.get("ok"):
+            loc = f"partition='{partition}'" if partition else f"offset='{rng['start_hex']}'"
+            steps.append(f"fw_esp_to_elf(path='{info['path']}', {loc}) → REA open_binary(ELF 절대 경로) 로 디컴파일")
+            steps.append(f"치트 입력 표 후보: fw_find_seq_tables(path='{info['path']}', {loc}) · 문자열 단서: fw_strings_hunt(patterns='game')")
+        return {
+            "ok": True,
+            "tool": "fw_esp_image_info",
+            "result_path": rel,
+            "input": info,
+            "range": rng,
+            "valid": bool(img.get("ok")),
+            "chip": img.get("chip"),
+            "arch": img.get("arch"),
+            "entry": hexs(img.get("entry")),
+            "segments": [_seg_brief(s, rng["start"]) for s in (img.get("segments") or [])][:32],
+            "checksum": img.get("checksum"),
+            "sha256": img.get("sha256"),
+            "app_desc": img.get("app_desc"),
+            "image_size": img.get("image_size"),
+            "warnings": warnings[:12],
+            "errors": (img.get("errors") or [])[:12],
+            "next_steps": steps,
+        }
+
+    return await _execute(kind="fw_esp_image_info", case_id=case.id, background=False, max_seconds=60.0, description=f"fw_esp_image_info {case.rel(src)}", fn=work)
+
+
+@server.tool(
+    description=(
+        "ESP32 계열 앱 이미지를 ELF32 로 바꾼다(세그먼트마다 PT_LOAD + 영역 이름의 섹션, e_machine 94 Xtensa / 243 RISC-V, entry 유지, 심볼 없음). "
+        "REA 는 Xtensa(ESP32·S2·S3) ELF 를 열지 못하고, RISC-V(C3·C6·H2·P4 …)는 rea_compat=true 로 만든 ELF(e_flags 를 double-float ABI 로 표시 — "
+        "부동소수점 인자 해석만 틀릴 수 있음)만 연다. partition=label 또는 offset. "
+        "출력: extract/<output_label>-NNN/<name>.elf (firmware-image 아티팩트) + analysis/esp-to-elf-NNN.json. 응답의 elf_path_abs 를 REA 에 넘긴다."
+    ),
+    annotations=ANN_LOCAL_WRITE,
+)
+@safe_tool
+async def fw_esp_to_elf(case_id: str, path: str, offset: int | str | None = None, partition: str | None = None, output_label: str = "esp-app",
+                        rea_compat: bool = False) -> dict[str, Any]:
+    case = rt().case(case_id)
+    src = resolve_input_file(case, path)
+    label = safe_label(output_label, "esp-app")
+
+    def work(ctl: Ctl) -> dict[str, Any]:
+        info = file_info(case, src, with_hash=False)
+        rng = _esp_range(src, offset, None, partition, what="앱 이미지")
+        data = _esp_read(src, rng)
+        img = espfmt.parse_app_image(data, 0)
+        if not img.get("ok") or not img.get("segments"):
+            raise ValidationFailed("유효한 ESP 앱 이미지가 아닙니다: " + "; ".join((img.get("errors") or ["세그먼트 없음"])[:3]),
+                                   hint="fw_esp_image_info 로 먼저 확인하세요(플래시 암호화면 바꿀 수 없다).")
+        elf = _lib(espfmt.image_to_elf, data, img)
+        _abs_segments(img, rng["start"])
+        notes: list[str] = []
+        if img.get("arch") == "riscv" and rea_compat:
+            # REA 는 RISC-V ELF 중 double-float ABI 표시(e_flags 0x4)가 있는 것만 연다. ESP RISC-V 칩은 soft-float(C3·C6·H2…)
+            # 또는 single-float(P4) 이므로 표시만 바꾼다 — 정수 코드 해석은 같고, 부동소수점 인자·반환값 해석만 틀릴 수 있다.
+            elf = elf[:36] + struct.pack("<I", ELF_RISCV_REA_EFLAGS) + elf[40:]
+            notes.append("rea_compat: e_flags 를 RVC|double-float(0x5)로 표시했다(실제 칩 ABI 와 다름 — 부동소수점 인자·반환값 해석은 틀릴 수 있다)")
+        elif img.get("arch") == "xtensa":
+            notes.append("REA 는 Xtensa ELF(ESP32·S2·S3)를 열지 못한다(지원 아키텍처 아님) — 디컴파일 없이 문자열·패턴·표 도구와 세이브 비교로 분석한다")
+        elif img.get("arch") == "riscv":
+            notes.append("REA 는 이 RISC-V ELF(soft/single-float 표시)를 열지 않는다 — REA 로 디컴파일하려면 rea_compat=true 로 다시 만든다")
+        out_dir = claim_numbered_dir(case.subdir("extract"), label)
+        name = safe_name(((img.get("app_desc") or {}).get("project_name") or partition or "app"), "app") + ".elf"
+        out = out_dir / name
+        atomic_write_bytes(out, elf)
+        art = case.register_artifact(out, kind="firmware-image", producer=PRODUCER, description=f"ESP 앱 이미지 → ELF ({img.get('chip')})",
+                                     extra={"type": "esp-app-elf", "source": info["path"], "offset": rng["start_hex"], "chip": img.get("chip"),
+                                            "e_machine": img.get("e_machine")})
+        payload = base_payload("fw_esp_to_elf", case, schema="esp-to-elf", input_info=info,
+                               params={"offset": rng["start"], "partition": partition, "output_label": label, "rea_compat": bool(rea_compat)})
+        payload.update({"range": rng, "elf_path": art["path"], "elf_sha256": art.get("sha256"), "chip": img.get("chip"), "e_machine": img.get("e_machine"),
+                        "entry": img.get("entry"), "segments": img.get("segments"), "notes": notes})
+        rel = _write(case, "esp-to-elf", payload, f"fw_esp_to_elf {info['path']}@{rng['start_hex']} → {art['path']}")
+        rt().audit({"event": "fwtriage_esp_to_elf", "input": info["path"], "offset": rng["start_hex"], "elf": art["path"], "result": rel}, case.id)
+        return {
+            "ok": True,
+            "tool": "fw_esp_to_elf",
+            "result_path": rel,
+            "elf_path": art["path"],
+            "elf_path_abs": str(out),
+            "elf_sha256": art.get("sha256"),
+            "chip": img.get("chip"),
+            "arch": img.get("arch"),
+            "e_machine": img.get("e_machine"),
+            "entry": hexs(img.get("entry")),
+            "segments": [_seg_brief(s, rng["start"]) for s in img.get("segments") or []][:32],
+            "notes": notes,
+            "next_steps": ([f"REA open_binary(path='{out}') → search_strings · xrefs · procedure_pseudo_code (심볼이 없어 함수 이름은 주소다)"]
+                           if img.get("arch") == "riscv" and rea_compat else
+                           ["fw_strings_hunt(patterns='game')·fw_find_seq_tables·fw_save_diff 로 분석한다(이 ELF 는 REA 로 열 수 없다)"]),
+        }
+
+    return await _execute(kind="fw_esp_to_elf", case_id=case.id, background=False, max_seconds=120.0, description=f"fw_esp_to_elf {case.rel(src)}", fn=work)
+
+
+def _render_value(v: Any, *, full: bool) -> Any:
+    """NVS 값 표시: 정수·문자열은 그대로, 바이트는 크기·sha256·hex(응답은 앞 64바이트, 결과 파일은 64 KiB 까지)."""
+    if isinstance(v, (bytes, bytearray)):
+        b = bytes(v)
+        lim = 65536 if full else 64
+        out: dict[str, Any] = {"size": len(b), "sha256": hashlib.sha256(b).hexdigest(), "hex": b[:lim].hex()}
+        if len(b) > lim:
+            out["hex_truncated"] = True
+        return out
+    return v
+
+
+def _mask_item_value(case_id: str, value: Any) -> dict[str, Any]:
+    """비밀로 보이는 NVS 값: 원문 대신 마스킹 + 케이스 솔트 다이제스트(응답·결과 파일 모두)."""
+    raw = bytes(value) if isinstance(value, (bytes, bytearray)) else str(value)
+    return {"masked": core_mask_secret(raw), "digest": rt().secret_digest(case_id, raw)}
+
+
+def _as_raw(v: Any) -> bytes:
+    if isinstance(v, (bytes, bytearray)):
+        return bytes(v)
+    if v is None or isinstance(v, (bool, int)):
+        return b""
+    return str(v).encode("utf-8", "surrogatepass")
+
+
+def _secret_raws(entries: Any) -> list[bytes]:
+    """비밀 항목의 원문 바이트(4바이트 이상) — 다른 키의 값(설정 blob 등)에 같은 비밀이 들어 있는지 찾는 데 쓴다."""
+    out: set[bytes] = set()
+    for it in entries or []:
+        if it.get("secret") or espfmt.secret_hint(it.get("namespace"), it.get("key")):
+            b = _as_raw(it.get("value"))
+            if len(b) >= 4:
+                out.add(b)
+    return sorted(out, key=len, reverse=True)
+
+
+def _is_secret(it: dict[str, Any], raws: list[bytes]) -> bool:
+    """키 이름이 비밀로 보이거나, 값에 다른 비밀 항목의 원문이 들어 있으면 비밀로 다룬다."""
+    if it.get("secret") or espfmt.secret_hint(it.get("namespace"), it.get("key")):
+        return True
+    b = _as_raw(it.get("value"))
+    return bool(b) and any(r in b for r in raws)
+
+
+def _public_value(case_id: str, it: dict[str, Any], raws: list[bytes], *, full: bool) -> tuple[bool, Any]:
+    if _is_secret(it, raws):
+        v = it.get("value")
+        return True, (_mask_item_value(case_id, v) if v is not None else None)
+    return False, _render_value(it.get("value"), full=full)
+
+
+def _nvs_items_public(case_id: str, items: list[dict[str, Any]], raws: list[bytes], *, full: bool, base: int = 0) -> list[dict[str, Any]]:
+    """NVS 항목 표시용 사본. offset 은 NVS 파티션 기준, offset_abs 는 입력 파일 기준(base = NVS 시작)."""
+    out = []
+    for it in items:
+        d = {k: it.get(k) for k in ("namespace", "key", "type_name", "state", "live", "page", "entry", "span", "chunk_index", "size")}
+        off = it.get("offset")
+        d["offset"] = hexs(off)
+        if isinstance(off, int):
+            d["offset_abs"] = hexs(base + off)
+        d["crc_ok"] = (it.get("crc") or {}).get("ok")
+        if it.get("data_crc_ok") is not None:
+            d["data_crc_ok"] = it.get("data_crc_ok")
+        secret, d["value"] = _public_value(case_id, it, raws, full=full)
+        if secret:
+            d["secret"] = True
+        out.append(d)
+    return out
+
+
+def _nvs_blobs_public(case_id: str, blobs: list[dict[str, Any]], raws: list[bytes], *, full: bool) -> list[dict[str, Any]]:
+    out = []
+    for b in blobs:
+        d = {k: b.get(k) for k in ("namespace", "key", "size", "chunks", "complete")}
+        secret, d["value"] = _public_value(case_id, b, raws, full=full)
+        if secret:
+            d["secret"] = True
+        out.append(d)
+    return out
+
+
+def _abs_duplicates(dups: Any, base: int) -> list[Any]:
+    """live 중복 목록의 항목 오프셋에 입력 파일 기준 오프셋(offset_abs)을 더한다(원본은 바꾸지 않음)."""
+    out = []
+    for dup in dups or []:
+        if isinstance(dup, dict):
+            dup = dict(dup)
+            ents = []
+            for e in dup.get("entries") or []:
+                if isinstance(e, dict) and isinstance(e.get("offset"), int):
+                    e = dict(e, offset_abs=hexs(base + e["offset"]))
+                ents.append(e)
+            if ents:
+                dup["entries"] = ents
+        out.append(dup)
+    return out
+
+
+@server.tool(
+    description=(
+        "ESP NVS 파티션 해석(4 KiB 페이지): 페이지 상태·seq·버전, 헤더·항목·데이터 CRC 유효 개수, 네임스페이스, 항목(namespace/key/type/값 — 정수, 문자열, "
+        "blob v1·v2 를 이어 붙인 값), 최신(live) 여부와 지워진 이전 값(include_erased=true), 같은 키의 live 중복. "
+        "비밀로 보이는 값(nvs.net80211 의 모든 값, 비밀번호·PIN·PSK·API 키·개인키·인증 토큰·자격증명 모양의 키, 그리고 그런 비밀의 원문을 담은 다른 값)은 "
+        "응답과 결과 파일 모두 마스킹 + 케이스 솔트 다이제스트만 남긴다(키 이름 휴리스틱 — 평범한 이름에 숨긴 비밀은 못 가릴 수 있다). "
+        "partition=label(전체 플래시 덤프) 또는 offset/length, NVS 파티션 파일이면 그대로(최대 1 MiB). export_blobs=true 면 비밀이 아닌 blob 을 "
+        "extract/nvs-blobs-NNN/ 에 파일로 남긴다(fw_save_diff 로 비교). offset 은 NVS 기준, offset_abs 는 입력 파일 기준. "
+        "결과: analysis/esp-nvs-NNN.json. CRC 규칙(nvs_crc32)은 실기 검증 전이다 — crc_summary 로 확인."
+    ),
+    annotations=ANN_LOCAL_WRITE,
+)
+@safe_tool
+async def fw_esp_nvs(
+    case_id: str,
+    path: str,
+    offset: int | str | None = None,
+    length: int | str | None = None,
+    partition: str | None = None,
+    namespace: str | None = None,
+    key: str | None = None,
+    include_erased: bool = False,
+    export_blobs: bool = False,
+    max_results: int = DEFAULT_MAX_RESULTS,
+) -> dict[str, Any]:
+    case = rt().case(case_id)
+    src = resolve_input_file(case, path)
+    mr = clamp_int(max_results, 0, HARD_MAX_RESULTS, "max_results")
+
+    def work(ctl: Ctl) -> dict[str, Any]:
+        info = file_info(case, src)
+        rng = _esp_range(src, offset, length, partition, what="NVS")
+        if rng["length"] > NVS_MAX_BYTES:
+            raise ValidationFailed(f"NVS 입력이 너무 큽니다(한도 {NVS_MAX_BYTES >> 20} MiB).", hint="partition=<NVS 파티션 label> 로 NVS 파티션만 고르세요(fw_esp_partitions).")
+        base = rng["start"]
+        nvs = _lib(espfmt.parse_nvs, _esp_read(src, rng), include_erased=True, ctl=ctl)
+        all_items = nvs.get("items") or []
+        raws = _secret_raws(list(all_items) + list(nvs.get("blobs") or []))
+        items = [it for it in all_items
+                 if (namespace is None or it.get("namespace") == namespace) and (key is None or it.get("key") == key)]
+        shown = [it for it in items if include_erased or it.get("live")]
+        blobs = [b for b in nvs.get("blobs") or [] if (namespace is None or b.get("namespace") == namespace) and (key is None or b.get("key") == key)]
+        exported: list[str] = []
+        renamed: list[str] = []
+        if export_blobs:
+            todo = [b for b in blobs if b.get("value") and not _is_secret(b, raws)]
+            todo += [it for it in items if it.get("live") and it.get("type_name") == "BLOB" and isinstance(it.get("value"), (bytes, bytearray))
+                     and not _is_secret(it, raws)]
+            if todo:
+                out_dir = claim_numbered_dir(case.subdir("extract"), "nvs-blobs")
+                for b in todo:
+                    stem = f"{safe_name(str(b.get('namespace')), 'ns')}.{safe_name(str(b.get('key')), 'key')}"
+                    p = out_dir / f"{stem}.bin"
+                    n = 2
+                    while p.exists() or p.is_symlink():  # 정리한 이름이 겹치면 번호를 붙인다(덮어쓰지 않음)
+                        p = out_dir / f"{stem}-{n}.bin"
+                        n += 1
+                    if n > 2:
+                        renamed.append(f"{b.get('namespace')}/{b.get('key')} → {p.name}")
+                    atomic_write_bytes(p, bytes(b["value"]))
+                    a = case.register_artifact(p, kind="other", producer=PRODUCER, description=f"NVS blob {b.get('namespace')}/{b.get('key')}",
+                                               extra={"type": "nvs-blob", "source": info["path"], "range": rng["start_hex"],
+                                                      "namespace": b.get("namespace"), "key": b.get("key")})
+                    exported.append(a["path"])
+        payload = base_payload("fw_esp_nvs", case, schema="esp-nvs", input_info=info,
+                               params={"range": rng, "namespace": namespace, "key": key, "include_erased": include_erased, "export_blobs": export_blobs})
+        payload.update({k: nvs.get(k) for k in ("page_size", "pages", "namespaces", "crc_summary", "crc_convention", "versions_seen", "warnings", "errors", "truncated")})
+        payload.update({"range": rng, "items": _nvs_items_public(case.id, items, raws, full=True, base=base),
+                        "blobs": _nvs_blobs_public(case.id, blobs, raws, full=True), "duplicates": _abs_duplicates(nvs.get("duplicates"), base),
+                        "exported_blobs": exported, "renamed_blobs": renamed})
+        rel = _write(case, "esp-nvs", payload, f"fw_esp_nvs {info['path']}@{rng['start_hex']}")
+        crc = nvs.get("crc_summary") or {}
+        rt().audit({"event": "fwtriage_esp_nvs", "input": info["path"], "range": rng["start_hex"], "result": rel, "items": len(items),
+                    "secrets_masked": sum(1 for it in items if _is_secret(it, raws))}, case.id)
+        warnings = list(nvs.get("warnings") or [])
+        ent = crc.get("entry") or {}
+        if ent.get("bad") and not ent.get("ok"):
+            warnings.insert(0, "항목 CRC 가 하나도 맞지 않습니다 — NVS CRC 규칙(nvs_crc32)이 이 이미지와 다를 수 있습니다(실기 검증 전). 값은 참고만 하고, 패치는 거부됩니다.")
+        elif ent.get("bad"):
+            warnings.insert(0, f"항목 CRC 불일치 {ent.get('bad')}개 (손상·기록 중단 가능 — 해당 항목은 기기가 무시할 수 있다)")
+        if rng.get("partition") and rng["partition"].get("write_class") not in (None, "nvs"):
+            warnings.append(f"파티션 '{partition}' 은 NVS 가 아니다(write_class={rng['partition'].get('write_class')})")
+        if renamed:
+            warnings.append(f"정리한 blob 파일 이름이 겹쳐 번호를 붙였다: {', '.join(renamed[:5])}")
+        steps = []
+        save_keys = sorted({f"{it.get('namespace')}/{it.get('key')}" for it in items
+                            if it.get("live") and not _is_secret(it, raws) and _SAVE_KEY_RE.search(str(it.get("key") or ""))})
+        if save_keys:
+            steps.append("세이브로 보이는 키: " + ", ".join(save_keys[:10]) + " → 점수·진행이 바뀔 때마다 덤프(≥3회) 후 fw_save_diff(paths=[…], mode='nvs', observations=[…])")
+        if nvs.get("duplicates"):
+            steps.append("같은 키의 live 항목이 여럿이다(기록 중단 흔적) — 기기는 최신 하나만 쓴다. 이 키는 패치 대상에서 빠진다")
+        public, tr = compact_list(_nvs_items_public(case.id, shown, raws, full=False, base=base), mr)
+        return {
+            "ok": True,
+            "tool": "fw_esp_nvs",
+            "result_path": rel,
+            "input": info,
+            "range": rng,
+            "pages": [{k: p.get(k) for k in ("index", "state_name", "seq", "version", "written", "erased")} | {"header_crc_ok": (p.get("header_crc") or {}).get("ok")}
+                      for p in (nvs.get("pages") or [])][:64],
+            "namespaces": nvs.get("namespaces"),
+            "crc_summary": crc,
+            "crc_convention": nvs.get("crc_convention"),
+            "items": public,
+            "items_total": len(shown),
+            "truncated": tr or bool(nvs.get("truncated")),
+            "blobs": _nvs_blobs_public(case.id, blobs, raws, full=False)[:20],
+            "duplicates": _abs_duplicates(nvs.get("duplicates"), base)[:20],
+            "exported_blobs": exported[:50],
+            "warnings": warnings[:12],
+            "errors": (nvs.get("errors") or [])[:12],
+            "next_steps": steps,
+        }
+
+    return await _execute(kind="fw_esp_nvs", case_id=case.id, background=False, max_seconds=120.0, description=f"fw_esp_nvs {case.rel(src)}", fn=work)
+
+
+# ---------------------------------------------------------------------------
+# 세이브 비교·체크섬·치트 입력 표 (fw_save_diff, fw_checksum_find, fw_find_seq_tables)
+# ---------------------------------------------------------------------------
+
+
+def _snapshot_sources(case: Any, paths: Any) -> list[Path]:
+    """스냅샷 파일 경로 확인(시간 순서, 케이스 안의 일반 파일)."""
+    if not isinstance(paths, list) or not SNAPSHOT_MIN <= len(paths) <= SNAPSHOT_MAX:
+        raise ValidationFailed(f"paths 는 스냅샷 파일 {SNAPSHOT_MIN}~{SNAPSHOT_MAX}개의 목록이어야 합니다(시간 순서).")
+    return [resolve_input_file(case, str(p)) for p in paths]
+
+
+def _snapshots(case: Any, srcs: list[Path], offset: Any, length: Any, partition: str | None, *, max_total: int) -> tuple[list[dict[str, Any]], list[bytes], dict[str, Any]]:
+    """스냅샷 파일들의 같은 범위를 읽는다(합계 max_total 바이트까지). 반환: (파일 정보, 바이트, 범위)."""
+    infos, blobs = [], []
+    rng0: dict[str, Any] | None = None
+    total = 0
+    for src in srcs:
+        rng = _esp_range(src, offset, length, partition, what="스냅샷")
+        total += rng["length"]
+        if total > max_total:
+            raise ValidationFailed(f"스냅샷 합계가 너무 큽니다(한도 {max_total >> 20} MiB).",
+                                   hint="partition 이나 offset/length 로 세이브 영역만 고르거나(예: NVS 파티션) 스냅샷 수를 줄이세요.")
+        if rng0 is None:
+            rng0 = rng
+        elif (rng["start"], (rng.get("partition") or {}).get("size")) != (rng0["start"], (rng0.get("partition") or {}).get("size")):
+            raise ValidationFailed("스냅샷마다 파티션 위치가 다릅니다 — 같은 기기·같은 레이아웃의 덤프만 비교한다.")
+        infos.append(file_info(case, src))
+        blobs.append(_esp_read(src, rng))
+    assert rng0 is not None
+    return infos, blobs, rng0
+
+
+def _labels(labels: Any, n: int) -> list[str]:
+    if labels is None:
+        return [f"s{i + 1}" for i in range(n)]
+    if not isinstance(labels, list) or len(labels) != n:
+        raise ValidationFailed("labels 는 paths 와 같은 길이의 목록이어야 합니다.")
+    return [clip(str(x), 40) for x in labels]
+
+
+def _check_observations(observations: Any, n: int) -> list[dict[str, Any]] | None:
+    if observations is None:
+        return None
+    if not isinstance(observations, list) or not observations:
+        raise ValidationFailed("observations 는 [{label, values}] 목록입니다(values 는 스냅샷마다 하나, 모르면 null).")
+    out = []
+    for o in observations[:8]:
+        if not isinstance(o, dict) or not isinstance(o.get("values"), list) or len(o["values"]) != n:
+            raise ValidationFailed("observations[].values 는 스냅샷 수와 같은 길이여야 합니다.")
+        vals = []
+        for v in o["values"]:
+            if v is None:
+                vals.append(None)
+            elif isinstance(v, bool) or not isinstance(v, (int, str)):
+                raise ValidationFailed("observations 값은 정수(또는 숫자 문자열)나 null 입니다.")
+            elif isinstance(v, int):
+                vals.append(v)
+            else:
+                try:
+                    vals.append(int(v.strip(), 0))  # 음수·16진('0x…') 허용
+                except ValueError:
+                    raise ValidationFailed(f"observations 값을 정수로 읽을 수 없습니다: {v!r}") from None
+        out.append({"label": clip(str(o.get("label") or "value"), 40), "values": vals})
+    return out
+
+
+_NVS_LIVE_STATES = (0xFFFFFFFE, 0xFFFFFFFC, 0xFFFFFFF8)
+
+
+def _looks_like_nvs(blob: bytes) -> bool:
+    """NVS 페이지 형식인지: 어느 페이지든 상태가 active/full/freeing 이고 헤더 CRC 가 맞거나(싸다),
+    작은 입력이면 네임스페이스가 해석되는지(CRC 규칙이 다른 기기 대비). 지운 페이지가 맨 앞이어도 찾는다."""
+    P = espfmt.NVS_PAGE_SIZE
+    if len(blob) < P or len(blob) % P:
+        return False
+    live = [o for o in range(0, len(blob), P) if struct.unpack_from("<I", blob, o)[0] in _NVS_LIVE_STATES]
+    if not live:
+        return False
+    for o in live[:4096]:
+        if struct.unpack_from("<I", blob, o + 28)[0] == espfmt.nvs_crc32(blob[o + 4:o + 28]):
+            return True
+    return len(blob) <= NVS_MAX_BYTES and bool(espfmt.parse_nvs(blob, include_erased=False).get("namespaces"))
+
+
+def _nvs_reason(src0: Path, rng: dict[str, Any], blobs: list[bytes]) -> tuple[str, str] | None:
+    """범위가 NVS 를 담고 있으면 (이유, 종류). 바이트 비교·체크섬 찾기는 NVS 의 비밀값(Wi-Fi 비밀번호 등)을 가리지 못하므로 막는 데 쓴다.
+
+    종류: 'partition'(NVS 파티션을 골랐다), 'overlap'(범위가 NVS 파티션과 겹치지만 그 파티션만은 아니다 — 전체 플래시 등),
+    'format'(표 없이 스냅샷 자체가 NVS 페이지 형식). nvs 모드로 바꿔도 되는 것은 partition·format 뿐이다."""
+    part = rng.get("partition") or {}
+    if part:
+        if part.get("write_class") == "nvs" or part.get("subtype_name") in ("nvs", "nvs_keys"):
+            return f"파티션 '{part.get('label')}' 은 NVS 다", "partition"
+        return None
+    table = _esp_table(src0, src0.stat().st_size)
+    if table.get("found"):
+        s0, e0 = rng["start"], rng["start"] + rng["length"]
+        for ent in table.get("entries") or []:
+            if ent.get("write_class") == "nvs" or ent.get("subtype_name") in ("nvs", "nvs_keys"):
+                o, z = int(ent.get("offset") or 0), int(ent.get("size") or 0)
+                if o < e0 and s0 < o + z:
+                    return f"범위가 NVS 파티션 '{ent.get('label')}'({hexs(o)}) 과 겹친다", "overlap"
+    if any(_looks_like_nvs(b) for b in blobs):
+        return "스냅샷이 NVS 페이지 형식이다", "format"
+    return None
+
+
+def _nvs_diff_public(case_id: str, entries: Any, raws: list[bytes]) -> list[dict[str, Any]]:
+    """nvs_item_diff 의 changed/added/removed 표시용 사본 — 비밀 값은 마스킹 + 다이제스트."""
+    out = []
+    for c in entries or []:
+        d = {k: c.get(k) for k in ("namespace", "key", "type_name")}
+        vals = c.get("values") or []
+        if c.get("secret") or espfmt.secret_hint(c.get("namespace"), c.get("key")) or any(_is_secret({"value": v}, raws) for v in vals):
+            d["secret"] = True
+            d["values"] = [None if v is None else _mask_item_value(case_id, v) for v in vals]
+        else:
+            d["values"] = [_render_value(v, full=True) for v in vals]
+        out.append(d)
+    return out
+
+
+@server.tool(
+    description=(
+        "세이브 스냅샷 비교(시간 순서 2~16개 — 점수·진행이 바뀔 때마다 덤프): mode='bytes' 는 바뀐 바이트 범위와 인코딩 해석(u8/u16/u32 LE·BE, BCD)·추세, "
+        "mode='nvs' 는 NVS 키 단위 변화(changed·added·removed — 비밀 값은 마스킹), auto 는 NVS 파티션·NVS 형식이면 nvs. "
+        "바이트 비교는 비밀값을 가리지 못하므로 NVS 를 담은 범위(NVS 파티션과 겹치거나 NVS 형식)는 bytes 로 비교하지 않는다(validation_failed). "
+        "observations=[{label, values}] 로 스냅샷마다 화면에서 본 값(예: 점수, 음수 가능)을 주면 그 값과 정확히 같은 위치·인코딩(또는 NVS 키)을 찾는다. "
+        "범위는 partition=label 또는 offset/length(모든 스냅샷에 같게). 결과는 후보다 — fw_checksum_find·디컴파일로 확인한다. 결과: analysis/save-diff-NNN.json."
+    ),
+    annotations=ANN_LOCAL_WRITE,
+)
+@safe_tool
+async def fw_save_diff(
+    case_id: str,
+    paths: list[str],
+    labels: list[str] | None = None,
+    offset: int | str | None = None,
+    length: int | str | None = None,
+    partition: str | None = None,
+    mode: str = "auto",
+    observations: list[dict[str, Any]] | None = None,
+    merge_gap: int = 0,
+    max_results: int = DEFAULT_MAX_RESULTS,
+) -> dict[str, Any]:
+    case = rt().case(case_id)
+    if mode not in ("auto", "bytes", "nvs"):
+        raise ValidationFailed("mode 는 auto | bytes | nvs 입니다.")
+    mr = clamp_int(max_results, 0, HARD_MAX_RESULTS, "max_results")
+    gap = clamp_int(merge_gap, 0, 64, "merge_gap")
+    srcs = _snapshot_sources(case, paths)
+
+    def work(ctl: Ctl) -> dict[str, Any]:
+        infos, blobs, rng = _snapshots(case, srcs, offset, length, partition, max_total=SAVE_DIFF_MAX_TOTAL)
+        labs = _labels(labels, len(blobs))
+        obs = _check_observations(observations, len(blobs))
+        m = mode
+        if m in ("auto", "bytes"):
+            found = _nvs_reason(srcs[0], rng, blobs)
+            if found:
+                reason, kind = found
+                whole = kind == "partition" or (kind == "format" and all(_looks_like_nvs(b) for b in blobs))
+                if m == "auto" and whole:
+                    m = "nvs"
+                else:
+                    raise ValidationFailed(f"바이트 비교는 NVS 의 비밀값(Wi-Fi 비밀번호·토큰 등)을 가리지 못해 거부합니다 — {reason}.",
+                                           hint="NVS 는 partition=<NVS label> 과 mode='nvs' 로 비교하고, 다른 영역은 offset/length 로 NVS 를 빼고 비교하세요. "
+                                                "blob 안의 값은 fw_esp_nvs(export_blobs=true) 로 내보낸 파일을 비교한다.")
+            elif m == "auto":
+                m = "bytes"
+        base = rng["start"]
+        payload = base_payload("fw_save_diff", case, schema="save-diff", input_info={"snapshots": infos},
+                               params={"labels": labs, "range": rng, "mode": m, "observations": obs, "merge_gap": gap})
+        resp: dict[str, Any] = {"ok": True, "tool": "fw_save_diff", "mode": m, "range": rng, "labels": labs,
+                                "snapshots": [{"path": i["path"], "sha256": i.get("sha256")} for i in infos]}
+        if m == "nvs":
+            if any(len(b) > NVS_MAX_BYTES for b in blobs) or sum(len(b) for b in blobs) > NVS_DIFF_MAX_TOTAL:
+                raise ValidationFailed(f"NVS 스냅샷이 너무 큽니다(스냅샷마다 {NVS_MAX_BYTES >> 20} MiB, 합계 {NVS_DIFF_MAX_TOTAL >> 20} MiB).",
+                                       hint="partition=<NVS 파티션 label> 로 NVS 파티션만 고르세요.")
+            parsed = [_lib(espfmt.parse_nvs, b, include_erased=True, ctl=ctl) for b in blobs]
+            raws = _secret_raws([x for pn in parsed for x in list(pn.get("items") or []) + list(pn.get("blobs") or [])])
+            diff = _lib(espfmt.nvs_item_diff, parsed, labs, ctl=ctl)
+            changed = _nvs_diff_public(case.id, diff.get("changed"), raws)
+            added = _nvs_diff_public(case.id, diff.get("added"), raws)
+            removed = _nvs_diff_public(case.id, diff.get("removed"), raws)
+            matches = []
+            for o in obs or []:
+                for c in changed + added + removed:  # 중간에 생긴(added)·사라진(removed) 키도 맞춰 본다 — 비밀이 아닌 정수 값만
+                    vals = c.get("values") or []
+                    if c.get("secret") or not all(isinstance(v, int) or v is None for v in vals):
+                        continue
+                    known = [(v, w) for v, w in zip(vals, o["values"]) if w is not None and v is not None]
+                    if len(known) >= 2 and len({w for _, w in known}) > 1 and all(v == w for v, w in known):
+                        matches.append({"label": o["label"], "namespace": c.get("namespace"), "key": c.get("key"), "type_name": c.get("type_name")})
+            crc_bad = sum(((pn.get("crc_summary") or {}).get("entry") or {}).get("bad", 0) for pn in parsed)
+            payload.update({"changed": changed, "added": added, "removed": removed, "unchanged_count": diff.get("unchanged_count"),
+                            "observation_matches": matches, "crc_bad_entries": crc_bad})
+            items, tr = compact_list(changed, mr)
+            resp.update({"changed": items, "changed_total": len(changed), "truncated": tr or any(pn.get("truncated") for pn in parsed),
+                         "added": added[:20], "removed": removed[:20], "unchanged_count": diff.get("unchanged_count"), "observation_matches": matches[:20]})
+            if crc_bad:
+                resp["warnings"] = [f"스냅샷의 NVS 항목 CRC 불일치 {crc_bad}개 — fw_esp_nvs 의 crc_summary 확인"]
+        else:
+            diff = _lib(saves.diff_snapshots, blobs, labels=labs, merge_gap=gap, ctl=ctl)
+            for r_ in diff.get("ranges") or []:
+                r_["offset_abs"] = hexs(base + int(r_["offset"]))
+                for it in r_.get("interpretations") or []:
+                    if isinstance(it.get("offset"), int):
+                        it["offset_abs"] = hexs(base + it["offset"])
+            om = _lib(saves.match_observations, blobs, obs, ctl=ctl) if obs else None
+            if om:
+                for x in om.get("matches") or []:
+                    x["offset_abs"] = hexs(base + int(x["offset"]))
+            payload.update({"diff": diff, "observations": om})
+            items, tr = compact_list(diff.get("ranges") or [], mr)
+            resp.update({"changed_bytes": diff.get("changed_bytes"), "ranges": items, "ranges_total": diff.get("ranges_total", len(diff.get("ranges") or [])),
+                         "truncated": tr or bool(diff.get("truncated")), "observation_matches": (om or {}).get("matches", [])[:50],
+                         "warnings": (diff.get("warnings") or [])[:12] + ((om or {}).get("warnings") or [])[:6]})
+        rel = _write(case, "save-diff", payload, f"fw_save_diff {len(blobs)} snapshots ({m})")
+        rt().audit({"event": "fwtriage_save_diff", "snapshots": [i["path"] for i in infos], "mode": m, "result": rel}, case.id)
+        resp["result_path"] = rel
+        steps = []
+        if resp.get("observation_matches"):
+            steps.append("관찰값과 맞는 위치를 찾았다 → 그 범위로 fw_checksum_find(paths=같은 스냅샷) 로 보호 체크섬을 찾고, REA 에서 그 주소를 읽고 쓰는 코드(xrefs)를 확인")
+        elif m == "bytes":
+            steps.append("observations 에 스냅샷마다 화면의 값(점수 등)을 주면 정확한 위치를 좁힐 수 있다")
+        resp["next_steps"] = steps
+        return resp
+
+    return await _execute(kind="fw_save_diff", case_id=case.id, background=False, max_seconds=120.0, description="fw_save_diff", fn=work)
+
+
+@server.tool(
+    description=(
+        "세이브 체크섬 찾기: 시간 순서 스냅샷(2~16개, 3개 이상 권장)에서 '저장값 = 알고리즘(데이터 범위)' 이 모든 스냅샷에 맞는 (알고리즘, 엔디언, 위치, 범위) 후보. "
+        "알고리즘: sum8/16/32, xor8, negsum8, crc8(-maxim), crc16(ccitt-false/xmodem/modbus/arc), crc32, adler32, fletcher16. "
+        "위치 후보는 스냅샷 사이에 바뀐 바이트에서만 고른다. 시험한 후보 수와 기대 오탐 수(expected_false_positives)를 함께 준다 — 8비트·스냅샷 2개 결과는 약하다(weak). "
+        "범위는 partition=label 또는 offset/length(합계 8 MiB 까지). NVS 를 담은 범위는 거부한다(NVS 는 자체 CRC — fw_esp_nvs). "
+        "결과: analysis/checksum-find-NNN.json (위치·범위는 파일 기준 절대 오프셋)."
+    ),
+    annotations=ANN_LOCAL_WRITE,
+)
+@safe_tool
+async def fw_checksum_find(
+    case_id: str,
+    paths: list[str],
+    offset: int | str | None = None,
+    length: int | str | None = None,
+    partition: str | None = None,
+    algorithms: list[str] | None = None,
+    max_results: int = 20,
+    max_seconds: float = 120.0,
+    background: bool = False,
+) -> dict[str, Any]:
+    case = rt().case(case_id)
+    if algorithms is not None:
+        bad = [a for a in algorithms if a not in saves.CHECKSUM_ALGORITHMS]
+        if bad:
+            raise ValidationFailed(f"모르는 알고리즘: {bad}", hint=f"허용: {', '.join(saves.CHECKSUM_ALGORITHMS)}")
+    mr = clamp_int(max_results, 1, 200, "max_results")
+    secs = _seconds(max_seconds, 120.0)
+    srcs = _snapshot_sources(case, paths)
+
+    def work(ctl: Ctl) -> dict[str, Any]:
+        infos, blobs, rng = _snapshots(case, srcs, offset, length, partition, max_total=CHECKSUM_MAX_TOTAL)
+        found = _nvs_reason(srcs[0], rng, blobs)
+        if found:
+            raise ValidationFailed(f"NVS 를 담은 범위에는 체크섬 찾기를 쓰지 않습니다 — {found[0]}. NVS 는 자체 CRC 로 보호되고, 후보의 저장값(CRC)이 비밀값의 단서가 될 수 있다.",
+                                   hint="NVS 는 fw_esp_nvs 의 crc_summary 를 보고, blob 안의 체크섬은 fw_esp_nvs(export_blobs=true) 로 내보낸 파일로 찾는다.")
+        res = _lib(saves.find_checksums, blobs, algorithms=algorithms, max_results=mr, ctl=ctl)
+        base = rng["start"]
+        for c in res.get("candidates") or []:
+            c["location_abs"] = hexs(base + int(c["location"]))
+            s, e = c.get("range") or [0, 0]
+            c["range_abs"] = [hexs(base + int(s)), hexs(base + int(e))]
+            if c.get("other_ranges"):
+                c["other_ranges_abs"] = [[hexs(base + int(a)), hexs(base + int(b))] for a, b in c["other_ranges"][:8]]
+        payload = base_payload("fw_checksum_find", case, schema="checksum-find", input_info={"snapshots": infos},
+                               params={"range": rng, "algorithms": algorithms, "max_results": mr})
+        payload.update(res)
+        rel = _write(case, "checksum-find", payload, f"fw_checksum_find {len(blobs)} snapshots")
+        cands = res.get("candidates") or []
+        rt().audit({"event": "fwtriage_checksum_find", "snapshots": [i["path"] for i in infos], "result": rel, "candidates": len(cands),
+                    "strong": sum(1 for c in cands if c.get("strength") == "strong")}, case.id)
+        steps = []
+        if any(c.get("strength") == "strong" for c in cands):
+            steps.append("강한 후보를 REA 에서 확인한다: 저장 루틴(nvs_set·flash write 근처)에서 같은 알고리즘·범위를 계산하는 코드")
+        elif cands:
+            steps.append("약한 후보뿐이다 — 값이 다른 스냅샷을 더 모으거나(3개 이상) 범위를 좁혀 다시 실행")
+        else:
+            steps.append("후보 없음 — 체크섬이 없거나(또는 HMAC·서명), 범위 밖이거나, 지원하지 않는 알고리즘. REA 에서 저장 루틴을 직접 본다")
+        return {
+            "ok": True,
+            "tool": "fw_checksum_find",
+            "result_path": rel,
+            "range": rng,
+            "snapshots": [i["path"] for i in infos],
+            "tested": res.get("tested"),
+            "bytes_hashed": res.get("bytes_hashed"),
+            "candidates": cands[:mr],
+            "truncated": res.get("truncated"),
+            "notes": (res.get("notes") or [])[:10],
+            "next_steps": steps,
+        }
+
+    return await _execute(kind="fw_checksum_find", case_id=case.id, background=background, max_seconds=secs, description="fw_checksum_find", fn=work)
+
+
+@server.tool(
+    description=(
+        "치트 입력(버튼 시퀀스) 표 후보 찾기: 작은 알파벳(버튼 id 0–15 또는 비트마스크)의 u8/u16/u32 배열, 코나미형(AABBCDCDEF) 모양, 반복 구조 점수. "
+        "ESP 앱 이미지(partition=label 또는 offset 이 앱 이미지)면 플래시 rodata·데이터 세그먼트를 각자의 load 주소로 훑고(address = 디컴파일러 주소), "
+        "그 밖에는 범위를 base_addr 기준으로 훑는다. 결과는 후보다 — REA xrefs 로 그 주소를 비교하는 입력 루틴을 확인한다. 결과: analysis/seq-tables-NNN.json."
+    ),
+    annotations=ANN_LOCAL_WRITE,
+)
+@safe_tool
+async def fw_find_seq_tables(
+    case_id: str,
+    path: str,
+    offset: int | str | None = None,
+    length: int | str | None = None,
+    partition: str | None = None,
+    base_addr: int | str | None = None,
+    min_len: int = 6,
+    max_results: int = DEFAULT_MAX_RESULTS,
+    max_seconds: float = 120.0,
+    background: bool = False,
+) -> dict[str, Any]:
+    case = rt().case(case_id)
+    src = resolve_input_file(case, path)
+    ml = clamp_int(min_len, 4, 32, "min_len")
+    mr = clamp_int(max_results, 0, HARD_MAX_RESULTS, "max_results")
+    ba = parse_int_arg(base_addr, "base_addr")
+    secs = _seconds(max_seconds, 120.0)
+
+    def work(ctl: Ctl) -> dict[str, Any]:
+        info = file_info(case, src)
+        rng = _esp_range(src, offset, length, partition, what="입력")
+        if rng["length"] > SEQ_TABLES_MAX_BYTES:
+            raise ValidationFailed(f"입력이 너무 큽니다(한도 {SEQ_TABLES_MAX_BYTES >> 20} MiB).", hint="partition 으로 앱 파티션을 고르거나 offset/length 로 좁히세요.")
+        data = _esp_read(src, rng)
+        scanned: list[dict[str, Any]] = []
+        cands: list[dict[str, Any]] = []
+        lib_truncated = False
+        lib_notes: list[str] = []
+        img = _lib(espfmt.parse_app_image, data, 0) if data[:1] == b"\xe9" else None
+        if img and img.get("ok") and img.get("segments"):
+            for s in img["segments"]:
+                if s.get("kind") in _CODE_SEGMENT_KINDS:
+                    continue  # 코드·패딩 세그먼트는 건너뛴다(rodata·데이터만)
+                fo = int(s["file_offset"])
+                seg = data[fo: fo + int(s["size"])]
+                r_ = _lib(saves.find_seq_tables, seg, base_addr=int(s["load_addr"]), min_len=ml, max_results=max(mr, 50), ctl=ctl)
+                for c in r_.get("candidates") or []:
+                    c["segment"] = s.get("index")
+                    c["file_offset"] = hexs(rng["start"] + fo + int(c["offset"]))
+                cands.extend(r_.get("candidates") or [])
+                lib_truncated = lib_truncated or bool(r_.get("truncated"))
+                lib_notes.extend(r_.get("notes") or [])
+                scanned.append({"segment": s.get("index"), "load_addr": hexs(s["load_addr"]), "size": s.get("size"), "region": s.get("region"), "kind": s.get("kind")})
+            mode_ = "esp-app-segments"
+        else:
+            r_ = _lib(saves.find_seq_tables, data, base_addr=rng["start"] if ba is None else ba, min_len=ml, max_results=max(mr, 50), ctl=ctl)
+            for c in r_.get("candidates") or []:
+                c["file_offset"] = hexs(rng["start"] + int(c["offset"]))
+            cands.extend(r_.get("candidates") or [])
+            lib_truncated = bool(r_.get("truncated"))
+            lib_notes.extend(r_.get("notes") or [])
+            scanned.append({"range": [rng["start_hex"], rng["end_hex"]], "base_addr": hexs(rng["start"] if ba is None else ba)})
+            mode_ = "raw"
+        cands.sort(key=lambda c: -float(c.get("score") or 0))
+        for c in cands:
+            if isinstance(c.get("address"), int):
+                c["address_hex"] = hexs(c["address"])
+        payload = base_payload("fw_find_seq_tables", case, schema="seq-tables", input_info=info,
+                               params={"range": rng, "base_addr": ba, "min_len": ml, "mode": mode_})
+        payload.update({"mode": mode_, "scanned": scanned, "candidates": cands, "truncated": lib_truncated, "notes": lib_notes})
+        rel = _write(case, "seq-tables", payload, f"fw_find_seq_tables {info['path']}")
+        rt().audit({"event": "fwtriage_seq_tables", "input": info["path"], "result": rel, "candidates": len(cands)}, case.id)
+        items, tr = compact_list(cands, mr)
+        return {
+            "ok": True,
+            "tool": "fw_find_seq_tables",
+            "result_path": rel,
+            "input": info,
+            "mode": mode_,
+            "scanned": scanned[:32],
+            "candidates": items,
+            "candidates_total": len(cands),
+            "truncated": tr or lib_truncated,
+            "notes": lib_notes[:10],
+            "next_steps": ["상위 후보 주소를 REA xrefs 로 따라가 입력 비교 루틴인지 확인한다(코나미형이면 우선). 확인 전에는 '후보'로만 기록한다"] if cands else [],
+        }
+
+    return await _execute(kind="fw_find_seq_tables", case_id=case.id, background=background, max_seconds=secs, description=f"fw_find_seq_tables {case.rel(src)}", fn=work)
 
 
 def main() -> None:

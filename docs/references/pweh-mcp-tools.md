@@ -23,7 +23,7 @@
 - **`case_record_step(case_id, skill, step, status, summary, data?, artifacts?, next_actions?, blockers?, started_at?)`**  
   Skill 단계 결과 저장. 각 Skill 의 마지막에 step='summary' 로 호출해야 하며, 이때 data 는 해당 Skill 의 출력 스키마를 따라야 한다 (uart-shell-acquisition→uart-recon, firmware-dump-via-uart→firmware-dump, firmware-static-analysis→static-analysis, logic-analy
 - **`case_get_step_results(case_id, skill?, summaries_only?)`** — [읽기전용]  
-  이전 Skill 들의 단계 결과 조회 (다음 Skill 의 입력으로 사용). skill 을 지정하지 않으면 모든 Skill 의 최신 summary. summaries_only=false 면 해당 skill 의 모든 단계.
+  이전 Skill 들의 단계 결과 조회 (다음 Skill 의 입력으로 사용). skill 을 지정하지 않으면 모든 Skill 의 최신 summary. missing 은 summary 가 없는 Skill 이다 — 보안 분석 파이프라인 Skill 과, 다른 목표의 Skill 은 이 케이스에서 시작한 것만 센다. summaries_only=false 면 해당 skill 의 모든 단계.
 - **`case_register_artifact(case_id, path, kind, description?, producer?)`**  
   케이스 내부 파일/디렉터리를 아티팩트로 등록(sha256 계산). kind 예: uart-log, flash-dump, memory-dump, partition, extracted-tree, signal-capture, signal-decode, jtag-dump, triage-report, rea-evidence, decompilation, report, other.
 - **`case_import_file(case_id, source_path, kind?, dest_subdir?, description?)`**  
@@ -238,11 +238,25 @@
 - **`fw_rootfs_audit(case_id, rootfs_dir, max_results?, crack_defaults?, crack_seconds?, max_file_size?, max_seconds?, background?)`**  
   추출된 rootfs 감사: passwd/shadow(빈/약한 해시와 알고리즘, uid 0 추가 계정, 공개 하드코딩 해시, 내장 기본 비밀번호 오프라인 대조), inittab/init.d/rc/inetd/systemd/벤더 시작 스크립트(telnetd·-l /bin/sh, dropbear -B, nc -e 셸, getty 자동 로그인/콘솔 셸, remserial, 쓰기 가능한 영구 저장소 스
 - **`fw_strings_hunt(case_id, path_or_dir, patterns?, max_hits?, max_results?, min_severity?, include?, min_length?, utf16?, per_pattern_cap?, max_file_size?, max_seconds?, background?)`**  
-  인증 우회/백도어/명령 주입/하드코딩 자격증명 문자열 휴리스틱 검색 (src/pweh/data/cctv-hunt-patterns.yaml 의 string_heuristics, scope: strings=바이너리의 ASCII·UTF-16LE 문자열, text=텍스트 파일 줄, raw=바이트). patterns='cctv'(전체) 또는 목록: 휴리스틱 id/category/vendor/sever
-- **`fw_hunt_patterns(vendor?, category?)`** — [읽기전용]  
-  fw_strings_hunt / fw_rootfs_audit / fw_elf_info 가 쓰는 휴리스틱 목록(cctv-hunt-patterns.yaml: id/category/severity/scope/vendor, function_heuristics, web_server_binaries)과 패턴 파일 출처·해시·오류.
+  인증 우회/백도어/명령 주입/하드코딩 자격증명 문자열 휴리스틱 검색 (기본 CCTV 팩: src/pweh/data/cctv-hunt-patterns.yaml 의 string_heuristics, scope: strings=바이너리의 ASCII·UTF-16LE 문자열, text=텍스트 파일 줄, raw=바이트). patterns='cctv'(전체) 또는 목록: 휴리스틱 id/category/v
+- **`fw_hunt_patterns(vendor?, category?, pack?)`** — [읽기전용]  
+  휴리스틱 목록과 패턴 파일 출처·해시·오류. pack='cctv'(기본): fw_strings_hunt / fw_rootfs_audit / fw_elf_info 가 쓰는 cctv-hunt-patterns.yaml(string_heuristics 의 id/category/severity/scope/vendor, function_heuristics, web_server_binaries). pac
 - **`fw_crack_hashes(case_id, hashes?, source_path?, wordlist?, extra_words?, hash_type?, max_seconds?, reveal?, max_results?, background?)`**  
   펌웨어에서 나온 비밀번호 해시를 공개 기본 비밀번호 사전(builtin-defaults: src/pweh/data/default-passwords.txt + YAML candidate_passwords)과 오프라인 대조 — 소유 기기 감사용, 네트워크 로그인 시도 없음. hashes: 'user:hash:...' 줄 / 순수 해시 / {user, hash, type} 목록, 또는 source
+- **`fw_esp_partitions(case_id, path, offset?, max_results?)`**  
+  ESP32 계열 플래시 덤프의 파티션 표 해석(기본 0x8000, 없으면 4 KiB 경계 탐색): label, type/subtype 이름, offset, size, flags(암호화·읽기 전용), MD5 항목 검증, 겹침·범위 밖 경고, 세이브 쓰기 분류 write_class(nvs / raw-user-data / filesystem-analysis-only / not-a-save)와 wr
+- **`fw_esp_image_info(case_id, path, offset?, partition?)`**  
+  ESP32 계열 앱(또는 2단계 부트로더) 이미지 해석: 칩(chip_id → 이름·아키텍처), entry, SPI 설정, 세그먼트(load 주소·크기·메모리 영역), 체크섬·덧붙은 SHA256 검증, 앱 설명(esp_app_desc: 프로젝트 이름, 버전, IDF 버전, 빌드 시각, ELF sha256). partition=label(전체 플래시 덤프의 앱 파티션) 또는 offset 으로 
+- **`fw_esp_to_elf(case_id, path, offset?, partition?, output_label?, rea_compat?)`**  
+  ESP32 계열 앱 이미지를 ELF32 로 바꾼다(세그먼트마다 PT_LOAD + 영역 이름의 섹션, e_machine 94 Xtensa / 243 RISC-V, entry 유지, 심볼 없음). REA 는 Xtensa(ESP32·S2·S3) ELF 를 열지 못하고, RISC-V(C3·C6·H2·P4 …)는 rea_compat=true 로 만든 ELF(e_flags 를 double-float A
+- **`fw_esp_nvs(case_id, path, offset?, length?, partition?, namespace?, key?, include_erased?, export_blobs?, max_results?)`**  
+  ESP NVS 파티션 해석(4 KiB 페이지): 페이지 상태·seq·버전, 헤더·항목·데이터 CRC 유효 개수, 네임스페이스, 항목(namespace/key/type/값 — 정수, 문자열, blob v1·v2 를 이어 붙인 값), 최신(live) 여부와 지워진 이전 값(include_erased=true), 같은 키의 live 중복. 비밀로 보이는 값(nvs.net80211 의 모든 값, 비
+- **`fw_save_diff(case_id, paths, labels?, offset?, length?, partition?, mode?, observations?, merge_gap?, max_results?)`**  
+  세이브 스냅샷 비교(시간 순서 2~16개 — 점수·진행이 바뀔 때마다 덤프): mode='bytes' 는 바뀐 바이트 범위와 인코딩 해석(u8/u16/u32 LE·BE, BCD)·추세, mode='nvs' 는 NVS 키 단위 변화(changed·added·removed — 비밀 값은 마스킹), auto 는 NVS 파티션·NVS 형식이면 nvs. 바이트 비교는 비밀값을 가리지 못하므로 NVS 
+- **`fw_checksum_find(case_id, paths, offset?, length?, partition?, algorithms?, max_results?, max_seconds?, background?)`**  
+  세이브 체크섬 찾기: 시간 순서 스냅샷(2~16개, 3개 이상 권장)에서 '저장값 = 알고리즘(데이터 범위)' 이 모든 스냅샷에 맞는 (알고리즘, 엔디언, 위치, 범위) 후보. 알고리즘: sum8/16/32, xor8, negsum8, crc8(-maxim), crc16(ccitt-false/xmodem/modbus/arc), crc32, adler32, fletcher16. 위치 후보는 스
+- **`fw_find_seq_tables(case_id, path, offset?, length?, partition?, base_addr?, min_len?, max_results?, max_seconds?, background?)`**  
+  치트 입력(버튼 시퀀스) 표 후보 찾기: 작은 알파벳(버튼 id 0–15 또는 비트마스크)의 u8/u16/u32 배열, 코나미형(AABBCDCDEF) 모양, 반복 구조 점수. ESP 앱 이미지(partition=label 또는 offset 이 앱 이미지)면 플래시 rodata·데이터 세그먼트를 각자의 load 주소로 훑고(address = 디컴파일러 주소), 그 밖에는 범위를 base_add
 
 ## pweh-esp
 

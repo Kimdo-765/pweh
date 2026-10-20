@@ -146,7 +146,7 @@
    },
    {
     "name": "case_set_phase",
-    "description": "파이프라인 단계 상태 수동 갱신. phase: uart-shell-acquisition, firmware-dump-via-uart, logic-analyzer-protocol-decode, firmware-static-analysis, cctv-auth-bypass-hunt, report; status: pending, in-progress, done, partial, failed, skipped, blocked.",
+    "description": "파이프라인 단계 상태 수동 갱신. phase: uart-shell-acquisition, firmware-dump-via-uart, logic-analyzer-protocol-decode, firmware-static-analysis, cctv-auth-bypass-hunt, report; status: pending, in-progress, done, partial, failed, skipped, blocked. 다른 목표의 Skill 도 자기 이름을 phase 로 쓴다(예: game-save-unlock-analysis — 처음 기록할 때 생긴다. 이름은 검사하지 않는다).",
     "params": [
      {
       "name": "case_id",
@@ -318,7 +318,7 @@
    },
    {
     "name": "case_get_step_results",
-    "description": "이전 Skill 들의 단계 결과 조회 (다음 Skill 의 입력으로 사용). skill 을 지정하지 않으면 모든 Skill 의 최신 summary. summaries_only=false 면 해당 skill 의 모든 단계.",
+    "description": "이전 Skill 들의 단계 결과 조회 (다음 Skill 의 입력으로 사용). skill 을 지정하지 않으면 모든 Skill 의 최신 summary. missing 은 summary 가 없는 Skill 이다 — 보안 분석 파이프라인 Skill 과, 다른 목표의 Skill 은 이 케이스에서 시작한 것만 센다. summaries_only=false 면 해당 skill 의 모든 단계.",
     "params": [
      {
       "name": "case_id",
@@ -4179,7 +4179,7 @@
    },
    {
     "name": "fw_strings_hunt",
-    "description": "인증 우회/백도어/명령 주입/하드코딩 자격증명 문자열 휴리스틱 검색 (src/pweh/data/cctv-hunt-patterns.yaml 의 string_heuristics, scope: strings=바이너리의 ASCII·UTF-16LE 문자열, text=텍스트 파일 줄, raw=바이트). patterns='cctv'(전체) 또는 목록: 휴리스틱 id/category/vendor/severity 선택자, 'xm-*' 접두사, 're:<정규식>', 'raw:<바이트 정규식>', 'lit:<문자열>'. 파일/디렉터리 모두 가능. 히트마다 파일/오프셋(텍스트는 줄)/패턴 id/category/severity/문맥. checks 목록은 auth-hunt 스키마 checks[] 로 바로 쓸 수 있다. max_hits 는 저장 상한(패턴별 per_pattern_cap), 응답에는 max_results 개. 히트의 file 은 두 모드 모두 rootfs 절대 경로(rootfs 밖의 덤프·파티션 이미지는 null), path 는 케이스 상대 경로. 결과: analysis/strings-hunt-NNN.json",
+    "description": "인증 우회/백도어/명령 주입/하드코딩 자격증명 문자열 휴리스틱 검색 (기본 CCTV 팩: src/pweh/data/cctv-hunt-patterns.yaml 의 string_heuristics, scope: strings=바이너리의 ASCII·UTF-16LE 문자열, text=텍스트 파일 줄, raw=바이트). patterns='cctv'(전체) 또는 목록: 휴리스틱 id/category/vendor/severity 선택자, 'xm-*' 접두사, 're:<정규식>', 'raw:<바이트 정규식>', 'lit:<문자열>'. 게임 팩: patterns='game' 이면 src/pweh/data/game-hunt-patterns.yaml 전체(debug-menu/cheat-input/unlock-condition/save-format/save-integrity/nfc-tag/clock/online-sync/entitlement 단서, severity info/low — 소유 게임기·장난감의 해금 조건·세이브 위치 출발점, entitlement 는 보고만), 'game:<category|id|vendor|severity|접두사*>'(목록 가능)는 그 일부이고 게임 팩에 없는 선택자는 오류다. 두 팩은 한 호출에서 섞지 않는다(CCTV 선택자를 함께 주면 오류, 사용자 패턴 re:/raw:/lit: 는 함께 가능). 파일/디렉터리 모두 가능. 히트마다 파일/오프셋(텍스트는 줄)/패턴 id/category/severity/문맥. checks 목록은 auth-hunt 스키마 checks[] 로 바로 쓸 수 있다. max_hits 는 저장 상한(패턴별 per_pattern_cap), 응답에는 max_results 개. 히트의 file 은 두 모드 모두 rootfs 절대 경로(rootfs 밖의 덤프·파티션 이미지는 null), path 는 케이스 상대 경로. 쓴 팩은 응답 patterns.pack 과 결과 JSON params.pack(게임 팩이면 summary.vendor_family_guess 는 null, 히트의 key=값·URL 자격증명·Bearer·JWT 값은 <masked> — summary.masked_values). 결과: analysis/strings-hunt-NNN.json",
     "params": [
      {
       "name": "case_id",
@@ -4270,7 +4270,7 @@
    },
    {
     "name": "fw_hunt_patterns",
-    "description": "fw_strings_hunt / fw_rootfs_audit / fw_elf_info 가 쓰는 휴리스틱 목록(cctv-hunt-patterns.yaml: id/category/severity/scope/vendor, function_heuristics, web_server_binaries)과 패턴 파일 출처·해시·오류.",
+    "description": "휴리스틱 목록과 패턴 파일 출처·해시·오류. pack='cctv'(기본): fw_strings_hunt / fw_rootfs_audit / fw_elf_info 가 쓰는 cctv-hunt-patterns.yaml(string_heuristics 의 id/category/severity/scope/vendor, function_heuristics, web_server_binaries). pack='game': fw_strings_hunt(patterns='game') 이 쓰는 game-hunt-patterns.yaml(string_heuristics 만, category 9종: debug-menu/cheat-input/unlock-condition/save-format/save-integrity/nfc-tag/clock/online-sync/entitlement). vendor·category 로 거른다. 응답 pack·packs(사용 가능한 팩).",
     "params": [
      {
       "name": "vendor",
@@ -4283,6 +4283,12 @@
       "type": "string/null",
       "required": false,
       "default": null
+     },
+     {
+      "name": "pack",
+      "type": "string",
+      "required": false,
+      "default": "cctv"
      }
     ],
     "annotations": {
@@ -4350,6 +4356,415 @@
       "type": "integer",
       "required": false,
       "default": 50
+     },
+     {
+      "name": "background",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_esp_partitions",
+    "description": "ESP32 계열 플래시 덤프의 파티션 표 해석(기본 0x8000, 없으면 4 KiB 경계 탐색): label, type/subtype 이름, offset, size, flags(암호화·읽기 전용), MD5 항목 검증, 겹침·범위 밖 경고, 세이브 쓰기 분류 write_class(nvs / raw-user-data / filesystem-analysis-only / not-a-save)와 write_blockers(암호화 플래그, nvs_keys 파티션 = NVS 암호화 가능). fat/spiffs/littlefs 는 파일 시스템 해석 전까지 분석만 한다. 결과: analysis/esp-partitions-NNN.json. 앱은 fw_esp_image_info, NVS 는 fw_esp_nvs(partition=label) 로 이어 간다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "max_results",
+      "type": "integer",
+      "required": false,
+      "default": 50
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_esp_image_info",
+    "description": "ESP32 계열 앱(또는 2단계 부트로더) 이미지 해석: 칩(chip_id → 이름·아키텍처), entry, SPI 설정, 세그먼트(load 주소·크기·메모리 영역), 체크섬·덧붙은 SHA256 검증, 앱 설명(esp_app_desc: 프로젝트 이름, 버전, IDF 버전, 빌드 시각, ELF sha256). partition=label(전체 플래시 덤프의 앱 파티션) 또는 offset 으로 위치를 준다. 결과: analysis/esp-image-NNN.json. ELF 로 바꾸려면 fw_esp_to_elf.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "partition",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_esp_to_elf",
+    "description": "ESP32 계열 앱 이미지를 ELF32 로 바꾼다(세그먼트마다 PT_LOAD + 영역 이름의 섹션, e_machine 94 Xtensa / 243 RISC-V, entry 유지, 심볼 없음). REA 는 Xtensa(ESP32·S2·S3) ELF 를 열지 못하고, RISC-V(C3·C6·H2·P4 …)는 rea_compat=true 로 만든 ELF(e_flags 를 double-float ABI 로 표시 — 부동소수점 인자 해석만 틀릴 수 있음)만 연다. partition=label 또는 offset. 출력: extract/<output_label>-NNN/<name>.elf (firmware-image 아티팩트) + analysis/esp-to-elf-NNN.json. 응답의 elf_path_abs 를 REA 에 넘긴다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "partition",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "output_label",
+      "type": "string",
+      "required": false,
+      "default": "esp-app"
+     },
+     {
+      "name": "rea_compat",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_esp_nvs",
+    "description": "ESP NVS 파티션 해석(4 KiB 페이지): 페이지 상태·seq·버전, 헤더·항목·데이터 CRC 유효 개수, 네임스페이스, 항목(namespace/key/type/값 — 정수, 문자열, blob v1·v2 를 이어 붙인 값), 최신(live) 여부와 지워진 이전 값(include_erased=true), 같은 키의 live 중복. 비밀로 보이는 값(nvs.net80211 의 모든 값, 비밀번호·PIN·PSK·API 키·개인키·인증 토큰·자격증명 모양의 키, 그리고 그런 비밀의 원문을 담은 다른 값)은 응답과 결과 파일 모두 마스킹 + 케이스 솔트 다이제스트만 남긴다(키 이름 휴리스틱 — 평범한 이름에 숨긴 비밀은 못 가릴 수 있다). partition=label(전체 플래시 덤프) 또는 offset/length, NVS 파티션 파일이면 그대로(최대 1 MiB). export_blobs=true 면 비밀이 아닌 blob 을 extract/nvs-blobs-NNN/ 에 파일로 남긴다(fw_save_diff 로 비교). offset 은 NVS 기준, offset_abs 는 입력 파일 기준. 결과: analysis/esp-nvs-NNN.json. CRC 규칙(nvs_crc32)은 실기 검증 전이다 — crc_summary 로 확인.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "length",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "partition",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "namespace",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "key",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "include_erased",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "export_blobs",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "max_results",
+      "type": "integer",
+      "required": false,
+      "default": 50
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_save_diff",
+    "description": "세이브 스냅샷 비교(시간 순서 2~16개 — 점수·진행이 바뀔 때마다 덤프): mode='bytes' 는 바뀐 바이트 범위와 인코딩 해석(u8/u16/u32 LE·BE, BCD)·추세, mode='nvs' 는 NVS 키 단위 변화(changed·added·removed — 비밀 값은 마스킹), auto 는 NVS 파티션·NVS 형식이면 nvs. 바이트 비교는 비밀값을 가리지 못하므로 NVS 를 담은 범위(NVS 파티션과 겹치거나 NVS 형식)는 bytes 로 비교하지 않는다(validation_failed). observations=[{label, values}] 로 스냅샷마다 화면에서 본 값(예: 점수, 음수 가능)을 주면 그 값과 정확히 같은 위치·인코딩(또는 NVS 키)을 찾는다. 범위는 partition=label 또는 offset/length(모든 스냅샷에 같게). 결과는 후보다 — fw_checksum_find·디컴파일로 확인한다. 결과: analysis/save-diff-NNN.json.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "paths",
+      "type": "array",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "labels",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "length",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "partition",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "mode",
+      "type": "string",
+      "required": false,
+      "default": "auto"
+     },
+     {
+      "name": "observations",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "merge_gap",
+      "type": "integer",
+      "required": false,
+      "default": 0
+     },
+     {
+      "name": "max_results",
+      "type": "integer",
+      "required": false,
+      "default": 50
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_checksum_find",
+    "description": "세이브 체크섬 찾기: 시간 순서 스냅샷(2~16개, 3개 이상 권장)에서 '저장값 = 알고리즘(데이터 범위)' 이 모든 스냅샷에 맞는 (알고리즘, 엔디언, 위치, 범위) 후보. 알고리즘: sum8/16/32, xor8, negsum8, crc8(-maxim), crc16(ccitt-false/xmodem/modbus/arc), crc32, adler32, fletcher16. 위치 후보는 스냅샷 사이에 바뀐 바이트에서만 고른다. 시험한 후보 수와 기대 오탐 수(expected_false_positives)를 함께 준다 — 8비트·스냅샷 2개 결과는 약하다(weak). 범위는 partition=label 또는 offset/length(합계 8 MiB 까지). NVS 를 담은 범위는 거부한다(NVS 는 자체 CRC — fw_esp_nvs). 결과: analysis/checksum-find-NNN.json (위치·범위는 파일 기준 절대 오프셋).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "paths",
+      "type": "array",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "length",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "partition",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "algorithms",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "max_results",
+      "type": "integer",
+      "required": false,
+      "default": 20
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 120.0
+     },
+     {
+      "name": "background",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_find_seq_tables",
+    "description": "치트 입력(버튼 시퀀스) 표 후보 찾기: 작은 알파벳(버튼 id 0–15 또는 비트마스크)의 u8/u16/u32 배열, 코나미형(AABBCDCDEF) 모양, 반복 구조 점수. ESP 앱 이미지(partition=label 또는 offset 이 앱 이미지)면 플래시 rodata·데이터 세그먼트를 각자의 load 주소로 훑고(address = 디컴파일러 주소), 그 밖에는 범위를 base_addr 기준으로 훑는다. 결과는 후보다 — REA xrefs 로 그 주소를 비교하는 입력 루틴을 확인한다. 결과: analysis/seq-tables-NNN.json.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "length",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "partition",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "base_addr",
+      "type": "integer/string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "min_len",
+      "type": "integer",
+      "required": false,
+      "default": 6
+     },
+     {
+      "name": "max_results",
+      "type": "integer",
+      "required": false,
+      "default": 50
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 120.0
      },
      {
       "name": "background",

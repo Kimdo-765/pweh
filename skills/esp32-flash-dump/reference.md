@@ -87,7 +87,8 @@ verification.detail 은 서버가 정한 문장 그대로 옮긴다(이중 읽�
 ## 4. 파티션 표 읽기
 
 ESP-IDF 파티션 표는 기본 0x8000 에 있는 32바이트 항목의 나열이다. 끝에는 MD5 항목(EB EB …)이 오고 나머지는 0xFF 다.
-pweh-fwtriage 는 이 구조를 해석하지 않으므로, 그 영역만 잘라 낸 뒤 바이트 정규식으로 항목을 뽑는다(덤프 전체에 돌리면 코드 속 우연한 AA 50 도 걸린다).
+보통은 `fw_esp_partitions(case_id="<id>", path="dumps/esp-flash.bin")` 가 이 구조를 해석한다(MD5 항목 검증, 세이브 쓰기 분류 포함).
+아래는 구조 설명과, 도구가 표를 찾지 못할 때(예: 표가 옮겨졌는데 위치를 알 때) 영역만 잘라 바이트 정규식으로 항목을 뽑는 직접 방법이다(덤프 전체에 돌리면 코드 속 우연한 AA 50 도 걸린다).
 
 ```
 fw_carve(case_id="<id>", path="dumps/esp-flash.bin", partitions=[{"name": "bootloader", "offset": "0x0", "size": "0x8000"}, {"name": "partition-table", "offset": "0x8000", "size": "0x1000"}])
