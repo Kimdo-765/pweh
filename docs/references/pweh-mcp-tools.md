@@ -237,8 +237,10 @@
   squashfs 추출 (unsquashfs: 설정 tools.unsquashfs / PWEH_UNSQUASHFS / ~/pweh-tools/bin; 비표준 매직·v4 빅엔디안은 sasquatch 우선). superblock 을 먼저 검증하고, 'unsquashfs -lln' 목록으로 디렉터리 탈출(.., 링크 아래 항목)·비정상 줄·압축 폭탄(max_output_bytes)을 검사한 뒤 ex
 - **`fw_elf_info(case_id, path, max_results?, max_files?, max_seconds?, background?)`**  
   순수 Python ELF 분석: class/엔디언/타입/e_machine, e_flags 해석(MIPS ISA·ABI(o32/n32/n64)·ASE, .MIPS.abiflags FP ABI, ARM EABI·float ABI), 인터프리터, DT_NEEDED/SONAME/RPATH, 임포트 심볼(섹션 헤더 없는 sstrip 바이너리도 PT_DYNAMIC 로), 보호기법(NX/RELRO/PIE
-- **`fw_rootfs_audit(case_id, rootfs_dir, max_results?, crack_defaults?, crack_seconds?, max_file_size?, max_seconds?, background?)`**  
+- **`fw_rootfs_audit(case_id, rootfs_dir, max_results?, crack_defaults?, crack_seconds?, max_file_size?, max_seconds?, background?, sd_surface?)`**  
   추출된 rootfs 감사: passwd/shadow(빈/약한 해시와 알고리즘, uid 0 추가 계정, 공개 하드코딩 해시, 내장 기본 비밀번호 오프라인 대조), inittab/init.d/rc/inetd/systemd/벤더 시작 스크립트(telnetd·-l /bin/sh, dropbear -B, nc -e 셸, getty 자동 로그인/콘솔 셸, remserial, 쓰기 가능한 영구 저장소 스
+- **`fw_sd_surface(case_id, rootfs_dir?, image_path?, max_results?, max_evidence?, max_file_size?, max_seconds?, background?)`**  
+  펌웨어 쪽 SD 카드 공격 표면 정적 점검 SD-01~09 (오프라인·관찰만: 기기와 카드를 건드리지 않고 펌웨어 안의 어떤 것도 실행하지 않는다, docs/design/sd-forensics.md 5.1). rootfs_dir(추출된 rootfs)과 image_path(플래시 덤프 또는 U-Boot·env 파티션) 중 하나 이상이 필요하다. rootfs: 시작·핫플러그 스크립트(rcS/in
 - **`fw_strings_hunt(case_id, path_or_dir, patterns?, max_hits?, max_results?, min_severity?, include?, min_length?, utf16?, per_pattern_cap?, max_file_size?, max_seconds?, background?)`**  
   인증 우회/백도어/명령 주입/하드코딩 자격증명 문자열 휴리스틱 검색 (기본 CCTV 팩: src/pweh/data/cctv-hunt-patterns.yaml 의 string_heuristics, scope: strings=바이너리의 ASCII·UTF-16LE 문자열, text=텍스트 파일 줄, raw=바이트). patterns='cctv'(전체) 또는 목록: 휴리스틱 id/category/v
 - **`fw_hunt_patterns(vendor?, category?, pack?)`** — [읽기전용]  

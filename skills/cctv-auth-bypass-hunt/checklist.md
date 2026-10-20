@@ -375,6 +375,10 @@ address_to_file_offset(address="0x105de") → `{"file_offset": 1502}`(=0x5de)로
   - 업데이트 채널이 평문이다.
 - **1차 탐색 (fwtriage)**: fw_strings_hunt id 는 `xm-upgrade-descriptor`, `xm-upgrade-skipcheck`, `xm-upgrade-server` 다.
   - REA 판정 기준: function_heuristics `fn-hardcoded-crypto-key`. fw_strings_hunt 선택자가 아니다.
+  - **SD 카드 업데이트 경로**: `fw_sd_surface` 의 SD-02(카드에서 서명 없는 업데이트 — U-Boot `sdupdate`·`do_auto_update`·`au_check_cksum_valid`,
+    사용자 공간의 카드 → `/dev/mtd*` 쓰기)와 SD-03(U-Boot 의 mmc 부팅·카드 스크립트, `verify=n`)을 같은 판정에 넣는다.
+    CRC 만 비교하고 쓰면 match 다. 물리 버튼·GPIO 로만 열리고 같은 파일에 원격 쓰기 경로가 없으면 심각도를 낮춘다.
+    카드에 넣을 업데이트 파일·스크립트를 만들지 않는다(설계 docs/design/sd-forensics.md §1 범위 밖).
 - **REA 질의**:
   - trace_feature(query="UpgradeCommand"), trace_feature(query="InstallDesc"), trace_feature(query="SkipCheck")
   - 검증 함수: find_xrefs_to_name(name="RSA_verify") 처럼 심볼이 있을 때만 쓴다. strip 되었으면 trace_feature(query="BEGIN PUBLIC KEY") 로 찾는다.

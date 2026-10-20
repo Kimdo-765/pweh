@@ -639,6 +639,163 @@ def flash_size_from_facts(facts: dict[str, Any] | None) -> int | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# SD 카드 이벤트 (uart_capture_boot 의 sd_events — 설계: docs/design/sd-forensics.md §2·§5.1)
+# ---------------------------------------------------------------------------
+#: sd_events 에 담는 줄 수 상한 (종류별 개수는 상한과 관계없이 모두 센다)
+SD_EVENT_MAX = 60
+SD_EVENT_TEXT_MAX = 160
+#: 분류할 줄 길이 상한 (더 긴 줄은 건너뛴다 — 정규식 비용을 줄 하나당 유한하게)
+SD_LINE_MAX = 4096
+_SD_CARD_WORD = r"(?:micro[ _-]?)?(?:sd|tf)[ _-]?card|sdcard|tfcard"
+_SD_DEV = r"(?:mmcblk\d+(?:p\d+)?|sd[a-z]\d*)"
+#: 카드 마운트 경로 (/mnt/tftpboot 같은 이름은 제외)
+_SD_PATH = r"(?:/mnt/(?:sd\w*|mmc\w*|tf(?:card)?\d*)\b|/media/mmcblk\w*|/sdcard\b)"
+#: (종류, 정규식). 한 줄이 여러 규칙에 맞을 수 있다 — 목록 순서가 우선순위다(앞의 종류가 그 줄의 kind, 나머지는 also).
+#: 내장 저장소(eMMC)·SDIO(Wi-Fi 모듈) 줄은 카드 이벤트로 세지 않는다. 판단은 줄 단위의 후보다 — 벤더 드라이버 문구는 기기마다 다르다.
+#: 정규식은 모두 길이가 묶인 반복만 쓴다(줄 길이 상한과 함께 줄 하나의 비용이 유한하다).
+SD_EVENT_RULES: list[tuple[str, re.Pattern[str]]] = [
+    ("sdio", re.compile(r"\bmmc\d+: new (?:[\w ]{0,40} )?SDIO card\b", re.I)),
+    ("emmc", re.compile(r"\bmmc\d+: new (?:[\w ]{0,40} )?MMC card\b|\bmmcblk\d+(?:boot\d|rpmb)\b|\bbooting from emmc\b", re.I)),
+    # 부정이 먼저다: '카드 없음' 문구가 감지로 세지지 않게
+    ("card-absent", re.compile(
+        rf"\b(?:no|without)\s+(?:{_SD_CARD_WORD})\b"
+        rf"|\b(?:{_SD_CARD_WORD})\b[^\n]{{0,24}}?\b(?:not|isn't|doesn't)\s+(?:be\s+)?(?:present|found|exists?|detected|inserted|mounted|ready)\b"
+        rf"|\b(?:{_SD_CARD_WORD})\b[^\n]{{0,24}}?\b(?:absent|missing)\b"
+        r"|\bcard did not respond to voltage select\b|\bMMC: no card present\b|\bno mmc device at slot\b"
+        r"|\bunable to (?:find|detect) (?:the )?(?:sd|tf|mmc) ?card\b", re.I)),
+    ("update", re.compile(
+        r"\b(?:sd|tf|card|mmc)[ _-]?(?:update|upgrade)\w{0,8}\b|\bhiupdate\b|\bdo_auto_update\b|\bau_check\w{0,24}"
+        rf"|\b(?:{_SD_CARD_WORD})\b[^\n]{{0,40}}?\b(?:update|upgrade|upgrading|updating|firmware)\b"
+        rf"|\b(?:update|upgrade)\w{{0,8}}\b[^\n]{{0,40}}?{_SD_PATH}"
+        r"|\bauto[ _-]?(?:update|upgrade)\b[^\n]{0,40}?\b(?:sd|tf|mmc|card)\b", re.I)),
+    ("script", re.compile(rf"\b(?:autorun|autoexec)\w{{0,16}}(?:\.sh)?\b|{_SD_PATH}/\S{{0,200}}?\.sh\b", re.I)),
+    ("uboot-script", re.compile(
+        r"\breading (?:boot\.scr|uEnv\.txt|boot\.cmd)\b|\bUnable to read file (?:boot\.scr|uEnv\.txt)\b"
+        r"|\b(?:fat|ext[24])?load mmc\b[^\n]{0,60}?\b(?:boot\.scr|uEnv\.txt|boot\.cmd)\b", re.I)),
+    ("uboot-mmc", re.compile(
+        r"\bfatload mmc\b|\bext[24]load mmc\b|\bload mmc\b|\bmmc rescan\b|\bmmc\d+(?:\(part \d+\))? is current device\b"
+        r"|\bswitch to partitions #\d+, OK\b|\bLoading Environment from (?:FAT|EXT4)\b|\bNo partition table - mmc\b", re.I)),
+    ("fs-error", re.compile(
+        rf"\b(?:FAT|exFAT|EXT[234])-fs \({_SD_DEV}\)[^\n]{{0,200}}?(?:not properly unmounted|error|corrupt|run fsck|invalid|bad )"
+        rf"|\bexfat[^\n]{{0,20}}\({_SD_DEV}\)[^\n]{{0,200}}?(?:error|corrupt|dirty)", re.I)),
+    ("fs-mount", re.compile(rf"\b(?:FAT|exFAT|EXT[234]|F2FS)-fs \({_SD_DEV}\)|\bexfat[^\n]{{0,20}}\({_SD_DEV}\)"
+                            rf"|\bmount\b[^\n]{{0,200}}?(?:/dev/mmcblk\d|{_SD_PATH})", re.I)),
+    ("card-removed", re.compile(rf"\bmmc\d+: card [0-9a-f]+ removed\b|\b(?:{_SD_CARD_WORD})\b[^\n]{{0,30}}?\b(?:removed|plug(?:ged)?[ _-]?out|eject(?:ed)?)\b", re.I)),
+    ("card-detected", re.compile(
+        r"\bmmc\d+: new (?:[\w ]{0,40} )?SD(?:HC|XC|UC)? card at address\b"
+        rf"|\b(?:{_SD_CARD_WORD})\b[^\n]{{0,30}}?\b(?:inserted|insert|plug(?:ged)?[ _-]?in|detected|found|present|mounted|ready)\b"
+        rf"|\b(?:inserted|detected)\b[^\n]{{0,12}}\b(?:{_SD_CARD_WORD})\b", re.I)),
+    ("partition", re.compile(r"\bmmcblk\d+: p\d+")),
+    ("block-device", re.compile(r"\bmmcblk\d+: mmc\d+:[0-9a-f]+ ")),
+    ("card-other", re.compile(rf"\b(?:{_SD_CARD_WORD})\b", re.I)),
+]
+#: 카드 이벤트로 세지 않는 종류 (내장 저장소·Wi-Fi 모듈)
+_SD_NOT_CARD = frozenset({"sdio", "emmc"})
+#: 카드 감지 핀·인터럽트 설정 줄 (카드가 있든 없든 찍힌다 — 감지·부재로 세지 않는다)
+_SD_HW_CONFIG_RX = re.compile(r"\b(?:card[ _-]?)?(?:cd|detect(?:ion)?)[ _-]?(?:gpios?|pin|irq|interrupt|int)\b|\bgpio\s*[A-Z]?\d+\b", re.I)
+#: sd_note 를 내는 종류 (카드 업데이트·자동 실행·카드 스크립트 읽기)
+SD_NOTE_KINDS = ("update", "script", "uboot-script")
+_SD_DEV_RX = re.compile(r"\b(mmcblk\d+(?:p\d+)?)\b")
+_SD_HOST_NEW_RX = re.compile(r"\bmmc(\d+): new\b", re.I)
+_SD_BLK_HOST_RX = re.compile(r"\bmmcblk(\d+): mmc(\d+):")
+_SD_FS_RX = re.compile(rf"\b(FAT|exFAT|EXT[234]|F2FS)-fs \(({_SD_DEV})\)|\b(exfat)[^\n]{{0,20}}\(({_SD_DEV})\)", re.I)
+
+
+def classify_sd_line(line: str) -> list[str]:
+    """부팅 로그 한 줄이 맞는 SD 관련 종류들 (우선순위 순, 없으면 빈 목록). 줄 하나만 본다(eMMC 장치 추적은 sd_events).
+
+    eMMC·SDIO 줄은 ['emmc']·['sdio'] 만 돌려준다. '카드 없음' 문구면 card-detected 를 빼고, 카드 감지 핀·인터럽트 설정 줄이면
+    card-detected·card-absent 를 뺀다. 'card-other' 는 다른 종류가 없을 때만 남긴다.
+    """
+    s = line.strip()
+    if not s or len(s) > SD_LINE_MAX:
+        return []
+    kinds = [kind for kind, rx in SD_EVENT_RULES if rx.search(s)]
+    if not kinds:
+        return []
+    if kinds[0] in _SD_NOT_CARD:
+        return kinds[:1]
+    if "card-absent" in kinds and "card-detected" in kinds:
+        kinds.remove("card-detected")
+    if _SD_HW_CONFIG_RX.search(s):
+        kinds = [k for k in kinds if k not in ("card-detected", "card-absent")] or ["card-other"]
+    if len(kinds) > 1 and "card-other" in kinds:
+        kinds.remove("card-other")
+    return kinds
+
+
+def sd_events(lines: Iterable[str], *, max_events: int = SD_EVENT_MAX) -> dict[str, Any]:
+    """부팅 로그 줄들 → SD 카드 관련 줄 목록과 요약.
+
+    반환: ``events``(line: 1부터 센 줄 번호 = 저장한 발췌 파일의 줄, kind: 그 줄의 대표 종류, also: 함께 맞은 종류, text — 최대 max_events 개)와
+    ``summary``(card_detected: 카드 감지 줄이 보였는가 — false 는 '카드 없음'이 아니라 '감지 줄을 못 봤다'는 뜻, card_absent: '카드 없음' 줄이 보였는가,
+    counts: 종류별 줄 수(also 포함, 상한과 관계없이 모두), devices: mmcblk 장치 이름, filesystems: 장치·파일 시스템, events_total, truncated,
+    long_lines_skipped: SD_LINE_MAX 를 넘어 분류하지 않은 줄 수).
+    eMMC·SDIO 줄은 counts 의 emmc·sdio 로만 센다. 커널이 'mmcN: new … MMC card'(eMMC)로 알린 호스트의 mmcblk 장치 줄(파티션·마운트·오류)도
+    eMMC 로 센다. 그 밖의 mmcblk 줄은 SD 와 eMMC 를 구분할 수 없어 후보로 남는다.
+    """
+    events: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    devices: list[str] = []
+    filesystems: list[dict[str, str]] = []
+    emmc_hosts: set[str] = set()
+    blk_host: dict[str, str] = {}
+    total = 0
+    long_lines = 0
+    for i, line in enumerate(lines, 1):
+        s = line.strip()
+        if len(s) > SD_LINE_MAX:
+            long_lines += 1  # 분류하지 않은 줄 — 조용히 버리지 않고 센다
+            continue
+        kinds = classify_sd_line(s)
+        if not kinds:
+            continue
+        hm = _SD_HOST_NEW_RX.search(s)
+        if hm and kinds[0] in _SD_NOT_CARD:
+            emmc_hosts.add(hm.group(1))
+        bm = _SD_BLK_HOST_RX.search(s)
+        if bm:
+            blk_host[bm.group(1)] = bm.group(2)
+        devs = [m.group(1) for m in _SD_DEV_RX.finditer(s)]
+        if kinds[0] not in _SD_NOT_CARD and devs:
+            hosts = {blk_host.get(re.match(r"mmcblk(\d+)", d).group(1)) for d in devs}  # type: ignore[union-attr]
+            if hosts and None not in hosts and hosts <= emmc_hosts:
+                kinds = ["emmc"]
+        for k in kinds:
+            counts[k] = counts.get(k, 0) + 1
+        if kinds[0] in _SD_NOT_CARD:
+            continue
+        total += 1
+        if len(events) < max_events:
+            ev: dict[str, Any] = {"line": i, "kind": kinds[0], "text": s if len(s) <= SD_EVENT_TEXT_MAX else s[:SD_EVENT_TEXT_MAX] + "…"}
+            if len(kinds) > 1:
+                ev["also"] = kinds[1:]
+            events.append(ev)
+        for d in devs:
+            if d not in devices and len(devices) < 16:
+                devices.append(d)
+        fm = _SD_FS_RX.search(s)
+        if fm:
+            fs, dev = (fm.group(1), fm.group(2)) if fm.group(1) else (fm.group(3), fm.group(4))
+            ent = {"device": dev, "fs": fs.lower()}
+            if ent not in filesystems and len(filesystems) < 16:
+                filesystems.append(ent)
+    return {
+        "events": events,
+        "summary": {
+            "card_detected": counts.get("card-detected", 0) > 0,
+            "card_absent": counts.get("card-absent", 0) > 0,
+            "counts": counts,
+            "devices": devices,
+            "filesystems": filesystems,
+            "events_total": total,
+            "truncated": total > len(events),
+            "long_lines_skipped": long_lines,
+        },
+    }
+
+
 def summarize_boot_text(text: str, profile: Any) -> dict[str, Any]:
     """부팅 로그 전체 → 부팅 정보 (uart_capture_boot)."""
     from .tracker import extract_facts_from_line
@@ -716,6 +873,7 @@ def summarize_boot_text(text: str, profile: Any) -> dict[str, Any]:
         flash_size = parse_print_size(facts["flash_chip"])
     elif facts.get("flash_current_kib"):
         flash_size = facts["flash_current_kib"] * 1024
+    sd = sd_events(lines)
     return {
         "uboot_version": facts.get("uboot_version"),
         "spl_version": facts.get("spl_version"),
@@ -740,6 +898,8 @@ def summarize_boot_text(text: str, profile: Any) -> dict[str, Any]:
         "env_bad_crc": bool(facts.get("env_bad_crc")),
         "kernel_panic": facts.get("kernel_panic"),
         "flash_write_warnings": flash_warnings,
+        "sd_events": sd["events"],
+        "sd_summary": sd["summary"],
         "stages": stages,
         "facts": {k: v for k, v in facts.items() if k not in ("mtd_parts",)},
     }

@@ -70,6 +70,7 @@ from .hashes import crack_entries, crypt_module_available, parse_hash_input
 from .hunt import hunt
 from .patterns import DEFAULT_PACK, PACKS, glob_to_regex, load_default_passwords, load_patterns, split_pack_spec
 from .rootfs import Auditor
+from .sdsurface import SdSurface, attach_sd_boot, compact_result, compact_sd_boot
 from .signatures import MARKER_KINDS, ScanCtx, padding_runs, scan_regions
 from .squashfs import extract_squashfs
 from .uboot import carve, env_scan, resolve_layout, uimage_info
@@ -368,6 +369,11 @@ async def fw_entropy(
         "덤프/파티션에서 U-Boot 환경변수 블록 탐색 (pweh.formats.find_uboot_env: 후보 크기별 CRC 검증, redundant 플래그; 빅엔디안 CRC 보완). "
         "env 전체, 주요 변수(bootcmd/bootargs/mtdparts/ethaddr ...), mtdparts 해석(pweh.formats.parse_mtdparts, '-' 크기는 파일 끝까지), "
         "redundant 쌍의 활성본 추정, CRC 없는 기본 env(U-Boot 바이너리 내장) 후보와 이미지 속 'mtdparts=' 문자열을 반환. "
+        "env 마다 sd_boot(SD 부팅 신호: fatload/ext4load/load mmc(장치 자리 변수 'fatload ${bootdev}' 는 같은 env 의 'bootdev=mmc' 로 읽음), "
+        "mmc 에서 읽는 boot.scr·uEnv.txt·env import(tftp·ubi·nand·sf·usb 출처는 notes 만), distro boot, "
+        "mmc 를 플래시보다 먼저 시도하는지, verify 값과 꺼짐 여부(env_get_yesno 기준: 값이 있고 첫 글자가 1/y/Y/t/T 가 아니면 꺼짐, 없으면 켬), "
+        "SD 업데이트(sdupdate·hiupdate·do_auto_update 같은 명령, 또는 mmc 에서 읽어 플래시에 쓰는 값 — 이름만 autoupdate 인 TFTP 업데이트는 아님), CRC 유효 env 면 saveenv 로 쓰기 가능, "
+        "run 펼침은 변수당 16 KiB·env 전체 2 MiB 상한)를 붙인다 — mmc 장치 번호로는 SD 와 eMMC 를 구분하지 못한다. "
         "sizes 로 env 크기 후보 지정 가능(예: [16384, 65536])."
     ),
     annotations=ANN_LOCAL_WRITE,
@@ -393,8 +399,10 @@ async def fw_uboot_env(
         info = file_info(case, src)
         with open_mmap(src) as mm:
             res = env_scan(mm, info["size"], ctl, sizes=sz, align=al, max_hits=mr, include_default=include_default_env)
+        sd_summary = attach_sd_boot(res)  # envs[]·embedded_default_envs[] 마다 sd_boot
         payload = base_payload("fw_uboot_env", case, schema="uboot-env", input_info=info, params={"sizes": list(sz) if sz else None, "align": al})
         payload.update(res)
+        payload["sd_boot_summary"] = sd_summary
         rel = _write(case, "uboot-env", payload, f"fw_uboot_env {info['path']}")
         layout = None
         for e in res["envs"] + res["embedded_default_envs"]:
@@ -415,19 +423,28 @@ async def fw_uboot_env(
             return out
 
         envs = [{**{k: e[k] for k in ("offset_hex", "size", "redundant", "flags", "crc", "crc_endian", "variable_count") if k in e}, "active_guess": e.get("active_guess"), "env": trim_env(e["env"]),
-                 "mtdparts": [{"source": m["source"], "text": m["text"], "partition_count": len(m["partitions"] or []), "warnings": m["warnings"]} for m in e["mtdparts"]]} for e in res["envs"]]
-        defaults = [{**{k: d[k] for k in ("offset_hex", "size", "source", "variable_count")}, "key_vars": d["key_vars"], "mtdparts": [m["text"] for m in d["mtdparts"]]} for d in res["embedded_default_envs"][:8]]
+                 "mtdparts": [{"source": m["source"], "text": m["text"], "partition_count": len(m["partitions"] or []), "warnings": m["warnings"]} for m in e["mtdparts"]],
+                 "sd_boot": compact_sd_boot(e["sd_boot"])} for e in res["envs"]]
+        defaults = [{**{k: d[k] for k in ("offset_hex", "size", "source", "variable_count")}, "key_vars": d["key_vars"], "mtdparts": [m["text"] for m in d["mtdparts"]],
+                     "sd_boot": compact_sd_boot(d["sd_boot"])} for d in res["embedded_default_envs"][:8]]
         steps = []
         if layout:
             steps.append("fw_carve(path) 를 인자 없이 호출하면 이 레이아웃으로 자동 분할합니다 (mtdparts='...' 로 지정도 가능).")
         if not res["envs"]:
             steps.append("CRC 가 맞는 env 가 없습니다: env 파티션이 비었거나(기본 env 사용) 크기 후보가 다릅니다. embedded_default_envs 와 UART printenv 결과를 참고하세요.")
+        if sd_summary["envs_with_mmc_boot"] or sd_summary["update_from_card"]:
+            steps.append(f"SD 부팅·업데이트 신호(sd_boot): fw_sd_surface(image_path='{info['path']}') 로 SD-01~09 체크리스트를 만드세요 (mmc 장치가 SD 슬롯인지 eMMC 인지는 보드에서 확인).")
+        elif sd_summary["verify_off"]:
+            # verify=n 만으로는 SD 신호가 아니다 — 부팅 이미지 검증이 꺼졌다는 일반 사항만 알린다
+            steps.append("verify 가 '아니오'인 env 가 있습니다 (env_get_yesno 기준): U-Boot 가 부팅 이미지(FIT 서명 포함)를 검증하지 않습니다. "
+                         "부팅 소스(플래시·네트워크)와 이미지 쓰기 경로를 함께 확인하세요.")
         return {
             "ok": True,
             "tool": "fw_uboot_env",
             "result_path": rel,
             "input": info,
             "env_count": len(res["envs"]),
+            "sd_boot_summary": sd_summary,
             "envs": envs,
             "redundant_note": res["redundant_note"],
             "embedded_default_envs": defaults,
@@ -733,8 +750,18 @@ async def fw_elf_info(
     description=(
         "추출된 rootfs 감사: passwd/shadow(빈/약한 해시와 알고리즘, uid 0 추가 계정, 공개 하드코딩 해시, 내장 기본 비밀번호 오프라인 대조), "
         "inittab/init.d/rc/inetd/systemd/벤더 시작 스크립트(telnetd·-l /bin/sh, dropbear -B, nc -e 셸, getty 자동 로그인/콘솔 셸, remserial, "
-        "쓰기 가능한 영구 저장소 스크립트 실행, world-writable 시작 스크립트), 웹 서버/메인 앱 바이너리·설정·CGI, setuid(매니페스트 기준), "
+        "쓰기 가능한 영구 저장소 스크립트 실행(VAR=값·nohup·setsid·env·command·time·start-stop-daemon -x(멈춤 명령 제외) 뒤 포함 — 대입·래퍼 건너뛰기는 셸 문법 파일만, "
+        "systemd 'ExecStart=프로그램 경로' 의 경로는 인자), world-writable 시작 스크립트), 웹 서버/메인 앱 바이너리·설정·CGI, setuid(매니페스트 기준), "
         "개인키/인증서(지문만), 설정/스크립트의 하드코딩 자격증명(마스킹), 영구 쓰기 가능 마운트, YAML credential_patterns/interesting_paths. "
+        "핫플러그 처리기(mdev.conf @/$/*, udev RUN+=, /etc/hotplug*)도 시작 스크립트처럼 따라간다. "
+        "시작 스크립트는 셸 논리 줄 전체를 본다(줄 끝 '\\'·|·||·&& 로 이어진 줄은 한 명령 — 연산자 뒤의 빈 줄·주석 줄 포함, 연산자 뒤 줄 끝 주석은 판정에서 지움, "
+        "줄 끝 주석 안의 연산자·'\\|'·'\\&&' 와 here-document 본문(구분자는 셸 낱말 전체, 끝 구분자 줄이 없으면 본문 아님)은 잇지 않고, "
+        "inittab·inetd·udev·systemd 유닛처럼 셸이 아닌 파일은 줄 끝 '\\' 만; 항목 줄 번호는 첫 줄; 긴 줄·키워드 반복에서도 자르거나 "
+        "규칙을 건너뛰지 않음). 같은 최종 파일(심볼릭·하드 링크)은 한 번만 읽고, 항목은 같은 파일의 같은 규칙마다 20개, 시작 스크립트 전체에서 같은 규칙마다 "
+        "500개까지 적고 나머지는 summary.items_suppressed·limitations 로 센다. 시간 예산·스크립트 큐(실행 문맥 참조 2000개)·"
+        "파일 크기(1 MiB) 상한에 걸리면 summary.startup_scan_complete=false 와 limitations 의 '[시작 스크립트 검사 미완료]' 로 알린다. "
+        "sd_surface=true 면 SD 카드 공격 표면의 rootfs 쪽(SD-01~09: 카드 내용 실행·업데이트·설정·로그·마운트 옵션·네트워크 노출, SD 마운트 지점, "
+        "sd_paths_referenced) 섹션 sd_surface 를 더한다(U-Boot 쪽은 보지 않으므로 rootfs 근거가 없는 SD-02·SD-03 은 unknown — U-Boot 쪽은 fw_sd_surface(image_path) 로). "
         "심볼릭 링크는 rootfs 안에서만 해석(호스트 파일을 읽지 않음). 결과: analysis/rootfs-audit-NNN.json (항목마다 파일/줄/발췌/category/severity)."
     ),
     annotations=ANN_LOCAL_WRITE,
@@ -749,6 +776,7 @@ async def fw_rootfs_audit(
     max_file_size: int | str = "16M",
     max_seconds: float = 300.0,
     background: bool = False,
+    sd_surface: bool = False,
 ) -> dict[str, Any]:
     r = rt()
     case = r.case(case_id)
@@ -778,9 +806,19 @@ async def fw_rootfs_audit(
             except (OSError, ValueError):
                 pass
         dinfo = {"path": case.rel(root), "type": "directory"}
-        payload = base_payload("fw_rootfs_audit", case, schema="rootfs-audit", input_info=dinfo,
-                               params={"crack_defaults": crack_defaults, "crack_seconds": csecs, "max_file_size": mfs, "patterns": {"source": patterns.source, "sha256": patterns.sha256}, "wordlist": wl_path})
+        sd_section = None
+        if sd_surface:
+            # rootfs 쪽만 (같은 Auditor 의 순회·시작 스크립트·웹 결과를 다시 쓴다). 시간 예산이 남지 않으면 해당 점검은 unknown
+            sds = SdSurface(ctl, patterns, max_binary_file=mfs)
+            sds.scan_rootfs(aud, {"startup_files": res["startup_files"]}, res["web"])
+            sd_section = sds.result(rootfs_given=True, image_given=False)
+        params = {"crack_defaults": crack_defaults, "crack_seconds": csecs, "max_file_size": mfs, "patterns": {"source": patterns.source, "sha256": patterns.sha256}, "wordlist": wl_path}
+        if sd_surface:
+            params["sd_surface"] = True
+        payload = base_payload("fw_rootfs_audit", case, schema="rootfs-audit", input_info=dinfo, params=params)
         payload.update(res)
+        if sd_section is not None:
+            payload["sd_surface"] = sd_section
         rel = _write(case, "rootfs-audit", payload, f"fw_rootfs_audit {dinfo['path']}")
         r.audit({"event": "fwtriage_rootfs_audit", "input": dinfo["path"], "result": rel, "items": len(res["items"])}, case.id)
         items, tr = compact_list(res["items"], mr)
@@ -796,7 +834,12 @@ async def fw_rootfs_audit(
         if res["web"]["servers"]:
             steps.append("웹/메인 앱 바이너리: fw_elf_info(path=...) 와 fw_strings_hunt(path_or_dir=...) 로 인증 우회·명령 주입 앵커를 찾으세요.")
         steps.append(f"fw_strings_hunt(path_or_dir='{case.rel(root)}') 로 CCTV 패턴 전체 검색")
-        return {
+        if sd_section is not None:
+            if sd_section["risk_found"]:
+                steps.append(f"SD 표면 found({', '.join(sd_section['risk_found'])}): REA 로 호출 경로를 확인하고, U-Boot 쪽은 fw_sd_surface(rootfs_dir='{case.rel(root)}', image_path=<플래시 덤프>) 로 SD-02·SD-03 까지")
+            else:
+                steps.append(f"SD 표면 U-Boot 쪽(SD-02·SD-03)은 fw_sd_surface(rootfs_dir='{case.rel(root)}', image_path=<플래시 덤프>) 로")
+        out = {
             "ok": True,
             "tool": "fw_rootfs_audit",
             "result_path": rel,
@@ -816,8 +859,139 @@ async def fw_rootfs_audit(
             "limitations": res["limitations"],
             "next_steps": steps,
         }
+        if sd_section is not None:
+            out["sd_surface"] = compact_result(sd_section, mr)
+        return out
 
     return await _execute(kind="fw_rootfs_audit", case_id=case.id, background=background, max_seconds=secs, description=f"fw_rootfs_audit {case.rel(root)}", fn=work)
+
+
+# ---------------------------------------------------------------------------
+# fw_sd_surface
+# ---------------------------------------------------------------------------
+
+
+@server.tool(
+    description=(
+        "펌웨어 쪽 SD 카드 공격 표면 정적 점검 SD-01~09 (오프라인·관찰만: 기기와 카드를 건드리지 않고 펌웨어 안의 어떤 것도 실행하지 않는다, "
+        "docs/design/sd-forensics.md 5.1). rootfs_dir(추출된 rootfs)과 image_path(플래시 덤프 또는 U-Boot·env 파티션) 중 하나 이상이 필요하다. "
+        "rootfs: 시작·핫플러그 스크립트(rcS/init.d/inittab/cron, mdev.conf @/$/*, udev RUN+=, hotplug)·설정·바이너리 문자열에서 카드 경로의 실행(복사·복호화 뒤 실행 포함)·"
+        "플래시 쓰기·설정 가져오기·로그 쓰기·웹/FTP/Samba 노출, SD 마운트(fstab·mount 명령·핫플러그·흔한 경로 /mnt/sd*(sdk·sda1 같은 SCSI 디스크 이름 제외)·/mnt/mmc*·/media/mmc*·/tmp/sd·"
+        "/mnt/tf·/mnt/tf<숫자>·/mnt/tfcard<숫자>·/sdcard·/system/sdcard·/mnt/disc*, media·storage 같은 일반 이름은 FAT 계열 fs 일 때만)와 마운트 옵션. 펌웨어의 mdev 정규식·udev glob 은 실행하지 않는다"
+        "(장치 이름 표본에 자체 해석기로만 맞춘다). 셸 스크립트의 줄 이어쓰기는 한 명령으로 보고(fw_rootfs_audit 와 같은 규칙), echo·logger 문구 속 cd·sh x 와 "
+        "start-stop-daemon 멈춤(-K·--stop)의 -x 경로는 실행이 아니며, 명령 앞 대입 접두는 셸 문법 파일만 본다(systemd ExecStart 의 인자는 실행 아님). "
+        "커널 모듈(.ko·/lib/modules)의 문자열은 보지 않는다. "
+        "image: U-Boot env(CRC 유효·내장 기본)의 mmc 부팅·mmc 에서 읽는 boot.scr/uEnv.txt(장치 자리 변수 ${bootdev} 는 같은 env 의 값으로)·env import·"
+        "verify(env_get_yesno 기준 첫 글자가 1/y/Y/t/T 가 아니면 검증 꺼짐)·"
+        "env 쓰기 가능성, 업데이트 표지(sdupdate·sdupgrade·hiupdate·do_auto_update·au_check_cksum_valid) 문자열. "
+        "점검마다 status(found / not-found / unknown — 필요한 입력이 없거나 시간·크기·줄 길이(16 KiB)·문자열 히트 상한으로 일부만 보거나 "
+        "시작 스크립트 검사가 끝나지 않으면 unknown. "
+        "SD-07 녹화 암호화만 found 가 보호 근거), "
+        "severity_hint, category(finding 어휘), evidence(source rootfs/uboot-env/image-strings, file·line 또는 image·offset_hex, 마스킹된 excerpt, rule), rationale, "
+        "references(설계 표의 CVE), next_steps. 물리 버튼·GPIO 로만 열리는 업데이트는 같은 파일·위치의 원격 쓰기 경로가 보이지 않을 때만 SD-02 심각도를 낮춘다. "
+        "mount_points(발견 근거), sd_paths_referenced(펌웨어가 실행·읽기·플래시하는 카드 경로 — 나중에 카드 내용과 대조). 결과: analysis/sd-surface-NNN.json"
+    ),
+    annotations=ANN_LOCAL_WRITE,
+)
+@safe_tool
+async def fw_sd_surface(
+    case_id: str,
+    rootfs_dir: str | None = None,
+    image_path: str | None = None,
+    max_results: int = DEFAULT_MAX_RESULTS,
+    max_evidence: int = 20,
+    max_file_size: int | str = "64M",
+    max_seconds: float = 300.0,
+    background: bool = False,
+) -> dict[str, Any]:
+    r = rt()
+    case = r.case(case_id)
+    if not (isinstance(rootfs_dir, str) and rootfs_dir.strip()) and not (isinstance(image_path, str) and image_path.strip()):
+        raise ValidationFailed(
+            "rootfs_dir 와 image_path 중 하나 이상이 필요합니다.",
+            hint="rootfs_dir = fw_extract_squashfs 의 output_dir(예: extract/rootfs-001), image_path = 플래시 덤프(예: dumps/flash.bin) 또는 fw_carve 의 U-Boot·env 파티션",
+        )
+    root = resolve_input_dir(case, rootfs_dir) if rootfs_dir else None
+    src = resolve_input_file(case, image_path) if image_path else None
+    mr = clamp_int(max_results, 0, HARD_MAX_RESULTS, "max_results")
+    me = clamp_int(max_evidence, 1, 200, "max_evidence")
+    mfs = parse_int_arg(max_file_size, "max_file_size", allow_none=False) or (64 << 20)
+    secs = _seconds(max_seconds, 300.0)
+    patterns = load_patterns()
+    try:
+        profile = r.config.profile(case.load().get("profile"))
+    except Exception:
+        profile = {}
+
+    def work(ctl: Ctl) -> dict[str, Any]:
+        sds = SdSurface(ctl, patterns, max_evidence=me, max_binary_file=mfs)
+        inputs: dict[str, Any] = {"rootfs_dir": None, "image": None}
+        uboot = None
+        if root is not None:
+            # 계정·해시 대조 없이 순회 + 시작·핫플러그 스크립트 + 웹 설정만
+            aud = Auditor(root, ctl, patterns, persistent_paths=list(r.config.safety.persistent_paths), profile=profile, max_file_size=mfs,
+                          crack=False, crack_seconds=1.0, words=[], max_entries=300000)
+            aud.walk()
+            ctl.progress(1, 4, "시작·핫플러그 스크립트")
+            startup = aud.audit_startup()
+            web = aud.audit_web()
+            ctl.progress(2, 4, "rootfs SD 표면")
+            sds.scan_rootfs(aud, startup, web)
+            inputs["rootfs_dir"] = {"path": case.rel(root), "type": "directory"}
+        if src is not None:
+            ctl.progress(3, 4, "U-Boot env·이미지 문자열")
+            info = file_info(case, src)
+            with open_mmap(src) as mm:
+                scan = env_scan(mm, info["size"], ctl, include_default=True)
+                summary = attach_sd_boot(scan, ctl)
+                scan["sd_boot_summary"] = summary
+                sds.scan_image(mm, info["size"], info["path"], scan)
+            inputs["image"] = info
+            uboot = {
+                "sd_boot_summary": summary,
+                "envs": [{**{k: e.get(k) for k in ("offset_hex", "size", "redundant", "crc", "variable_count", "key_vars")}, "sd_boot": e["sd_boot"]} for e in scan["envs"]],
+                "embedded_default_envs": [{**{k: d.get(k) for k in ("offset_hex", "size", "variable_count", "key_vars")}, "sd_boot": d["sd_boot"]} for d in scan["embedded_default_envs"]],
+            }
+        res = sds.result(rootfs_given=root is not None, image_given=src is not None)
+        payload = base_payload("fw_sd_surface", case, schema="sd-surface", input_info=inputs,
+                               params={"max_evidence": me, "max_file_size": mfs, "max_seconds": secs, "patterns": {"source": patterns.source, "sha256": patterns.sha256}})
+        payload.update(res)
+        payload["uboot"] = uboot
+        payload["timed_out"] = ctl.timed_out
+        payload["elapsed_seconds"] = ctl.elapsed()
+        label = " + ".join(x for x in (case.rel(root) if root is not None else None, inputs["image"]["path"] if inputs["image"] else None) if x)
+        rel = _write(case, "sd-surface", payload, f"fw_sd_surface {label}")
+        r.audit({"event": "fwtriage_sd_surface", "input": label, "result": rel, "counts": res["counts"], "risk_found": res["risk_found"]}, case.id)
+        out: dict[str, Any] = {"ok": True, "tool": "fw_sd_surface", "result_path": rel, "input": inputs}
+        out.update(compact_result(res, mr))
+        if uboot is not None:
+            out["uboot"] = {
+                "env_count": len(uboot["envs"]),
+                "embedded_default_env_count": len(uboot["embedded_default_envs"]),
+                "sd_boot_summary": uboot["sd_boot_summary"],
+                "envs": [{"offset_hex": e["offset_hex"], "storage": e["sd_boot"]["storage"], **compact_sd_boot(e["sd_boot"])}
+                         for e in (uboot["envs"] + uboot["embedded_default_envs"])[:8]],
+            }
+        steps: list[str] = []
+        if res["risk_found"]:
+            steps.append("found 점검은 REA(search_strings → xrefs → procedure_pseudo_code)로 호출 경로를 확인한 뒤 case_add_finding "
+                         "(evidence: type=triage, ref=result_path + evidence 의 file/line 또는 image@offset_hex).")
+        if "SD-05" in res["risk_found"]:
+            steps.append("SD-05: 카드에서 읽은 값이 system()/popen 으로 흐르는지 REA 로 확인 (cctv-auth-bypass-hunt 의 AH-04 와 교차).")
+        if src is None:
+            steps.append("U-Boot 쪽(SD-02·SD-03)은 image_path(플래시 덤프 또는 U-Boot·env 파티션)를 주고 다시 실행.")
+        if root is None:
+            steps.append("rootfs 쪽(SD-01·SD-04·SD-05·SD-06·SD-08·SD-09)은 rootfs_dir(fw_extract_squashfs 의 output_dir)를 주고 다시 실행.")
+        if any(c["status"] == "unknown" and (c.get("unknown_reason") or "").startswith("시간") for c in res["checks"]):
+            steps.append("일부 점검이 시간·크기 예산으로 unknown 입니다: max_seconds·max_file_size 를 늘리거나 background=true 로 다시 실행.")
+        steps.append("부팅 로그 수동 관찰은 uart_capture_boot 의 sd_events 로만 (카드 없음 vs 사람이 동의한 새 빈 시험 카드 — 증거 카드는 다시 넣지 않음).")
+        if res["sd_paths_total"]:
+            steps.append("sd_paths_referenced 는 카드 이미지 분석(pweh-forensics, 예정) 때 카드에 같은 경로의 파일이 있는지 대조할 목록입니다.")
+        out["next_steps"] = steps
+        return out
+
+    label0 = " + ".join(x for x in (case.rel(root) if root is not None else None, case.rel(src) if src is not None else None) if x)
+    return await _execute(kind="fw_sd_surface", case_id=case.id, background=background, max_seconds=secs, description=f"fw_sd_surface {label0}", fn=work)
 
 
 # ---------------------------------------------------------------------------

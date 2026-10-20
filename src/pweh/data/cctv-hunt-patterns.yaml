@@ -791,8 +791,11 @@ string_heuristics:
     vendor: generic
     rationale: '부팅 스크립트나 inittab의 telnetd 무조건 기동. 기본 실행, 비활성화 불가 사례 있음.'
     references: [CVE-2017-8224, CVE-2020-24218]
+  # gen-telnetd-login-shell·gen-getty-autologin·gen-static-digest-nonce 의 같은 줄 간격 {0,1024}? 는 원래 정규식을 쓰는 fw_strings_hunt 의
+  # 선형 시간을 위한 상한이다(무제한이면 키워드 홍수에 이차 시간). 기본 감사의 시작 스크립트 검사는 상한 256 이상의 간격을 길이 제한 없이 본다.
+  # 그 밖의 반복('-l' 뒤 공백 [ \t]*, nonce 값 [^"%]+)은 바로 뒤 구분자('/', '"')와 겹치지 않아 선형이므로 HEAD 그대로 둔다.
   - id: gen-telnetd-login-shell
-    pattern: 'telnetd\b[^\n]*[ \t]-l[ \t]*/bin/(?:sh|ash|bash)\b'
+    pattern: 'telnetd\b[^\n]{0,1024}?[ \t]-l[ \t]*/bin/(?:sh|ash|bash)\b'
     category: backdoor
     severity_hint: high
     scope: any
@@ -808,7 +811,7 @@ string_heuristics:
     rationale: 'BusyBox inittab(<id>:<runlevels>:<action>:<process>)에서 getty/login 없이 대화형 셸 실행(예제 파일의 ::askfirst:-/bin/sh). UART 무비밀번호 root 셸. action은 respawn/askfirst만, process는 셸 경로와 옵션(-l, --login 등)만 허용해 ::sysinit:/bin/sh /etc/init.d/rcS 같은 정상 스크립트 실행 줄은 제외한다.'
     references: []
   - id: gen-getty-autologin
-    pattern: 'getty\b[^\n]*[ \t]-l[ \t]*/bin/(?:sh|ash|bash)\b'
+    pattern: 'getty\b[^\n]{0,1024}?[ \t]-l[ \t]*/bin/(?:sh|ash|bash)\b'
     category: debug-interface
     severity_hint: high
     scope: text
@@ -872,7 +875,7 @@ string_heuristics:
     rationale: 'ONVIF WS-UsernameToken 처리 앵커(접두사 붙은 이름 wsse:Nonce, wsu:Created 기준. 실제 Dahua 펌웨어에 이 문자열이 그대로 있는지는 미확인이며, 접두사 없는 Nonce/Created만 있을 수도 있다). nonce 캐시와 Created 신선도(5분 가이드) 검사 유무 확인.'
     references: [CVE-2022-30563]
   - id: gen-static-digest-nonce
-    pattern: 'Digest\s+[^\n%]*nonce="[^"%]+"'
+    pattern: 'Digest\s[^\n%]{0,1024}?nonce="[^"%]+"'
     category: crypto
     severity_hint: medium
     scope: any
@@ -919,6 +922,67 @@ string_heuristics:
     vendor: generic
     rationale: 'mini_httpd 버전 캡처(nmap 배너 형식 mini_httpd/<ver>). 1.30 미만이면 임의 파일 읽기.'
     references: [CVE-2018-18778]
+
+  # ---------------- SD 카드 (펌웨어 쪽 공격 표면, docs/design/sd-forensics.md 5.1 의 사례 이름) ----------------
+  # 짧은 이름(iu.sh, autoexec.sh, upgrade.sh)은 SD 마운트 경로와 함께일 때만 잡는다. 카드 쪽 침해 흔적 대조는 fw_sd_surface 의 sd_paths_referenced.
+  # 모든 반복에 상한을 둔다(경로 조각 64자·8단, 문맥 160자) — 긴 문자열에서도 선형 시간. /mnt/tftpboot·/mnt/sdk 는 카드 경로가 아니고,
+  # /mnt/sda1·/media/sdb 같은 SCSI 디스크 이름(sd+글자 하나(+숫자)·sd+글자 둘+숫자가 경로 조각 전체 — sdcard·sdhc 는 카드)도 카드가 아니다 (fw_sd_surface 와 같은 규칙).
+  - id: sd-autorun-known-names
+    pattern: '\b(?:snx_autorun\.sh|enable_telnetd\.dat)\b'
+    category: backdoor
+    severity_hint: high
+    scope: any
+    vendor: generic
+    rationale: '알려진 SD 카드 자동 실행·트리거 파일 이름(Sonix snx_autorun.sh, Victure PC420 enable_telnetd.dat→autoexec.sh). 카드의 파일로 셸·telnet 이 켜진다. fw_sd_surface SD-01 과 REA xref 로 확인.'
+    references: [CVE-2023-41612]
+  - id: sd-card-script-path
+    pattern: '(?:/mnt/(?:sd(?!k)(?!(?:[a-z]\d{0,8}|[a-z]{2}\d{1,8})(?!\w))\w{0,16}|mmc\w{0,16}|tf(?:_?card)?\d{0,3}|disc\w{0,16})|/media/(?:sd(?!k)(?!(?:[a-z]\d{0,8}|[a-z]{2}\d{1,8})(?!\w))\w{0,16}|mmc\w{0,16}|tf(?:_?card)?\d{0,3})|/tmp/sd|/system/sdcard|/sdcard)(?:/[\w.-]{1,64}){0,8}/[\w.-]{1,64}\.sh\b'
+    category: backdoor
+    severity_hint: medium
+    scope: any
+    vendor: generic
+    rationale: 'SD 카드 마운트 경로의 셸 스크립트 참조(Tenda CP3 iu.sh, Victure autoexec.sh 형태). 부팅·핫플러그 때 실행하는지 fw_sd_surface SD-01 과 REA 로 확인.'
+    references: [CVE-2023-30356, CVE-2023-41612]
+  - id: sd-uboot-auto-update
+    pattern: '\b(?:do_auto_update|au_check_cksum_valid|au_check_header_valid|sdupdate|sdupgrade|hiupdate)\b'
+    category: crypto
+    severity_hint: high
+    scope: any
+    vendor: generic
+    rationale: 'U-Boot 의 SD 자동 업데이트(Ingenic sdupdate, HiSilicon hiupdate, au_check_cksum_valid 는 CRC 만 검사). 서명 없이 카드 이미지로 플래시를 덮어쓸 수 있다(finding 은 insecure-update).'
+    references: []
+  - id: sd-update-image-names
+    pattern: '\b(?:demo\.bin|ezviz\.dav)\b'
+    category: crypto
+    severity_hint: medium
+    scope: any
+    vendor: generic
+    rationale: '카드에서 찾는 업데이트 이미지 이름(Dafang/Wyze demo.bin, EZVIZ ezviz.dav). 검사가 CRC·버전뿐인지 REA 로 확인(finding 은 insecure-update).'
+    references: [CVE-2018-12258]
+  - id: sd-card-update-file
+    pattern: '(?:/mnt/(?:sd(?!k)(?!(?:[a-z]\d{0,8}|[a-z]{2}\d{1,8})(?!\w))\w{0,16}|mmc\w{0,16}|tf(?:_?card)?\d{0,3}|disc\w{0,16})|/media/(?:sd(?!k)(?!(?:[a-z]\d{0,8}|[a-z]{2}\d{1,8})(?!\w))\w{0,16}|mmc\w{0,16}|tf(?:_?card)?\d{0,3})|/tmp/sd|/system/sdcard|/sdcard)(?:/[\w.-]{1,64}){0,8}/(?:upgrade|update|firmware|fwupdate)[\w.-]{0,64}\.(?:sh|bin|img|pkg|tar|tgz|zip|dav)\b'
+    category: crypto
+    severity_hint: medium
+    scope: any
+    vendor: generic
+    rationale: 'SD 카드 경로의 업데이트 파일·스크립트(upgrade.sh 형태). 카드 내용으로 펌웨어를 바꾸는 경로가 서명을 확인하는지 fw_sd_surface SD-02 와 REA 로 확인.'
+    references: [CVE-2018-10988]
+  - id: sd-uboot-card-boot-script
+    pattern: '\b(?:fat|ext[24])?load\s{1,8}mmc\b[^\n]{0,120}?\b(?:boot\.scr|uEnv\.txt)\b'
+    category: crypto
+    severity_hint: low
+    scope: any
+    vendor: generic
+    rationale: 'U-Boot 가 mmc 파일 시스템의 boot.scr·uEnv.txt 를 읽는다(메인라인 distro boot 형태). mmc 번호가 SD 슬롯인지 eMMC 인지는 보드에서 확인. fw_uboot_env 의 sd_boot 참고.'
+    references: []
+  - id: sd-log-to-card
+    pattern: '\bsyslogd\b[^\n;|&]{0,160}?\s-O\s{0,8}(?:/mnt/(?:sd(?!k)(?!(?:[a-z]\d{0,8}|[a-z]{2}\d{1,8})(?!\w))\w{0,16}|mmc\w{0,16}|tf(?:_?card)?\d{0,3}|disc\w{0,16})|/media/(?:sd(?!k)(?!(?:[a-z]\d{0,8}|[a-z]{2}\d{1,8})(?!\w))\w{0,16}|mmc\w{0,16}|tf(?:_?card)?\d{0,3})|/tmp/sd|/system/sdcard|/sdcard)|\bcore_pattern\b[^\n]{0,80}?(?:/mnt/(?:sd(?!k)(?!(?:[a-z]\d{0,8}|[a-z]{2}\d{1,8})(?!\w))\w{0,16}|mmc\w{0,16}|tf(?:_?card)?\d{0,3}|disc\w{0,16})|/media/(?:sd(?!k)(?!(?:[a-z]\d{0,8}|[a-z]{2}\d{1,8})(?!\w))\w{0,16}|mmc\w{0,16}|tf(?:_?card)?\d{0,3})|/tmp/sd|/system/sdcard|/sdcard)|(?:/mnt/(?:sd(?!k)(?!(?:[a-z]\d{0,8}|[a-z]{2}\d{1,8})(?!\w))\w{0,16}|mmc\w{0,16}|tf(?:_?card)?\d{0,3}|disc\w{0,16})|/media/(?:sd(?!k)(?!(?:[a-z]\d{0,8}|[a-z]{2}\d{1,8})(?!\w))\w{0,16}|mmc\w{0,16}|tf(?:_?card)?\d{0,3})|/tmp/sd|/system/sdcard|/sdcard)/[^\n]{0,80}?\bcore_pattern\b'
+    category: info-leak
+    severity_hint: medium
+    scope: any
+    vendor: generic
+    rationale: '시스템 로그(syslogd -O)나 코어 덤프(core_pattern)를 SD 카드에 쓴다. 카드를 뽑으면 자격증명·장치 식별자가 샌다(Wyze 카드 로그 사례). fw_sd_surface SD-06.'
+    references: []
 
 function_heuristics:
   - id: fn-command-exec

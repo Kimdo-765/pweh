@@ -225,3 +225,120 @@ def test_summarize_boot_log(profile, kernel):
     assert s["mtdparts"] and len(s["partitions"]) >= 4
     assert "kernel" in s["stages"] and "userspace" in s["stages"]
     assert s["console"].startswith("tty")
+
+
+SD_BOOT_LOG = """[    2.345678] mmc0: new high speed SDHC card at address aaaa
+[    2.350000] mmcblk0: mmc0:aaaa SC16G 14.8 GiB
+[    2.351000]  mmcblk0: p1
+[    3.100000] FAT-fs (mmcblk0p1): Volume was not properly unmounted. Some data may be corrupt. Please run fsck.
+mount /dev/mmcblk0p1 /mnt/sd ok
+sd card insert, start check update
+found /mnt/sd/autorun.sh
+[    5.000000] mmc1: new SDIO card at address 0001
+[    5.100000] mmc2: new high speed MMC card at address 0001
+[    5.200000] mmcblk2boot0: mmc2:0001 8GTF4R partition 1 4.00 MiB
+"""
+
+UBOOT_MMC_LOG = """MMC:   msc: 0
+switch to partitions #0, OK
+mmc0 is current device
+reading boot.scr
+** Unable to read file boot.scr **
+Card did not respond to voltage select!
+"""
+
+
+def test_sd_events_linux_card_lines():
+    r = P.sd_events(P._lines(SD_BOOT_LOG))
+    kinds = [(e["line"], e["kind"]) for e in r["events"]]
+    assert kinds == [(1, "card-detected"), (2, "block-device"), (3, "partition"), (4, "fs-error"), (5, "fs-mount"), (6, "update"), (7, "script")]
+    assert r["events"][3]["also"] == ["fs-mount"] and r["events"][5]["also"] == ["card-detected"]
+    sm = r["summary"]
+    assert sm["card_detected"] is True and sm["card_absent"] is False
+    # SDIO(Wi-Fi 모듈)·eMMC 줄은 카드 이벤트가 아니다 — counts 에만 남는다
+    assert sm["counts"]["sdio"] == 1 and sm["counts"]["emmc"] == 2 and sm["events_total"] == 7
+    assert sm["devices"] == ["mmcblk0", "mmcblk0p1"] and sm["filesystems"] == [{"device": "mmcblk0p1", "fs": "fat"}]
+    assert sm["truncated"] is False
+
+
+def test_sd_events_uboot_mmc_and_absent():
+    r = P.sd_events(P._lines(UBOOT_MMC_LOG))
+    assert [e["kind"] for e in r["events"]] == ["uboot-mmc", "uboot-mmc", "uboot-script", "uboot-script", "card-absent"]
+    assert r["events"][0]["line"] == 2, "U-Boot 의 'MMC: msc: 0'(컨트롤러 목록)은 이벤트가 아니다"
+    assert r["summary"]["card_absent"] is True and r["summary"]["card_detected"] is False
+
+
+def test_sd_events_cap_and_long_lines():
+    lines = [f"sd card status {i}" for i in range(100)] + ["x" * 5000 + " sd card insert"]
+    r = P.sd_events(lines)
+    assert len(r["events"]) == P.SD_EVENT_MAX and r["summary"]["events_total"] == 100 and r["summary"]["truncated"]
+    assert all(e["kind"] == "card-other" for e in r["events"])
+    assert r["summary"]["long_lines_skipped"] == 1, "분류하지 않은 긴 줄은 센다"
+    assert P.sd_events(["sd card inserted"])["summary"]["long_lines_skipped"] == 0
+    long = P.sd_events(["sd card inserted " + "y" * 500])
+    assert long["events"][0]["text"].endswith("…") and len(long["events"][0]["text"]) == P.SD_EVENT_TEXT_MAX + 1
+
+
+@pytest.mark.parametrize("name", ["hisilicon-like-boot.log", "ingenic-like-boot.log", "hisilicon-legacy-boot.log"])
+def test_sd_events_no_false_positive_on_recorded_boot(name):
+    text = (REC / name).read_bytes().decode("utf-8", "replace")
+    s = P.summarize_boot_text(text, build_profile("generic-ipcam", {}))
+    assert s["sd_events"] == [] and s["sd_summary"]["counts"] == {}
+
+
+@pytest.mark.parametrize("line", [
+    "No SD card found", "SD card not present", "sd card not detected, skip record", "TF card not found!",
+    "[sdcard] no sdcard, sd card not exist", "MMC: no card present", "Card did not respond to voltage select!",
+])
+def test_sd_events_card_absent_is_not_detected(line):
+    r = P.sd_events([line])
+    assert P.classify_sd_line(line) == ["card-absent"]
+    assert r["summary"]["card_detected"] is False and r["summary"]["card_absent"] is True
+
+
+@pytest.mark.parametrize("line", [
+    "[    0.912000] sdcard detect gpio 51, active low", "jzmmc_v1.2: tf card detect pin = PB27", "SD card insert detect irq registered",
+])
+def test_sd_events_card_detect_pin_config_is_not_an_event(line):
+    assert P.classify_sd_line(line) == ["card-other"]
+    assert P.sd_events([line])["summary"]["card_detected"] is False
+
+
+def test_sd_events_emmc_host_block_lines_are_not_card_events():
+    log = [
+        "U-Boot 2017.09", "Loading Environment from MMC... OK", "Booting from eMMC",
+        "[    1.204512] mmc0: new HS200 MMC card at address 0001",
+        "[    1.205301] mmcblk0: mmc0:0001 8GTF4R 7.28 GiB",
+        "[    1.207210] mmcblk0: p1 p2 p3 p4 p5 p6",
+        "[    2.880112] EXT4-fs (mmcblk0p6): mounted filesystem with ordered data mode. Opts: (null)",
+        "[    3.100000] OTA: auto upgrade check: no new firmware on server",
+        # SD 카드가 따로 있으면(mmc1) 그 장치 줄은 후보로 남는다
+        "[    4.000000] mmc1: new high speed SDHC card at address aaaa",
+        "[    4.000100] mmcblk1: mmc1:aaaa SC16G 14.8 GiB",
+        "[    4.000200]  mmcblk1: p1",
+    ]
+    r = P.sd_events(log)
+    kinds = [(e["line"], e["kind"]) for e in r["events"]]
+    assert kinds == [(9, "card-detected"), (10, "block-device"), (11, "partition")], kinds
+    assert r["summary"]["counts"]["emmc"] == 5 and r["summary"]["devices"] == ["mmcblk1"]
+    assert not any(r["summary"]["counts"].get(k) for k in P.SD_NOTE_KINDS), "eMMC 환경 변수·OTA 줄로 sd_note 를 내지 않는다"
+
+
+def test_sd_events_paths_and_update_need_card_context():
+    assert P.classify_sd_line("mount -t nfs 10.0.0.1:/srv /mnt/tftpboot") == []
+    assert P.classify_sd_line("auto upgrade: downloading firmware from cloud") == []
+    assert P.classify_sd_line("auto update from sd card start")[0] == "update"
+    assert P.classify_sd_line("upgrade file /mnt/sd/update.bin found")[0] == "update"
+    assert P.classify_sd_line("run /mnt/sdcard/hook.sh")[0] == "script"
+    assert set(P.SD_NOTE_KINDS) == {"update", "script", "uboot-script"}
+
+
+def test_sd_events_overlong_line_is_skipped_cheaply():
+    import time
+
+    line = "sd card " + "x" * (P.SD_LINE_MAX + 10)
+    t0 = time.monotonic()
+    assert P.classify_sd_line(line) == []
+    worst = "sd card " + "not " * 1000 + "present " * 50
+    P.classify_sd_line(worst[: P.SD_LINE_MAX])
+    assert time.monotonic() - t0 < 1.0

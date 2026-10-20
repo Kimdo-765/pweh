@@ -102,6 +102,9 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 - 수동 동적 확인: `uart_capture_boot` 의 `sd_events`(카드 없음 vs **새 빈 시험 카드** — 사람 동의, 증거 카드는 절대 다시 넣지 않음). 검증 계획은 정적 코드 경로 + 수동 로그까지만.
 - Skill 연결: firmware-static-analysis 4b 단계, cctv-auth-bypass-hunt 의 AH-10(업데이트) 확장과 SD 점검 항목.
 
+> **구현 상태 (I3a, 2026-10-20)**: `fw_sd_surface`(SD-01~09 — found/not-found/unknown, `not-found` 는 필요한 입력을 끝까지 본 경우만, SD-07 은 found = 암호화 근거), `fw_rootfs_audit(sd_surface=True)`, `fw_uboot_env` 의 `sd_boot`, `sd-*` 휴리스틱 7개, rootfs 빈틈 수정(마운트 정규식·mdev/udev/hotplug 따라가기), `uart_capture_boot` 의 `sd_events`·`sd_summary`, firmware-static-analysis 4b·AH-10 문구(architecture §6.2·§6.6).
+> 남음: FIT 서명 노드의 구조 해석(지금은 `key-name-hint` 문자열 표지만 본다), REA 교차 참조 자동화. 카드에 넣을 파일은 만들지 않는다(§1).
+
 ### 5.2 카드 쪽 (pweh-forensics)
 
 - `forensics_scan_secrets`: fwtriage 자격증명 패턴 + 토큰 휴리스틱 + **1바이트 XOR 탐색**(Wyze 0x90). 결과는 마스킹된 지문만(평문 저장 안 함), 교체 권고.

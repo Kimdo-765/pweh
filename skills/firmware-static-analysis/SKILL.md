@@ -54,6 +54,7 @@ description: Static analysis of camera/IoT firmware already in the case (UART/JT
 | `fw_uboot_env`, `fw_carve`, `fw_uimage_info` | env·mtdparts, 파티션 분할, uImage/FIT 헤더 |
 | `fw_extract_squashfs` | squashfs 추출 + 원본 모드/setuid 매니페스트 |
 | `fw_rootfs_audit`, `fw_strings_hunt`, `fw_hunt_patterns` | rootfs 감사, CCTV 문자열 휴리스틱, 휴리스틱 목록 |
+| `fw_sd_surface` | SD 카드 공격 표면 점검표(SD-01~09, 4b 단계) |
 | `fw_elf_info`, `fw_crack_hashes` | ELF 위험 순위·상세, 기본 비밀번호 오프라인 대조 |
 | `fwtriage_job_status`, `fwtriage_jobs` | background=true 로 시작한 fwtriage 작업 폴링 (wait_seconds ≤ 50), 남은 작업 확인 |
 | `inspect_firmware_regions`, `extract_firmware` | REA binwalk 교차 확인, REA unblob 추출 (jffs2/UBI/cramfs/ext 등) |
@@ -167,6 +168,23 @@ fw_crack_hashes(case_id="<id>", source_path="extract/app-001/passwd.cfg")       
 - **문자열 히트는 단서다.** 6-2 의 trace_feature 로 어떤 함수가 쓰는지 확인하기 전에는 severity 를 확정하지 않는다. 검증에서 하드코딩 Basic 헤더 문자열(high)은 인증 경로가 아니라 selftest 함수에 있었다. 반대로 백도어 토큰은 low 등급 일반 키워드 히트(합성 문자열 안의 "BACKDOOR")로만 잡혔고, 인증을 건너뛰는 역할은 check_auth 디컴파일에서 드러났다.
 - fw_crack_hashes: fw_rootfs_audit 가 passwd/shadow 의 기본 비밀번호 대조를 이미 한다(crack_defaults). 설정 파일·htpasswd·바이너리에서 나온 해시, XiongMai 8자 해시(hash_type="xm-sofia")에 쓴다. 응답 password 는 마스킹("12****")되고 평문은 analysis/crack-hashes-NNN.json 에만 있다. not_cracked 는 "안전"이 아니다.
 - 오래 걸리면 `background=true` + fwtriage_job_status. rootfs 가 여럿(rootfs, app, config)이면 각각 감사한다.
+
+### 4b. SD 카드 공격 표면 (카드 슬롯이 있는 기기)
+
+```
+fw_sd_surface(case_id="<id>", rootfs_dir="extract/rootfs-001", image_path="dumps/flash-full.bin")
+```
+
+- 펌웨어가 SD 카드를 어떻게 다루는지 정적으로 본다(카드는 필요 없다). 결과는 SD-01~SD-09 점검표다: 카드 내용 실행(부팅·핫플러그), 카드에서 서명 없는 업데이트,
+  U-Boot 의 mmc 부팅·카드 스크립트(`verify=n`), 카드 삽입 처리기, 카드에서 설정 가져오기, 카드에 민감 정보 기록, 녹화 암호화, 약한 마운트 옵션(noexec 없음·`discard`),
+  카드 내용의 네트워크 노출. 항목마다 status(found / not-found / unknown — 입력이 없거나 시간·크기 예산으로 일부만 보면 unknown. not-found 는 알려진 모양에 맞춰 끝까지 봤다는 뜻이지 카드 경로가 없다는 증명이 아니다), 근거(파일·줄 또는 이미지 오프셋, 마스킹 발췌),
+  severity 힌트가 있다. `risk_found` 가 위험 근거가 나온 점검 목록이다 — SD-07 만 반대로 found 가 '암호화 근거 있음'(`found_means="protection"`)이고 근거가 없으면 unknown 이다(없다고 단정하지 않는다).
+  rootfs 만 주면 U-Boot 쪽 점검(SD-02 일부·SD-03)은 unknown 이다 — 플래시 덤프(`image_path`)를 함께 준다.
+- found 항목은 6단계에서 REA 로 실행 경로를 확인한 뒤 발견사항으로 기록한다(SD-05 는 카드 값이 system()/popen 으로 가는지 — cctv-auth-bypass-hunt AH-04 와 교차).
+  업데이트 경로(SD-02·SD-03)는 cctv-auth-bypass-hunt 의 AH-10 판정에 넣는다.
+- `sd_paths_referenced`(펌웨어가 실행·읽기·플래시하는 카드 경로, `card_relative` = 카드 루트 기준 경로)는 SD 카드 포렌식에서 카드 파일과 대조할 목록이다.
+- 동적 확인은 부팅 로그 관찰까지만 한다: 사람 동의를 받아 **새 빈 시험 카드**를 넣고 `uart_capture_boot` 의 `sd_events` 를 본다. 증거 카드는 기기에 다시 넣지 않는다.
+  카드에 넣을 스크립트·업데이트 파일·트리거 파일은 만들지 않는다.
 
 ### 5. 관심 바이너리 선정
 

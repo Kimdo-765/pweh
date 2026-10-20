@@ -50,6 +50,7 @@ from . import baud as baudmod
 from . import console, dumps
 from .guard import BUSY_RULE, HIGH_BIT_RULE, REPEAT_UNKNOWN_RULE, UNCERTAIN_RULE, static_check
 from .parsers import (
+    SD_NOTE_KINDS,
     env_load_addresses,
     env_mtdparts,
     flash_size_from_facts,
@@ -865,7 +866,9 @@ async def uart_detect_baud(case_id: str, port: str, ctx: Context, candidates: li
         "duration 초(최대 300, MCP 클라이언트 제한 고려) "
         "또는 until 정규식까지 수집. stop_on_prompt=true 면 이 창에서 부팅이 시작된 뒤 로그인/셸/U-Boot 프롬프트가 나오고 1.5초 조용하면 멈춘다. "
         "파싱 결과: uboot_version, autoboot_message, bootdelay, kernel_version, cmdline, mtdparts, partitions, login_prompt, shell_prompt, "
-        "flash, flash_write_warnings, stages. 발췌는 uart/<session>-boot-NN.log 로 저장·등록."
+        "flash, flash_write_warnings, stages, sd_events(SD 카드 감지·부재·마운트·파일 시스템 오류·U-Boot mmc·카드 스크립트 읽기·SD 업데이트·자동 실행 스크립트 줄. "
+        "line 은 발췌 파일의 줄 번호, 최대 60줄)·sd_summary(card_detected — false 는 감지 줄을 못 봤다는 뜻, counts, devices, filesystems). "
+        "발췌는 uart/<session>-boot-NN.log 로 저장·등록."
     ),
     annotations=ANN_READ_ONLY,
     meta=META_LARGE_OUTPUT,
@@ -922,7 +925,7 @@ async def uart_capture_boot(session_id: str, duration: float = 30, until: str | 
     end, stopped_by = await run_blocking_cancellable(worker, on_cancel=ev.set)
     data = s.slice(start, end)
     text = decode_bytes(data)
-    summary = summarize_boot_text(text, s.profile)
+    summary = await run_blocking(summarize_boot_text, text, s.profile)  # 수 MiB 로그의 요약(sd_events 포함)이 이벤트 루프를 막지 않게
     excerpt_rel = None
     if data:
         udir = s.case.subdir("uart")
@@ -953,6 +956,10 @@ async def uart_capture_boot(session_id: str, duration: float = 30, until: str | 
         out["hint"] = "수신 데이터가 없습니다. 사람이 전원을 꺼 둔 상태에서 호출이 시작된 뒤 전원을 넣었는지, 배선(TX/RX/GND)과 보드레이트를 확인하세요 (uart_detect_baud)."
     if summary.get("flash_write_warnings"):
         out["warning"] = "부팅 중 플래시 쓰기 징후(예: Saving Environment, Write default environment)가 보였습니다. 케이스 기록에 남기세요."
+    sd_counts = (summary.get("sd_summary") or {}).get("counts") or {}
+    if any(sd_counts.get(k) for k in SD_NOTE_KINDS):
+        out["sd_note"] = ("부팅 로그에 SD 카드 업데이트·자동 실행 스크립트·U-Boot 의 카드 스크립트(boot.scr·uEnv.txt) 읽기 줄이 있습니다(sd_events). 펌웨어 정적 분석의 fw_sd_surface 결과와 "
+                          "대조해 케이스 기록에 남기세요. 증거 카드는 기기에 다시 넣지 않습니다.")
     return out
 
 

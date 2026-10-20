@@ -18,9 +18,11 @@ cctv-hunt-patterns.yaml 의 scope 의미:
 from __future__ import annotations
 
 import bisect
+import functools
 import os
 import re
 import stat
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,8 @@ from .patterns import VENDOR_FAMILY, StringHeuristic, finding_category
 CHUNK = 16 << 20
 OVERLAP = 64 << 10
 _NL_RX = re.compile("\n")
+#: 일치 이만큼마다 취소(ctl.check)·시간 예산(stop_on_expiry 일 때)을 본다 — 16 MiB 청크 하나를 다 볼 때까지 기다리지 않게
+CTL_EVERY = 4096
 
 
 def _lstat_mode(p: str) -> int | None:
@@ -136,14 +140,17 @@ class HuntState:
         self.commented: list[dict[str, Any]] = []
         self.commented_count = 0
 
-    def record_commented(self, h: StringHeuristic, where: tuple[str, str | None], offset: int, line: int | None, context: str) -> None:
-        """'#' 주석 줄의 히트: 주 집계/checks 에는 넣지 않고 따로 보관 (비활성 설정의 단서)."""
+    def record_commented(self, h: StringHeuristic, where: tuple[str, str | None], offset: int, line: int | None, context: str | Callable[[], str]) -> None:
+        """'#' 주석 줄의 히트: 주 집계/checks 에는 넣지 않고 따로 보관 (비활성 설정의 단서). context 는 문자열 또는 저장할 때만 부르는 함수."""
         self.commented_count += 1
         if len(self.commented) < 100:
             path, file = where
-            self.commented.append({"file": file, "path": path, "offset": offset, "offset_hex": hexs(offset), "line": line, "pattern_id": h.id, "context": clip(context, 200)})
+            ctx = context() if callable(context) else context
+            self.commented.append({"file": file, "path": path, "offset": offset, "offset_hex": hexs(offset), "line": line, "pattern_id": h.id, "context": clip(ctx, 200)})
 
-    def record(self, h: StringHeuristic, where: tuple[str, str | None], offset: int, match: str, context: str, *, scope: str, encoding: str, line: int | None = None) -> None:
+    def record(self, h: StringHeuristic, where: tuple[str, str | None], offset: int, match: str, context: str | Callable[[], str], *, scope: str, encoding: str,
+               line: int | None = None) -> None:
+        """히트 하나를 센다. 상한 안이면 저장한다 — context 가 함수면 저장할 때만 불러(상한 밖 히트는 문맥을 만들지 않는다) 일이 저장 수에 묶인다."""
         path, file = where
         self.counts[h.id] = self.counts.get(h.id, 0) + 1
         self.files_with.setdefault(h.id, set()).add(path)
@@ -155,6 +162,8 @@ class HuntState:
         if self.stored.get(h.id, 0) >= self.per_pattern_cap or len(self.hits) >= self.max_hits:
             return
         self.stored[h.id] = self.stored.get(h.id, 0) + 1
+        if callable(context):
+            context = context()
         hit = {
             "file": file,
             "path": path,
@@ -217,29 +226,62 @@ def extract_strings(data: bytes, min_len: int, utf16: bool) -> tuple[str, list[i
 
 
 def _context(corpus: str, a: int, b: int) -> str:
-    ls = corpus.rfind("\n", 0, a) + 1
-    le = corpus.find("\n", b)
-    if le < 0:
-        le = len(corpus)
-    line = corpus[ls:le]
-    if len(line) > 240:
-        rel = a - ls
-        lo = max(0, rel - 80)
-        line = ("…" if lo else "") + line[lo : lo + 230]
-    return line
+    """일치 [a, b) 가 든 줄 (240자를 넘으면 일치 앞 80자부터 230자, 앞이 잘리면 '…').
+
+    줄 경계는 a 앞·b 뒤 241자 안에서만 찾는다 — 한 줄이 아주 길어도 일치마다 줄 끝까지 훑지 않는다 (예전 결과와 같다:
+    경계가 그 밖이면 줄이 240자를 넘으므로 잘라 낼 구간은 a 기준 위치만으로 정해진다)."""
+    n = len(corpus)
+    p = corpus.rfind("\n", max(0, a - 241), a)
+    ls = p + 1 if (p >= 0 or a <= 241) else -1  # -1: a 앞 241자 안에 줄 시작이 없다 (줄이 240자를 넘는다)
+    q = corpus.find("\n", b, b + 241)
+    le = q if q >= 0 else (n if n - b <= 241 else -1)  # -1: b 뒤 241자 안에 줄 끝이 없다
+    if ls >= 0 and le >= 0 and le - ls <= 240:
+        return corpus[ls:le]
+    if ls >= 0 and a - ls <= 80:
+        start = ls
+        prefix = ""
+    else:
+        start = a - 80
+        prefix = "…"
+    end = start + 230
+    if le >= 0:
+        end = min(end, le)
+    return prefix + corpus[start:end]
 
 
-def scan_buffer(state: HuntState, data: bytes, base: int, where: tuple[str, str | None], text_file: bool, *, min_len: int, utf16: bool, seen: set[tuple[str, int]]) -> None:
+def scan_buffer(state: HuntState, data: bytes, base: int, where: tuple[str, str | None], text_file: bool, *, min_len: int, utf16: bool, seen: set[tuple[str, int]],
+                keep_from: int | None = None, ctl: Ctl | None = None, stop_on_expiry: bool = False) -> bool:
+    """버퍼 하나(파일의 base 위치부터)를 휴리스틱으로 훑는다. 반환: 끝까지 봤으면 True, 시간 예산으로 멈췄으면 False (stop_on_expiry 일 때만).
+
+    seen 은 청크 사이 중복(겹침 구간에서 다시 찾은 같은 위치) 방지용이다. keep_from 을 주면 그 위치 이상(다음 청크가 다시 볼 겹침 구간)의
+    키만 기억해 메모리가 파일 크기와 상관없다 (같은 위치를 다시 찾을 수 있는 건 다음 청크뿐이라 결과는 같다).
+    ctl 을 주면 일치 CTL_EVERY 개마다 취소를 보고, stop_on_expiry 면 시간 예산을 넘었을 때 멈춘다 (fw_strings_hunt 는 취소만 본다 — 출력 그대로)."""
+    nmatch = 0
+
+    def tick() -> bool:
+        nonlocal nmatch
+        nmatch += 1
+        if ctl is None or nmatch % CTL_EVERY:
+            return True
+        ctl.check()
+        return not (stop_on_expiry and ctl.expired())
+
+    def remember(key: tuple[str, int]) -> None:
+        if keep_from is None or key[1] >= keep_from:
+            seen.add(key)
+
     # 길이 0 일치(예: 're:(?=x)', '\b')는 모든 위치가 히트가 되어 의미 없이 메모리를 쓰므로 건너뛴다
     for h in state.heuristics:
         if h.scope == "raw" and h.rx_bytes is not None:
             for m in h.rx_bytes.finditer(data):
+                if not tick():
+                    return False
                 if m.end() == m.start():
                     continue
                 off = base + m.start()
                 if (h.id, off) in seen:
                     continue
-                seen.add((h.id, off))
+                remember((h.id, off))
                 ctx = printable(data[max(0, m.start() - 24) : m.end() + 48], 160)
                 state.record(h, where, off, printable(m.group(0), 120), ctx, scope="raw", encoding="bytes")
     if text_file:
@@ -256,7 +298,10 @@ def scan_buffer(state: HuntState, data: bytes, base: int, where: tuple[str, str 
         for h in state.heuristics:
             if h.rx is None or not h.applies("text") or not h.prefilter(text, lower):
                 continue
+            last_line = -1  # 첫 청크: 같은 줄의 같은 패턴은 1회만 (finditer 는 위치 순이라 같은 줄은 이어서 나온다)
             for m in h.rx.finditer(text):
+                if not tick():
+                    return False
                 g = m.group(0)
                 if not g:
                     continue
@@ -266,22 +311,27 @@ def scan_buffer(state: HuntState, data: bytes, base: int, where: tuple[str, str 
                     nl = [mm.start() for mm in _NL_RX.finditer(text)]
                 li = bisect.bisect_right(nl, start - 1) if start else 0
                 line = li + 1 + base_line
-                key = (h.id, -(base + line)) if base == 0 else (h.id, base + start)
-                if key in seen:
-                    continue  # 같은 줄의 같은 패턴은 1회만
-                seen.add(key)
+                if base == 0:
+                    if line == last_line:
+                        continue
+                    last_line = line
+                else:
+                    key = (h.id, base + start)
+                    if key in seen:
+                        continue
+                    remember(key)
                 ls = nl[li - 1] + 1 if li > 0 else 0
                 le = nl[li] if li < len(nl) else len(text)
                 line_text = text[ls:le]
-                ctx = _context(text, start, m.end())
+                ctx = functools.partial(_context, text, start, m.end())
                 if line_text.lstrip().startswith("#"):
                     state.record_commented(h, where, base + start, line if base == 0 else None, ctx)
                     continue
                 state.record(h, where, base + start, g[lead:] if lead < len(g) else g, ctx, scope="text", encoding="latin1", line=line if base == 0 else None)
-        return
+        return True
     corpus, starts, offs, encs = extract_strings(data, min_len, utf16)
     if not corpus:
-        return
+        return True
     lower_cache2: list[str] = []
 
     def lower2() -> str:
@@ -293,6 +343,8 @@ def scan_buffer(state: HuntState, data: bytes, base: int, where: tuple[str, str 
         if h.rx is None or not h.applies("strings") or not h.prefilter(corpus, lower2):
             continue
         for m in h.rx.finditer(corpus):
+            if not tick():
+                return False
             if m.end() == m.start():
                 continue
             i = bisect.bisect_right(starts, m.start()) - 1
@@ -302,8 +354,9 @@ def scan_buffer(state: HuntState, data: bytes, base: int, where: tuple[str, str 
             off = base + offs[i] + within * (2 if encs[i] == "utf16le" else 1)
             if (h.id, off) in seen:
                 continue
-            seen.add((h.id, off))
-            state.record(h, where, off, m.group(0), _context(corpus, m.start(), m.end()), scope="strings", encoding=encs[i])
+            remember((h.id, off))
+            state.record(h, where, off, m.group(0), functools.partial(_context, corpus, m.start(), m.end()), scope="strings", encoding=encs[i])
+    return True
 
 
 def scan_file(state: HuntState, path: str, where: tuple[str, str | None], size: int, ctl: Ctl, *, min_len: int, utf16: bool, max_file_size: int) -> None:
@@ -325,8 +378,11 @@ def scan_file(state: HuntState, path: str, where: tuple[str, str | None], size: 
         pos = 0
         first = True
         text_file = False
+        covered = 0  # 지금까지 읽은 끝 위치 (앞 조각이 이미 파일 끝까지 읽었으면 남은 조각은 겹침 구간뿐이다)
         while pos < size:
             ctl.check()
+            if pos and covered < size and ctl.expired():
+                break  # 시간 예산은 조각 사이에서, 아직 읽지 않은 바이트가 있을 때만 본다 (결과 truncated — 조각 하나 안의 정규식은 끝까지 돈다)
             want = min(CHUNK + OVERLAP, size - pos)
             os.lseek(fd, pos, os.SEEK_SET)
             data = b""
@@ -337,10 +393,13 @@ def scan_file(state: HuntState, path: str, where: tuple[str, str | None], size: 
                 data += b
             if not data:
                 break
+            covered = pos + len(data)
             if first:
                 text_file = is_text(data[:65536])
                 first = False
-            scan_buffer(state, data, pos, where, text_file, min_len=min_len, utf16=utf16, seen=seen)
+            if seen:
+                seen = {k for k in seen if k[1] >= pos}  # 이 청크보다 앞의 위치는 다시 나오지 않는다 (메모리를 겹침 구간에 묶는다)
+            scan_buffer(state, data, pos, where, text_file, min_len=min_len, utf16=utf16, seen=seen, keep_from=pos + CHUNK, ctl=ctl)
             state.bytes_scanned += len(data) if pos == 0 else max(0, len(data) - OVERLAP)
             if len(data) < want:
                 break

@@ -506,6 +506,28 @@ async def test_detect_baud_silent_device_hint(devices, auth):
         assert r["ok"] and r["best"] is None and "TX/RX" in r["hint"]
 
 
+async def test_capture_boot_summary_runs_off_the_event_loop(devices, auth, monkeypatch):
+    """6차 #10: 부팅 로그 요약(sd_events 포함)은 워커 스레드에서 돈다 — 수 MiB 캡처의 요약이 uart 서버의 이벤트 루프를 막지 않는다."""
+    import uart_mcp.server as srv
+
+    real = srv.summarize_boot_text
+    on_main: list[bool] = []
+
+    def spy(*a, **kw):
+        on_main.append(threading.current_thread() is threading.main_thread())
+        return real(*a, **kw)
+
+    monkeypatch.setattr(srv, "summarize_boot_text", spy)
+    dev = devices("ingenic-like")
+    cid = make_case(auth, "ingenic-like")
+    async with Client(srv.server) as c:
+        sid = await open_session(c, cid, dev)
+        threading.Timer(0.3, dev.power_on).start()
+        r = await call(c, "uart_capture_boot", session_id=sid, duration=40)
+        assert r["ok"] and r["captured_bytes"] > 1000, r
+    assert on_main == [False], on_main
+
+
 async def test_capture_boot_parses_facts(devices, auth):
     from uart_mcp.server import server
 
@@ -523,6 +545,8 @@ async def test_capture_boot_parses_facts(devices, auth):
         assert "mtdparts=jz_sfc:" in r["mtdparts"] and len(r["partitions"]) == 5
         assert r["console"].startswith("ttyS1")
         assert "kernel" in r["stages"] and r["stages"][-1] == "askfirst"
+        # SD 카드 줄이 없는 부팅: sd_events 는 비어 있고 card_detected 는 false(감지 줄을 못 봤다는 뜻), 'MMC: msc: 0' 은 카드 이벤트가 아니다
+        assert r["sd_events"] == [] and r["sd_summary"]["card_detected"] is False and "sd_note" not in r
         assert r["excerpt_path"].startswith("uart/")
         case = get_runtime(SERVER).cases.get(cid)
         assert (case.dir / r["excerpt_path"]).exists()
