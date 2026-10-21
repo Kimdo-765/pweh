@@ -6,6 +6,8 @@ __pycache__/
 /cases/*
 !/cases/.gitkeep
 /.pweh/
+# pweh mcp-config --client codex --write 가 만드는 Codex 프로젝트 설정 (이 기계의 절대 경로가 들어간다)
+/.codex/
 *.part
 .DS_Store
 # 설계 근거 조사 노트 (작업 환경 정보가 섞여 있어 공개 저장소에 올리지 않는다)

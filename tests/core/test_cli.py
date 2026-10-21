@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -73,7 +75,9 @@ def test_mcp_config_outputs(workspace, tmp_path):
     assert {"pweh-case", "pweh-uart", "pweh-openocd", "pweh-sigrok", "pweh-jtagulator", "pweh-fwtriage", "rea"} <= set(servers)
     assert servers["pweh-uart"]["command"].endswith("pweh-uart-mcp")
     assert servers["pweh-uart"]["env"]["PWEH_CONFIG"].endswith("orchestrator/pipeline-config.yaml")
-    assert servers["rea"]["args"] == ["--mcp"]
+    # REA 는 런처로 등록한다 (런처가 실행할 때 env.sh 를 불러와 rea --mcp 를 실행) — 설정에 PATH 를 적지 않는다
+    assert servers["rea"]["command"] == str(cli.REPO_ROOT / "scripts" / "mcp-launch.sh") and servers["rea"]["args"] == ["rea"]
+    assert all("PATH" not in s.get("env", {}) for s in servers.values())
     r = _run(["mcp-config", "--client", "codex", "--no-rea"], {"PWEH_CONFIG": str(workspace["config"])})
     assert "[mcp_servers.pweh-uart]" in r.stdout and "tool_timeout_sec" in r.stdout
 
@@ -292,3 +296,267 @@ def test_env_checks_show_missing_c_drive_and_unrun_path_usbipd():
     q.paths.add("/mnt/c/Tools/usbipd.exe")
     by = {c["check"]: c for c in cli.env_checks(detect(q))}
     assert "실행하지 않았다" in by["env:usbipd"]["detail"] and "/mnt/c/Tools/usbipd.exe" in by["env:usbipd"]["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Codex: mcp-config --client codex (--write/--scope/--dry-run), codex-trust, mcp-check, doctor 의 Codex 줄
+# 실제 사용자 Codex 홈·Windows 프로필·저장소의 .codex/ 는 건드리지 않는다 (REPO_ROOT·HOME·windows_profile 을 바꾼다)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def codex_iso(tmp_path, monkeypatch):
+    """임시 저장소(REPO_ROOT)·임시 HOME·가짜 Windows 프로필 없음. 반환: dict(repo, home, tools_env)."""
+    import shutil
+
+    from pweh import clientcfg
+
+    repo = tmp_path / "repo"
+    (repo / ".claude").mkdir(parents=True)
+    shutil.copyfile(REPO / ".claude" / "settings.json", repo / ".claude" / "settings.json")
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(cli, "REPO_ROOT", repo)
+    monkeypatch.setenv("HOME", str(home))
+    for k in ("CODEX_HOME", "USERPROFILE", clientcfg.WINDOWS_PROFILE_ENV, "PWEH_TOOLS_ENV", "PWEH_TOOLS_DIR", "PWEH_REA"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(clientcfg, "windows_profile", lambda report=None: (None, "WSL 이 아님"))
+    return {"repo": repo, "home": home, "tools_env": str(tmp_path / "missing-env.sh")}
+
+
+def test_mcp_config_codex_preview_says_write_not_append(workspace):
+    r = _run(["mcp-config", "--client", "codex", "--no-rea", "--tools-env", "/nonexistent/env.sh"], {"PWEH_CONFIG": str(workspace["config"])})
+    assert r.returncode == 0, r.stderr
+    head = r.stdout.splitlines()[:8]
+    assert any("--write" in line for line in head) and ">>" not in r.stdout
+    lines = r.stdout.splitlines()
+    first_table = next(i for i, ln in enumerate(lines) if ln.startswith("["))
+    assert lines.index("mcp_optional_startup_grace_ms = 15000") < first_table
+    import tomlkit
+
+    data = tomlkit.parse(r.stdout).unwrap()
+    assert set(data["mcp_servers"]) == set(cli.SERVERS) and data["features"]["code_mode"]["direct_only_tool_namespaces"][0] == "mcp__pweh_case"
+
+
+def test_cli_codex_write_project_dry_run_then_write(codex_iso, capsys):
+    repo = codex_iso["repo"]
+    assert cli.main(["mcp-config", "--client", "codex", "--write", "--dry-run", "--tools-env", codex_iso["tools_env"]]) == 0
+    out = capsys.readouterr().out
+    assert not (repo / ".codex").exists() and "+mcp_optional_startup_grace_ms = 15000" in out
+    assert cli.main(["mcp-config", "--client", "codex", "--write", "--direct", "case", "--tools-env", codex_iso["tools_env"]]) == 0
+    out = capsys.readouterr().out
+    text = (repo / ".codex" / "config.toml").read_text(encoding="utf-8")
+    assert f"작성: {repo}/.codex/config.toml (project)" in out and 'direct_only_tool_namespaces = [\n    "mcp__pweh_case",\n]' in text
+    assert cli.main(["mcp-config", "--client", "codex", "--write", "--direct", "case", "--tools-env", codex_iso["tools_env"]]) == 0
+    assert "변경 없음" in capsys.readouterr().out
+
+
+def test_cli_codex_write_global_and_invalid_toml_refusal(codex_iso, tmp_path, monkeypatch, capsys):
+    good, bad = tmp_path / "codex-good", tmp_path / "codex-bad"
+    good.mkdir()
+    bad.mkdir()
+    (good / "config.toml").write_text('# 내 설정\nmodel = "m"\n\n[mcp_servers.notes]\ncommand = "n"\n', encoding="utf-8")
+    (bad / "config.toml").write_text("[a]\nx = 1\n[a]\ny = 2\n", encoding="utf-8")
+    base = ["mcp-config", "--client", "codex", "--write", "--scope", "global", "--tools-env", codex_iso["tools_env"]]
+    assert cli.main([*base, "--codex-home", str(good), "--codex-home", str(bad)]) == 1
+    err = capsys.readouterr().err
+    assert "올바른 TOML" in err and "아무 파일도 쓰지 않았다" in err
+    assert (good / "config.toml").read_text(encoding="utf-8").startswith("# 내 설정") and not list(good.glob("*.bak-pweh-*"))
+    assert cli.main([*base, "--codex-home", str(good), "--dry-run"]) == 0
+    assert "+[mcp_servers.pweh-case] # pweh-managed" in capsys.readouterr().out and not list(good.glob("*.bak-pweh-*"))
+    assert cli.main([*base, "--codex-home", str(good), "--no-rea"]) == 0
+    out = capsys.readouterr().out
+    import tomlkit
+
+    data = tomlkit.parse((good / "config.toml").read_text(encoding="utf-8")).unwrap()
+    assert set(data["mcp_servers"]) == {"notes", *cli.SERVERS} and data["mcp_optional_startup_grace_ms"] == 15000
+    assert "백업: " in out and len(list(good.glob("config.toml.bak-pweh-*"))) == 1
+    # 찾은 홈이 없으면(codex 도 ~/.codex 도 없음) 쓰지 않고 1
+    import shutil
+
+    real_which = shutil.which
+    monkeypatch.setattr(shutil, "which", lambda name, *a, **k: None if name == "codex" else real_which(name, *a, **k))
+    assert cli.main(["mcp-config", "--client", "codex", "--write", "--scope", "global", "--tools-env", codex_iso["tools_env"]]) == 1
+    assert "Codex 홈을 찾지 못했다" in capsys.readouterr().err and not (codex_iso["home"] / ".codex").exists()
+
+
+def test_cli_codex_trust_non_tty_yes_and_check(codex_iso, tmp_path, capsys):
+    import os
+
+    import tomlkit
+
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    (home / "config.toml").write_text('model = "m"\n', encoding="utf-8")
+    key = os.path.realpath(codex_iso["repo"])
+    assert cli.main(["codex-trust", "--codex-home", str(home), "--check"]) == 1
+    assert cli.main(["codex-trust", "--codex-home", str(home)]) == 0  # pytest 의 stdin 은 TTY 가 아니다 → 아무것도 하지 않음
+    assert (home / "config.toml").read_text(encoding="utf-8") == 'model = "m"\n' and "--yes" in capsys.readouterr().out
+    assert cli.main(["codex-trust", "--codex-home", str(home), "--dry-run"]) == 0
+    assert f'+[projects."{key}"]' in capsys.readouterr().out and (home / "config.toml").read_text(encoding="utf-8") == 'model = "m"\n'
+    assert cli.main(["codex-trust", "--codex-home", str(home), "--yes"]) == 0
+    assert tomlkit.parse((home / "config.toml").read_text(encoding="utf-8")).unwrap() == {"model": "m", "projects": {key: {"trust_level": "trusted"}}}
+    assert cli.main(["codex-trust", "--codex-home", str(home), "--check"]) == 0
+
+
+def test_cli_mcp_check_json_real_pweh_case_and_failing(codex_iso, workspace, tmp_path, capsys):
+    from pweh import clientcfg
+
+    exe = REPO / ".venv" / "bin" / "pweh-case-mcp"
+    if not exe.exists():
+        pytest.skip("pweh-case-mcp 가 없다")
+    bad = tmp_path / "bad-mcp"
+    bad.write_text("#!/bin/sh\necho 'bad server' >&2\nexit 7\n")
+    bad.chmod(0o755)
+    case = {"command": str(exe), "args": [], "cwd": str(REPO), "env_vars": ["WSL_DISTRO_NAME"],
+            "env": {"PWEH_CONFIG": str(workspace["config"]), "PWEH_CASES_DIR": str(workspace["cases_dir"]), "PWEH_STATE_DIR": str(workspace["state_dir"])}}
+    proj = codex_iso["repo"] / ".codex" / "config.toml"
+    proj.parent.mkdir()
+    proj.write_text(clientcfg.render_project_config({"pweh-case": case, "pweh-uart": {"command": str(bad), "args": []}}, [], ["# 시험"]))
+    assert cli.main(["mcp-check", "--client", "codex", "--json", "--timeout", "60"]) == 1
+    rep = json.loads(capsys.readouterr().out)
+    rows = {r["server"]: r for r in rep["clients"]["codex"]["servers"]}
+    assert rep["ok"] is False and rep["clients"]["codex"]["source"] == str(proj)
+    assert rows["pweh-case"]["ok"] is True and rows["pweh-case"]["tools"] > 10
+    assert rows["pweh-uart"]["ok"] is False and "bad server" in " ".join(rows["pweh-uart"]["stderr_tail"])
+    assert rows["pweh-esp"]["ok"] is None  # 설정에 없는 서버는 점검하지 않는다
+    proj.write_text(clientcfg.render_project_config({"pweh-case": case}, [], ["# 시험"]))
+    assert cli.main(["mcp-check", "--client", "codex", "--timeout", "60"]) == 0
+    assert "결과: 1/1 정상" in capsys.readouterr().out
+
+
+def test_doctor_codex_lines(codex_iso, tmp_path, monkeypatch, capsys):
+    from pweh import clientcfg
+
+    repo, home = codex_iso["repo"], codex_iso["home"]
+    (home / ".codex").mkdir()
+    profile = tmp_path / "c" / "Users" / "tester"
+    (profile / ".codex").mkdir(parents=True)
+    (profile / ".codex" / "config.toml").write_text("[desktop]\nrunCodexInWindowsSubsystemForLinux = false\n")
+    monkeypatch.setattr(clientcfg, "windows_profile", lambda report=None: (profile, "시험"))
+    (repo / "scripts").mkdir()  # REA 는 저장소의 런처로 등록된다 (생성값의 실행 파일이 있어야 '최신')
+    shutil.copy2(REPO / "scripts" / "mcp-launch.sh", repo / "scripts" / "mcp-launch.sh")
+    by = {c["check"]: c for c in cli.codex_doctor_checks()}
+    assert by["codex:project-config"]["ok"] is False and by["codex:trust[cli]"]["ok"] is False
+    assert by["codex:trust[desktop-wsl]"]["ok"] is None and "WSL 모드가 아님" in by["codex:trust[desktop-wsl]"]["detail"]
+    assert "pweh mcp-check" in by["codex:mcp-check"]["hint"]
+    assert cli.main(["mcp-config", "--client", "codex", "--write"]) == 0
+    assert cli.main(["codex-trust", "--codex-home", str(home / ".codex"), "--yes"]) == 0
+    capsys.readouterr()
+    by = {c["check"]: c for c in cli.codex_doctor_checks()}
+    assert by["codex:project-config"]["ok"] is True, by["codex:project-config"]
+    assert by["codex:trust[cli]"]["ok"] is True
+
+
+def test_codex_subcommands_parse_documented_forms():
+    p = cli.build_parser()
+    a = p.parse_args(["mcp-config", "--client", "codex", "--write", "--scope", "global", "--codex-home", "A", "--codex-home", "B",
+                      "--dry-run", "--no-rea", "--direct", "case"])
+    assert (a.scope, a.codex_home, a.dry_run, a.no_rea, a.direct) == ("global", ["A", "B"], True, True, "case")
+    a = p.parse_args(["mcp-config", "--client", "codex"])  # 주지 않은 --direct·--no-rea 는 None (기존 프로젝트 설정의 값을 이어 쓴다)
+    assert (a.scope, a.codex_home, a.dry_run, a.direct, a.write, a.no_rea) == ("project", None, False, None, False, None)
+    assert p.parse_args(["mcp-config", "--client", "codex", "--rea"]).no_rea is False
+    with pytest.raises(SystemExit):
+        p.parse_args(["mcp-config", "--client", "codex", "--rea", "--no-rea"])
+    assert p.parse_args(["mcp-check", "--optional", "rea", "--optional", "x"]).optional == ["rea", "x"]
+    a = p.parse_args(["codex-trust", "--codex-home", "X", "--yes", "--dry-run", "--check"])
+    assert (a.codex_home, a.yes, a.dry_run, a.check) == (["X"], True, True, True)
+    a = p.parse_args(["mcp-check", "--client", "claude", "--deep", "--json", "--timeout", "5"])
+    assert (a.client, a.deep, a.json, a.timeout) == ("claude", True, True, 5.0)
+    assert p.parse_args(["mcp-check"]).client == "all"
+
+
+def test_codex_config_never_stores_the_shell_path(codex_iso, tmp_path, monkeypatch, capsys):
+    """리뷰 s9: 실행한 셸의 PATH(WSL 이면 Windows PATH 와 Windows 사용자 이름)를 미리 보기·diff·프로젝트 설정·사용자 설정 어디에도 남기지 않는다.
+    REA 는 런처로 등록하고 어느 env.sh 를 불러올지만 env 에 고정한다 (Codex 는 환경을 비우고 띄운다 — 임시 HOME 인 --deep 에서도 같은 env.sh)."""
+    fake_user = "FakeWinUser"
+    monkeypatch.setenv("PATH", os.environ["PATH"] + f":/mnt/c/Users/{fake_user}/AppData/Local/Microsoft/WindowsApps")
+    env_sh = tmp_path / "fake-tools-env.sh"
+    env_sh.write_text('export PWEH_TOOLS_DIR="/opt/fake-tools"\nexport PATH="/opt/fake-tools/bin:$PATH"\n', encoding="utf-8")
+    home = tmp_path / "codex-home"
+    home.mkdir()
+    base = ["mcp-config", "--client", "codex", "--tools-env", str(env_sh)]
+    assert cli.main(base) == 0
+    assert cli.main([*base, "--write", "--dry-run", "--codex-home", str(home)]) == 0
+    assert cli.main([*base, "--write", "--codex-home", str(home)]) == 0
+    assert cli.main([*base, "--write", "--scope", "global", "--codex-home", str(home)]) == 0
+    printed = capsys.readouterr()
+    proj = (codex_iso["repo"] / ".codex" / "config.toml").read_text(encoding="utf-8")
+    user = (home / "config.toml").read_text(encoding="utf-8")
+    for text in (printed.out, printed.err, proj, user):
+        assert fake_user not in text and "/mnt/c/Users/" not in text
+    import tomlkit
+
+    rea = tomlkit.parse(proj).unwrap()["mcp_servers"]["rea"]
+    assert rea["command"] == str(codex_iso["repo"] / "scripts" / "mcp-launch.sh") and rea["args"] == ["rea"]
+    assert rea["env"]["PWEH_TOOLS_ENV"] == str(env_sh) and "PATH" not in rea["env"]
+    assert tomlkit.parse(proj).unwrap()["mcp_servers"]["pweh-case"]["env"]["PWEH_TOOLS_DIR"] == "/opt/fake-tools"
+    # PATH 가 달라져도(다른 셸) 다시 쓰지 않는다 — 사용자 설정이 매번 바뀌고 백업이 쌓이지 않게
+    monkeypatch.setenv("PATH", "/usr/bin:/bin:/mnt/c/Users/Other/bin")
+    assert cli.main([*base, "--write", "--scope", "global", "--codex-home", str(home)]) == 0
+    assert "변경 없음" in capsys.readouterr().out and list(home.glob("config.toml.bak-pweh-*")) == []  # 새로 만든 파일 — 백업 없음
+
+
+def test_codex_write_reuses_recorded_options(codex_iso, capsys):
+    """주지 않은 --direct·--no-rea 는 기존 프로젝트 설정(# pweh-options)의 값을 이어 쓴다 (설치 스크립트를 다시 돌려도 기본값으로 돌아가지 않음).
+    바꾸려면 직접 준다: --direct all, --rea."""
+    import tomlkit
+
+    path = codex_iso["repo"] / ".codex" / "config.toml"
+    te = ["--tools-env", codex_iso["tools_env"]]
+    assert cli.main(["mcp-config", "--client", "codex", "--write", "--direct", "case", "--no-rea", *te]) == 0
+    first = path.read_bytes()
+    capsys.readouterr()
+    assert cli.main(["mcp-config", "--client", "codex", "--write", "--dry-run", *te]) == 0
+    out = capsys.readouterr()
+    assert "변경 없음" in out.out and "이어 씀: --direct case --no-rea" in out.err
+    assert cli.main(["mcp-config", "--client", "codex", "--write", *te]) == 0
+    assert path.read_bytes() == first
+    data = tomlkit.parse(path.read_text(encoding="utf-8")).unwrap()
+    assert "rea" not in data["mcp_servers"] and data["features"]["code_mode"]["direct_only_tool_namespaces"] == ["mcp__pweh_case"]
+    assert cli.main(["mcp-config", "--client", "codex", "--write", "--rea", "--direct", "all", *te]) == 0
+    data = tomlkit.parse(path.read_text(encoding="utf-8")).unwrap()
+    assert "rea" in data["mcp_servers"] and len(data["features"]["code_mode"]["direct_only_tool_namespaces"]) == len(cli.SERVERS)
+    assert not list(path.parent.glob("config.toml.bak-pweh-*"))  # pweh 가 쓴 그대로인 파일이라 백업하지 않는다
+
+
+def _fake_venv(root: Path, *, scripts: bool) -> Path:
+    """심볼릭 링크 python 이 있는 가상환경 모양 (install.sh --venv DIR). scripts 면 PWEH 콘솔 스크립트도 둔다."""
+    venv = root / "venv-alt"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin" / "python").symlink_to(os.path.realpath(sys.executable))
+    if scripts:
+        for script, _d in cli.SERVERS.values():
+            p = venv / "bin" / script
+            p.write_text("#!/bin/sh\nexit 0\n")
+            p.chmod(0o755)
+    return venv
+
+
+def test_codex_commands_come_from_the_running_venv_not_the_resolved_python(codex_iso, tmp_path, monkeypatch, capsys):
+    """install.sh --venv DIR: DIR/bin/python 은 /usr/bin/python3 을 가리키는 링크다. 풀지 않고 DIR/bin 의 서버를 쓴다
+    (예전: /usr/bin/pweh-*-mcp, 또는 낡은 <저장소>/.venv/bin)."""
+    venv = _fake_venv(tmp_path, scripts=True)
+    stale = codex_iso["repo"] / ".venv" / "bin"
+    stale.mkdir(parents=True)
+    for script, _d in cli.SERVERS.values():
+        (stale / script).write_text("#!/bin/sh\n")
+    monkeypatch.setattr(sys, "executable", str(venv / "bin" / "python"))
+    bindir, missing = cli.console_bindir()
+    assert bindir == venv / "bin" and missing == []
+    servers = cli.build_mcp_servers(include_rea=False, tools_env=codex_iso["tools_env"])
+    assert {s["command"] for s in servers.values()} == {str(venv / "bin" / script) for script, _d in cli.SERVERS.values()}
+
+
+def test_codex_write_refuses_when_server_executables_are_missing(codex_iso, tmp_path, monkeypatch, capsys):
+    """서버 실행 파일이 어디에도 없으면(pweh 를 설치하지 않은 가상환경) --write 는 쓰지 않고 1. 미리 보기·--dry-run 은 경고만."""
+    venv = _fake_venv(tmp_path, scripts=False)
+    monkeypatch.setattr(sys, "executable", str(venv / "bin" / "python"))
+    monkeypatch.setattr(cli, "_bindir_candidates", lambda: [venv / "bin", codex_iso["repo"] / ".venv" / "bin"])
+    te = ["--tools-env", codex_iso["tools_env"]]
+    assert cli.main(["mcp-config", "--client", "codex", "--write", *te]) == 1
+    err = capsys.readouterr().err
+    assert "실행 파일이 없다" in err and str(venv / "bin" / "pweh-case-mcp") in err and "아무것도 쓰지 않았다" in err
+    assert not (codex_iso["repo"] / ".codex").exists()
+    assert cli.main(["mcp-config", "--client", "codex", "--write", "--dry-run", *te]) == 0
+    assert "경고: PWEH 서버 실행 파일이 없다" in capsys.readouterr().err

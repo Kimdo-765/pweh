@@ -15,6 +15,7 @@ dependencies = [
     "pyserial>=3.5",
     "PyYAML>=6.0",
     "jsonschema>=4.18",
+    "tomlkit>=0.12",
 ]
 
 [project.optional-dependencies]

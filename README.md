@@ -66,14 +66,19 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
 ## 빠른 시작
 
 ```bash
-# 1. 원클릭 설치 (sudo 없음): Python 가상환경 + 외부 도구(~/pweh-tools) + REA, 마지막에 pweh doctor
+# 1. 원클릭 설치 (sudo 없음): Python 가상환경 + 외부 도구(~/pweh-tools) + REA
+#    → MCP 등록(Claude Code 확인, Codex 프로젝트 설정 + trust) → Skill 링크 → 점검(`pweh doctor`, `pweh mcp-check`)
 git clone https://github.com/Kimdo-765/pweh.git ~/pweh && cd ~/pweh
 ./scripts/install.sh              # 처음엔 Ghidra·JDK 등 약 1 GB 를 내려받는다(설치 후 디스크 약 3~4 GB). 다시 실행하면 설치된 것은 건너뛴다
 #   ./scripts/install.sh --minimal   Python + sigrok + OpenOCD + squashfs/u-boot 도구만
 #   ./scripts/install.sh --only esptool   ESP32 용 esptool 5.4.0 만 추가 (선택 구성요소. WSL interop 이면 Windows esptool.exe 도)
-#   ./scripts/install.sh --check     설치 상태만 점검 / --list 구성요소 목록 / --help 옵션 전체
+#   ./scripts/install.sh --only mcp,verify   설치 없이 MCP 등록과 점검만 다시
+#   ./scripts/install.sh --only mcp --dry-run   MCP 등록·trust 가 바꿀 파일과 diff 만 보기 (쓰지 않음)
+#   ./scripts/install.sh --codex-trust   Codex trust 를 묻지 않고 추가 (--no-codex-trust 는 건너뛰기, --no-mcp 는 MCP 단계 전체를 건너뛰기)
+#   ./scripts/install.sh --check     설치·MCP 설정 상태만 점검 / --list 구성요소 목록 / --help 옵션 전체
+#   되돌리기·옵션 전체: docs/mcp-setup.md §1.1·§1.2
 
-# 2. 셸에서 외부 도구 쓰기 (MCP 서버는 scripts/mcp-launch.sh 가 env.sh 를 자동으로 읽는다)
+# 2. 셸에서 외부 도구 쓰기 (MCP 서버는 scripts/mcp-launch.sh 가 env.sh 를 자동으로 읽는다. Codex 설정의 PWEH 서버에는 env.sh 의 도구 경로가 들어간다)
 . ~/pweh-tools/env.sh
 
 # 3. 테스트 (하드웨어 없이, 시뮬레이터 사용. 외부 도구가 없으면 일부 skip)
@@ -82,9 +87,12 @@ git clone https://github.com/Kimdo-765/pweh.git ~/pweh && cd ~/pweh
 # (선택) 실제 에이전트(Claude Code 헤드리스)가 시뮬레이터 카메라를 끝까지 분석하는지 확인 — Claude 계정 사용량을 쓴다
 .venv/bin/python scripts/run_agent_e2e.py --profile hikvision-like --out <결과 디렉터리>
 
-# 4. 에이전트 연결
-.venv/bin/pweh mcp-config --client claude --write --force   # .mcp.json (이미 포함됨)
-.venv/bin/pweh skills install --target claude-project       # .claude/skills 링크 (이미 포함됨)
+# 4. 에이전트 연결 (1 의 MCP 등록·Skill 단계가 이미 한다. 따로 다시 할 때만)
+.venv/bin/pweh mcp-config --client claude --write --force   # Claude Code: .mcp.json (이미 포함됨)
+.venv/bin/pweh skills install --target claude-project       # .claude/skills 링크 (이미 포함됨. Codex·Cursor 는 --target agents)
+.venv/bin/pweh mcp-config --client codex --write            # Codex: <저장소>/.codex/config.toml (이 저장소에서만 읽힘)
+.venv/bin/pweh codex-trust                                  # Codex: Codex 홈마다 이 저장소를 trusted 로 (묻고, 백업 후 씀)
+.venv/bin/pweh mcp-check --client all                       # 서버마다 시작·도구 목록 확인 (도구는 호출하지 않음)
 claude                                                      # 프로젝트 MCP 서버 승인 → /mcp 로 확인
 ```
 
@@ -93,7 +101,10 @@ Claude Code 에서 시작:
 /pweh-start 책상 위의 내 IP 카메라 (HiSilicon Hi3518 기반으로 보임). UART 패드 4개 확인, CP2102 어댑터 있음
 ```
 
-Codex 는 `$pweh-start` 로 시작한다 (설정은 `pweh mcp-config --client codex`). Cursor 는 `/pweh-start` 로 시작한다.
+Codex(WSL 의 Codex CLI, WSL 모드의 Codex 데스크톱 앱)는 `$pweh-start` 로 시작한다.
+설정은 설치 스크립트가 만든다: 프로젝트 설정(`pweh mcp-config --client codex --write`)과 trust(`pweh codex-trust`). CLI 와 데스크톱 앱은 Codex 홈이 달라 trust 를 홈마다 더한다.
+설정을 바꾼 뒤 데스크톱 앱은 다시 시작하거나 새 스레드를 연다. 자세한 내용과 문제 해결은 [MCP 설정 가이드](docs/mcp-setup.md) §3 에 있다.
+Cursor 는 `/pweh-start` 로 시작한다(`.cursor/mcp.json` 은 `./scripts/install.sh --cursor`).
 
 실제 에이전트가 `/pweh-start` 와 이런 짧은 기기 설명만으로 끝까지 가는지는 시뮬레이터로 확인했다. 결과는 [examples/README.md](examples/README.md#실제-에이전트-실행-기록-agent-run-) 에 있다.
 `agent-run-hikvision` 과 `agent-run-dahua` 두 실행 모두 다음을 통과했다.

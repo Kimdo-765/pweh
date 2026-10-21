@@ -19,8 +19,11 @@ disable-model-invocation: true
    - 게임 콘솔 분석: `pweh-case`, `pweh-fwtriage`, `rea` (ESP32 기반이면 `pweh-esp`, 리눅스·MCU 기기면 보안 분석의 서버).
    - SD 카드 포렌식: `pweh-case`, `pweh-forensics` (펌웨어 쪽 SD 공격 표면도 보면 `pweh-fwtriage`·`rea`, 시험 카드 부팅 로그는 `pweh-uart`).
    - 준비 중인 목표(RF·하드웨어): `pweh-case` 와 §3.1 경로에 필요한 서버 (보드 작업이면 보안 분석의 서버, 펌웨어 분석이면 `pweh-fwtriage`·`rea`).
-   도구가 보이지 않으면 사용자에게 `docs/mcp-setup.md` 의 절차를 안내한다.
+   Codex 에서는 도구 이름이 `mcp__pweh_<서버>__<도구>` 다(예: `mcp__pweh_case__case_create`, REA 는 `mcp__rea__<도구>`).
+   도구 목록에 보이지 않아도 지연 로딩되었을 수 있으니, 없다고 판단하기 전에 `ALL_TOOLS` 에서 이름이 `mcp__pweh_`(REA 는 `mcp__rea__`)로 시작하는 항목을 찾는다.
+   그래도 도구가 보이지 않으면 사용자에게 `docs/mcp-setup.md` 의 절차를 안내한다.
    예: Claude Code 에서 `/mcp` 로 서버 승인 확인, `.venv` 설치, `~/pweh-tools/env.sh`.
+   Codex 에서는 사용자가 `pweh mcp-check --client codex`, 프로젝트 trust(`pweh codex-trust --check`), 쓰는 Codex 홈(CLI 와 데스크톱 앱은 홈이 다르다 — mcp-setup §3)을 확인하게 한다.
 4. **기기 소유 또는 서면 허가를 사용자에게 확인받기 전에는** 어떤 하드웨어 도구도 호출하지 않는다. SD 카드 이미지도 소유·허가를 먼저 확인하고 케이스를 만든 뒤에 접수한다(`forensics_intake_start` — `case_import_file` 로 가져오지 않는다).
 5. 이후 각 단계는 master-prompt 의 결정 트리(§4)와 §3.1 에 따라 다음 Skill 을 사용한다:
    `uart-shell-acquisition`, `logic-analyzer-protocol-decode`, `firmware-dump-via-uart`, `esp32-flash-dump`(ESP32 계열 MCU), `firmware-static-analysis`, `cctv-auth-bypass-hunt`,

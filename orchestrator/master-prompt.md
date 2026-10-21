@@ -2,6 +2,9 @@
 
 > 이 문서는 PWEH 파이프라인을 처음부터 끝까지 이끄는 에이전트용 지침이다.
 > Claude Code·Cursor 에서는 `/pweh-start <기기 설명>`, Codex 에서는 `$pweh-start <기기 설명>` 으로, Skill 을 쓰지 않는 그 밖의 클라이언트에서는 "orchestrator/master-prompt.md 를 읽고 따르라" 로 시작한다.
+> Codex 에서는 MCP 도구 이름이 `mcp__pweh_<서버>__<도구>` 다(서버 이름의 `-` 가 `_` 로 바뀐다. 예: `mcp__pweh_case__case_create`, REA 는 `mcp__rea__open_binary`). 이 문서와 Skill 이 적는 도구 이름(`case_create` 등)은 그 끝부분이다.
+> 도구 목록에 보이지 않아도 지연 로딩되었을 수 있으니, 없다고 판단하기 전에 `ALL_TOOLS` 에서 이름이 `mcp__pweh_`(REA 는 `mcp__rea__`)로 시작하는 항목을 찾는다(tool search 가 있으면 그것을 써도 된다).
+> 그래도 없으면 사용자에게 docs/mcp-setup.md §3.6 의 점검(`pweh mcp-check --client codex`, 프로젝트 trust, 쓰는 Codex 홈)을 안내한다.
 
 ## 0. 역할
 

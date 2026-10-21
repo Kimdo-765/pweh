@@ -1,32 +1,59 @@
 #!/usr/bin/env bash
-# PWEH 원클릭 설치: Python 환경 + 외부 도구 + REA 를 sudo 없이 한 번에 설치한다.
+# PWEH 원클릭 설치: Python 환경 + 외부 도구 + REA 를 sudo 없이 한 번에 설치하고,
+# 에이전트 클라이언트(Claude Code·Codex)에 MCP 서버와 Skill 을 연결한 뒤 점검한다.
 #
-#   ./scripts/install.sh                  # 전체 설치 (권장)
-#   ./scripts/install.sh --minimal        # Python + sigrok + OpenOCD + squashfs/u-boot 도구만
+#   ./scripts/install.sh                  # 전체 설치 + MCP 등록·Skill 링크·점검 (권장)
+#   ./scripts/install.sh --minimal        # Python + sigrok + OpenOCD + squashfs/u-boot 도구만 (아래 단계는 하지 않음)
 #   ./scripts/install.sh --only ghidra,jdk
 #   ./scripts/install.sh --skip rea,binwalk
-#   ./scripts/install.sh --check          # 설치 상태만 점검 (아무것도 설치하지 않음)
-#   ./scripts/install.sh --list           # 구성요소 목록
+#   ./scripts/install.sh --only mcp,skills,verify   # 도구는 다시 설치하지 않고 MCP 등록·Skill 링크·점검만
+#   ./scripts/install.sh --dry-run        # 아무것도 바꾸지 않고 MCP 등록·Codex 신뢰가 바꿀 내용(diff)만 보여 줌
+#   ./scripts/install.sh --check          # 설치·등록 상태만 점검 (아무것도 설치하거나 바꾸지 않음)
+#   ./scripts/install.sh --list           # 구성요소·단계 목록
 #
 # 옵션
 #   --prefix DIR   외부 도구 설치 위치 (기본: $PWEH_TOOLS_DIR 또는 ~/pweh-tools)
 #   --cache DIR    내려받은 파일 캐시 (기본: <prefix>/_downloads)
 #   --seed DIR     해시가 고정된 파일(압축 파일·휠·.deb)을 먼저 찾을 디렉터리. 이름과 해시가 맞을 때만 쓴다.
 #                  pip·npm·cargo 의존성은 여전히 네트워크에서 받는다 (완전한 오프라인 설치는 아님)
-#   --venv DIR     pweh Python 가상환경 (기본: <저장소>/.venv)
+#   --venv DIR     pweh Python 가상환경 (기본: <저장소>/.venv). 아래 단계는 이 가상환경의 pweh 만 쓴다
 #   --force        이미 설치된 구성요소도 다시 설치
 #   --no-link      기본 위치가 아닐 때 저장소에 .pweh/tools-env.path 를 남기지 않음 (시험·CI 용)
 #   --jobs N       빌드 병렬 수 (기본: CPU 수)
 #
+# 단계: 구성요소와 env.sh 다음에 이 순서로 돈다. 구성요소처럼 --only/--skip 으로 고른다 (--minimal 에는 없음)
+#   mcp     Claude Code: 저장소의 .mcp.json 과 .claude/settings.json 의 enabledMcpjsonServers 를 확인만 한다 (~/.claude* 는 건드리지 않음).
+#           Codex: `pweh mcp-config --client codex --write` 로 프로젝트 설정 <저장소>/.codex/config.toml (git 제외 생성물)을 만든다.
+#           Codex 는 신뢰한 프로젝트의 설정만 읽는다. 감지한 Codex 홈($CODEX_HOME 또는 ~/.codex, WSL 모드 Codex 데스크톱 앱의
+#           Windows 홈)에 이 저장소의 신뢰 항목([projects."<저장소>"] trust_level = "trusted")이 없으면, 바뀔 내용을 보여 주고
+#           대화형 터미널에서 묻는다 (동의하면 `pweh codex-trust --yes`). 대화형이 아니면 묻지도 바꾸지도 않는다.
+#           Cursor 는 --cursor 일 때만 <저장소>/.cursor/mcp.json (있으면 PWEH 항목만 바꿈).
+#   skills  `pweh skills install --target claude-project` 와 `--target agents` (.claude/skills·.agents/skills 링크. 다시 해도 같음)
+#   verify  `pweh doctor` + `pweh mcp-check --client all` (서버마다 initialize + tools/list 만 하고 도구는 부르지 않음)
+#
+# 단계 옵션
+#   --no-mcp          mcp 단계를 건너뜀 (--skip mcp 와 같음). --no-verify 는 verify 단계를 건너뜀
+#   --dry-run         구성요소·skills·verify 는 하지 않고 mcp 단계(Codex 설정·신뢰, --cursor)가 바꿀 내용만 diff 로 보여 줌
+#   --codex-trust     묻지 않고 Codex 신뢰 항목을 더함 (그렇게 하겠다는 동의. `pweh codex-trust --yes`)
+#   --no-codex-trust  Codex 신뢰 단계를 건너뜀 (--check 에서는 신뢰 점검을 끔)
+#   --codex-global    프로젝트 설정 대신 Codex 홈의 config.toml 에 직접 등록 (`--scope global`, 바꾸기 전에 백업. 신뢰는 필요 없음)
+#   --codex-home DIR  Codex 홈을 직접 지정 (여러 번 가능. pweh mcp-config·pweh codex-trust 에 그대로 넘김. 기본: 위의 자동 감지)
+#   --cursor          Cursor 프로젝트 설정도 만듦
+#
 # 원칙
 # - root/sudo 를 쓰지 않고, 시스템 디렉터리·셸 rc 파일을 바꾸지 않는다. 설치물은 <prefix> 와 가상환경 아래에만 둔다.
-#   (예외: 시스템 cargo 를 쓰면 ~/.cargo 레지스트리 캐시, Ghidra 를 처음 실행하면 ~/.config/ghidra)
+#   (예외: 시스템 cargo 를 쓰면 ~/.cargo 레지스트리 캐시, Ghidra 를 처음 실행하면 ~/.config/ghidra,
+#    동의했을 때 Codex 홈의 config.toml — 바꾸기 전에 config.toml.bak-pweh-<UTC 시각> 으로 백업한다)
+# - 사용자 설정은 동의 없이 바꾸지 않는다: Codex 신뢰는 대화형 확인이나 --codex-trust, Codex 홈 등록은 --codex-global 일 때만.
+#   끝에 MCP·신뢰·skills 단계가 쓰거나 백업한 파일과 되돌리는 방법을 보여 준다 (되돌리기 명령은 보여 주기만 한다).
 # - 스크립트가 직접 받는 파일(압축 파일, pip·unblob 휠, esptool 소스 배포판, rustup-init, sasquatch .deb)은 고정된 sha256 으로,
 #   배포판 패키지는 apt 의 서명된 색인에 있는 해시로 검증한다. pip·npm 이 받는 의존성은 최상위 버전만 고정하고
 #   해시는 고정하지 않으며 (npm 패키지의 설치 스크립트가 실행되고, esptool 소스 배포판을 빌드하는 setuptools 도 PyPI 에서 받음),
 #   binwalk 의존성은 Cargo.lock(--locked) 의 체크섬으로 검증된다.
 # - 압축 해제 전에 절대 경로, '..', 밖을 가리키는 링크, 장치 파일을 거부한다. 배포판 패키지의 설치 스크립트는 실행하지 않는다.
 # - 이미 설치된 구성요소는 건너뛴다. 선택 구성요소(erofs, binwalk, rea, esptool)가 실패해도 나머지는 계속한다.
+# - 종료 코드: 필수 구성요소나 mcp·skills·verify 단계가 실패하면 1. 신뢰를 거절했거나 묻지 않은 것은 실패가 아니고,
+#   REA(선택 구성요소)가 설치되지 않았을 때 rea 서버만 뜨지 않는 것도 경고로만 본다 (`pweh mcp-check --optional rea` — 다른 서버의 실패는 실패).
 # - `rea setup` 은 실행하지 않는다 (다른 에이전트 클라이언트의 설정을 바꾼다).
 # - 지원: Linux x86_64. 배포판 패키지(sigrok, squashfs, u-boot, 압축 해제 도구)는 Debian/Ubuntu(apt)에서만.
 #   esptool 의 Windows 판(방법 A: WSL 에서 interop 으로 esptool.exe 를 실행해 Windows COM 포트를 씀)은 WSL interop 이 켜져 있을 때만 받는다.
@@ -102,6 +129,13 @@ declare -A DESC=(
   [rea]="REA rea-agents ${REA_VER} (npm, Ghidra 연동 MCP 서버, 선택)"
   [esptool]="esptool ${ESPTOOL_VER} (ESP32 계열 칩·보안 정보, 플래시 읽기) + WSL 이면 Windows esptool.exe (방법 A: interop 으로 COM 포트, 선택)"
 )
+# 구성요소와 env.sh 다음에 이 순서로 도는 단계. 구성요소처럼 --only/--skip 으로 고르고, --minimal 에는 넣지 않는다
+STEPS="mcp skills verify"
+declare -A STEP_DESC=(
+  [mcp]="MCP 서버 등록: Claude Code 확인(.mcp.json·enabledMcpjsonServers), Codex 프로젝트 설정 + 신뢰(동의할 때만), --cursor 면 Cursor"
+  [skills]="Skill 링크: .claude/skills(Claude Code), .agents/skills(Codex·Cursor) — pweh skills install"
+  [verify]="점검: pweh doctor + pweh mcp-check (서버마다 initialize + tools/list, 도구는 부르지 않음)"
+)
 
 # ---------------------------------------------------------------------------
 # 인자
@@ -122,13 +156,20 @@ MODE=install
 ONLY=""
 SKIP=""
 JOBS="$(nproc 2>/dev/null || echo 4)"
+DRYRUN=0            # --dry-run: 구성요소·skills·verify 는 하지 않고 mcp 단계가 바꿀 내용만 보여 준다
+NO_MCP=0
+NO_VERIFY=0
+TRUST=ask           # Codex 신뢰 — ask: 대화형 터미널에서만 묻는다, yes: --codex-trust (동의), no: --no-codex-trust
+CODEX_SCOPE=project # project: <저장소>/.codex/config.toml, global: Codex 홈의 config.toml (--codex-global)
+CODEX_HOMES=()      # --codex-home (여러 번): pweh mcp-config·pweh codex-trust 에 그대로 넘긴다. 없으면 pweh 가 자동 감지
+CURSOR=0
 
 usage() { sed -n '2,/^$/{s/^# \{0,1\}//;p;}' "${BASH_SOURCE[0]}"; }   # 맨 위 주석 블록
 need_arg() { [ $# -ge 2 ] && [ -n "$2" ] || { echo "$1 에 값이 필요합니다 (--help 참고)" >&2; exit 2; }; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --prefix|--cache|--seed|--venv|--only|--skip|--jobs) need_arg "$@" ;;
+    --prefix|--cache|--seed|--venv|--only|--skip|--jobs|--codex-home) need_arg "$@" ;;
   esac
   case "$1" in
     --prefix) PREFIX="$2"; shift 2 ;;
@@ -143,20 +184,34 @@ while [ $# -gt 0 ]; do
     --jobs) JOBS="$2"; shift 2 ;;
     --check) MODE=check; shift ;;
     --list) MODE=list; shift ;;
+    --dry-run) DRYRUN=1; shift ;;
+    --no-mcp) NO_MCP=1; shift ;;
+    --no-verify) NO_VERIFY=1; shift ;;
+    --codex-trust|--no-codex-trust)
+      want=yes; [ "$1" = --codex-trust ] || want=no
+      if [ "$TRUST" != ask ] && [ "$TRUST" != "$want" ]; then echo "--codex-trust 와 --no-codex-trust 는 함께 쓸 수 없습니다" >&2; exit 2; fi
+      TRUST=$want; shift ;;
+    --codex-global) CODEX_SCOPE=global; shift ;;
+    --codex-home)
+      case "$2" in -*) echo "--codex-home 에 디렉터리가 필요합니다 (받은 값: $2 — 다른 옵션처럼 보임)" >&2; exit 2 ;; esac
+      case "$2" in /*) CODEX_HOMES+=("$2") ;; *) CODEX_HOMES+=("$PWD/$2") ;; esac; shift 2 ;;
+    --cursor) CURSOR=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "알 수 없는 옵션: $1 (--help 참고)" >&2; exit 2 ;;
   esac
 done
 
-# 선택한 구성요소
+# 선택한 구성요소·단계
 selected() {
   local c=$1
   if [ -n "$ONLY" ]; then case ",$ONLY," in *",$c,"*) ;; *) return 1 ;; esac; fi
   case ",$SKIP," in *",$c,"*) return 1 ;; esac
+  if [ "$c" = mcp ] && [ "$NO_MCP" = 1 ]; then return 1; fi
+  if [ "$c" = verify ] && [ "$NO_VERIFY" = 1 ]; then return 1; fi
   return 0
 }
 for c in ${ONLY//,/ } ${SKIP//,/ }; do
-  case " $ALL_COMPONENTS " in *" $c "*) ;; *) echo "알 수 없는 구성요소: $c (--list 참고)" >&2; exit 2 ;; esac
+  case " $ALL_COMPONENTS $STEPS " in *" $c "*) ;; *) echo "알 수 없는 구성요소·단계: $c (--list 참고)" >&2; exit 2 ;; esac
 done
 if [ "$MODE" = list ]; then
   for c in $ALL_COMPONENTS; do
@@ -164,18 +219,28 @@ if [ "$MODE" = list ]; then
     case " $OPTIONAL_COMPONENTS " in *" $c "*) tag="$tag [선택]" ;; esac
     printf '  %-11s %s%s\n' "$c" "${DESC[$c]}" "$tag"
   done
+  for c in $STEPS; do printf '  %-11s %s [단계]\n' "$c" "${STEP_DESC[$c]}"; done
   exit 0
 fi
+COMP_SELECTED=0   # 구성요소를 하나라도 골랐는가 (아니면 단계만 돈다: 도구를 다시 설치하지 않고 env.sh 도 그대로)
+for c in $ALL_COMPONENTS; do if selected "$c"; then COMP_SELECTED=1; break; fi; done
+# <prefix> 를 만들고 쓰는 것은 구성요소를 실제로 설치할 때뿐이다 (--check·--dry-run·단계만 고른 실행은 만들지 않음)
+INSTALL_TOOLS=0
+if [ "$MODE" = install ] && [ "$DRYRUN" = 0 ] && [ "$COMP_SELECTED" = 1 ]; then INSTALL_TOOLS=1; fi
 
 # 래퍼·env.sh 는 경로를 따옴표 안에 그대로 넣는다: 따옴표·$·백슬래시·줄바꿈이 든 경로는 받지 않는다 (디렉터리를 만들기 전에)
 check_prefix_chars() {
   case "$PREFIX" in *[\'\"\$\`\\]*|*$'\n'*) echo "--prefix 경로에 ' \" \$ \` \\ 나 줄바꿈을 쓸 수 없습니다: $PREFIX" >&2; exit 2 ;; esac
 }
 check_prefix_chars
-if [ "$MODE" = check ]; then   # --check 는 아무것도 만들지 않는다
+if [ "$INSTALL_TOOLS" = 0 ]; then   # --check·--dry-run·단계만 고른 실행은 <prefix> 에 아무것도 만들지 않는다
   PREFIX="$(cd "$PREFIX" 2>/dev/null && pwd || echo "$PREFIX")"
   CACHE="${CACHE:-$PREFIX/_downloads}"
   LOG=/dev/null
+  # 단계만 고른 설치는 이미 있는 pweh-tools 의 로그 디렉터리에만 로그를 남긴다
+  if [ "$MODE" = install ] && [ "$DRYRUN" = 0 ] && [ -d "$PREFIX/_logs" ] && [ -w "$PREFIX/_logs" ]; then
+    LOG="$PREFIX/_logs/install-$(date +%Y%m%d-%H%M%S).log"
+  fi
 else
   # 설치는 $PREFIX/node, $PREFIX/bin/* 등을 지우고 덮어쓴다: 다른 용도의 기존 디렉터리(예: --prefix ~)는 받지 않는다
   if [ -d "$PREFIX" ] && [ -n "$(ls -A "$PREFIX" 2>/dev/null)" ] && [ ! -e "$PREFIX/.state" ] && [ ! -e "$PREFIX/env.sh" ] && [ ! -e "$PREFIX/_downloads" ]; then
@@ -254,7 +319,7 @@ fetch() {  # fetch <url> <dest> [hex] [sha256|sha512]  — 캐시·seed 재사�
 }
 
 SAFE_EXTRACT="$PREFIX/_build/safe_extract.py"
-[ "$MODE" = check ] || cat >"$SAFE_EXTRACT" <<'PY'
+[ "$INSTALL_TOOLS" = 0 ] || cat >"$SAFE_EXTRACT" <<'PY'
 """압축 파일 안전 확인·해제: 절대 경로, '..', 밖을 가리키는 링크, 링크를 거쳐 가는 경로, 장치 파일이 있으면 거부한다."""
 import os, posixpath, stat, sys, tarfile, zipfile
 
@@ -436,7 +501,8 @@ link_system() {  # link_system <bindir> <도구...> — 시스템 도구를 링�
 # ---------------------------------------------------------------------------
 B="$PREFIX/bin"
 
-check_python() { [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -c 'import pweh, mcp, serial, yaml, jsonschema, pytest' 2>/dev/null; }
+# tomlkit 은 Codex 설정 명령(pweh mcp-config --client codex·codex-trust·mcp-check)에 필요하다 — 없던 가상환경(이전 판)이면 python 을 다시 설치한다
+check_python() { [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -c 'import pweh, mcp, serial, yaml, jsonschema, pytest, tomlkit' 2>/dev/null; }
 pip_older() {  # pip_older <python> — 그 환경에 pip 가 없거나 고정 버전(PIP_VER)보다 오래됐으면 0
   local rc=0
   "$1" -I - "$PIP_VER" <<'PY' 2>/dev/null || rc=$?
@@ -977,6 +1043,712 @@ write_env() {
 }
 
 # ---------------------------------------------------------------------------
+# 단계 (mcp, skills, verify): 구성요소와 env.sh 다음. pweh 는 --venv 의 것만 쓴다 (PATH 의 다른 pweh 로 넘어가지 않음).
+# 설정 파일은 pweh 가 직접 쓰고(백업·원자적 교체), 이 스크립트는 동의를 받고 결과를 모아 요약한다.
+# ---------------------------------------------------------------------------
+PWEH_BIN="$VENV/bin/pweh"
+CODEX_PROJECT_CFG="$REPO/.codex/config.toml"
+REPO_REAL="$(cd "$REPO" && pwd -P)"   # Codex 의 신뢰 키는 저장소의 실제 경로다 (pweh.clientcfg.trust_key)
+CURSOR_CFG="$REPO/.cursor/mcp.json"
+declare -A STEP_RESULT=() STEP_BAD=()
+CUR_STEP=""
+STEP_NOTES=()      # 지금 단계의 결과 조각 (결과 표의 한 줄로 합침)
+CHANGED=()         # 바뀐 파일 "W<TAB>경로"(새로 생김)·"E<TAB>경로"(있던 파일)와 백업 "B<TAB>경로" — 요약에 되돌리는 방법과 함께
+WRITE_OUTPUTS=()   # 쓰기 호출의 출력에서 바뀐 파일·백업이 나온 줄 (찾지 못하면 출력 전체) — 요약에 그대로 다시 보여 준다
+NEW_LINKS=()       # skills 단계가 새로 만든 링크
+TRUST_ADDED=0
+CODEX_CFG_OK=0
+PW_OUT=""
+PW_RC=0
+
+pweh_ok() { [ -x "$PWEH_BIN" ]; }
+pweh_missing() { printf 'pweh 가 없습니다 (%s) — ./scripts/install.sh --only python 또는 --venv\n' "$PWEH_BIN"; }
+# env.sh 를 읽은 subshell 에서 pweh 를 실행한다 (MCP 서버가 scripts/mcp-launch.sh 로 env.sh 를 읽는 것과 같게).
+# 표준 입력은 /dev/null 이라 pweh 가 스스로 묻는 일은 없다 (동의는 이 스크립트가 받아 --yes 로 넘긴다).
+# Codex 홈 감지는 WSL interop 을 거치므로 멈춰도 끝나도록 시간 제한을 둔다 (--foreground: Ctrl-C 가 pweh 에도 간다)
+# PWEH_CONFIG 를 이 저장소의 설정으로 정한다(이미 정했으면 그대로): 다른 디렉터리에서 실행해도 doctor 가 그곳의 설정을 찾거나
+# 그곳에 cases/·.pweh/state 를 만들지 않는다 (cd 하지 않는다 — 상대 경로 CODEX_HOME 의 뜻이 바뀌지 않게)
+pweh_exec() {  # pweh_exec <초> <인자...>
+  local limit=$1; shift
+  ( set +eu
+    if [ -f "$PREFIX/env.sh" ]; then . "$PREFIX/env.sh" >/dev/null 2>&1; fi
+    if [ -z "${PWEH_CONFIG:-}" ] && [ -f "$REPO/orchestrator/pipeline-config.yaml" ]; then export PWEH_CONFIG="$REPO/orchestrator/pipeline-config.yaml"; fi
+    exec timeout --foreground "$limit" "$PWEH_BIN" "$@" ) </dev/null
+}
+pweh_capture() {  # pweh_capture <초> <인자...> → PW_OUT (표준 출력과 오류), PW_RC
+  PW_RC=0
+  PW_OUT="$(pweh_exec "$@" 2>&1)" || PW_RC=$?
+  shift
+  printf '$ pweh %s → 종료 코드 %s\n' "$*" "$PW_RC" >>"$LOG"
+}
+pweh_unsupported() {  # 마지막 호출이 "모르는 명령·옵션"(argparse, 종료 코드 2)으로 끝났는가 — 가상환경의 pweh 가 이 저장소와 다른 판
+  [ "$PW_RC" = 2 ] || return 1
+  case "$PW_OUT" in *"invalid choice"*|*"unrecognized arguments"*) return 0 ;; esac
+  return 1
+}
+pweh_why() {  # 마지막 호출이 실패한 까닭 (한 줄)
+  if pweh_unsupported; then echo "pweh 가 이 명령·옵션을 모릅니다 — 가상환경의 pweh 가 이 저장소와 같은 판인지 확인: ./scripts/install.sh --only python --force"
+  elif [ "$PW_RC" = 124 ]; then echo "시간 초과"
+  else
+    case "$PW_OUT" in
+      *"tomlkit 이 없다"*|*ModuleNotFoundError*|*"No module named"*)
+        echo "종료 코드 $PW_RC — 가상환경에 Python 패키지가 빠졌습니다 (이전 판으로 만든 가상환경): ./scripts/install.sh --only python --force" ;;
+      *) echo "종료 코드 $PW_RC" ;;
+    esac
+  fi
+}
+step_failed() {  # step_failed <무엇> <명령> — 마지막 pweh 호출의 실패를 알리고 지금 단계를 실패로 센다
+  warn "$1: pweh $2 실패 ($(pweh_why))"
+  show_out "$PW_OUT" log
+  STEP_BAD[$CUR_STEP]=1
+  STEP_NOTES+=("$1 실패")
+}
+show_out() {  # show_out <텍스트> [log] — 들여 써서 화면에. log 이면 로그에도 (diff 에는 사용자 설정의 다른 줄이 섞일 수 있어 남기지 않는다)
+  [ -n "$1" ] || return 0
+  printf '%s\n' "$1" | sed 's/^/      | /' >&3
+  if [ "${2:-}" = log ]; then printf '%s\n' "$1" | sed 's/^/      | /' >>"$LOG"; fi
+}
+has_diff() { case $'\n'"$1" in *$'\n+++ '*) return 0 ;; esac; return 1; }   # unified diff 가 있는가 (바뀔 파일마다 '+++ ' 줄)
+only_path_diff() {  # 바뀌는 줄이 모두 서버 env 의 PATH 줄인가 — 실행한 셸의 PATH 를 담은 값이라 셸마다 다르다 (pweh doctor 도 최신 판정에서 뺀다)
+  local l n=0
+  while IFS= read -r l; do
+    case "$l" in
+      "+++ "*|"--- "*|"@@"*) ;;
+      "+PATH = "*|"-PATH = "*) n=$((n + 1)) ;;
+      [+-]*) return 1 ;;
+    esac
+  done <<<"$1"
+  [ "$n" -gt 0 ]
+}
+diff_files() {  # diff_files <diff> — 바뀔 파일을 알리는 '+++ ' 줄만
+  local l
+  while IFS= read -r l; do case "$l" in "+++ "*) printf '%s\n' "$l" ;; esac; done <<<"$1"
+}
+ask_yes() {  # ask_yes <질문> — 표준 오류에 묻고 표준 입력에서 y/yes/예 면 0. 빈 입력·EOF 는 아니오
+  local ans=""
+  printf '\n  %s [y/N] ' "$1" >&2
+  read -r ans || ans=""
+  case "$ans" in y|Y|yes|Yes|YES|예|네) return 0 ;; esac
+  return 1
+}
+
+# 쓰기 호출이 바꾼 파일 찾기 (시각·출력 형식에 기대지 않음):
+# - 호출 전후로 후보 파일(프로젝트 설정, Cursor 설정, ~/.codex·$CODEX_HOME·--codex-home 의 config.toml)의 내용(sha256)을 비교한다.
+# - 출력에 나온 *.bak-pweh-* 백업은 그 원본도 바뀐 파일로 본다 (자동 감지한 데스크톱 앱 홈처럼 후보 밖의 파일).
+# 경로는 실제 경로로 푼다 (pweh 는 심볼릭 링크가 가리키는 파일을 백업하고 고친다)
+SNAP_PY='
+import hashlib, os, sys
+for p in sys.argv[1:]:
+    try:
+        with open(p, "rb") as f:
+            h = hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        h = "-"
+    print(os.path.realpath(p) + "\t" + h)
+'
+snapshot() {  # snapshot → "실제 경로<TAB>sha256 또는 -" 줄 (Python 3.10 이 없으면 빈 출력)
+  local h cand=("$CODEX_PROJECT_CFG" "$CURSOR_CFG" "$HOME/.codex/config.toml")
+  if [ -n "${CODEX_HOME:-}" ]; then cand+=("$CODEX_HOME/config.toml"); fi
+  for h in ${CODEX_HOMES[@]+"${CODEX_HOMES[@]}"}; do cand+=("$h/config.toml"); done
+  if [ -n "$PY" ]; then "$PY" -I -c "$SNAP_PY" "${cand[@]}" 2>/dev/null || true; fi
+}
+# 인자: "N:<경로>"(새로 생김) / "C:<경로>"(있던 파일이 바뀜). 표준 입력: pweh 출력.
+# 출력: "B<TAB>백업", "W<TAB>바뀐 파일", "E<TAB>바뀐 파일(전에 있었음)", "L<TAB>그런 파일이 나온 출력 줄"
+CHANGES_PY='
+import os, re, sys
+start = re.compile(r"(?:^|(?<=[\s(\[:=\x27\x22`]))/")
+def paths(line):
+    for m in start.finditer(line):
+        i, j = m.start(), len(line)
+        while j > i + 1:
+            cand = line[i:j].rstrip(" \t)].,;:\x27\x22`")
+            if os.path.isfile(cand):
+                yield cand, os.path.realpath(cand)
+                break
+            j = max(line.rfind(c, i + 1, j) for c in " \t()[]\x27\x22`,;")
+text = sys.stdin.read().splitlines()
+found = [list(paths(line)) for line in text]
+written = [a[2:] for a in sys.argv[1:]]
+existed = {a[2:] for a in sys.argv[1:] if a.startswith("C:")}
+backups = []
+for row in found:
+    for cand, real in row:
+        if ".bak-pweh-" in os.path.basename(cand) and real not in backups:
+            backups.append(real)
+for b in backups:
+    orig = os.path.join(os.path.dirname(b), os.path.basename(b).split(".bak-pweh-")[0])
+    existed.add(orig)
+    if orig not in written and os.path.isfile(orig):
+        written.append(orig)
+for b in backups:
+    print("B\t" + b)
+for w in written:
+    print(("E" if w in existed else "W") + "\t" + w)
+marks = set(backups) | set(written)
+for line, row in zip(text, found):
+    if any(real in marks for _cand, real in row):
+        print("L\t" + line)
+'
+RC_CHANGED=0   # 마지막 record_changes 가 바뀐 파일·백업을 찾았는가 (Python 이 없어 알 수 없으면 1)
+record_changes() {  # record_changes <호출 전 snapshot> <출력> — CHANGED 와 WRITE_OUTPUTS(바뀐 파일·백업이 나온 줄)에 더한다
+  local before=$1 text=$2 line e x dup said="" known=()
+  RC_CHANGED=1
+  if [ -n "$PY" ]; then
+    RC_CHANGED=0
+    while IFS= read -r line; do   # 호출 전후로 내용이 달라졌고 지금 있는 후보
+      case "$line" in ""|*$'\t-') continue ;; esac
+      case $'\n'"$before"$'\n' in
+        *$'\n'"$line"$'\n'*) ;;
+        *$'\n'"${line%%$'\t'*}"$'\t-\n'*) known+=("N:${line%%$'\t'*}") ;;
+        *$'\n'"${line%%$'\t'*}"$'\t'*) known+=("C:${line%%$'\t'*}") ;;
+        *) known+=("N:${line%%$'\t'*}") ;;
+      esac
+    done <<<"$(snapshot)"
+    while IFS= read -r e; do
+      case "$e" in
+        L$'\t'*) said="${said:+$said$'\n'}${e#L?}"; continue ;;
+        W$'\t'*|E$'\t'*|B$'\t'*) RC_CHANGED=1 ;;
+        *) continue ;;
+      esac
+      dup=0
+      for x in ${CHANGED[@]+"${CHANGED[@]}"}; do if [ "${x#?}" = "${e#?}" ]; then dup=1; fi; done
+      if [ "$dup" = 0 ]; then CHANGED+=("$e"); fi
+    done < <(printf '%s\n' "$text" | "$PY" -I -c "$CHANGES_PY" ${known[@]+"${known[@]}"} 2>/dev/null)
+    # 내용이 바뀐 후보 파일도 출력에 나온 백업도 없으면 바뀐 것이 없다 (예: "변경 없음") — 요약에 넣지 않는다.
+    # 후보 밖에서 바뀌는 파일은 모두 있던 파일이라 pweh 가 백업을 남기고 그 경로를 출력한다
+    if [ "$RC_CHANGED" = 0 ]; then return 0; fi
+  fi
+  # 바뀐 파일이 나온 줄을 찾지 못했으면 출력 전체를 그대로 남긴다 (요약의 근거)
+  if [ -n "$said" ]; then WRITE_OUTPUTS+=("$said"); elif [ -n "$text" ]; then WRITE_OUTPUTS+=("$text"); fi
+}
+
+# --- mcp: Claude Code ------------------------------------------------------
+# 저장소의 .mcp.json·.claude/settings.json (그리고 settings.local.json 의 disabledMcpjsonServers)을 읽기만 한다 (~/.claude* 는 읽지 않음).
+# 기대하는 서버는 `pweh mcp-config --client claude` 의 출력(있으면), 없으면 .mcp.json 자체. 출력 줄: "ok|bad|warn<TAB>내용"
+CLAUDE_CHECK_PY='
+import json, os, sys
+repo, gen_text = sys.argv[1], sys.argv[2]
+def load(rel):
+    try:
+        with open(os.path.join(repo, rel), encoding="utf-8") as f:
+            return json.load(f), ""
+    except FileNotFoundError:
+        return None, rel + " 없음"
+    except (OSError, ValueError) as exc:
+        return None, rel + " 을 읽지 못함 (" + type(exc).__name__ + ")"
+mcp, err = load(".mcp.json")
+servers = mcp.get("mcpServers") if isinstance(mcp, dict) else None
+if not isinstance(servers, dict) or not servers:
+    print("bad\t" + (err or ".mcp.json 에 mcpServers 가 없음"))
+    sys.exit(0)
+problems, names, gen = [], list(servers), None
+if "{" in gen_text:
+    try:
+        gen = json.JSONDecoder().raw_decode(gen_text, gen_text.index("{"))[0].get("mcpServers")
+    except (ValueError, AttributeError):
+        gen = None
+if isinstance(gen, dict) and gen:
+    names = list(gen)
+    missing = [n for n in gen if n not in servers]
+    differ = [n for n in gen if n in servers and servers[n] != gen[n]]
+    if missing:
+        problems.append(".mcp.json 에 없는 서버: " + ", ".join(missing))
+    if differ:
+        problems.append("pweh mcp-config --client claude 결과와 다른 서버: " + ", ".join(differ))
+else:
+    gen = None
+settings, err = load(os.path.join(".claude", "settings.json"))
+if not isinstance(settings, dict):
+    problems.append(err or ".claude/settings.json 형식이 다름")
+elif settings.get("enableAllProjectMcpServers") is not True:
+    enabled = settings.get("enabledMcpjsonServers")
+    off = [n for n in names if not isinstance(enabled, list) or n not in enabled]
+    if off:
+        problems.append("enabledMcpjsonServers 에 없는 서버: " + ", ".join(off))
+local = load(os.path.join(".claude", "settings.local.json"))[0]
+disabled = local.get("disabledMcpjsonServers") if isinstance(local, dict) else None
+if problems:
+    print("bad\t" + "; ".join(problems))
+else:
+    print("ok\t.mcp.json 의 서버 " + str(len(names)) + "개가 모두 enabledMcpjsonServers 에 있음" + (" (생성 결과와 같음)" if gen else ""))
+off = [n for n in names if isinstance(disabled, list) and n in disabled]
+if off:
+    print("warn\t.claude/settings.local.json 의 disabledMcpjsonServers 가 끈 서버: " + ", ".join(off))
+'
+claude_status() {  # claude_status → CL_LINES ("ok|bad|warn<TAB>내용")
+  local gen="" line
+  CL_LINES=()
+  if pweh_ok; then
+    pweh_capture 120 mcp-config --client claude
+    if [ "$PW_RC" = 0 ]; then gen="$PW_OUT"; fi
+  fi
+  if [ -z "$PY" ]; then   # Python 3.10 이 없으면 있는지만 본다
+    if [ -f "$REPO/.mcp.json" ] && grep -q enabledMcpjsonServers "$REPO/.claude/settings.json" 2>/dev/null; then
+      CL_LINES=("ok"$'\t'".mcp.json 과 enabledMcpjsonServers 가 있음 (Python 3.10 이 없어 내용은 확인하지 못함)")
+    else
+      CL_LINES=("bad"$'\t'".mcp.json 또는 .claude/settings.json 의 enabledMcpjsonServers 가 없음")
+    fi
+    return 0
+  fi
+  while IFS= read -r line; do if [ -n "$line" ]; then CL_LINES+=("$line"); fi; done < <("$PY" -I -c "$CLAUDE_CHECK_PY" "$REPO" "$gen" 2>&1)
+  if [ ${#CL_LINES[@]} -eq 0 ]; then CL_LINES=("bad"$'\t'"확인하지 못함"); fi
+}
+
+# --- mcp: Codex --------------------------------------------------------------
+codex_config_args() {  # CX_ARGS — 설치·--check·--dry-run 이 같은 대상을 보도록 한곳에서 만든다
+  local h   # --codex-home 은 프로젝트 범위에도 넘긴다 (pweh 가 신뢰 항목이 없는 홈을 안내할 때 지정한 홈만 본다)
+  CX_ARGS=(mcp-config --client codex --write)
+  if [ "$CODEX_SCOPE" = global ]; then CX_ARGS+=(--scope global); fi
+  for h in ${CODEX_HOMES[@]+"${CODEX_HOMES[@]}"}; do CX_ARGS+=(--codex-home "$h"); done
+}
+codex_home_args() {  # CH_ARGS — 신뢰의 --check·--dry-run·--yes 가 같은 대상을 보도록
+  local h
+  CH_ARGS=()
+  for h in ${CODEX_HOMES[@]+"${CODEX_HOMES[@]}"}; do CH_ARGS+=(--codex-home "$h"); done
+}
+codex_config() {  # MCP 서버 등록: 프로젝트 설정(기본) 또는 Codex 홈의 config.toml (--codex-global — pweh 가 백업 후 고친다)
+  local before where="$CODEX_PROJECT_CFG"
+  [ "$CODEX_SCOPE" = project ] || where="Codex 홈의 config.toml (--codex-global)"
+  codex_config_args
+  if [ "$DRYRUN" = 1 ]; then
+    pweh_capture 300 "${CX_ARGS[@]}" --dry-run
+    if [ "$PW_RC" != 0 ]; then step_failed "Codex 설정" "${CX_ARGS[*]} --dry-run"; return 0; fi
+    CODEX_CFG_OK=1
+    if has_diff "$PW_OUT"; then info "Codex 설정: 바뀔 내용 — $where (dry-run 이라 쓰지 않음)"; STEP_NOTES+=("Codex 설정 바뀔 것 있음")
+    else info "Codex 설정: 바뀔 것 없음 — $where"; STEP_NOTES+=("Codex 설정 최신"); fi
+    show_out "$PW_OUT"
+    return 0
+  fi
+  before="$(snapshot)"
+  pweh_capture 300 "${CX_ARGS[@]}"
+  if [ "$PW_RC" != 0 ]; then step_failed "Codex 설정" "${CX_ARGS[*]}"; return 0; fi
+  if [ "$CODEX_SCOPE" = project ] && [ ! -f "$CODEX_PROJECT_CFG" ]; then
+    warn "Codex 설정: pweh 가 $CODEX_PROJECT_CFG 를 만들지 않았습니다 (가상환경의 pweh 가 이 저장소의 것인지 확인)"
+    show_out "$PW_OUT" log; STEP_BAD[mcp]=1; STEP_NOTES+=("Codex 설정 실패"); return 0
+  fi
+  CODEX_CFG_OK=1
+  info "Codex 설정: $where"
+  show_out "$PW_OUT" log
+  record_changes "$before" "$PW_OUT"
+  if [ "$RC_CHANGED" = 1 ]; then STEP_NOTES+=("Codex 설정 씀"); else STEP_NOTES+=("Codex 설정 최신"); fi
+}
+codex_trust() {  # Codex 가 프로젝트 설정을 읽도록 Codex 홈에 이 저장소의 신뢰 항목. 동의(대화형 확인·--codex-trust) 없이는 바꾸지 않는다
+  local before
+  if [ "$TRUST" = no ]; then info "Codex 신뢰: 건너뜀 (--no-codex-trust)"; STEP_NOTES+=("신뢰 건너뜀"); return 0; fi
+  if [ "$CODEX_SCOPE" = global ] && [ "$TRUST" = ask ]; then info "Codex 신뢰: 필요 없음 (--codex-global 은 Codex 홈에 직접 등록)"; return 0; fi
+  codex_home_args
+  if [ "$DRYRUN" = 1 ]; then
+    pweh_capture 300 codex-trust --dry-run ${CH_ARGS[@]+"${CH_ARGS[@]}"}
+    if [ "$PW_RC" != 0 ]; then step_failed "Codex 신뢰" "codex-trust --dry-run"; return 0; fi
+    if has_diff "$PW_OUT"; then info "Codex 신뢰: 바뀔 내용 (dry-run 이라 쓰지 않음 — 설치할 때는 대화형으로 묻거나 --codex-trust)"; STEP_NOTES+=("신뢰 바뀔 것 있음")
+    else info "Codex 신뢰: 바뀔 것 없음"; STEP_NOTES+=("신뢰 바뀔 것 없음"); fi
+    show_out "$PW_OUT"
+    return 0
+  fi
+  pweh_capture 300 codex-trust --check ${CH_ARGS[@]+"${CH_ARGS[@]}"}
+  case "$PW_RC" in
+    0) info "Codex 신뢰: ✓ 이 저장소를 신뢰하지 않는 Codex 홈이 없음"; show_out "$PW_OUT" log; STEP_NOTES+=("신뢰 ✓"); return 0 ;;
+    1) ;;
+    *) step_failed "Codex 신뢰" "codex-trust --check"; return 0 ;;   # 확인할 수 없으면 묻지도 바꾸지도 않는다
+  esac
+  info "Codex 신뢰: 이 저장소를 신뢰하지 않는 Codex 홈이 있습니다. Codex 는 신뢰한 프로젝트의 .codex/config.toml 만 읽습니다"
+  show_out "$PW_OUT" log
+  if [ "$TRUST" = ask ]; then
+    if ! [ -t 0 ] || ! [ -t 2 ]; then
+      info "대화형 터미널이 아니라 묻지 않았고 아무것도 바꾸지 않았습니다. 동의하면: ./scripts/install.sh --only mcp --codex-trust"
+      STEP_NOTES+=("신뢰 안 함 — 대화형이 아님 (--codex-trust 로 동의)")
+      return 0
+    fi
+    pweh_capture 300 codex-trust --dry-run ${CH_ARGS[@]+"${CH_ARGS[@]}"}
+    if [ "$PW_RC" != 0 ]; then step_failed "Codex 신뢰" "codex-trust --dry-run"; return 0; fi
+    if ! has_diff "$PW_OUT"; then
+      info "바뀔 내용(diff)을 받지 못해 묻지 않았고 아무것도 바꾸지 않았습니다"
+      show_out "$PW_OUT"; STEP_NOTES+=("신뢰 안 함 — 바뀔 내용 없음"); return 0
+    fi
+    if [ -t 3 ]; then
+      info "신뢰 항목을 더하면 다음처럼 바뀝니다 (바꾸기 전에 config.toml.bak-pweh-<UTC 시각> 으로 백업):"
+      show_out "$PW_OUT"
+    else   # 표준 출력이 파일·파이프(tee 등)면 묻는 화면(표준 오류)에 바뀔 내용을 보여 준다 — 보지 않고 동의하지 않도록
+      info "신뢰 항목을 더할지 묻습니다 (바뀔 내용은 묻는 화면에 보여 줌)"
+      { printf '\n    신뢰 항목을 더하면 다음처럼 바뀝니다 (바꾸기 전에 config.toml.bak-pweh-<UTC 시각> 으로 백업):\n'
+        printf '%s\n' "$PW_OUT" | sed 's/^/      | /'; } >&2
+    fi
+    if ! ask_yes "위 Codex 홈의 config.toml 에 이 저장소의 신뢰 항목을 더할까요? (신뢰한 프로젝트에서는 Codex 가 .codex/config.toml 을 읽고 폴더 신뢰를 묻지 않음)"; then
+      echo "Codex 신뢰: 사용자가 거절" >>"$LOG"
+      info "바꾸지 않았습니다. 나중에 동의하면: ./scripts/install.sh --only mcp --codex-trust"
+      STEP_NOTES+=("신뢰 안 함 — 거절"); return 0
+    fi
+    echo "Codex 신뢰: 사용자가 동의" >>"$LOG"
+    info "동의함 — 신뢰 항목을 더합니다:"
+  else
+    info "--codex-trust 로 동의함 — 신뢰 항목을 더합니다 (바꾸기 전에 백업):"
+  fi
+  before="$(snapshot)"
+  pweh_capture 300 codex-trust --yes ${CH_ARGS[@]+"${CH_ARGS[@]}"}
+  if [ "$PW_RC" != 0 ]; then step_failed "Codex 신뢰" "codex-trust --yes"; return 0; fi
+  show_out "$PW_OUT" log
+  record_changes "$before" "$PW_OUT"
+  TRUST_ADDED=1
+  pweh_capture 300 codex-trust --check ${CH_ARGS[@]+"${CH_ARGS[@]}"}
+  if [ "$PW_RC" != 0 ]; then
+    warn "Codex 신뢰: 항목을 더했지만 다시 확인(codex-trust --check)이 실패했습니다 ($(pweh_why))"
+    show_out "$PW_OUT" log; STEP_BAD[mcp]=1; STEP_NOTES+=("신뢰 확인 실패"); return 0
+  fi
+  info "Codex 신뢰: ✓ 더함"
+  STEP_NOTES+=("신뢰 더함")
+}
+
+# --- mcp: Cursor (--cursor) ------------------------------------------------
+# <저장소>/.cursor/mcp.json 이 없으면 만들고, 있으면 PWEH 항목만 바꾼다: 옛 pweh-* 는 빼고, 다른 서버와 사용자가 따로 둔 rea 는 그대로.
+# 바꾸기 전에 .bak-pweh-<UTC 시각> 으로 백업하고 원자적으로 교체한다. 인자: 경로, 생성한 JSON, dry-run(0|1), 시각
+CURSOR_PY='
+import difflib, json, os, shutil, sys, tempfile
+path, gen_text, dry, stamp = sys.argv[1], sys.argv[2], sys.argv[3] == "1", sys.argv[4]
+try:
+    gen = json.JSONDecoder().raw_decode(gen_text, gen_text.index("{"))[0]["mcpServers"]
+    if not isinstance(gen, dict) or not gen:
+        raise ValueError
+except (ValueError, KeyError, TypeError):
+    sys.exit("pweh mcp-config --client cursor 의 출력을 읽지 못함")
+old_text, kept = None, []
+if os.path.lexists(path):
+    if os.path.islink(path) or not os.path.isfile(path):
+        sys.exit("일반 파일이 아니라 바꾸지 않음: " + path)
+    with open(path, encoding="utf-8") as f:
+        old_text = f.read()
+    try:
+        doc = json.loads(old_text)
+    except ValueError:
+        sys.exit("올바른 JSON 이 아니라 바꾸지 않음: " + path)
+    if not isinstance(doc, dict) or not isinstance(doc.get("mcpServers", {}), dict):
+        sys.exit("mcpServers 형식이 달라 바꾸지 않음: " + path)
+    servers = dict(doc.get("mcpServers") or {})
+    for name in [n for n in servers if n.startswith("pweh-") and n not in gen]:
+        del servers[name]
+    for name, spec in gen.items():
+        if name == "rea" and "rea" in servers and servers["rea"] != spec:
+            kept.append(name)
+            continue
+        servers[name] = spec
+    new = dict(doc)
+    new["mcpServers"] = servers
+    if new == doc:
+        print("최신")
+        sys.exit(0)
+else:
+    new = {"mcpServers": gen}
+new_text = json.dumps(new, ensure_ascii=False, indent=2) + "\n"
+if dry:
+    sys.stdout.writelines(difflib.unified_diff((old_text or "").splitlines(True), new_text.splitlines(True),
+                                               path if old_text is not None else "/dev/null", path))
+    sys.exit(0)
+d = os.path.dirname(path)
+os.makedirs(d, exist_ok=True)
+mode = 0o644
+if old_text is not None:
+    mode = os.stat(path).st_mode & 0o7777
+    bak, k = path + ".bak-pweh-" + stamp, 1
+    while os.path.lexists(bak):
+        k += 1
+        bak = path + ".bak-pweh-" + stamp + "-" + str(k)
+    shutil.copy2(path, bak)
+    print("백업: " + bak)
+fd, tmp = tempfile.mkstemp(dir=d, prefix=".mcp.json.")
+with os.fdopen(fd, "w", encoding="utf-8") as f:
+    f.write(new_text)
+os.chmod(tmp, mode)
+os.replace(tmp, path)
+print("작성: " + path)
+for name in kept:
+    print("사용자가 따로 둔 " + name + " 항목은 그대로 둠")
+'
+cursor_merge() {  # cursor_merge <dry-run 0|1> → CM_OUT, CM_RC
+  CM_RC=0; CM_OUT=""
+  if ! pweh_ok; then CM_RC=1; CM_OUT="$(pweh_missing)"; return 0; fi
+  if [ -z "$PY" ]; then CM_RC=1; CM_OUT="Python 3.10 이상이 필요합니다"; return 0; fi
+  pweh_capture 120 mcp-config --client cursor
+  if [ "$PW_RC" != 0 ]; then CM_RC=1; CM_OUT="pweh mcp-config --client cursor 실패 ($(pweh_why))"$'\n'"$PW_OUT"; return 0; fi
+  CM_OUT="$("$PY" -I -c "$CURSOR_PY" "$CURSOR_CFG" "$PW_OUT" "$1" "$(date -u +%Y%m%dT%H%M%SZ)" 2>&1)" || CM_RC=$?
+}
+cursor_config() {
+  local before
+  before="$(snapshot)"
+  cursor_merge "$DRYRUN"
+  if [ "$CM_RC" != 0 ]; then warn "Cursor: $CURSOR_CFG 를 바꾸지 않았습니다"; show_out "$CM_OUT" log; STEP_BAD[mcp]=1; STEP_NOTES+=("Cursor 실패"); return 0; fi
+  if [ "$CM_OUT" = 최신 ]; then info "Cursor: ✓ 최신 ($CURSOR_CFG)"; STEP_NOTES+=("Cursor ✓"); return 0; fi
+  if [ "$DRYRUN" = 1 ]; then info "Cursor: 바뀔 내용 (dry-run 이라 쓰지 않음)"; show_out "$CM_OUT"; STEP_NOTES+=("Cursor 바뀔 것 있음"); return 0; fi
+  info "Cursor: $CURSOR_CFG"
+  show_out "$CM_OUT" log
+  record_changes "$before" "$CM_OUT"
+  STEP_NOTES+=("Cursor 씀")
+}
+
+step_mcp() {
+  local line st msg bad=0
+  claude_status
+  for line in "${CL_LINES[@]}"; do
+    st="${line%%$'\t'*}"; msg="${line#*$'\t'}"
+    case "$st" in
+      ok) info "Claude Code: ✓ $msg" ;;
+      warn) warn "Claude Code: $msg" ;;
+      *) warn "Claude Code: $msg"
+         info "  이 스크립트는 고치지 않습니다 — $PWEH_BIN mcp-config --client claude --write --force 와 .claude/settings.json 의 enabledMcpjsonServers 확인"
+         bad=1 ;;
+    esac
+  done
+  if [ "$bad" = 1 ]; then STEP_BAD[mcp]=1; STEP_NOTES+=("Claude 확인 필요"); else STEP_NOTES+=("Claude ✓"); fi
+  if ! pweh_ok; then
+    warn "Codex: $(pweh_missing)"; STEP_BAD[mcp]=1; STEP_NOTES+=("Codex 못 함 — pweh 없음")
+  else
+    codex_config
+    if [ "$CODEX_CFG_OK" = 1 ]; then codex_trust
+    else info "Codex 신뢰: Codex 설정을 쓰지 못해 묻지 않고 건너뜀"; fi
+  fi
+  if [ "$CURSOR" = 1 ]; then cursor_config; fi
+}
+
+# --- skills --------------------------------------------------------------
+SKILLS_PY='
+import json, sys
+text = sys.stdin.read()
+try:
+    doc = json.JSONDecoder().raw_decode(text, text.index("{"))[0]
+except ValueError:
+    sys.exit(0)
+for r in (doc.get("results") or []) if isinstance(doc, dict) else []:
+    if isinstance(r, dict):
+        print("\t".join(str(r.get(k, "")) for k in ("status", "skill", "path")))
+'
+skills_dest() { case "$1" in claude-project) echo "$REPO/.claude/skills" ;; *) echo "$REPO/.agents/skills" ;; esac; }
+skills_status() {  # skills_status <디렉터리> → SK_COUNT ("링크됨/전체"), SK_MISSING. 모두 링크됐으면 0 (pweh 의 already-installed 와 같은 판정)
+  local dest=$1 d name n=0 total=0
+  SK_MISSING=""
+  for d in "$REPO"/skills/*/; do
+    [ -f "${d}SKILL.md" ] || continue
+    name="$(basename "$d")"; total=$((total + 1))
+    if [ -L "$dest/$name" ] && [ "$dest/$name" -ef "${d%/}" ]; then n=$((n + 1)); else SK_MISSING="$SK_MISSING $name"; fi
+  done
+  SK_COUNT="$n/$total"
+  [ "$n" = "$total" ]
+}
+step_skills() {  # pweh 는 다른 파일·디렉터리가 있으면 덮어쓰지 않는다 (--force 는 넘기지 않음)
+  local t dest st name path conflicts
+  for t in claude-project agents; do
+    dest="$(skills_dest "$t")"
+    if [ "$DRYRUN" = 1 ]; then
+      if skills_status "$dest"; then info "$t: ✓ $SK_COUNT 링크됨 ($dest)"
+      else info "$t: $SK_COUNT 링크됨 — 설치할 때 만들 링크:$SK_MISSING (dry-run 이라 만들지 않음)"; fi
+      STEP_NOTES+=("$t $SK_COUNT"); continue
+    fi
+    if ! pweh_ok; then warn "$t: $(pweh_missing)"; STEP_BAD[skills]=1; STEP_NOTES+=("$t 못 함"); continue; fi
+    pweh_capture 120 skills install --target "$t"
+    if [ "$PW_RC" != 0 ]; then step_failed "$t" "skills install --target $t"; continue; fi
+    printf '%s\n' "$PW_OUT" >>"$LOG"
+    conflicts=""
+    if [ -n "$PY" ]; then
+      while IFS=$'\t' read -r st name path; do
+        case "$st" in
+          installed) NEW_LINKS+=("$path") ;;
+          exists*) conflicts="$conflicts $path" ;;
+        esac
+      done < <(printf '%s' "$PW_OUT" | "$PY" -I -c "$SKILLS_PY" 2>/dev/null)
+    fi
+    if skills_status "$dest"; then info "$t: ✓ $SK_COUNT 링크됨 ($dest)"; STEP_NOTES+=("$t $SK_COUNT")
+    else
+      warn "$t: $SK_COUNT 링크됨 — 링크되지 않은 Skill:$SK_MISSING"
+      if [ -n "$conflicts" ]; then
+        info "  같은 이름의 다른 파일·디렉터리가 있어 링크하지 않음:$conflicts"
+        info "  확인한 뒤 바꾸려면: $PWEH_BIN skills install --target $t --force (기존 것을 지움)"
+      fi
+      STEP_BAD[skills]=1; STEP_NOTES+=("$t $SK_COUNT")
+    fi
+  done
+}
+
+# --- verify --------------------------------------------------------------
+mcpcheck_args() {  # MC_ARGS — REA(선택 구성요소)가 설치되지 않았으면 rea 서버만 선택 서버로 넘긴다 (그 실패만 종료 코드에서 빠지고 다른 서버의 실패는 그대로)
+  MC_ARGS=(mcp-check --client all)
+  if ! check_rea >/dev/null 2>&1; then MC_ARGS+=(--optional rea); fi
+}
+mcpcheck_verdict() {  # 마지막 pweh mcp-check 결과 → MV (ok|rea|bad), MV_MSG. 판정은 pweh 의 종료 코드가 한다 (서버마다 — --optional rea 만 빼고)
+  if [ "$PW_RC" = 0 ]; then
+    case "$PW_OUT" in
+      *"선택 서버 실패"*) MV=rea; MV_MSG="pweh mcp-check: PWEH 서버는 정상, rea 서버만 뜨지 않음 — REA 가 설치되지 않아 경고로만 봄 (선택 구성요소: ./scripts/install.sh --only rea)" ;;
+      *) MV=ok; MV_MSG="pweh mcp-check: 모든 서버 정상" ;;
+    esac
+  else MV=bad; MV_MSG="pweh mcp-check 실패 ($(pweh_why))"; fi
+}
+step_verify() {
+  local drc=0
+  if [ "$DRYRUN" = 1 ]; then info "건너뜀 (dry-run)"; STEP_NOTES+=("건너뜀 (dry-run)"); return 0; fi
+  if ! pweh_ok; then warn "$(pweh_missing)"; STEP_BAD[verify]=1; STEP_NOTES+=("못 함 — pweh 없음"); return 0; fi
+  info "pweh doctor:"
+  pweh_exec 600 doctor 2>&1 | tee -a "$LOG" | sed 's/^/      /' >&3 || drc=$?
+  if [ "$drc" = 0 ]; then STEP_NOTES+=("doctor")
+  else warn "pweh doctor 가 실패했습니다 (종료 코드 $drc)"; STEP_BAD[verify]=1; STEP_NOTES+=("doctor 실패"); fi
+  info "pweh mcp-check --client all (서버마다 띄워 initialize + tools/list 만 함):"
+  mcpcheck_args
+  pweh_capture 900 "${MC_ARGS[@]}"
+  if [ -n "$PW_OUT" ]; then printf '%s\n' "$PW_OUT" | sed 's/^/      /' >&3; printf '%s\n' "$PW_OUT" >>"$LOG"; fi
+  mcpcheck_verdict
+  case "$MV" in
+    ok) info "✓ $MV_MSG"; STEP_NOTES+=("mcp-check ✓") ;;
+    rea) warn "$MV_MSG"; STEP_NOTES+=("mcp-check 경고 — REA 없음 (rea 서버만 뜨지 않음)") ;;
+    *) warn "$MV_MSG — 위 출력 참고"; STEP_BAD[verify]=1; STEP_NOTES+=("mcp-check 실패") ;;
+  esac
+}
+
+run_step() {  # run_step <단계> — 조건 밖에서 부른다 (단계 함수 안의 set -e 가 살도록)
+  local s=$1 n joined=""
+  CUR_STEP=$s; STEP_NOTES=()
+  say ""
+  say "  - $s: ${STEP_DESC[$s]}"
+  "step_$s"
+  for n in ${STEP_NOTES[@]+"${STEP_NOTES[@]}"}; do joined="${joined:+$joined, }$n"; done
+  if [ "${STEP_BAD[$s]:-0}" = 1 ]; then STEP_RESULT[$s]="실패${joined:+ — $joined}"
+  elif [ "$DRYRUN" = 1 ]; then STEP_RESULT[$s]="dry-run${joined:+ — $joined}"
+  else STEP_RESULT[$s]="완료${joined:+ — $joined}"; fi
+}
+
+# --- --check 의 단계 점검: 읽기만 한다 (--write 는 --dry-run 과 함께만, --yes·skills install 은 부르지 않음) ----
+ck() {  # ck <ok|bad|skip> <이름> <내용> [바로잡는 방법]
+  case "$1" in
+    ok) say "  ✓ $2  $3" ;;
+    bad) say "  ✗ $2  $3"; if [ -n "${4:-}" ]; then say "      → $4"; fi ;;
+    *) say "  - $2  $3" ;;
+  esac
+}
+check_mcp_claude() {
+  local line st msg rc=0
+  claude_status
+  for line in "${CL_LINES[@]}"; do
+    st="${line%%$'\t'*}"; msg="${line#*$'\t'}"
+    case "$st" in
+      ok) ck ok mcp:claude "$msg" ;;
+      warn) ck skip mcp:claude "$msg" ;;
+      *) ck bad mcp:claude "$msg" "$PWEH_BIN mcp-config --client claude --write --force, .claude/settings.json 의 enabledMcpjsonServers (이 스크립트는 바꾸지 않음)"; rc=1 ;;
+    esac
+  done
+  return "$rc"
+}
+check_mcp_codex() {
+  local fix="./scripts/install.sh --only mcp"
+  [ "$CODEX_SCOPE" = project ] || fix="$fix --codex-global"
+  if ! pweh_ok; then ck bad mcp:codex "확인하지 못함 — $(pweh_missing)"; return 1; fi
+  codex_config_args
+  pweh_capture 300 "${CX_ARGS[@]}" --dry-run
+  if [ "$PW_RC" != 0 ]; then ck bad mcp:codex "확인하지 못함 — pweh ${CX_ARGS[*]} --dry-run ($(pweh_why))"; show_out "$PW_OUT"; return 1; fi
+  local note=""
+  if has_diff "$PW_OUT"; then
+    if ! only_path_diff "$PW_OUT"; then ck bad mcp:codex "Codex 설정이 없거나 오래됨 — 바뀔 파일:" "$fix"; show_out "$(diff_files "$PW_OUT")"; return 1; fi
+    note=" (서버 env 의 PATH 만 지금 셸과 다름 — 셸마다 다른 값이라 pweh doctor 처럼 비교에서 뺌. 지금 PATH 로 다시 쓰려면 $fix)"
+  fi
+  if [ "$CODEX_SCOPE" = project ]; then ck ok mcp:codex "$CODEX_PROJECT_CFG 최신$note"; else ck ok mcp:codex "Codex 홈의 config.toml 최신$note"; fi
+}
+check_mcp_trust() {
+  if [ "$TRUST" = no ]; then ck skip mcp:codex-trust "점검하지 않음 (--no-codex-trust)"; return 0; fi
+  if [ "$CODEX_SCOPE" = global ] && [ "$TRUST" = ask ]; then ck skip mcp:codex-trust "필요 없음 (--codex-global)"; return 0; fi
+  if ! pweh_ok; then ck bad mcp:codex-trust "확인하지 못함 — $(pweh_missing)"; return 1; fi
+  codex_home_args
+  pweh_capture 300 codex-trust --check ${CH_ARGS[@]+"${CH_ARGS[@]}"}
+  case "$PW_RC" in
+    0) ck ok mcp:codex-trust "이 저장소를 신뢰하지 않는 Codex 홈이 없음"; show_out "$PW_OUT"; return 0 ;;
+    1) ck bad mcp:codex-trust "이 저장소를 신뢰하지 않는 Codex 홈이 있음 — Codex 가 .codex/config.toml 을 읽지 않음" \
+         "동의하면 ./scripts/install.sh --only mcp --codex-trust (또는 --codex-global. 이 점검을 끄려면 --no-codex-trust)"
+       show_out "$PW_OUT"; return 1 ;;
+    *) ck bad mcp:codex-trust "확인하지 못함 ($(pweh_why))"; show_out "$PW_OUT"; return 1 ;;
+  esac
+}
+check_mcp_cursor() {
+  cursor_merge 1
+  if [ "$CM_RC" != 0 ]; then ck bad mcp:cursor "확인하지 못함"; show_out "$CM_OUT"; return 1; fi
+  if [ "$CM_OUT" = 최신 ]; then ck ok mcp:cursor "$CURSOR_CFG 최신"; return 0; fi
+  ck bad mcp:cursor "$CURSOR_CFG 이 없거나 PWEH 항목이 다름 — 바뀔 파일:" "./scripts/install.sh --only mcp --cursor"
+  show_out "$(diff_files "$CM_OUT")"
+  return 1
+}
+check_skills() {
+  local t dest rc=0
+  for t in claude-project agents; do
+    dest="$(skills_dest "$t")"
+    if skills_status "$dest"; then ck ok "skills:$t" "$SK_COUNT 링크됨 ($dest)"
+    else ck bad "skills:$t" "$SK_COUNT 링크됨 — 빠진 Skill:$SK_MISSING" "./scripts/install.sh --only skills"; rc=1; fi
+  done
+  return "$rc"
+}
+check_verify() {
+  if ! pweh_ok; then ck bad verify "확인하지 못함 — $(pweh_missing)"; return 1; fi
+  mcpcheck_args
+  pweh_capture 900 "${MC_ARGS[@]}"
+  mcpcheck_verdict
+  case "$MV" in
+    ok) ck ok verify "$MV_MSG" ;;
+    rea) ck skip verify "$MV_MSG" ;;
+    *) ck bad verify "$MV_MSG" "아래 출력 확인 (REA 는 ./scripts/install.sh --only rea)" ;;
+  esac
+  show_out "$PW_OUT"
+  [ "$MV" != bad ]
+}
+check_steps() {  # 하나라도 실패하면 1
+  local rc=0
+  if selected mcp; then
+    check_mcp_claude || rc=1
+    check_mcp_codex || rc=1
+    check_mcp_trust || rc=1
+    if [ "$CURSOR" = 1 ]; then check_mcp_cursor || rc=1; fi
+  fi
+  if selected skills; then check_skills || rc=1; fi
+  if selected verify; then check_verify || rc=1; fi
+  return "$rc"
+}
+
+# --- 요약: 쓰거나 백업한 파일과 되돌리는 방법 (명령은 보여 주기만 한다) -------------------------------
+print_changes() {
+  local e f b x y o w nb=0
+  if [ ${#CHANGED[@]} -eq 0 ] && [ ${#WRITE_OUTPUTS[@]} -eq 0 ] && [ ${#NEW_LINKS[@]} -eq 0 ]; then return 0; fi
+  say ""
+  say "바꾼 파일과 되돌리는 방법 (되돌리기 명령은 보여 주기만 함):"
+  for e in ${CHANGED[@]+"${CHANGED[@]}"}; do
+    case "$e" in W$'\t'*|E$'\t'*) f="${e#??}" ;; *) nb=$((nb + 1)); continue ;; esac
+    b=""   # 같은 파일을 두 번 바꿨으면(예: --codex-global 의 등록과 신뢰) 처음 백업이 이 스크립트를 돌리기 전의 상태
+    for x in "${CHANGED[@]}"; do
+      case "$x" in B$'\t'*) y="${x#??}"; if [ -z "$b" ] && [ "${y%.bak-pweh-*}" = "$f" ]; then b="$y"; fi ;; esac
+    done
+    if [ -n "$b" ]; then
+      say "  씀    $f"
+      say "        백업: $b"
+      say "        되돌리기: cp -p $(printf %q "$b") $(printf %q "$f")"
+    elif [ "$f" -ef "$CODEX_PROJECT_CFG" ]; then
+      say "  씀    $f   (생성물, git 제외)"
+      say "        되돌리기: rm $(printf %q "$f")   (다시 만들기: $PWEH_BIN mcp-config --client codex --write)"
+    elif [ "${e%%$'\t'*}" = E ]; then   # 있던 파일인데 백업이 보이지 않음: 지우라고 하지 않는다
+      say "  씀    $f   (있던 파일 — 이번 출력에서 백업을 찾지 못함, 위 pweh 출력 확인)"
+    else
+      say "  씀    $f   (새로 만든 파일)"
+      say "        되돌리기: rm $(printf %q "$f")"
+    fi
+  done
+  for e in ${CHANGED[@]+"${CHANGED[@]}"}; do   # 짝이 되는 바뀐 파일을 찾지 못한 백업
+    case "$e" in B$'\t'*) y="${e#??}" ;; *) continue ;; esac
+    o="${y%.bak-pweh-*}"; w=0
+    for x in "${CHANGED[@]}"; do case "$x" in W$'\t'"$o"|E$'\t'"$o") w=1 ;; esac; done
+    if [ "$w" = 0 ]; then say "  백업  $y"; say "        되돌리기: cp -p $(printf %q "$y") $(printf %q "$o")"; fi
+  done
+  if [ "$TRUST_ADDED" = 1 ]; then
+    say "  Codex 신뢰 항목만 빼려면: 해당 config.toml 에서 [projects.\"$REPO_REAL\"] 표(trust_level = \"trusted\")를 지운다"
+  fi
+  if [ ${#NEW_LINKS[@]} -gt 0 ]; then
+    say "  Skill 링크 ${#NEW_LINKS[@]}개를 새로 만듦 (되돌리기: rm <링크> — 링크만 지워지고 skills/ 원본은 그대로):"
+    for x in "${NEW_LINKS[@]}"; do say "        $x"; done
+  fi
+  if [ ${#WRITE_OUTPUTS[@]} -gt 0 ]; then
+    say "  pweh 가 알린 쓰기·백업 (출력 그대로):"
+    for o in "${WRITE_OUTPUTS[@]}"; do show_out "$o" log; done
+  fi
+  if [ "$nb" -gt 0 ]; then say "  백업은 지우지 않았습니다 — 확인한 뒤 직접 지우세요."; fi
+}
+
+# ---------------------------------------------------------------------------
 # 실행
 # ---------------------------------------------------------------------------
 declare -A RESULT
@@ -1014,12 +1786,19 @@ run_component() {
 
 say "PWEH 설치 — 저장소 $REPO"
 say "  외부 도구: $PREFIX   캐시: $CACHE${SEED:+   seed: $SEED}   가상환경: $VENV"
-[ "$ARCH_OK" = 1 ] || warn "이 머신은 Linux x86_64 가 아닙니다. 외부 도구는 설치하지 않고 Python 환경만 준비합니다."
-[ "$HAVE_APT" = 1 ] || warn "apt 가 없습니다. 배포판 패키지 구성요소(sigrok, squashfs, uboot, extractors)는 직접 설치해야 합니다."
+if [ "$COMP_SELECTED" = 1 ]; then
+  [ "$ARCH_OK" = 1 ] || warn "이 머신은 Linux x86_64 가 아닙니다. 외부 도구는 설치하지 않고 Python 환경만 준비합니다."
+  [ "$HAVE_APT" = 1 ] || warn "apt 가 없습니다. 배포판 패키지 구성요소(sigrok, squashfs, uboot, extractors)는 직접 설치해야 합니다."
+  for t in curl tar xz; do
+    if ! command -v "$t" >/dev/null && { [ "$t" != curl ] || ! command -v wget >/dev/null; }; then warn "'$t' 가 없습니다 (관리자: sudo apt-get install curl tar xz-utils)"; fi
+  done
+fi
 [ -n "$PY" ] || warn "Python 3.10 이상을 찾지 못했습니다."
-for t in curl tar xz; do
-  if ! command -v "$t" >/dev/null && { [ "$t" != curl ] || ! command -v wget >/dev/null; }; then warn "'$t' 가 없습니다 (관리자: sudo apt-get install curl tar xz-utils)"; fi
-done
+if [ "$MODE" = install ] && [ "$DRYRUN" = 1 ]; then
+  say "  dry-run: 아무것도 설치하거나 바꾸지 않고 MCP 등록·Codex 신뢰가 바꿀 내용만 보여 줍니다"
+elif [ "$MODE" = install ] && [ "$COMP_SELECTED" = 0 ]; then
+  say "  구성요소를 고르지 않아 단계만 실행합니다 (도구를 다시 설치하지 않고 env.sh 도 그대로 둠)"
+fi
 
 if [ "$MODE" = check ]; then
   rc=0
@@ -1028,35 +1807,53 @@ if [ "$MODE" = check ]; then
     if "check_$c" >>"$LOG" 2>&1; then say "  ✓ $c  $("version_$c" 2>/dev/null || true)"
     else say "  ✗ $c  (${DESC[$c]})"; case " $OPTIONAL_COMPONENTS " in *" $c "*) ;; *) rc=1 ;; esac; fi
   done
-  [ -f "$PREFIX/env.sh" ] && say "  env.sh: $PREFIX/env.sh" || say "  env.sh 없음"
+  if [ "$COMP_SELECTED" = 1 ]; then
+    if [ -f "$PREFIX/env.sh" ]; then say "  env.sh: $PREFIX/env.sh"; else say "  env.sh 없음"; fi
+  fi
+  check_steps || rc=1
   exit "$rc"
 fi
 
-for c in $ALL_COMPONENTS; do
-  if selected "$c"; then run_component "$c"; fi   # 조건 밖에서 불러야 run_component 안의 set -e 가 산다
-done
-write_env
-say "  env.sh: $PREFIX/env.sh"
-
-if [ -x "$VENV/bin/pweh" ]; then
-  say ""
-  say "pweh doctor:"
-  ( set +e; . "$PREFIX/env.sh"; "$VENV/bin/pweh" doctor 2>&1 ) | tee -a "$LOG" | sed 's/^/  /' >&3 || true
+if [ "$INSTALL_TOOLS" = 1 ]; then
+  for c in $ALL_COMPONENTS; do
+    if selected "$c"; then run_component "$c"; fi   # 조건 밖에서 불러야 run_component 안의 set -e 가 산다
+  done
+  write_env
+  say "  env.sh: $PREFIX/env.sh"
+elif [ "$COMP_SELECTED" = 1 ]; then
+  say "  구성요소: dry-run 이라 설치하지 않고 env.sh 도 쓰지 않음 (설치 상태는 --check)"
 fi
+for s in $STEPS; do
+  if selected "$s"; then run_step "$s"; fi   # 조건 밖에서 불러야 단계 함수 안의 set -e 가 산다
+done
 
 say ""
 say "결과:"
 failed=0
-for c in $ALL_COMPONENTS; do
-  selected "$c" || continue
-  r="${RESULT[$c]:-선택 안 함}"
-  say "  $(printf '%-11s' "$c") $r"
-  if [ "$r" = 실패 ]; then case " $OPTIONAL_COMPONENTS " in *" $c "*) ;; *) failed=1 ;; esac; fi
+if [ "$INSTALL_TOOLS" = 1 ]; then
+  for c in $ALL_COMPONENTS; do
+    selected "$c" || continue
+    r="${RESULT[$c]:-선택 안 함}"
+    say "  $(printf '%-11s' "$c") $r"
+    if [ "$r" = 실패 ]; then case " $OPTIONAL_COMPONENTS " in *" $c "*) ;; *) failed=1 ;; esac; fi
+  done
+fi
+for s in $STEPS; do
+  selected "$s" || continue
+  say "  $(printf '%-11s' "$s") ${STEP_RESULT[$s]:-선택 안 함}"
+  if [ "${STEP_BAD[$s]:-0}" = 1 ]; then failed=1; fi
 done
+if [ "$DRYRUN" = 0 ]; then print_changes; fi
 say ""
 say "다음 단계:"
-say "  . $PREFIX/env.sh            # 셸에서 외부 도구 쓰기 (MCP 서버는 scripts/mcp-launch.sh 가 자동으로 읽음)"
-say "  $VENV/bin/pytest -q -m 'not slow'"
-say "  claude  →  /pweh-start <기기 설명>"
-say "로그: $LOG"
+if [ "$DRYRUN" = 1 ]; then
+  say "  위 내용대로 바꾸려면 같은 옵션에서 --dry-run 을 빼고 다시 실행 (Codex 신뢰는 대화형으로 묻거나 --codex-trust)"
+else
+  if [ -f "$PREFIX/env.sh" ]; then say "  . $PREFIX/env.sh            # 셸에서 외부 도구 쓰기 (MCP 서버는 scripts/mcp-launch.sh 가 자동으로 읽음)"; fi
+  say "  $VENV/bin/pytest -q -m 'not slow'"
+  say "  claude  →  /pweh-start <기기 설명>"
+  say "  codex   →  \$pweh-start <기기 설명>   (이 저장소에서. 프로젝트 설정은 이 저장소를 신뢰한 Codex 홈에서만 읽힘)"
+  say "  $PWEH_BIN mcp-check --client all   # MCP 서버 연결 점검 (도구는 부르지 않음)"
+fi
+if [ "$LOG" != /dev/null ]; then say "로그: $LOG"; fi
 exit "$failed"

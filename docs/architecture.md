@@ -31,9 +31,12 @@ SD 카드 이미지 해석 엔진(`pweh.fs`), 증거 보관 기록·EV 번호·�
 
 | 경로 | 내용 |
 |---|---|
-| `src/pweh/` | 공통 코어: `config.py`, `case.py`, `safety/`(분류기·게이트·승인·사람 증명·비밀값 마스킹), `provenance.py`(출처 원장), `jobs.py`, `runtime.py`, `mcpkit.py`(서버 생성 — 네이티브 Windows·Cygwin·MSYS 는 시작 거부), `ports.py`(포트 참조 문법: COM1–COM4096, 루프백 원격 URL, 시뮬레이터 바인드 주소), `procutil.py`(PID 생존 확인), `hostenv.py`(실행 환경 감지 — WSL1/2·interop·네트워킹 모드·usbipd·컨테이너, 추천 경로; `pweh env`·doctor·`pipeline_environment`·esp 가 쓴다), `toolsdir.py`(외부 도구 위치, esptool.exe 후보), `report.py`, `cli.py`, `audit.py`, `errors.py`, `fsutil.py`, `formats.py`(mtdparts·uImage·U-Boot env·md.b/crc32 출력 파서), `evidence.py`(SD 카드 증거: 보관 기록 해시 체인 + 상태 폴더 고정점(세 단계 덧붙이기), 접수 기록과 상태 재생·`status_label`, EV 번호 확보와 중단된 접수 정리, 내용 도구의 무결성 입구, 이미징 로그 해석, 입력 검사·빠른 지문 — pweh-forensics 와 보고서 §8.1 이 쓴다), `safeio.py`(믿을 수 없는 파일·디렉터리: 일반 파일만 lstat → `O_NOFOLLOW\|O_NONBLOCK` → fstat 대조로 열기, 디렉터리는 한 구성요소씩 `O_DIRECTORY\|O_NOFOLLOW`, 파일은 디렉터리 fd 기준 `O_EXCL` 로 만들고 fd 로 fchmod, flock 잠금 — `pweh.evidence`·pweh-forensics·case-mcp 의 증거 가드가 쓴다), `fs/`(카드 이미지 파일 시스템 엔진: MBR/EBR·GPT·superfloppy, FAT12/16/32·exFAT. 순수 파이썬·읽기 전용, 공개 사양만으로 새로 작성, 모든 반복은 `Limits` 로, 공개 호출 하나는 `Budget`(시간·볼륨별 단계 상한·취소)으로 묶음, 디렉터리 데이터는 단위마다 검증한 뒤 해석), `schemas/`, `mocktarget/`, `data/` |
+| `src/pweh/` | 공통 코어: `config.py`, `case.py`, `safety/`(분류기·게이트·승인·사람 증명·비밀값 마스킹), `provenance.py`(출처 원장), `jobs.py`, `runtime.py`, `mcpkit.py`(서버 생성 — 네이티브 Windows·Cygwin·MSYS 는 시작 거부), `ports.py`(포트 참조 문법: COM1–COM4096, 루프백 원격 URL, 시뮬레이터 바인드 주소), `procutil.py`(PID 생존 확인), `hostenv.py`(실행 환경 감지 — WSL1/2·interop·네트워킹 모드·usbipd·컨테이너, 추천 경로; `pweh env`·doctor·`pipeline_environment`·esp 가 쓴다), `toolsdir.py`(외부 도구 위치, esptool.exe 후보), `report.py`, `cli.py`, `clientcfg.py`(Codex 클라이언트 설정: Codex 홈 감지 — CLI·데스크톱 앱 WSL 모드·`--codex-home`, 프로젝트 `.codex/config.toml` 생성, 전역 `config.toml` 병합과 trust 항목(tomlkit 으로 주석·서식 유지, 백업·다시 읽어 검사·원자적 교체) — `cli.py` 의 `mcp-config --client codex`·`codex-trust`·`mcp-check`·doctor 가 쓴다, docs/mcp-setup.md §3), `audit.py`, `errors.py`, `fsutil.py`, `formats.py`(mtdparts·uImage·U-Boot env·md.b/crc32 출력 파서), `evidence.py`(SD 카드 증거: 보관 기록 해시 체인 + 상태 폴더 고정점(세 단계 덧붙이기), 접수 기록과 상태 재생·`status_label`, EV 번호 확보와 중단된 접수 정리, 내용 도구의 무결성 입구, 이미징 로그 해석, 입력 검사·빠른 지문 — pweh-forensics 와 보고서 §8.1 이 쓴다), `safeio.py`(믿을 수 없는 파일·디렉터리: 일반 파일만 lstat → `O_NOFOLLOW\|O_NONBLOCK` → fstat 대조로 열기, 디렉터리는 한 구성요소씩 `O_DIRECTORY\|O_NOFOLLOW`, 파일은 디렉터리 fd 기준 `O_EXCL` 로 만들고 fd 로 fchmod, flock 잠금 — `pweh.evidence`·pweh-forensics·case-mcp 의 증거 가드가 쓴다), `fs/`(카드 이미지 파일 시스템 엔진: MBR/EBR·GPT·superfloppy, FAT12/16/32·exFAT. 순수 파이썬·읽기 전용, 공개 사양만으로 새로 작성, 모든 반복은 `Limits` 로, 공개 호출 하나는 `Budget`(시간·볼륨별 단계 상한·취소)으로 묶음, 디렉터리 데이터는 단위마다 검증한 뒤 해석), `schemas/`, `mocktarget/`, `data/` |
 | `mcp-servers/<name>-mcp/<name>_mcp/` | 서버 패키지 (`server.py` 에 `server` 객체와 `main()`), `mcp-servers/<name>-mcp/README.md`. pweh-forensics 는 `pweh.fs` 위의 작업(볼륨 고르기·호출 예산·목록 요약·호스트 오염 흔적·ref 확인·추출)을 `mcp-servers/forensics-mcp/forensics_mcp/fsops.py` 에 둔다 |
-| `skills/<skill>/SKILL.md` | 에이전트용 워크플로 (`.claude/skills/` 에 심볼릭 링크) |
+| `skills/<skill>/SKILL.md` | 에이전트용 워크플로 (`.claude/skills/`·`.agents/skills/` 에 심볼릭 링크 — `pweh skills install --target claude-project`, `pweh skills install --target agents`) |
+| `scripts/` | `install.sh`(원클릭 설치: 구성요소 → `mcp`·`skills`·`verify` 단계, docs/mcp-setup.md §1), `mcp-launch.sh`(Claude Code·Cursor 용 MCP 서버 런처, env.sh 자동 로드), `dump_tool_catalog.py`(도구 카탈로그·권한 검사), `run_example.py`, `run_agent_e2e.py` |
+| `.mcp.json`, `.claude/`, `.agents/skills/` | 에이전트 클라이언트 설정(커밋됨): Claude Code 프로젝트 MCP 서버(`.mcp.json`), 권한 규칙·`enabledMcpjsonServers`(`.claude/settings.json`), Skill 링크(`.claude/skills/` — Claude Code, `.agents/skills/` — Codex·Cursor) |
+| `.codex/config.toml` | Codex 프로젝트 MCP 설정. `pweh mcp-config --client codex --write` 가 만드는 생성물(이 PC 의 절대 경로·env.sh 의 도구 경로가 들어 있어 커밋하지 않음. 실행한 셸의 PATH 는 넣지 않는다). Codex 는 trusted 프로젝트에서만 읽는다(`pweh codex-trust`) |
 | `orchestrator/` | `master-prompt.md`, `pipeline-config.yaml` |
 | `schemas/` | → `src/pweh/schemas` 심볼릭 링크 (JSON Schema. Skill 요약 스키마는 §3 표 — SD 카드 포렌식은 `sd-forensics.schema.json`) |
 | `docs/` | 안전/하드웨어/MCP 설정 가이드, `references/` (프로토콜·출력 형식 조사 자료) |
@@ -378,7 +381,8 @@ if not decision.allowed:
 
 ## 5. 코딩 규칙
 
-- Python 3.10 호환 (`match` 문 사용 금지 아님, 하지만 `typing.Self`, `tomllib` 사용 금지). 외부 의존성은 `mcp`, `pyserial`, `PyYAML`, `jsonschema` 와 표준 라이브러리만.
+- Python 3.10 호환 (`match` 문 사용 금지 아님, 하지만 `typing.Self`, `tomllib` 사용 금지). 외부 의존성은 `mcp`, `pyserial`, `PyYAML`, `jsonschema`, `tomlkit` 와 표준 라이브러리만.
+  `tomlkit` 은 CLI 가 Codex `config.toml` 을 읽고 주석·서식을 지키며 고칠 때(`pweh.clientcfg`)만 쓴다. 서버는 쓰지 않는다.
 - 주석·docstring·도구 설명은 **한국어**, 식별자와 기술 용어는 영어. 도구 이름은 영어 snake_case.
 - 서버 구조는 참조 구현 `mcp-servers/case-mcp/case_mcp/server.py` 를 따른다:
   - `server = create_server(NAME, title=..., instructions=...)` (`pweh.mcpkit`)
@@ -879,7 +883,10 @@ SD 카드 이미지의 증거 분석이다(설계 `docs/design/sd-forensics.md` 
 
 - 등록: `.mcp.json` 의 `rea` 서버. `scripts/mcp-launch.sh rea` 가 `~/pweh-tools/env.sh` 를 불러온 뒤 `rea --mcp` 를 실행한다
   (`GHIDRA_INSTALL_DIR`, `JAVA_HOME`, `REA_BINWALK_COMMAND`, `REA_UNBLOB_COMMAND`, `REA_SIGROK_COMMAND`, 런처 기본 `REA_GHIDRA_STARTUP_TIMEOUT_MS=600000`).
-  `pweh mcp-config --style absolute` 형태는 같은 값을 `env` 에 직접 넣는다.
+  `pweh mcp-config --style absolute`(Codex 기본) 형태도 REA 는 런처의 절대 경로(`<저장소>/scripts/mcp-launch.sh rea`)로 등록하고, 어느 env.sh 를 불러올지만
+  `env` 의 `PWEH_TOOLS_ENV` 로 고정한다(REA 는 env.sh 의 PATH — node·JDK·압축 해제 도구 — 가 필요하다. 설정 파일에 실행한 셸의 PATH 를 적지 않는다).
+  Codex 는 `pweh mcp-config --client codex --write` 가 만든 `[mcp_servers.rea]` 로 실행한다. 이 항목의 `enabled_tools` 는 `.claude/settings.json` 의 `mcp__rea__*` 규칙(allow·ask)에 있는 도구만 켠다
+  (REA 6.5 는 도구 207개를 내보낸다. 규칙에 없는 도구는 Codex 에서 보이지 않는다 — docs/mcp-setup.md §3.4).
 - 실제 도구 이름 (rea 6.5.0 list_tools 로 확인, 전체 목록 `docs/references/rea-mcp-tools.json`):
   - 펌웨어: `inspect_firmware_regions(path)`, `extract_firmware(path, output_directory, range?, max_depth?, max_output_bytes?, max_output_files?)`
   - 네이티브: `open_binary(path, format?, architecture?, entry_point?, provider_id="ghidra")`, `binary_overview`, `list_procedures`,

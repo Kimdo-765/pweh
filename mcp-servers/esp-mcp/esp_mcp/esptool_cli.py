@@ -133,7 +133,8 @@ def child_env(*, windows: bool, run_dir: str | os.PathLike[str], stub_version: s
     env.update(neutral)
     env["NO_COLOR"] = "1"
     if windows:
-        # WSL_INTEROP / WSL_DISTRO_NAME 은 그대로 둔다 (interop 에 필요). WSLENV 는 새로 만든다(물려받은 전달 목록을 쓰지 않음).
+        # WSL_INTEROP / WSL_DISTRO_NAME 은 물려받은 값을 지우지 않을 뿐 interop 에 필요하지 않다 (WSL_INTEROP 이 없어도 interop 은
+        # 기본 소켓으로 동작하고, WSL_DISTRO_NAME 은 표시용). WSLENV 는 새로 만든다(물려받은 전달 목록을 쓰지 않음).
         env["TTY_COMPATIBLE"] = "0"
         env["TTY_INTERACTIVE"] = "0"
         names = ["NO_COLOR", "TTY_COMPATIBLE", "TTY_INTERACTIVE"]

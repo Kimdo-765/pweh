@@ -12,6 +12,13 @@
   pweh case new|list|show|attest    케이스 관리
   pweh report <case_id>             보고서 생성
   pweh mcp-config [--client ...]    MCP 클라이언트 설정 생성 (Claude Code / Codex / Cursor)
+  pweh mcp-config --client codex --write [--scope project|global] [--codex-home PATH]... [--dry-run] [--no-rea|--rea] [--direct all|case|none]
+                                    Codex 설정 쓰기: project = <repo>/.codex/config.toml (기본 — 주지 않은 옵션은 기존 파일의 값을 이어 씀),
+                                    global = Codex 홈 config.toml 에 병합
+  pweh codex-trust [--codex-home PATH]... [--yes] [--dry-run] [--check]
+                                    Codex 사용자 설정에 이 저장소를 신뢰 프로젝트로 등록 (프로젝트 설정을 읽게. --check: 0 신뢰됨, 1 없음, 2 확인 못 함)
+  pweh mcp-check [--client codex|claude|all] [--deep] [--json] [--timeout S] [--optional SERVER]...
+                                    클라이언트 설정대로 MCP 서버를 띄워 initialize·tools/list 확인 (도구는 호출하지 않음)
   pweh skills install [--target]    Skill 을 에이전트가 찾는 위치에 심볼릭 링크로 설치
   pweh audit [--case ID]            감사 로그 꼬리 보기
 """
@@ -447,34 +454,80 @@ def cmd_audit(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+def _tools_env_file(path: str | None) -> Path | None:
+    """불러올 외부 도구 env.sh (있을 때만). path 가 없으면 pweh.toolsdir 규칙
+    (PWEH_TOOLS_ENV → PWEH_TOOLS_DIR/env.sh → 저장소 포인터 → ~/pweh-tools/env.sh — scripts/mcp-launch.sh 와 같은 순서)."""
+    from .toolsdir import tools_env
+
+    p = Path(os.path.expanduser(path or str(tools_env())))
+    return p if p.is_file() else None
+
+
 def _load_tools_env(path: str | None) -> dict[str, str]:
-    """~/pweh-tools/env.sh 같은 파일을 bash 로 source 해서 관련 환경변수를 추출."""
+    """~/pweh-tools/env.sh 같은 파일을 bash 로 source 해서 관련 환경변수(REA_*·PWEH_* 도구 경로)를 추출.
+
+    PATH 는 가져오지 않는다: source 한 셸의 PATH 를 그대로 담게 되어(WSL 이면 Windows PATH 와 그 안의 Windows 사용자 이름까지)
+    설정 파일에 남고 셸마다 달라진다. PATH 가 필요한 REA 는 런처(scripts/mcp-launch.sh)가 실행할 때 env.sh 를 불러온다.
+    """
     env: dict[str, str] = {}
     for k in REA_ENV_KEYS + PWEH_ENV_KEYS:
         if os.environ.get(k):
             env[k] = os.environ[k]
-    from .toolsdir import tools_env
-
-    candidate = path or str(tools_env())
-    p = Path(os.path.expanduser(candidate))
-    if p.exists() and shutil.which("bash"):
+    p = _tools_env_file(path)
+    if p is not None and shutil.which("bash"):
         try:
             out = subprocess.run(["bash", "-c", f'set -a; source "{p}" >/dev/null 2>&1; env -0'], capture_output=True, timeout=20, check=False).stdout
             for item in out.split(b"\0"):
                 if b"=" in item:
                     k, v = item.decode("utf-8", "replace").split("=", 1)
-                    if k in REA_ENV_KEYS + PWEH_ENV_KEYS or k == "PATH":
+                    if k in REA_ENV_KEYS + PWEH_ENV_KEYS:
                         env[k] = v
         except (OSError, subprocess.SubprocessError):
             pass
     return env
 
 
+def _bindir_candidates() -> list[Path]:
+    """PWEH 서버 콘솔 스크립트를 찾을 디렉터리 (앞에서부터).
+
+    1) 지금 실행 중인 인터프리터의 디렉터리 — 심볼릭 링크를 풀지 않는다. 가상환경의 bin/python 은 /usr/bin/python3 을 가리키는
+       링크라서 풀면 /usr/bin 이 된다(install.sh --venv DIR 의 pweh 가 설정을 쓰면 DIR/bin 이어야 한다).
+    2) sysconfig 의 scripts 경로, 3) 사용자 설치(pip --user)의 scripts 경로, 4) <저장소>/.venv/bin.
+    """
+    import sysconfig
+
+    cands: list[Path] = []
+    raw = [Path(sys.executable).parent if sys.executable else None]
+    for scheme in (None, f"{os.name}_user"):
+        try:
+            raw.append(Path(sysconfig.get_path("scripts", scheme) if scheme else sysconfig.get_path("scripts")))
+        except (KeyError, TypeError, ValueError):
+            pass
+    raw.append(REPO_ROOT / ".venv" / "bin")
+    for d in raw:
+        if d is not None and d not in cands:
+            cands.append(d)
+    return cands
+
+
+def console_bindir() -> tuple[Path, list[str]]:
+    """PWEH 서버 콘솔 스크립트가 모두 있는 첫 디렉터리와 빠진 스크립트 (모두 있는 곳이 없으면 첫 후보와 거기 없는 것)."""
+    scripts = [s for s, _d in SERVERS.values()]
+    cands = _bindir_candidates()
+    for d in cands:
+        if all((d / s).is_file() for s in scripts):
+            return d, []
+    return cands[0], [s for s in scripts if not (cands[0] / s).is_file()]
+
+
 def build_mcp_servers(include_rea: bool = True, tools_env: str | None = None, style: str = "absolute") -> dict[str, Any]:
     """MCP 서버 설정 생성.
 
     style:
-      absolute  — 절대 경로 + env (Codex, 또는 저장소를 옮기지 않는 로컬 사용)
+      absolute  — Codex 용(그리고 --client json): PWEH 서버는 지금 pweh 가 설치된 가상환경의 콘솔 스크립트 절대 경로 + env
+                  (PWEH_CONFIG 와 env.sh 의 PWEH_* 도구 경로). REA 는 런처 절대 경로(<저장소>/scripts/mcp-launch.sh rea) —
+                  REA 는 env.sh 의 PATH(node·JDK·압축 해제 도구)가 있어야 도는데, 설정에 PATH 를 적지 않고 런처가 실행할 때
+                  env.sh 를 불러온다(어느 env.sh 인지는 env 의 PWEH_TOOLS_ENV 로 고정 — Codex 는 환경을 비우고 서버를 띄운다).
       portable  — Claude Code 용: bash -c 로 $CLAUDE_PROJECT_DIR/scripts/mcp-launch.sh 실행 (env.sh 자동 로드)
       cursor    — Cursor 용: ${workspaceFolder}/scripts/mcp-launch.sh
     """
@@ -492,11 +545,9 @@ def build_mcp_servers(include_rea: bool = True, tools_env: str | None = None, st
                 servers[name] = {"type": "stdio", "command": "${workspaceFolder}/scripts/mcp-launch.sh", "args": [target]}
         return servers
 
-    bindir = Path(sys.executable).resolve().parent
-    venv_bin = REPO_ROOT / ".venv" / "bin"
-    if venv_bin.exists():
-        bindir = venv_bin
+    bindir, _missing = console_bindir()
     cfg = REPO_ROOT / "orchestrator" / "pipeline-config.yaml"
+    env_file = _tools_env_file(tools_env)
     tenv = _load_tools_env(tools_env)
     servers = {}
     for name, (script, _desc) in SERVERS.items():
@@ -506,19 +557,64 @@ def build_mcp_servers(include_rea: bool = True, tools_env: str | None = None, st
                 env[k] = tenv[k]
         servers[name] = {"type": "stdio", "command": str(bindir / script), "args": [], "env": env}
     if include_rea:
-        # install.sh 가 <prefix>/bin/rea 에 깐 REA 는 env.sh 의 PWEH_REA / PATH 로만 보인다
-        rea = tenv.get("PWEH_REA") or shutil.which("rea", path=tenv.get("PATH")) or str(Path.home() / ".local" / "bin" / "rea")
-        env = {k: tenv[k] for k in REA_ENV_KEYS if k in tenv}
-        if "PATH" in tenv:
-            env["PATH"] = tenv["PATH"]
+        # 런처가 env.sh 를 불러온 뒤 rea --mcp 를 실행한다 (PWEH_REA → PATH 의 rea → ~/.local/bin/rea, REA_GHIDRA_STARTUP_TIMEOUT_MS 기본값)
+        env = {k: tenv[k] for k in (*REA_ENV_KEYS, "PWEH_REA") if k in tenv}
         env.setdefault("REA_GHIDRA_STARTUP_TIMEOUT_MS", "600000")
-        servers["rea"] = {"type": "stdio", "command": rea, "args": ["--mcp"], "env": env}
-    _ = launch
+        if env_file is not None:
+            env["PWEH_TOOLS_ENV"] = str(env_file)
+        servers["rea"] = {"type": "stdio", "command": str(launch), "args": ["rea"], "env": env}
     return servers
+
+
+def _need_tomlkit() -> None:
+    """Codex 명령은 tomlkit 이 있어야 한다. 이 변경 전에 만든 가상환경에는 없을 수 있다 — Traceback 대신 한 줄로 알린다."""
+    try:
+        import tomlkit  # noqa: F401 - 있는지만 본다
+    except ImportError as exc:
+        raise PwehError(f"tomlkit 이 없다 ({exc}) — Codex 설정 명령에 필요하다",
+                        hint="./scripts/install.sh --only python --force (또는 .venv/bin/pip install -e .)") from exc
+
+
+def _codex_options(args: argparse.Namespace) -> tuple[bool, str, str | None, list[str]]:
+    """Codex 생성 옵션 (REA 포함 여부, --direct, --tools-env, 참고 문구).
+
+    프로젝트 범위에서 --direct·--no-rea/--rea·--tools-env 를 주지 않았으면 기존 <저장소>/.codex/config.toml(pweh 가 만든 파일)의
+    ``# pweh-options`` 값을 이어 쓴다 — 설치 스크립트를 다시 돌려도 사람이 고른 옵션이 기본값으로 돌아가지 않는다(doctor 의 비교와 같은 값).
+    """
+    from . import clientcfg
+
+    direct, no_rea, tenv = args.direct, args.no_rea, args.tools_env
+    notes: list[str] = []
+    if getattr(args, "scope", "project") == "project" and (direct is None or no_rea is None or tenv is None):
+        try:
+            existing = clientcfg.read_toml_file(clientcfg.project_path(REPO_ROOT), strict=False).text
+        except clientcfg.ClientConfigError:
+            existing = None
+        opts = clientcfg.read_options(existing) if clientcfg.is_pweh_project_file(existing) else None
+        reused: list[str] = []
+        if opts:
+            if direct is None and opts.get("direct") in clientcfg.DIRECT_CHOICES and opts["direct"] != "all":
+                direct = str(opts["direct"])
+                reused.append(f"--direct {direct}")
+            if no_rea is None and opts.get("rea") is False:
+                no_rea = True
+                reused.append("--no-rea")
+            if tenv is None and isinstance(opts.get("tools_env"), str):
+                if Path(os.path.expanduser(opts["tools_env"])).is_file():
+                    tenv = opts["tools_env"]
+                    reused.append(f"--tools-env {tenv}")
+                else:
+                    notes.append(f"기존 설정의 --tools-env {opts['tools_env']} 가 없어 기본 env.sh 를 찾는다")
+        if reused:
+            notes.append("기존 프로젝트 설정의 옵션을 이어 씀: " + " ".join(reused)
+                         + " (바꾸려면 옵션을 직접 준다 — 예: --direct all, REA 를 다시 넣으려면 --rea)")
+    return (not no_rea), (direct or "all"), tenv, notes
 
 
 def cmd_mcp_config(args: argparse.Namespace) -> int:
     style = args.style or {"claude": "portable", "cursor": "cursor", "codex": "absolute", "json": "absolute"}[args.client]
+    if args.client == "codex":
+        return _cmd_mcp_config_codex(args, style)
     servers = build_mcp_servers(include_rea=not args.no_rea, tools_env=args.tools_env, style=style)
     if args.client in ("claude", "cursor", "json"):
         doc = {"mcpServers": servers}
@@ -534,22 +630,87 @@ def cmd_mcp_config(args: argparse.Namespace) -> int:
         else:
             print(text)
         return 0
-    if args.client == "codex":
-        lines = ["# ~/.codex/config.toml 에 추가 (pweh mcp-config --client codex 로 생성)"]
-        for name, spec in servers.items():
-            lines.append(f"\n[mcp_servers.{name}]")
-            lines.append(f"command = {json.dumps(spec['command'])}")
-            lines.append(f"args = {json.dumps(spec['args'])}")
-            lines.append(f"cwd = {json.dumps(str(REPO_ROOT))}")
-            lines.append("startup_timeout_sec = 60")
-            lines.append(f"tool_timeout_sec = {900 if name == 'rea' else 600}")
-            if spec.get("env"):
-                inner = ", ".join(f"{json.dumps(k)} = {json.dumps(v)}" for k, v in spec["env"].items())
-                lines.append(f"env = {{ {inner} }}")
-        print("\n".join(lines))
-        return 0
     print(f"알 수 없는 client: {args.client}", file=sys.stderr)
     return 1
+
+
+def _cmd_mcp_config_codex(args: argparse.Namespace, style: str) -> int:
+    """``pweh mcp-config --client codex`` (생성·병합·백업 규칙은 pweh.clientcfg — tomlkit 이 없어도 다른 명령이 돌게 여기서 import)."""
+    _need_tomlkit()
+    from . import clientcfg
+
+    include_rea, direct, tools_env, notes = _codex_options(args)
+    for n in notes:
+        _eprint(f"참고: {n}")
+    writing = bool(args.write and not args.dry_run)
+    if style == "absolute":
+        bindir, missing = console_bindir()
+        if missing:
+            msg = f"PWEH 서버 실행 파일이 없다: {', '.join(str(bindir / s) for s in missing)} — 이 설정으로는 서버가 시작하지 않는다"
+            fix = "이 pweh 의 가상환경에 설치한다: ./scripts/install.sh --only python (또는 <가상환경>/bin/pip install -e .)"
+            if writing:
+                _eprint(f"{msg}. 아무것도 쓰지 않았다.\n  → {fix}")
+                return 1
+            _eprint(f"경고: {msg}\n  → {fix}")
+    servers = build_mcp_servers(include_rea=include_rea, tools_env=tools_env, style=style)
+    settings = REPO_ROOT / ".claude" / "settings.json"
+    if args.write or args.dry_run:
+        return clientcfg.write_codex_config(repo=REPO_ROOT, servers=servers, settings_path=settings, scope=args.scope,
+                                            codex_homes=args.codex_home, dry_run=args.dry_run, include_rea=include_rea,
+                                            direct=direct, tools_env=tools_env, warn=_eprint)
+    text, warnings = clientcfg.project_text(servers, REPO_ROOT, settings_path=settings, include_rea=include_rea, direct=direct,
+                                            tools_env=tools_env, preview=True)
+    for w in warnings:
+        _eprint(f"경고: {w}")
+    print(text, end="")
+    return 0
+
+
+def _eprint(msg: str) -> None:
+    print(msg, file=sys.stderr)
+
+
+def cmd_codex_trust(args: argparse.Namespace) -> int:
+    """``pweh codex-trust``. --check 의 종료 코드: 0 = 모든 홈 신뢰됨, 1 = 신뢰 항목이 없는 홈이 있음, 2 = 확인하지 못함
+    (읽지 못한 설정·tomlkit 없음·예상 밖 오류 — 설치 스크립트가 '신뢰 없음'으로 오해해 묻거나 바꾸지 않게 1 과 구별한다)."""
+    try:
+        _need_tomlkit()
+        from . import clientcfg
+
+        return clientcfg.codex_trust(repo=REPO_ROOT, codex_homes=args.codex_home, yes=args.yes, dry_run=args.dry_run, check=args.check,
+                                     interactive=sys.stdin.isatty() and sys.stdout.isatty(), warn=_eprint)
+    except PwehError as exc:
+        if not args.check:
+            raise
+        _eprint(f"확인하지 못함: {exc}")
+        return 2
+    except Exception as exc:  # noqa: BLE001 - --check 는 종료 코드가 약속이다 (예상 밖 오류도 1 이 되면 안 된다)
+        if not args.check:
+            raise
+        _eprint(f"확인하지 못함: {type(exc).__name__}: {exc}")
+        return 2
+
+
+def _codex_generated_specs() -> dict[str, Any]:
+    """Codex 설정 파일이 없을 때 mcp-check 가 점검할 값 (--write 가 쓸 내용과 같다)."""
+    from . import clientcfg
+
+    servers = build_mcp_servers(include_rea=True, tools_env=None, style="absolute")
+    specs, _ns, _warnings = clientcfg.codex_specs_for(servers, REPO_ROOT, settings_path=REPO_ROOT / ".claude" / "settings.json",
+                                                      include_rea=True, direct="none")
+    return specs
+
+
+def cmd_mcp_check(args: argparse.Namespace) -> int:
+    _need_tomlkit()
+    from . import clientcfg
+
+    try:
+        return clientcfg.mcp_check(repo=REPO_ROOT, client=args.client, deep=args.deep, timeout=args.timeout, generated=_codex_generated_specs,
+                                   server_names=list(SERVERS), as_json=args.json, optional=args.optional or ())
+    except KeyboardInterrupt:  # Ctrl-C·SIGTERM(시간 제한): 띄운 서버는 clientcfg 가 프로세스 그룹째 정리했다
+        _eprint("중단함 — 점검하던 서버는 정리했다")
+        return 130
 
 
 def cmd_skills_install(args: argparse.Namespace) -> int:
@@ -841,6 +1002,34 @@ def esptool_win_check(report: dict[str, Any], version: Any = None) -> dict[str, 
                "" if ok else f"실행 파일은 있지만 버전 확인에 실패했습니다. 필요 기능: {purpose}. scripts/install.sh --force --only esptool 로 다시 설치")
 
 
+def codex_doctor_checks(report: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """doctor 의 Codex 줄. 프로젝트 설정은 파일 머리의 생성 옵션(# pweh-options)으로 다시 만들어 비교한다 (쓰지 않는다)."""
+    try:
+        import tomlkit  # noqa: F401 - 있는지만 본다
+
+        from . import clientcfg
+    except ImportError as exc:
+        return [{"check": "codex:project-config", "ok": None, "detail": f"Codex 설정 점검 생략 — {exc}", "hint": "pip install -e . 로 설치"}]
+    expected: str | None = None
+    try:
+        existing = clientcfg.read_toml_file(clientcfg.project_path(REPO_ROOT), strict=False).text
+        opts = clientcfg.read_options(existing) or {}
+        include_rea = opts.get("rea") is not False
+        direct = opts.get("direct") if opts.get("direct") in clientcfg.DIRECT_CHOICES else "all"
+        tenv = opts.get("tools_env") if isinstance(opts.get("tools_env"), str) else None
+        servers = build_mcp_servers(include_rea=include_rea, tools_env=tenv, style="absolute")
+        expected, _warnings = clientcfg.project_text(servers, REPO_ROOT, settings_path=REPO_ROOT / ".claude" / "settings.json",
+                                                     include_rea=include_rea, direct=direct, tools_env=tenv)
+    except Exception:  # noqa: BLE001 - doctor 는 계속한다 (비교만 못 함)
+        expected = None
+    project = clientcfg.project_status(REPO_ROOT, expected, list(SERVERS))
+    try:
+        homes, notes = clientcfg.scan_codex_homes(None, report=report)
+    except Exception as exc:  # noqa: BLE001
+        homes, notes = [], [f"Codex 홈을 찾지 못함: {exc}"]
+    return clientcfg.codex_checks(REPO_ROOT, project=project, homes=homes, home_notes=notes, codex_bin=shutil.which("codex"))
+
+
 def _print_checks(checks: list[dict[str, Any]]) -> None:
     for c in checks:
         mark = "OK " if c["ok"] else ("-- " if c["ok"] is None else "!! ")
@@ -920,7 +1109,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     env_cs = env_checks(report, local_ports=local_ports, windows_ports=windows_ports, listeners=listeners)
 
     add("python", sys.version_info >= (3, 10), platform.python_version())
-    for mod in ("mcp", "serial", "yaml", "jsonschema"):
+    for mod in ("mcp", "serial", "yaml", "jsonschema", "tomlkit"):
         try:
             m = __import__(mod)
             add(f"python:{mod}", True, getattr(m, "__version__", getattr(m, "VERSION", "")) or "ok")
@@ -990,6 +1179,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     skills_dir = REPO_ROOT / ".claude" / "skills"
     installed = [n for n in SKILL_NAMES if (skills_dir / n / "SKILL.md").exists()]
     add("claude:skills", len(installed) == len(SKILL_NAMES), f"{len(installed)}/{len(SKILL_NAMES)}", "pweh skills install --target claude-project")
+    # Codex: 프로젝트 설정(있음/최신), 찾은 홈마다 신뢰 항목(데스크톱 앱 WSL 모드 참고), mcp-check 안내 — 읽기만 한다
+    checks.extend(codex_doctor_checks(report))
 
     if args.json:
         _print({"version": __version__, "environment": {"report": report, "routes": routes}, "checks": env_cs + checks}, True)
@@ -1062,12 +1253,45 @@ def build_parser() -> argparse.ArgumentParser:
 
     m = sub.add_parser("mcp-config", help="MCP 클라이언트 설정 생성")
     m.add_argument("--client", default="claude", choices=["claude", "cursor", "codex", "json"])
-    m.add_argument("--write", action="store_true", help="claude: <repo>/.mcp.json, cursor: <repo>/.cursor/mcp.json 에 기록")
+    m.add_argument("--write", action="store_true",
+                   help="claude: <repo>/.mcp.json, cursor: <repo>/.cursor/mcp.json, codex: --scope 대상(<repo>/.codex/config.toml 또는 Codex 홈)에 기록")
     m.add_argument("--force", action="store_true")
-    m.add_argument("--no-rea", action="store_true")
-    m.add_argument("--tools-env", help="외부 도구 env.sh 경로 (기본 ~/pweh-tools/env.sh)")
+    rea_opt = m.add_mutually_exclusive_group()
+    rea_opt.add_argument("--no-rea", dest="no_rea", action="store_true", default=None,
+                         help="REA 서버를 넣지 않는다 (codex 프로젝트 설정은 다음 --write 때도 이 선택을 이어 쓴다)")
+    rea_opt.add_argument("--rea", dest="no_rea", action="store_false",
+                         help="codex: 기존 프로젝트 설정이 --no-rea 로 만들어졌어도 REA 서버를 다시 넣는다")
+    m.add_argument("--tools-env", help="외부 도구 env.sh 경로 (기본 ~/pweh-tools/env.sh. codex 프로젝트 설정은 다음 --write 때도 이어 쓴다)")
     m.add_argument("--style", choices=["absolute", "portable", "cursor"], help="claude 기본 portable, cursor 기본 cursor, codex 기본 absolute")
+    m.add_argument("--scope", choices=["project", "global"], default="project",
+                   help="codex --write 대상: project = <repo>/.codex/config.toml (기본 — pweh 가 만들고 관리, 신뢰된 프로젝트에서만 읽힘), "
+                        "global = Codex 홈의 config.toml 에 병합 (주석·서식 보존, 백업)")
+    m.add_argument("--codex-home", action="append", metavar="PATH",
+                   help="codex: 대상 Codex 홈 (여러 번 줄 수 있다. 없으면 $CODEX_HOME 또는 ~/.codex, Windows 데스크톱 앱 WSL 모드 홈을 찾는다)")
+    m.add_argument("--dry-run", action="store_true", help="codex: 바뀔 파일의 unified diff 만 보여 주고 아무것도 쓰지 않는다")
+    m.add_argument("--direct", choices=["all", "case", "none"], default=None,
+                   help="codex: [features.code_mode] direct_only_tool_namespaces — all = PWEH 서버 8개(요청마다 약 112 KB, 기본), "
+                        "case = pweh-case 만, none = 쓰지 않음 (도구 검색으로만 노출). 주지 않으면 기존 프로젝트 설정의 값을 이어 쓴다")
     m.set_defaults(fn=cmd_mcp_config)
+
+    ct = sub.add_parser("codex-trust", help="Codex 사용자 설정에 이 저장소를 신뢰 프로젝트로 등록 (프로젝트 설정 .codex/config.toml 을 읽게)")
+    ct.add_argument("--codex-home", action="append", metavar="PATH",
+                    help="대상 Codex 홈 (여러 번 줄 수 있다. 없으면 $CODEX_HOME 또는 ~/.codex, Windows 데스크톱 앱 WSL 모드 홈을 찾는다)")
+    ct.add_argument("--yes", action="store_true", help="묻지 않고 등록 (없으면 대화형 터미널에서 묻고, 대화형이 아니면 아무것도 하지 않는다)")
+    ct.add_argument("--dry-run", action="store_true", help="바뀔 파일의 unified diff 만 보여 주고 아무것도 쓰지 않는다")
+    ct.add_argument("--check", action="store_true", help="쓰지 않고 확인만 (신뢰 항목이 없는 홈이 있으면 종료 코드 1)")
+    ct.set_defaults(fn=cmd_codex_trust)
+
+    mc = sub.add_parser("mcp-check", help="클라이언트 설정대로 MCP 서버를 띄워 initialize·tools/list 확인 (도구는 호출하지 않음)")
+    mc.add_argument("--client", choices=["codex", "claude", "all"], default="all",
+                    help="codex = <repo>/.codex/config.toml(없으면 Codex 홈 설정·생성값), claude = <repo>/.mcp.json, all = 둘 다 (기본)")
+    mc.add_argument("--deep", action="store_true",
+                    help="codex 가 있으면 Codex 자체 MCP 클라이언트로도 확인 (codex app-server + mcpServerStatus/list, 임시 CODEX_HOME, 인증·네트워크 없음)")
+    mc.add_argument("--json", action="store_true")
+    mc.add_argument("--timeout", type=float, default=60.0, metavar="S", help="서버마다 시간 제한 (초, 기본 60 — Codex startup_timeout_sec 과 같음)")
+    mc.add_argument("--optional", action="append", metavar="SERVER",
+                    help="이 서버가 실패해도 종료 코드에 넣지 않는다 (보고는 한다. 여러 번 줄 수 있다 — 설치 스크립트는 REA 가 없을 때 rea 를 준다)")
+    mc.set_defaults(fn=cmd_mcp_check)
 
     s = sub.add_parser("skills", help="Skill 설치")
     ssub = s.add_subparsers(dest="skills_cmd", required=True)
