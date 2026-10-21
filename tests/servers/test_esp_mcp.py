@@ -1321,9 +1321,12 @@ async def test_windows_onefile_timeout_and_orphan_handling(fake, monkeypatch):
         child = int(fake.pidfile.read_text())
         assert str(child) in r["_error"] and pid_alive(child) and "taskkill" in r["_error"]
         fake.winprocs.deny = False
-        fake.mode("normal")
+        # 남은 esptool.exe 가 COM3 을 잡고 있으면 busy — 사용 중 확인은 버전 확인(esptool 실행)보다 먼저라, 버전 확인이 실패하는
+        # 상태(해석할 수 없는 버전 출력)에서도 busy 가 가려지지 않는다
+        fake.mode("normal", version="not-a-version")
         r = await call(c, "esp_chip_info", case_id=cid, port="COM3")
-        assert "[busy]" in r["_error"] and str(child) in r["_error"], r  # 남은 esptool.exe 가 COM3 을 잡고 있음
+        assert "[busy]" in r["_error"] and str(child) in r["_error"], r
+        fake.mode("normal")
         os.kill(child, signal.SIGKILL)
         assert wait_until(lambda: not pid_alive(child), 5)
         r = await call(c, "esp_chip_info", case_id=cid, port="COM3")

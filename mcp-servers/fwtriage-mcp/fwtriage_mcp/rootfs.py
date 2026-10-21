@@ -1029,6 +1029,10 @@ CRED_EXT = {".conf", ".cfg", ".ini", ".xml", ".json", ".sh", ".txt", ".env", ".p
 CRED_DIR_PREFIXES = ("/etc/", "/usr/etc/", "/mnt/", "/home/", "/root/", "/var/", "/opt/", "/app", "/config", "/data", "/system/", "/program/", "/box/", "/usr/local/", "/usr/share/", "/www/", "/web/", "/usr/www/")
 
 PEM_RX = re.compile(rb"-----BEGIN ([A-Z0-9 ]{3,40})-----")
+#: PEM 머리줄 바로 뒤의 본문: 줄바꿈(실제 CR/LF 또는 문자열 안의 '\n' 이스케이프), 선택적인 머리글 줄(Proc-Type·DEK-Info), base64 32자 이상.
+#: mbedTLS 같은 라이브러리의 머리줄 상수는 본문 없이 NUL·END 상수가 이어지므로 개인키·인증서로 세지 않는다(cctv 팩 gen-private-key-pem 과 같은 기준).
+_PEM_NL = rb"(?:\r?\n|(?:\\r)?\\n)"
+PEM_BODY_RX = re.compile(_PEM_NL + rb"(?:[A-Za-z][A-Za-z-]*: [^\r\n\\]*" + _PEM_NL + rb")*" + _PEM_NL + rb"?[A-Za-z0-9+/]{32}")
 BANNERS = [
     ("App-webs/", "hikvision"), ("Hikvision-Webs", "hikvision"), ("DNVRS-Webs", "hikvision"), ("uc-httpd 1.0.0", "xiongmai"),
     ("H264DVR rtspd 1.0", "xiongmai"), ("Welcome to HiLinux.", "hisilicon_video_encoder"), ("GoAhead-Webs", "generic"), ("mini_httpd/", "generic"),
@@ -2125,6 +2129,8 @@ class Auditor:
             # PEM
             if b"-----BEGIN " in data:
                 for m in PEM_RX.finditer(data):
+                    if not PEM_BODY_RX.match(data, m.end()):
+                        continue  # 본문 없는 머리줄(라이브러리 상수 등) — 키·인증서가 아니다
                     label = m.group(1).decode("ascii")
                     end_marker = b"-----END " + m.group(1) + b"-----"
                     end = data.find(end_marker, m.end(), m.end() + 65536)

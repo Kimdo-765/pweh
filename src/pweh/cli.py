@@ -42,6 +42,7 @@ SKILL_NAMES = (
     "firmware-static-analysis",
     "logic-analyzer-protocol-decode",
     "cctv-auth-bypass-hunt",
+    "game-save-unlock-analysis",
     "sd-card-forensics",
 )
 SERVERS = {

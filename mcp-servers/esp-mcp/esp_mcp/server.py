@@ -278,11 +278,16 @@ def _find_windows_exe() -> tuple[str, str]:
     raise ToolMissing(f"Windows 용 esptool.exe 를 찾을 수 없습니다 (시도: {', '.join(tried) or '없음'})", hint=INSTALL_HINT)
 
 
-def _resolve_backend(spec: ports.PortSpec) -> Backend:
+def _locate_exe(spec: ports.PortSpec) -> tuple[str, str]:
+    """esptool 실행 파일의 위치와 출처(실행하지 않는다). 포트 사용 중 확인(_check_port_free)은 실행 파일 이름만 있으면 되므로
+    버전 확인(esptool 실행)보다 먼저 한다 — 남은 esptool.exe 가 포트를 잡고 있으면 버전 확인 결과와 상관없이 busy 다."""
     if spec.backend == "windows":
-        exe, source = _find_windows_exe()
-    else:
-        exe, source = locate_linux_esptool(_configured("esptool")), "config/PATH"
+        return _find_windows_exe()
+    return locate_linux_esptool(_configured("esptool")), "config/PATH"
+
+
+def _resolve_backend(spec: ports.PortSpec, located: tuple[str, str] | None = None) -> Backend:
+    exe, source = located or _locate_exe(spec)
     with _run_dir(spec.backend == "windows") as rd:
         info = detect_version(exe, windows=spec.backend == "windows", run_dir=rd.path)
     return Backend(name=spec.backend, exe=exe, source=source, version=info.get("version"), major=info.get("major"),
@@ -336,7 +341,9 @@ def _orphan_hint(pids: list[int], port: str) -> str:
             f"`taskkill /F /PID {one}` 를 실행한 뒤(또는 보드를 다시 연결한 뒤) 다시 시도하라. 그동안 {port} 를 쓰는 esp 호출은 busy 로 거부된다.")
 
 
-def _check_port_free(spec: ports.PortSpec, backend: Backend | None = None) -> None:
+def _check_port_free(spec: ports.PortSpec, exe: str | None = None) -> None:
+    """같은 포트의 job·esp 호출·다른 프로세스(리눅스 tty)·Windows 에 남은 esptool.exe(exe 의 이미지 이름과 esptool.exe)를 확인한다.
+    esptool 을 실행하지 않으므로 버전 확인보다 먼저 부른다."""
     key = _port_key(spec)
     for j in rt().jobs.list(active_only=True):
         if (j.get("meta") or {}).get("exclusive_key") == key:
@@ -352,7 +359,7 @@ def _check_port_free(spec: ports.PortSpec, backend: Backend | None = None) -> No
                 hint="그 프로그램(또는 uart_close)을 닫은 뒤 다시 시도하라.",
             )
         return
-    images = ([exe_image(backend.exe)] if backend else []) + ["esptool.exe"]
+    images = ([exe_image(exe)] if exe else []) + ["esptool.exe"]
     holders = winproc.port_holders(spec.port, images)
     if holders is None:
         log.warning("Windows esptool.exe 가 %s 를 잡고 있는지 확인하지 못함 (powershell 실패)", spec.port)
@@ -773,7 +780,9 @@ async def _run_info_command(
     case = r.case(case_id, hardware=True)
     spec, chip_v, baud_v, before_v, no_stub_v = _common_args(port, chip, baud, before, no_stub, INFO_BAUD_DEFAULT)
     timeout = _clamp_timeout(timeout_s, INFO_TIMEOUT_S)
-    backend: Backend = await _offload(_resolve_backend, spec)
+    located = await _offload(_locate_exe, spec)
+    await _offload(_check_port_free, spec, located[0])  # 사용 중 확인이 먼저 — 버전 확인(실행)이 실패해도 busy 를 가리지 않는다
+    backend: Backend = await _offload(_resolve_backend, spec, located)
     after_req = validate_after(after, backend.major, backend.minor)
     after_v = stub_safe_after(after_req)
     argv = build_argv(backend.exe, major=backend.major, chip=chip_v, port=spec.port, baud=baud_v, before=before_v,
@@ -785,7 +794,6 @@ async def _run_info_command(
         action["after_requested"] = after_req
     if cls.risk >= Risk.DESTRUCTIVE:
         return {"gate": _policy_denied(tool, action, cls, case.id)}
-    await _offload(_check_port_free, spec, backend)
     decision = await r.authorize(tool=tool, action=action, classification=cls, case_id=case.id, approval_id=approval_id, ctx=ctx)
     if not decision.allowed:
         return {"gate": gate_response(decision)}
@@ -1724,7 +1732,9 @@ async def esp_read_flash_start(
     await _offload(_sweep_dumps_dir, real_dumps, case.id)  # 죽은 프로세스가 남긴 예약 정리
     if name:
         _check_name_free(real_dumps, name, n_reads)
-    backend: Backend = await _offload(_resolve_backend, spec)
+    located = await _offload(_locate_exe, spec)
+    await _offload(_check_port_free, spec, located[0])  # 사용 중 확인이 먼저 — 버전 확인(실행)이 실패해도 busy 를 가리지 않는다
+    backend: Backend = await _offload(_resolve_backend, spec, located)
     after_req = validate_after(after, backend.major, backend.minor)
     after_v = stub_safe_after(after_req)
     # 수동 다운로드 모드(before='no-reset')의 이중 읽기: 1차 뒤 칩(스텁 또는 ROM)이 바꾼 baud 로 남으면 2차 연결(115200 동기화)이
@@ -1754,7 +1764,6 @@ async def esp_read_flash_start(
                                 esptool_minor=backend.minor)
     if cls.risk >= Risk.DESTRUCTIVE:
         return _policy_denied("esp_read_flash_start", action, cls, case.id)
-    await _offload(_check_port_free, spec, backend)
     exclusive_key = _port_key(spec)
     decision = await r.authorize(tool="esp_read_flash_start", action=action, classification=cls, case_id=case.id,
                                  approval_id=approval_id, ctx=ctx)

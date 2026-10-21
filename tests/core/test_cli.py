@@ -89,6 +89,12 @@ def test_skills_install_to_dir(tmp_path):
             assert link.is_symlink() and (link / "SKILL.md").exists()
 
 
+def test_skill_names_cover_every_skill_in_the_repo():
+    """SKILL_NAMES(설치·doctor 가 쓰는 목록)는 skills/ 아래 SKILL.md 가 있는 Skill 전부와 같다 — 새 Skill 을 빠뜨리지 않는다."""
+    on_disk = {d.name for d in (REPO / "skills").iterdir() if (d / "SKILL.md").is_file()}
+    assert set(cli.SKILL_NAMES) == on_disk and len(cli.SKILL_NAMES) == len(set(cli.SKILL_NAMES))
+
+
 def test_approve_on_tty_with_code_approves_once(workspace):
     """사람이 대화형 터미널(PTY)에서 확인 코드를 입력하면 승인되고, 같은 요청은 다시 승인할 수 없다."""
     import os

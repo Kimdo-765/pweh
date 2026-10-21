@@ -912,3 +912,34 @@ def test_run_process_timeout_and_cancel(tmp_path):
     assert r2.stdout.strip() == b"True"  # stdin 은 DEVNULL
     r3 = run_process([sys.executable, "-c", "import sys; sys.stdout.write('x'*100000)"], ctl=Ctl(), timeout=20, max_stdout=1000)
     assert len(r3.stdout) == 1000 and r3.stdout_truncated
+
+
+def test_pem_header_constants_without_a_body_are_not_private_keys(tmp_path):
+    """오탐 회귀: mbedTLS 같은 라이브러리의 PEM 머리줄 상수(본문 없이 NUL·END 상수가 이어짐)는 개인키가 아니다. 본문(base64)이 있는
+    PEM — 실제 줄바꿈·암호화 머리글 줄·JS 문자열 안의 '\\n' 이스케이프 — 은 그대로 잡는다(fw_rootfs_audit 의 개인키 검사와
+    fw_strings_hunt 의 gen-private-key-pem 둘 다)."""
+    import base64
+
+    from fwtriage_mcp.hunt import hunt
+
+    tag = b"RSA PRIVATE" + b" KEY"  # 가짜 키: 비밀값 스캐너 오탐을 피하려고 머리글을 이어 붙인다
+    body = base64.b64encode(b"pweh-fake-test-key-not-real-" * 4)
+    begin, end = b"-----BEGIN " + tag + b"-----", b"-----END " + tag + b"-----"
+    consts = (b"\x7fELF" + b"\x00" * 60 + begin + b"\x00" + end + b"\x00" + b"-----BEGIN EC PRIVATE" + b" KEY-----\x00"
+              + b"-----BEGIN CERTIFICATE-----\x00")
+    real = begin + b"\n" + body[:64] + b"\n" + body[64:] + b"\n" + end + b"\n"
+    js = b'var k="' + begin + b"\\n" + body[:64] + b"\\n" + end + b'";\n'
+    enc = (begin + b"\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,00112233445566778899AABBCCDDEEFF\n\n" + body[:64] + b"\n"
+           + end + b"\n")
+    files = {"usr/lib/libmbedtls.so": consts, "etc/ssl/server.key": real, "www/app.js": js, "etc/ssl/enc.key": enc}
+    root = _tree(tmp_path, "pem", files)
+    audit = _audit_tree(root)
+    keys = sorted(str(i.get("file")).lstrip("/") for i in audit["items"] if i["id"] in ("gen-private-key-pem", "builtin-private-key"))
+    assert keys == ["etc/ssl/enc.key", "etc/ssl/server.key", "www/app.js"], keys
+    case = tmp_path / "case"
+    tree = _tree(case / "extract", "rootfs-001", files)
+    sel, _ = load_patterns().select(["gen-private-key-pem"])
+    assert [h.scope for h in sel] == ["raw"]
+    res = hunt(tree, True, case, Ctl(max_seconds=60), sel, max_hits=50, per_pattern_cap=10, max_file_size=1 << 20)
+    hit_files = sorted({str(h.get("file") or h.get("path") or "").rsplit("rootfs-001/", 1)[-1] for h in res["hits"]})
+    assert hit_files == ["etc/ssl/enc.key", "etc/ssl/server.key", "www/app.js"], res["hits"]
