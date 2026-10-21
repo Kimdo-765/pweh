@@ -1,7 +1,8 @@
 """MCP 서버 프로세스별 런타임: 설정, 케이스 저장소, 안전 게이트, 사람 증명, 출처 원장, 비밀 마스킹, 작업 관리자, 감사 로그.
 
 보호 상태(<state_dir>, 에이전트 수정 금지): ``approvals/``(승인), ``attestations/``(사람 증명), ``provenance/<case>.jsonl``(출처 원장),
-``salts/<case>.key``(마스킹 솔트), ``audit.jsonl``. 모두 처음 쓸 때 만든다(런타임 생성만으로는 아무것도 만들지 않는다).
+``salts/<case>.key``(마스킹 솔트), ``custody/<case>.jsonl``(증거 고정점), ``case-ids/``(생성 예약), ``audit.jsonl``.
+모두 처음 쓸 때 만든다(런타임 생성만으로는 아무것도 만들지 않는다).
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ class Runtime:
     def __init__(self, server: str, config: PwehConfig | None = None) -> None:
         self.server = server
         self.config = config or load_config()
-        self.cases = CaseStore(self.config.cases_dir)
+        self.cases = CaseStore(self.config.cases_dir, state_dir=self.config.state_dir)
         self.approvals = ApprovalStore(self.config.state_dir / "approvals", ttl_seconds=self.config.safety.approval_ttl_seconds)
         self.global_audit = AuditLog(self.config.state_dir / "audit.jsonl", server=server)
         self.gate = SafetyGate(self.config.safety, self.approvals, audit=self.audit)

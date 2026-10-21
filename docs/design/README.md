@@ -1,7 +1,7 @@
 # PWEH 확장 설계 (개요)
 
-> 상태: **제안 (구현 전 검토용)**. 여기 문서들은 계약(`docs/architecture.md`)이 아니다. 사용자가 방향과 결정(§5)을 확인하면 단계별로 구현하고,
-> 구현한 부분만 architecture.md·safety.md·스키마·Skill 로 옮긴다. 모든 설계는 조사 → 설계 → 적대적 검증을 거쳤다(근거 조사 노트는 작업 환경 정보가 섞여 있어 저장소에 올리지 않는다 — 로컬 `docs/design/research/`).
+> 상태: **구현 현황과 후속 설계**. 현재 동작의 계약은 [architecture.md](../architecture.md)이며, 구현된 범위는 §3에 구분했다. 이후 단계와 새 정책 키는 별도 결정이 필요한 제안이다.
+> 구현한 부분은 architecture.md·safety.md·스키마·Skill 로 옮겼다. 설계의 조사·검증 근거는 각 문서에 적었다(조사 노트는 작업 환경 정보가 섞여 있어 저장소에 올리지 않는다 — 로컬 `docs/design/research/`).
 > 작성: 2026-10-19. **하드웨어 실측은 아직 없다** — 각 문서의 "하드웨어로 확인할 것"에 모았다.
 
 ## 1. 문서 지도
@@ -36,10 +36,12 @@
 
 | 단계 | 내용 | 사용자 장비 |
 |---|---|---|
-| **0 공통 기반** | common-core(증명·출처·마스킹·safety 설정·목표 분기·호스트 위험 규칙) + 포트 라우팅 P0(감지 통일, doctor 환경 절, 원격 URL 루프백, Windows 네이티브 시작 거부) + 테스트 기반 정리<br>**구현 상태: 일부 완료(I1, 2026-10-20)** — 증명·출처 원장·마스킹(코어, 소비자 서버는 아직 없음)·목표 분기·테스트 기반 정리(common-core §3·§4·§5·§7·§9 의 구현 상태). 포트 라우팅 P0 은 I4 에서 끝냈다(port-routing §13.2 구현 상태). 남음: safety 설정 위치(common-core §6 — 새 `safety.*` 키 없음). 호스트 위험 규칙(settings deny·AGENTS.md)은 넣지 않았다(사용자 결정, 2026-10-20) | 없음 |
-| **1a 오프라인 트랙** | ESP32 세이브·해금 분석(fwtriage ESP 도구·패치 빌드·쓰기 검증)<br>**구현 상태: 게임 분석 부분 완료(I2a, 2026-10-20)** — ESP 파티션·앱 이미지·ELF·NVS, 세이브 비교·체크섬·치트 입력 표, 게임 문자열 팩, `game-save-unlock-analysis`(분석만). I2b: 패치 빌드·쓰기 검증(ESP NVS·사용자 데이터 파티션, 사람이 쓴다). 남음: 가져온 원시 세이브 패치. REA 는 Xtensa ELF 를 열지 못한다(game-console-flipper-rf §3.5 구현 상태)<br>SD 포렌식 F1(접수·해시·보관 기록·FAT/exFAT·삭제 복구·증거 목록 + 펌웨어 SD 표면)<br>**구현 상태: SD 포렌식 F1 대부분 완료(I3a 2026-10-20, I3b 2026-10-21)** — I3a: 펌웨어 SD 표면(`fw_sd_surface` SD-01~09, `fw_uboot_env` 의 sd_boot, `uart_capture_boot` 의 sd_events). I3b: `pweh-forensics`(접수·해시·보관 기록·검증·쓰기 방지 장치 사람 증명·파티션·호스트 오염 흔적·FAT/exFAT 목록·삭제 파일 추출·증거 목록), 코어 `pweh.fs`·`pweh.evidence`·`pweh.safeio`, `sd-forensics` 스키마, `sd-card-forensics` Skill, 보고서 증거 절. 남음: F2(CCTV 형식·카빙·타임라인·카드 쪽 비밀·암호화·침해 흔적 스캔)·F3(ext4 등), E01, 장치에서 카드 식별 정보 읽기(sd-forensics §4·§5.1 구현 상태). 알려진 한계는 safety.md §3.6<br>ESP32 계측기 펌웨어·프로토콜·시뮬레이터·재현 빌드(오프라인), espprobe 거부 규칙(pweh-esp/uart/sigrok/jtagulator)·코어 이동 | 없음(ESP32 덤프는 기존 pweh-esp) |
+| **0 공통 기반** | **일부 완료(I1·I4·B·I5)**: 증명·출처 원장·마스킹과 소비자 서버, 목표 분기·테스트 기반, 포트 라우팅 P0(환경 감지·doctor·루프백 URL·네이티브 Windows 시작 거부), 공용 ESP·콘솔·프로세스·JTAG·신호 형식. 남음: P1 이후 공통 포트 라우팅·잠금·헬퍼. common-core §6의 새 `safety.*` 키는 미승인 후속 제안이며 현재 설정에 없다. 호스트 위험 규칙(settings deny·AGENTS.md)은 넣지 않았다(사용자 결정) | 없음 |
+| **1a 오프라인 트랙** | **ESP32 세이브·해금 분석 구현(I2a·I2b)**: ESP 파티션·앱·ELF·NVS, 세이브 비교·체크섬·치트 입력 표·게임 문자열 팩, `game-save-unlock-analysis`, 패치 빌드·쓰기 검증(ESP NVS·사용자 데이터 파티션, 사람이 쓴다). 남음: 가져온 원시 세이브 패치. REA의 Xtensa ELF 한계는 game-console-flipper-rf §3.5.<br>**SD 포렌식 F1 구현(I3a·I3b)**: 펌웨어 SD 표면·부팅 로그, 접수·해시·보관 기록·증명·FAT/exFAT 목록·삭제 파일 추출·증거 목록, `sd-card-forensics`. C에서 정지 이미지 분석, D에서 파일·선택 앱 기록 타임라인과 읽기 전용 외부 증거 참조를 더했다. 남음: F2(CCTV 형식·카빙·녹화 인덱스 타임라인·카드 쪽 비밀·암호화·침해 흔적 스캔), F3(ext4 등), E01, 카드 식별 정보 읽기. 계약·한계는 sd-forensics §4·§5.1과 safety §3.6 | 없음(ESP32 덤프는 기존 pweh-esp) |
 | **B 에뮬레이션** | 구현: `pweh-emu` 도구 6개, `firmware-emulation` Skill·요약 스키마, Espressif QEMU·simavr 선택 설치, 공용 ESP 형식·콘솔 마스킹·프로세스 신원·보호 하위 트리. 계약 architecture §6.9, 한계 safety §3.7 | 없음(이미 확보한 펌웨어 사용) |
+| **C 이미지 힌트** | 구현: 일반 케이스·증거의 정지 이미지 분석, 정규화 미리보기·OCR·QR·메타데이터·구조 지표, 증거 보관 기록 결속, `image-hints-analysis`. 계약 [image-hints.md](image-hints.md) | 없음(이미 확보한 그림 사용) |
 | **D Android** | 구현: Android 형식·raw GPT/LP 분할·AN 정적 점검, TAR/ZIP·SQLite·앱 기록·타임라인과 읽기 전용 외부 증거 참조. 파일 시스템 엔진은 FAT/exFAT이며 ext4/EROFS/F2FS 추출은 미지원. 계약 [android-analysis.md](android-analysis.md) | 없음(사람이 확보한 파일 사용) |
+| **I5 1a 계측기 오프라인** | 구현: 프로토콜·C/HAL 경계·골든 벡터, `probe-hello` 펌웨어, in-process 시뮬레이터 전용 `pweh-espprobe` 도구 6개, 4개 기존 서버의 고정 계측기 거부 규칙, 공용 JTAG·신호 코드. 독립 2회 재현 빌드와 릴리스·설치 검증 완료. 실제 포트·핀·버스 동작은 미지원. 계약 architecture §6.10 | 없음(실기 확인은 다음 관문) |
 | **관문** | 포트 라우팅 P1(portlock·식별) + P2 헬퍼 실기 점검: DTR → Flipper `>: `, 1 MB 왕복, CU 응답, USB-UART 루프백, ESP32 `probe-hello` 확인(MI_00/MI_02·부팅 창·다운로드 모드 핀·303a:1001 iSerial — esp32-instrument §9). 실패하면 즉시 대체(PowerShell 또는 usbipd) | Flipper/CU/ESP32/USB-UART |
 | **1b·1c 장치 트랙** | pweh-uart Windows COM, pweh-flipper(CLI), pweh-nfc(오프라인 + CU 읽기), pweh-sdr(RTL-SDR), NFC 읽기·비교 흐름 / pweh-espprobe 1차 역할(전압 조사·핀 활동·로직 캡처·SPI·I2C 읽기) | 장비별 |
 | **2 확장** | 2a NFC 에뮬레이션 캡처, 2b 자동화 MVP, 2c 플레이 job / SD F2(카빙·CCTV 인덱스·타임라인·비밀·암호화 판정) / 포트 P3(Windows 판 openocd·sigrok) / espprobe 2d(핀 스캔·UART 브리지) | 캡처 카드·브리지 보드 등 |
@@ -68,7 +70,9 @@
 - SD: 대상 카메라 모델, 쓰기 방지 장치(카드 리더 일체형) 보유·구매 가능 여부, 본인 기기의 샘플(index00.bin·hiv*.mp4·.dav 등).
 - 계측기용 ESP32-S3 보드(별도 준비 — 기존 보드는 대상으로 유지): DevKitC-1 버전·모듈(N8/N16R8 등).
 
-### 5.2 지금 정할 것 (권장 기본값)
+### 5.2 초기 제안과 결정 항목
+
+아래 표는 설계 당시 제안이다. 구현 상태는 §3, 사용자 결정은 §5.3과 각 설계의 결정 절을 따른다. 특히 새 `safety.*` 키는 현재 설정으로 지원하거나 승인한 값이 아니다.
 
 | # | 결정 | 권장 |
 |---|---|---|

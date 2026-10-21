@@ -162,7 +162,9 @@ async def case_image_hints(case_id: str, path: str, ocr: bool = True, ocr_lang: 
     description=(
         "새 분석 케이스 생성. authorization 은 필수: {basis: 'owned'|'written-authorization', owner, statement(사용자가 "
         "소유/허가를 확인한 말을 그대로 인용), scope?, document_ref?(서면 허가 시 필수)}. target 예: {vendor, model, serial, "
-        "hardware_rev, firmware_version, soc}. profile 은 pipeline_profiles 의 이름 (모르면 생략 → generic-ipcam)."
+        "hardware_rev, firmware_version, soc}. profile 은 pipeline_profiles 의 이름 (모르면 생략 → generic-ipcam). "
+        "사용한 case_id 는 보호 상태에 예약해 재사용하지 않는다. 기존 경로나 보호 기록이 남은 ID는 거부하고, "
+        "case_id 생략 시 충돌하지 않는 ID를 고른다. 케이스 폴더를 지워도 예약은 유지된다."
     ),
     annotations=ANN_LOCAL_WRITE,
 )

@@ -1,6 +1,6 @@
 # 설계안: SD 카드 포렌식 (증거 분석 + 보안 분석)
 
-> 상태: **제안 (구현 전 검토용)**. 계약이 아니다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md).
+> 상태: **F1 구현 및 C·D 확장, F2·F3 후속 설계**. 현재 도구 계약은 [architecture.md](../architecture.md) §6.8이며, 구현 범위와 남은 기능은 §4에 구분했다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md).
 > 근거: 2026-10-19 조사 네 갈래(이미징·쓰기 방지, 파일 시스템·복구 도구, CCTV SD 형식, 보안 분석·통합·법률)와 갈래마다 적대적 검증(사실 확인 124건 중 수정 31건, 반박 2건 반영).
 > 개발 환경 에서 직접 확인한 것: FAT/exFAT 순수 파이썬 시제품(286줄)이 생성 이미지 6개·추출 20건에서 TSK 와 맞거나 더 정확했고, PhotoRec 7.1 을 헤드리스로 돌려 봤으며,
 > 실제 Hikvision `index00.bin` 두 개(v2·v3)를 해석했다. 실제 카드는 열지 않았다.
@@ -10,8 +10,7 @@
 - **UAC 가 꺼진(EnableLUA=0) 관리자 계정 호스트**에서는 WSL 에서 interop 으로 띄운 Windows 프로그램이 모두 **관리자 권한(High IL)** 으로 돈다 — esptool.exe 도 마찬가지다.
   그런 호스트에서는 "관리자 권한이 없다"는 전제가 틀리고, Windows 쪽 헬퍼는 권한상 디스크 원시 쓰기까지 할 수 있다(시리얼 헬퍼 `pweh-serial-helper.exe` 는 문법상 COM 만 열게 만든다 — port-routing.md §5.2). 편의가 아니라 **위험 요소**로 다룬다.
 - WSL 안의 root 도 비밀번호 없이 얻을 수 있다(`wsl.exe -u root`, docker 그룹 = root 와 같음). "sudo 가 없다"는 것이 아무것도 막지 못한다.
-- 그래서 safety.md 의 "MCP 서버를 별도 OS 계정으로" 격리는 이 구성에서 효과가 없다. PWEH 가 직접 막아야 한다: 에이전트 규칙(AGENTS.md)과 `.claude/settings.json` 거부 규칙에
-  `wsl.exe -u root`, `docker run --privileged/--device`, `\\.\PhysicalDrive*`·`\\.\X:` 열기, `diskpart`/`mountvol`/`format`/`chkdsk`/`Set-Disk` 를 넣는다(common-core §6 호스트 위험. 코드 쪽은 port-routing.md §11 의 interop 실행 허용 목록). UAC 설정은 사용자의 결정이다(PWEH 는 바꾸지 않는다).
+- 별도 OS 계정만으로 이 권한을 차단하지 못하는 구성이다. AGENTS.md 호스트 위험 규칙과 `.claude/settings.json` 거부 규칙 추가는 초기 제안이었으며 사용자 결정에 따라 적용하지 않았다(common-core §6). UAC 설정은 사용자의 결정이다(PWEH 는 바꾸지 않는다).
 
 ## 1. 범위
 
@@ -80,7 +79,7 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
   **testdisk 는 절대 실행 안 함**(O_RDWR 로 열고 파티션 표를 다시 쓸 수 있음), `/cmd resume` 금지), ewf-tools(E01), ffprobe(카빙한 영상 검증). scripts/install.sh 선택 구성요소 `forensics`(기존 deb 받아 풀기 방식, jammy 에서 공유 라이브러리 누락 없음 확인).
   쓰지 않는 것: foremost(영상 결과 나쁨), extundelete·ext4magic(유지보수 끊김, 복구 0), dissect.*(AGPL, 삭제 항목 건너뜀), plaso(무거움), bulk_extractor(jammy/noble 패키지 없음).
 - **산출**: `forensics/recovered|carved/<label>-NNN/`(파일 0444, 이름 정리, 원래 이름은 manifest, 실행 비트·심볼릭 링크·장치 노드 없음, 바이트·파일 수 상한), 타임라인(`forensics_timeline`, 출처별 시간 의미와 충돌 표시),
-  **증거 목록**(`forensics_evidence_list`: EV 항목·해시·마지막 검증·보관 사슬 상태·파생 산출물 sha256·해시값 확인서 서식). 영상·음성 내용은 에이전트 문맥으로 돌려주지 않는다. 정지 그림은 후속 [이미지 힌트 설계](image-hints.md)에 따라 전용 도구에서 미리보기·OCR을 반환한다.
+  **증거 목록**(`forensics_evidence_list`: EV 항목·해시·마지막 검증·보관 사슬 상태·파생 산출물 sha256·해시값 확인서 서식). 영상·음성 내용은 에이전트 문맥으로 돌려주지 않는다. 정지 그림은 C에서 구현한 [이미지 힌트 분석](image-hints.md)의 전용 도구에서 미리보기·OCR을 반환한다.
 
 > **구현 상태 (I3b, 2026-10-21)**: 서버 `pweh-forensics` — 동작의 계약은 architecture §6.8, 안전 규칙과 알려진 한계는 safety.md §3.5·§3.6·§7.1 이다.
 > - `forensics_intake_start`(job): 이미지 파일만 받는다 — 장치·FIFO·`/dev`·`\\.\` 경로, 케이스·상태 폴더 안의 파일, NUL 이 든 경로, 증거 디렉터리 예약 이름, E01 서명 거부. 목적·법적 근거·설치 장소 유형·업무 목적·역할 기록.
@@ -88,6 +87,7 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 >   이름을 바꾼다(파일 0444, 디렉터리는 커밋 뒤 0555). 보관 기록이 깨졌으면 복사 전에 바로 `custody_broken`. 커밋 지점은 보관 기록의 `intake` 사건(빠른 지문·접수 기록 sha256 포함)이다 — 그 전의 실패·취소는 되돌리고,
 >   그 뒤의 취소는 무시하며, 보조 기록(`integrity-failed` 사건·출처 원장·아티팩트 색인·같은 sha256 확인) 실패는 `post_commit_errors` 로 알린다(감사 로그 실패는 서버 로그에만). 서버가 커밋 전에 죽어 남은 디렉터리는 다음 접수·서버 시작 때 중단된 접수의 흔적(잡은 쪽이 없는 접수 잠금·빈 디렉터리·`*.partial`)이
 >   있을 때만 `forensics/aborted-intakes/` 로 옮기고 `intake-aborted` 사건으로 번호를 소비한다(흔적이 없으면 `record-without-intake` 로 남긴다). EV 번호는 다시 쓰지 않는다.
+> - **C·D 확장**: `forensics_image_hints`는 정지 그림을 검증해 미리보기·OCR·QR·구조 정보를 반환한다. D는 TAR/ZIP 논리 자료, 선택한 SQLite·WAL/journal과 SMS·통화·연락처·브라우저 기록, 파일 시각·선택 앱 기록의 `forensics_timeline`을 더했다. 녹화 형식·프레임 카빙·CCTV 인덱스 타임라인은 이 범위에 포함되지 않는다([android-analysis.md](android-analysis.md)).
 > - `forensics_verify_start`(job — 지문을 본 같은 fd 를 재해시, 해시가 끝난 뒤의 취소는 무시), `forensics_acquisition_attest`(사람 증명 `write-blocker` — 장치 모델·희생용 카드 시험 여부·이미징 도구, 증거 id·sha256·크기에 묶임, 90일.
 >   증거 목록은 증명 저장소의 지금 상태를 보인다).
 > - 내용 도구의 입구: 보관 기록 → 접수 기록을 `intake` 사건과 대조 → 사본을 디렉터리 fd 로 한 번 열기 → 그 fd 로 빠른 지문. 해석도 같은 fd 로 한다(`ImageReader.from_fd`).
@@ -106,10 +106,11 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 > `src/pweh/safeio.py`(링크·장치·FIFO 를 열지 않는 읽기, 디렉터리 fd 기준 쓰기). 요약 스키마 `sd-forensics`, Skill `sd-card-forensics`, 보고서 §8.1(증거 목록·보관 기록 상태·고지).
 > 다른 서버의 가드: `pweh-fwtriage` 는 케이스의 `forensics/` 와 그것을 품은 디렉터리를 읽지 않는다. `case_import_file` 은 어느 케이스의 `forensics/` 에서도 가져오지 않는다(링크를 풀기 전·후 경로 둘 다).
 > `case_register_artifact`·`case_hash_file` 은 `forensics/` 를 거부하고 일반 파일만 연다(연 fd 의 실제 경로를 다시 확인). pweh-sigrok 입력도 `forensics/` 를 거부한다. 조회 전용 도구만 자동 허용이다.
-> 설계와 다른 점: 안전 게이트와 `safety.forensics.*` 설정이 없다(기기에 보내는 것이 없다 — Claude Code 권한과 사람 증명으로 확인한다). 늘 케이스로 복사한다(외부 폴더 제자리 참조 없음 — §10 결정 2).
+> 설계와 다른 점: 기기에 보내는 동작이나 `safety.forensics.*` 설정은 없다. 도구는 소유/허가·무결성 입구와 목적·법적 근거 기록을 확인하고, 획득 방법은 사람 증명으로 남긴다.
+> 저장은 `storage="copy"`가 기본이다. D의 `storage="reference"`는 비안전 설정 `forensics.reference_roots` 아래 실제 읽기 전용 마운트의 일반 파일만 제자리 참조하며 매번 정책·마운트를 재확인한다. 증거 목록의 전체 재해시가 끝나야 참조 EV의 성공 확인서를 만든다(§10 결정 2).
 > `case.json` 의 `evidence[]` 색인 대신 보관 기록(`intake` 사건이 해시·크기·지문의 권위 값)을 다시 읽어 상태를 정하고 접수 기록 파일은 그것과 대조한다.
-> 아티팩트 kind 는 `evidence-image` 만이고(추출물은 매니페스트로 센다) 발견사항 카테고리 `insecure-storage`·`privacy` 는 아직 없다. `pweh-fwtriage` 는 아직 `pweh.fs` 를 쓰지 않는다(§2).
-> 남음: F2 — CCTV 형식(프레임 카버·인덱스·이름 규칙), 카빙, 타임라인, §5.2 의 카드 쪽 비밀 스캔·암호화 판정·침해 흔적 대조(지금은 `fw_sd_surface` 의 `sd_paths_referenced` 를 `forensics_fs_list` 목록과 대조한다), E01·외부 도구(TSK·PhotoRec·ewf·ffprobe).
+> 접수 아티팩트 kind는 사본의 `evidence-image`와 참조 기록의 `evidence-reference`다(추출물은 매니페스트로 센다). 발견사항 카테고리 `insecure-storage`·`privacy` 는 아직 없다. D의 `pweh-fwtriage` raw GPT 분할은 `pweh.fs`의 파티션 파서를 재사용한다(증거 파일 시스템 접근은 아님).
+> 남음: F2 — CCTV 형식(프레임 카버·인덱스·이름 규칙), 카빙, 녹화 인덱스 타임라인, §5.2 의 카드 쪽 비밀 스캔·암호화 판정·침해 흔적 대조(지금은 `fw_sd_surface` 의 `sd_paths_referenced` 를 `forensics_fs_list` 목록과 대조한다), E01·외부 도구(TSK·PhotoRec·ewf·ffprobe).
 > F3 — ext4(NTFS 목록도 없음), Windows 원시 읽기 헬퍼, 영상 내보내기. 장치에서 카드 식별 정보 읽기(sysfs cid/csd)도 아직 없다.
 > 검토에서 남긴 보강(지금은 safety.md §3.6 의 알려진 한계): 만든 출력 이름의 dev·ino 재확인, `pweh.safeio` 의 중간 디렉터리 고정, 출처 원장이 접수 기록을 `pweh.safeio` 로 읽기, 강제 종료 뒤 job 기록 정리,
 > 동기 도구의 취소, 하드 링크 감지, FAT32 디렉터리의 교차 연결 검사.
@@ -173,11 +174,13 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 
 ## 8. 단계 계획 (새 하드웨어 전송이 필요 없어 게임·RF 트랙과 병렬 가능)
 
+F1과 C·D의 추가 구현은 §4를 따른다. 아래의 `safety.forensics.*` 등 새 정책 키와 호스트 거부 규칙은 초기 제안으로, 현재 설정에 추가하거나 승인한 기능이 아니다.
+
 | 단계 | 내용 | 하드웨어 없이 검증 |
 |---|---|---|
 | F0 | 공통 코어(증명: `write-blocker`·`provenance-import`, `safety.forensics.*`, master-prompt "SD 포렌식" 목표 분기), 에이전트 호스트 위험 규칙(§0) | 단위 테스트 |
 | F1 | 보안(펌웨어): fwtriage SD 표면 SD-01~09 + 빈틈 수정 + `uart_capture_boot` sd_events. 증거 핵심: 접수·해시·보관 기록·검증·오염 검사, 파티션·FAT/exFAT 목록·추출·삭제 파일, 증거 목록, `sd-card-forensics`(security + 기본 evidence) | `mkfs.fat --invariant`+mtools(SOURCE_DATE_EPOCH)로 결정적 FAT, `mkfs.exfat`+시험용 주입기, 가짜 sysfs/부팅 로그, 해시 사슬 변조 시험, 원본 불변 확인 |
-| F2 | 카빙(DHAV·XM·PS·Annex-B·MP4·JPEG), Hikvision·Dahua 인덱스, 이름 규칙, 타임라인, 비밀 스캔·암호화 판정·침해 흔적, 외부 도구(TSK·PhotoRec·ewf·ffprobe) | ffmpeg testsrc 합성 영상(FFmpeg dhav.c 배치의 DHAV 포함), 합성 인덱스, `@pytest.mark.external` |
+| F2 | 카빙(DHAV·XM·PS·Annex-B·MP4·JPEG), Hikvision·Dahua 인덱스, 이름 규칙, 녹화 인덱스 타임라인, 비밀 스캔·암호화 판정·침해 흔적, 외부 도구(TSK·PhotoRec·ewf·ffprobe) | ffmpeg testsrc 합성 영상(FFmpeg dhav.c 배치의 DHAV 포함), 합성 인덱스, `@pytest.mark.external` |
 | F3 | ext4(디렉터리 + jbd2), (선택) Windows 원시 읽기 헬퍼, (선택) 한 번 쓰는 승인 기반 영상 내보내기 | `mke2fs -d`(원본 시각 고정 시 결정적) + debugfs |
 
 ## 9. 확인이 필요한 것
@@ -190,7 +193,7 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 ## 10. 결정이 필요한 것 (README 에도 모음)
 
 1. **이미징 방법**: (권장) 하드웨어 쓰기 방지 장치 + 사람이 FTK Imager / 희생용 카드로 확인한 리더 잠금 스위치(약함) / PWEH Windows 원시 읽기 헬퍼(시리얼 헬퍼와 별개. 관리자 권한이 필요하고 특권 코드 위험 — 나중에).
-2. **증거 저장**: (권장) 케이스로 복사(여유 공간 확인, WSL 가상 디스크가 커짐) / 설정이 허용한 외부 읽기 전용 폴더 제자리 참조.
+2. **증거 저장(구현)**: 케이스로 복사가 기본이다(여유 공간 확인). D에서 제자리 참조를 추가했다. `forensics.reference_roots` 아래 실제 읽기 전용 마운트의 일반 파일만 받으며, 원본 권한·마운트 상태를 PWEH가 바꾸지 않는다.
 3. **보고서 개인정보 수준**: (권장) 개수·범위·해시만(전체 목록은 forensics/ JSON) / 파일 이름·녹화 시각까지.
 4. **분류기 강화와 persistent_paths 확장**(§5.3): safety 설정이라 사람이 승인해야 한다 — 적용할지.
-5. **UAC·interop 위험(§0)**: PWEH 쪽 거부 규칙을 넣는 것은 권장. UAC 설정은 사용자 결정.
+5. **UAC·interop 위험(§0)**: 호스트 거부 규칙 추가 제안은 사용자 결정에 따라 적용하지 않았다. UAC 설정은 사용자 결정.

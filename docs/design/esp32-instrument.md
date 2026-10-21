@@ -172,6 +172,8 @@ USB SWD 프로브로는 pweh-openocd 경로(3단계)이고, Marauder 를 올린 
 
 ### 2.5 공통 기반 사용 (기반 문서 개정이 필요한 곳은 부록 C)
 
+아래 표는 이후 실기 단계까지 포함한 설계다. 새 `safety.espprobe.*` 키와 `authorize(policy_key=...)`는 미승인 후속 제안이며 I5 1a의 설정에 없다. 현재 구현 범위는 §7과 문서 끝의 I5 1a 설명을 따른다.
+
 | 기반 | espprobe 에서 |
 |---|---|
 | 포트 라우팅(port-routing §4) | 에이전트는 `COMn`(리눅스면 `/dev/serial/by-id/…`)만 넘긴다. 내부 표기는 없다. `resolve(env, ref, "serial-session")` → `PortRoute`. `device_id` = `win-pnp:<부모 인스턴스 id>/MI_00`, `lock_key` = `win:COMn`(§6.2). 부모 iSerial 은 `DEVPKEY_Device_Parent`, 물리 위치는 `DEVPKEY_Device_LocationPaths` 로 얻는다(§4.4). 지금 `esp_mcp/ports.py:250` 은 `MI_` 자식의 시리얼을 버리므로 이 조회가 **선행 조건**이다. 식별 표 `usb-ids.yaml` 에 `303a:4002` 항목(generic: true, interfaces MI_00=control/MI_02=bridge, reset_wiring none)을 넣고, `303a:1001` 항목의 `transitions` 에 "espprobe 부팅 창·ROM 다운로드"를 적는다. `reset_risk` 는 1b 확인 전 `possible`, 뒤 `none` |
@@ -550,7 +552,7 @@ USB SWD 프로브로는 pweh-openocd 경로(3단계)이고, Marauder 를 올린 
 | 단계 | ESP32 계측기 작업 | 전제 | 하드웨어 없이 검증 |
 |---|---|---|---|
 | 0 | 공유 코어만: common-core 0단계 + port-routing P0. espprobe 가 기대는 P1 기능(PnP `DEVPKEY_Device_Parent`·`LocationPaths` 조회, `usb-ids.yaml`, portlock·역할 표지)은 관문 전에 들어온다(README §3) | 없음 | 단위 시험, 가짜 PnP |
-| 1a ∥ | **오프라인 트랙(게임 1a 와 병렬)**: 프로토콜 사양·골든 프레임, `firmware/common`·`firmware/espprobe`(HAL 경계) 소스, Docker 재현 빌드·빌드 검사, HELLO·하트비트만 있는 `probe-hello` 이미지, 시뮬레이터, 시뮬레이터 대상 `pweh-espprobe`, zig cc 호스트 시험. 기반 개정(증명 전역 바인딩·값 입력, `instrument-aux` 표지, 원장의 chip/security-info), pweh-esp/uart/sigrok/jtagulator 거부 규칙(가짜 PnP), 코어 이동(`write_srzip`, JEP106, `classify_uart_probe`, `pweh.pinout-scan/v1`) | 0 | 시뮬레이터, 골든 벡터, 호스트 C 시험 |
+| **1a 완료(I5)** | **오프라인 트랙**: 프로토콜 사양·골든 프레임, `firmware/common`·`firmware/espprobe`(HAL 경계), HELLO·하트비트·해제만 있는 `probe-hello` 이미지, in-process 시뮬레이터 대상 `pweh-espprobe` 도구 6개, zig cc 호스트 시험. 독립 2회 Docker 재현 빌드·빌드 검사·릴리스·설치 검증 완료. 전역 계측기 고정 증명과 기존 pweh-esp/uart/sigrok/jtagulator의 거부 규칙, 공용 `write_srzip`·JEP106·`classify_uart_probe`·`pweh.pinout-scan/v1` 구현. 실제 포트·핀·버스 기능은 미지원 | 0 | 시뮬레이터, 골든 벡터, 호스트 C 시험, 고정 툴체인 재현 빌드 |
 | 1b | **관문(README §3 = port-routing P1·P2 = 게임 1b 의 진행/중단 관문)에 ESP32 항목 추가**. 계측기용 보드가 준비되면(D1 — 기존 보드는 대상으로 유지) 검증 백업 뒤 사람이 하네스 없이 `probe-hello` 를 기록하고 §9 의 1b 항목을 확인한다. 사용자가 아직 기록을 원하지 않으면 이 항목은 1c 시작으로 옮긴다. 실패 시 대체: PowerShell SerialPort(`win-powershell`) 또는 usbipd(TinyUSB 라 리눅스 열기 펄스에도 리셋 없음) | 1a ∥ 의 `probe-hello`(재현 빌드·고정 sha256)와 거부 규칙, 사용자 동의(D1) | 가짜 헬퍼 |
 | **1c** | **유선 v1(하드웨어)**: 연결·고정·HELLO, `wiring` 증명, 전압 조사, 핀 활동(TX·보드레이트), 로직 캡처(`.sr`), SPI NOR probe·이중 읽기, I2C 스캔·24Cxx 읽기, `espprobe_flash_plan`, Skill·master-prompt 갱신, 스키마 값 추가 | 1b 통과, port-routing P1·P2 | 시뮬레이터, 가짜 헬퍼 |
 | 2a·2c | 변경 없음 | | |
@@ -558,10 +560,12 @@ USB SWD 프로브로는 pweh-openocd 경로(3단계)이고, Marauder 를 올린 
 | **2d** | espprobe 확장: UART 브리지 → pweh-uart, RX 스캔, JTAG IDCODE/BYPASS 스캔·`read_ids`·`bypass_test`, SWD DPIDR, 25xx·93Cxx, 풀 시험 | 1c 실기 + H1/H1a 하네스(스캔) | 가상 TAP·EEPROM |
 | 3 | 선택: `probe-radio-s3`(D2, §3.4·§4), IR 수신, ESP32-S2 보드, esp-usb-bridge 패치 빌드를 pweh-openocd 어댑터로(WinUSB 자동 + `openocd.exe` pipe 또는 usbipd, 새 어댑터 허용 목록), 사람 전용 serprog-ro(MSYS2 flashrom)·SUMP(ok-home 인코더) 호환 모드 | 사용자 opt-in | 가짜 무선 프레임 |
 
-- 0 은 일부러 작게 둔다. 계측기 전용 변경은 하드웨어가 필요 없으므로 1a ∥ 에서 하고, 거부 규칙은 계측기를 처음 꽂는 1b 전에 끝낸다.
+- 0은 일부러 작게 뒀다. 1a의 오프라인 구현·거부 규칙은 완료됐으며 1b의 실기 확인은 아직 하지 않았다.
 - 각 단계의 끝은 game-console §8 과 같다: 카탈로그 재생성·`--check`, architecture §6 표, `.claude/settings.json`·`.mcp.json`·pyproject, 스키마·Skill 일관성 시험, 전체 시험, 적대적 검토.
 
 ## 8. 하드웨어 없이 시험
+
+이 절은 이후 핀·버스·헬퍼 단계의 시험 계획도 포함한다. I5 1a에서 실제 수행한 범위는 프로토콜·HELLO·하트비트·해제, HAL 경계의 호스트 C 시험, 고정 계측기 거부 규칙과 재현 빌드다. 가상 SPI/I2C/JTAG 대상·실포트 전송 시험을 완료했다는 뜻은 아니다.
 
 - **단위**:
   - COBS 경계(0x00 연속·254바이트·빈 payload), CRC 골든 벡터, 헤더·길이.
@@ -730,3 +734,6 @@ LCD_CAM 실제 샘플레이트·깊이(PSRAM 유무), 회로 내 SPI 10 MHz 안�
 이후 단계 설계다. 운영 계약은 [architecture.md](../architecture.md) §6.10, wire 규약은
 [espprobe-protocol.md](../references/espprobe-protocol.md)를 따른다. 시뮬레이터와 C 호스트 시험은 실제
 USB 열거·해제 지연·Hi-Z를 증명하지 않는다. 이 항목은 1b에서 사람이 확인한다.
+
+`probe-hello` 0.1.0은 고정 소스와 툴체인으로 독립 2회 빌드한 산출물이 일치했고, 릴리스·설치 검증까지 끝났다.
+산출물은 `firmware/releases/espprobe/0.1.0/`, 재현 절차와 검사는 [espprobe-build.md](../references/espprobe-build.md)에 있다.

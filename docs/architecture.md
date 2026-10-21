@@ -20,6 +20,7 @@
    ├─ pweh-esp         (mcp-servers/esp-mcp)         ESP32 계열 esptool 읽기 전용: 칩·보안 정보, 플래시 덤프(job) (선택)
    ├─ pweh-forensics   (mcp-servers/forensics-mcp)   SD·Android 논리 증거 분석: 접수·해시·보관 기록, FAT/exFAT·TAR/ZIP 목록, SQLite·앱 기록·타임라인 — 기기 미접촉 (선택)
    ├─ pweh-emu         (mcp-servers/emu-mcp)         ESP32·S3·C3/Arduino AVR 펌웨어 실행·마스킹 콘솔 — 기기 미접촉 (선택)
+   ├─ pweh-espprobe    (mcp-servers/espprobe-mcp)    ESP32-S3 계측기 프로토콜·시뮬레이터 (선택, 현재 오프라인 검증만)
    └─ rea              (외부: rea-agents 6.5)        binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩
             │
       [대상 기기]  (또는 테스트용 pweh.mocktarget 시뮬레이터. pweh-forensics 는 기기 대신 사람이 만든 카드 이미지 파일을 받는다)
@@ -45,13 +46,25 @@ SD 카드 이미지 해석 엔진(`pweh.fs`), 증거 보관 기록·EV 번호·�
 | `examples/` | 실제 실행(시뮬레이터)으로 만든 예제 케이스 |
 | `tests/` | pytest. `tests/mock-targets/` 는 녹화 로그와 그 생성 스크립트(시뮬레이터 프로필·합성 펌웨어 빌더는 `src/pweh/mocktarget/`) |
 | `cases/` | 실제 분석 케이스 (git 제외) |
-| `.pweh/state/` | 승인 레코드(`approvals/`), 사람 증명(`attestations/`), 출처 원장(`provenance/<case>.jsonl`), 마스킹 솔트(`salts/<case>.key`), SD 카드 보관 기록 고정점(`custody/<case>.jsonl`), 전역 감사 로그(`audit.jsonl`) (git 제외, 에이전트 수정 금지. 모두 처음 쓸 때 만든다) |
+| `.pweh/state/` | 케이스 ID 예약(`case-ids/`), 승인 레코드(`approvals/`), 사람 증명(`attestations/`), 출처 원장(`provenance/<case>.jsonl`), 마스킹 솔트(`salts/<case>.key`), SD 카드 보관 기록 고정점(`custody/<case>.jsonl`), 전역 감사 로그(`audit.jsonl`) (git 제외, 에이전트 수정 금지. 모두 처음 쓸 때 만든다) |
 
 패키징: 루트 `pyproject.toml` 하나로 모든 패키지를 설치한다 (`pip install -e ".[dev]"`).
 콘솔 스크립트: `pweh`, `pweh-case-mcp`, `pweh-uart-mcp`, `pweh-openocd-mcp`, `pweh-sigrok-mcp`,
-`pweh-jtagulator-mcp`, `pweh-fwtriage-mcp`, `pweh-esp-mcp`, `pweh-forensics-mcp`, `pweh-emu-mcp`, `pweh-mock-device`.
+`pweh-jtagulator-mcp`, `pweh-fwtriage-mcp`, `pweh-esp-mcp`, `pweh-forensics-mcp`, `pweh-emu-mcp`, `pweh-espprobe-mcp`, `pweh-mock-device`.
 
 ## 3. 케이스 디렉터리 (Skill 사이의 데이터 전달)
+
+케이스 생성은 `Runtime` 이 넘긴 `state_dir` 에 ID 예약을 남긴다(`case-ids/<casefold ID의 sha256>.json`).
+케이스 폴더를 지워도 예약은 남으므로 같은 ID를 새 케이스에 쓸 수 없다. 대소문자만 다른 ID도 같은 이름으로 취급한다.
+예약 도입 전의 승인·증명, 출처 원장·솔트·보관 기록 고정점 흔적도 확인한다. 명시한 ID가 충돌하면 거부하고, 자동 ID는 숫자 접미사를 늘려 선택한다.
+기존 파일·불완전 디렉터리·링크도 충돌이며 덮어쓰지 않는다. 생성 잠금 안에서 ID를 예약하고 새 디렉터리를 배타적으로 만든다.
+예약 뒤 생성이 실패하면 그 ID는 재사용하지 않는다. 기존 케이스의 조회·수정에는 새 예약이 필요하지 않다.
+보호 상태를 안전하게 검사할 수 없으면 새 생성을 거부한다. 과거 감사 로그만 남은 ID와 구버전 서버와의 경합 한계는 `docs/safety.md` §3.5에 적는다.
+예약 파일은 본문을 읽지 않고 해당 해시 이름의 객체가 있으면 사용된 ID로 본다. 승인·증명 JSON은 케이스 참조를 읽으며,
+손상·미완성 파일·알 수 없는 항목을 만나면 `case_id_state_unverified`로 멈춘다. 생성 호출 하나의 검사 한도는 이름 100,000개,
+참조 JSON 각 1 MiB·합계 64 MiB, 검사·후보 탐색 10초, 자동 후보 100,000개다. 기존 ID 충돌은 `case_id_used`다.
+내부 라이브러리의 `CaseStore(cases_dir)` 단독 호출은 기존 인자 호환을 위해 경로 충돌·생성 잠금만 적용한다.
+서버는 반드시 `Runtime`을 사용하며, 이 경로는 `state_dir`를 전달해 보호 예약·과거 상태 검사까지 적용한다.
 
 ```
 cases/<case_id>/
@@ -428,6 +441,7 @@ if not decision.allowed:
 `case_add_finding(case_id, finding)`, `case_update_finding`, `case_list_findings`, `report_generate(case_id)`,
 `pipeline_profiles`, `pipeline_profile(name)`, `pipeline_safety_policy`, `pipeline_environment(refresh?) → report, routes`, `approval_status(approval_id)`, `approvals_pending`, `schema_get(name)`.
 
+- `case_create` 는 사용한 ID를 보호 상태에 예약한다(§3). 명시한 `case_id`에 기존 경로나 보호 기록이 있으면 거부하며, 생략하면 충돌하지 않는 ID를 고른다. 케이스 폴더를 지우는 것으로 ID 예약이 풀리지 않는다.
 - `case_hash_file` 은 케이스 안 파일(또는 `offset`/`length` 구간, 정수 또는 `"0x50000"`·`"64k"`)의 해시를 계산한다. 덤프 교차 검증용이다:
   tftpput·SPI 클립으로 받은 파일과 UART 덤프의 같은 구간 비교, 기기 측 `md5sum`/`crc32` 값과 대조.
 - 보호 하위 트리 가드(§4): `case_hash_file`·`case_register_artifact` 는 어느 케이스의 `forensics/`·`emu/` 아래 파일도 다루지 않는다(링크를 푼 경로로 판단, `validation_failed`).
@@ -799,7 +813,7 @@ SD 카드 이미지의 증거 분석이다(설계 `docs/design/sd-forensics.md` 
   - 상한·형식: 보관 기록 64 MiB, 고정점 16 MiB, 접수 기록 1 MiB. `forensics/`·`custody.jsonl`·고정점·고정점 디렉터리는 링크를 따르지 않고 일반 파일·실제 디렉터리만 연다 — 아니면(장치·FIFO·링크, 상한 초과, UTF-8 아님, 마지막 줄 잘림) 깨짐이고, 읽을 때 잠금 파일이 일반 파일이 아니어도 깨짐이다. 잠금을 30초 안에 못 얻으면 `lock_timeout`.
   - 체인이나 고정점 대조가 깨지면 증거 상태를 정하지 않는다 — 내용 도구와 기록 쓰기는 `custody_broken`, 증거 목록의 항목은 `custody-broken` 이다(fail closed — 서버는 기록을 고치지 않고 사람이 원인을 확인한다).
   한계: 비밀 키가 없어 같은 OS 계정이 보관 기록과 고정점을 함께 일관되게 다시 쓰면 감지하지 못한다(출처 원장과 같다 — docs/safety.md §3.5). 고정점은 케이스 id 로만 묶이므로, 사람이 `cases/<id>` 를 지운 뒤
-  같은 id 로 케이스를 다시 만들면 남은 고정점보다 보관 기록이 짧아 처음부터 `custody_broken` 이다(새 케이스는 새 id 로 만든다).
+  남은 고정점이 있는 ID로 새 케이스를 만들 수 없다(§3). 기존 케이스의 보관 기록이 삭제·축소되면 고정점 대조에서 `custody_broken` 이다.
 - **무결성 — 내용 도구의 입구**: `forensics_verify_start`·`forensics_acquisition_attest`·`forensics_partitions`·`forensics_image_check`·`forensics_fs_list`·`forensics_extract` 는 같은 입구를 거친다(증거 목록도 확인서를 쓰기 전에 같은 대조를 한다). 검사 순서:
   1) 보관 기록 읽기·검증(깨짐 = `custody_broken`). 2) 그 증거의 `intake` 사건 — 없으면 EV 디렉터리가 있을 때 `no-intake`(커밋하지 못한 접수), 디렉터리도 없으면 `not_found`. `intake` 가 둘 이상(`duplicate-intake`)이거나 보관 기록 상태가 이미 무결성 실패(`already-failed`)면 거부.
   3) EV 디렉터리를 링크를 따르지 않고 연다 — 없으면 `missing`(지워짐), 링크·파일이면 `unsafe-path`. 4) 접수 기록을 읽고 모양을 확인한다(schema·id·케이스, 저장 경로가 그 EV 디렉터리 안의 예약 이름이 아닌 이름, 해시 길이 — 파일이 없으면 `record-missing`, 아니면 `record-invalid`).
@@ -901,8 +915,8 @@ SD 카드 이미지의 증거 분석이다(설계 `docs/design/sd-forensics.md` 
 - **시각**: 목록의 시각은 원래 값과 `time_basis` 다. FAT 은 `local-unknown-tz`(장치 현지 시각, 시간대 모름), exFAT 은 UtcOffset 이 유효하면 `local+offset`(+ UTC 값), 아니면 `local-unknown-tz`.
   장치 시간대는 가정하지 않는다 — 근거(마운트 옵션·init 스크립트의 TZ·사람이 잰 장치 시계 차이)가 있을 때만 요약의 `device_timezone` 에 가정으로 적는다.
 - **보고서**: `report_generate` 는 `forensics/` 가 있으면 §8.1 'SD 카드 증거'(보관 기록 상태 — 고정점과 대조, 증거 표 — 상태(`status_label`)·마지막 검증·쓰기 방지 장치 증명, 고지)를 넣는다. 녹화 내용과 파일 목록은 넣지 않는다.
-- **아직 없는 것**(설계 §4·§5.2 의 다음 단계): 프레임·파일 카빙(DHAV·XM·MPEG-PS·MP4·JPEG), CCTV 녹화 인덱스·이름 규칙, 타임라인, 카드의 비밀값 스캔·녹화 암호화 판정·침해 흔적 대조(`fw_sd_surface` 의 `sd_paths_referenced`),
-  ext4·NTFS, E01 입력, 외부 도구(TSK·PhotoRec·ewf-tools·ffprobe) 교차 확인, 큰 카드의 외부 읽기 전용 폴더 제자리 참조. 지금의 삭제 파일 복구는 디렉터리 항목이 남은 파일만 다룬다.
+- **아직 없는 것**(설계 §4·§5.2 의 다음 단계): 프레임·파일 카빙(DHAV·XM·MPEG-PS·MP4·JPEG), CCTV 녹화 인덱스·이름 규칙에 따른 녹화 타임라인, 카드의 비밀값 스캔·녹화 암호화 판정·침해 흔적 대조(`fw_sd_surface` 의 `sd_paths_referenced`),
+  ext4·NTFS, E01 입력, 외부 도구(TSK·PhotoRec·ewf-tools·ffprobe) 교차 확인. 파일·앱 기록 타임라인과 외부 읽기 전용 폴더 제자리 참조는 아래 Android 논리 분석 계약에 있다. 카드의 삭제 파일 복구는 디렉터리 항목이 남은 파일만 다룬다.
 
 #### Android 논리 분석 추가 계약
 

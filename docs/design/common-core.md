@@ -1,6 +1,6 @@
 # 설계안: 공통 기반 (여러 신규 기능이 함께 쓰는 코어)
 
-> 상태: **제안 (구현 전 검토용)**. 계약이 아니다. 개요는 [README.md](README.md).
+> 상태: **공통 기반의 구현 현황과 후속 제안**. 현재 동작의 계약은 [architecture.md](../architecture.md)이며, 아래의 제안 위치·후속 단계가 모두 구현된 것은 아니다. 개요는 [README.md](README.md).
 > 게임 콘솔·Flipper/RF([game-console-flipper-rf.md](game-console-flipper-rf.md)), SD 포렌식([sd-forensics.md](sd-forensics.md)), ESP32 계측기([esp32-instrument.md](esp32-instrument.md))가 이 기반 위에 선다.
 > 환경 감지·물리 연결 라우팅의 전체 설계는 [port-routing.md](port-routing.md) 에 있다(§2 는 요약).
 > 1차 설계 검토(구조 적합성·안전 관점)에서 "서버마다 따로 만들면 우회 구멍이 생기는 것"으로 지적된 부분을 코어로 모았다.
@@ -9,9 +9,9 @@
 
 | 모듈 (제안 위치) | 역할 | 지금 상태 |
 |---|---|---|
-| `src/pweh/hostenv.py` | 실행 환경 감지(WSL1/WSL2/리눅스/macOS/Windows/컨테이너, interop·네트워킹 모드·usbipd), 장치 종류별 경로 추천. 표준 라이브러리 `platform` 과 이름이 겹치지 않게 `hostenv` 로 한다 | 없음(esp-mcp `ports.is_wsl` 등 서로 다른 감지 4벌) — §2 |
-| `src/pweh/ports.py` (+ `src/pweh/data/usb-ids.yaml`) | 포트 참조 문법·해석(`resolve` → `PortRoute`)·열거·장치 식별, `open_serial`(TIOCEXCL 포함) | esp 만 문자열 정규식, uart 는 문법 검사만 — §2 |
-| `src/pweh/wininterop.py` | interop 실행 허용 목록, `wslpath -w` 변환과 Windows 경로 검사(끝의 '.'·공백), Win32 프로세스 조회·종료·고아 처리, 자식 환경 정리, ACP 디코딩 스트리밍 실행 | esp-mcp 안에만(`ports.py`, `winproc.py`, `esptool_cli.py`) |
+| `src/pweh/hostenv.py` | 실행 환경 감지(WSL1/WSL2/리눅스/macOS/Windows/컨테이너, interop·네트워킹 모드·usbipd), 장치 종류별 경로 추천 | I4(P0) 구현. `pweh env`·doctor·`pipeline_environment`·esp가 사용 — §2 |
+| `src/pweh/ports.py` (+ 제안 `src/pweh/data/usb-ids.yaml`) | 포트 참조 문법·해석(`resolve` → `PortRoute`)·열거·장치 식별, `open_serial`(TIOCEXCL 포함) | P0 문법 검사·루프백 URL·서버 내부 끝점 키 구현. 공용 resolve·열거·portlock·open_serial은 P1 이후 제안 — §2 |
+| `src/pweh/wininterop.py` | interop 실행 허용 목록, `wslpath -w` 변환과 Windows 경로 검사(끝의 '.'·공백), Win32 프로세스 조회·종료·고아 처리, 자식 환경 정리, ACP 디코딩 스트리밍 실행 | 이 이름의 공용 모듈은 없음. 관련 기능은 hostenv와 esp-mcp(`ports.py`, `winproc.py`, `esptool_cli.py`)에 있음 |
 | `src/pweh/winserial/` + `pweh-serial-helper.exe` | WSL 에서 Windows COM 포트 사용: stdio 프레임 프로토콜 헬퍼(정수 COM1–COM4096 만, 소켓 없음, sha256 고정) + `HelperSerial(serial.SerialBase)`. `pweh.ports.open_serial` 이 직접 만든다(pyserial URL 처리기 등록 없음) | 없음 — §2 |
 | `src/pweh/portlock.py` | 서버 프로세스 사이 포트 잠금: OS 객체 키(`win:COMn`·`tty:<major>:<minor>`·URL), 호스트 전체(작업 공간·클론·WSL 배포판), `os.open` 전에 잡고 승인 대기 중에도 쥔다, 커널이 해제(abstract 소켓). 역할 표지(instrument / instrument-aux / target / bridge) | 서버 안 레지스트리 + 열고 나서 flock·`/proc` 검사(최선 노력) |
 | `src/pweh/procutil.py` | 프로세스 신원·생존 확인, pidfd·그룹 종료, 소유자 기록 | 증분 B: 공용 함수 구현, pweh-emu 의 종료·고아 정리에 사용 |
@@ -30,6 +30,7 @@
 ## 2. 환경 감지와 물리 연결 라우팅
 
 > 전체 설계(감지 결정 트리, 장치 종류 × 플랫폼 라우팅 표 R1–R18, 현재 코드의 빈틈 G1–G16, 단계·시험·결정 D1–D8)는 [port-routing.md](port-routing.md). 여기에는 다른 문서가 기대는 결론만 둔다.
+> P0 감지는 구현됐다. 아래의 통합 라우팅·Windows COM 헬퍼·호스트 전체 잠금은 P1 이후 제안이며, I5의 계측기 식별·거부 규칙이 이를 대신 구현한 것은 아니다.
 
 - **검증 기준 환경**: WSL2(interop 켜짐), usbipd 없음. 이런 환경에서 지금 하드웨어에 닿는 경로는 pweh-esp 방법 A(esptool.exe + COMn) 하나다.
 - **WSL2+interop 의 기본 경로**: 장치는 Windows 에 두고 Windows 쪽 프로세스가 연다.
@@ -56,7 +57,8 @@
 > 확인 경로는 `safety.approval_methods`(새 설정 키 없음)다. 연결 해제·재연결·장치 시리얼 변화에 따른 무효화는 바인딩·subject 지문으로만 된다(연결 토큰을 쓰는 서버가 아직 없다).
 > 반박 검증 뒤 보강: `pweh attest` 는 승인이 되는 답이면 화면의 확인 코드를 입력받는다(`pweh approve` 와 같은 수준), `decided_by` 는 OS 계정 이름($USER 아님),
 > 시간대 없는 시각의 레코드는 불신(저장소는 멈추지 않음), 디렉터리 0700. `valid_seconds` 는 새 레코드에만 적용된다(기존 레코드는 그 만료를 따름 — 문서화).
-> 남은 것: 같은 case_id 로 케이스를 다시 만들면 예전 증명·원장·솔트를 이어받는다(사람이 `cases/<id>` 를 지운 경우) — `case_create` 가 보호 상태가 남은 id 를 거부·건너뛰게 하는 일은 다음 단위.
+> **케이스 ID 재사용 방지**: `case_create`는 기존 케이스 경로(불완전 디렉터리·링크 포함), 보호 생성 예약, 출처·솔트·custody 흔적, 승인·증명의 케이스 참조가 남은 ID를 재사용하지 않는다. 명시 ID는 충돌을 거부하고 자동 ID는 확인된 충돌을 `-2`, `-3` 등으로 건너뛴다.
+> 생성은 보호 상태의 잠금과 `case-ids/<casefold ID의 sha256>.json` 영구 예약으로 묶는다. 케이스 디렉터리를 지워도 예약은 남으며, 해당 예약 경로는 본문을 읽지 않고 어떤 객체든 충돌로 본다. 출처·솔트·custody는 이름으로 ID를 차단한다. 승인·증명 폴더의 손상·링크·미완성 기록·알 수 없는 항목이나 검사 한도 때문에 참조를 확인할 수 없으면 생성 자체를 거부한다. 감사 로그 단독 흔적은 검사 대상이 아니다. 계약과 동시 실행의 한계는 architecture §3·§6.1과 safety.md를 따른다.
 
 **왜**: 기본 `modify_policy: allow` 라서, 사람만 확인할 수 있는 사실(콘솔 오프라인, 결제 수단 제거, 배선 = 채널 라벨, 1번 핀 5 V 미연결, 태그의 목적·소유, 쓰기 방지 장치 사용 등)이나
 물리 부작용이 있는 MODIFY 의 전제 조건을 에이전트가 스스로 채울 수 없게 해야 한다. 기존 승인(ApprovalStore)은 **한 번 쓰면 사라지고(consume) 900초 만료**라 재사용 증명에 맞지 않는다.
@@ -95,8 +97,7 @@
 
 > **구현 상태 (I1)**: 코어 구현 — `src/pweh/safety/masking.py`. `rt().secret_digest(case_id, 값)` = `sha256:` + sha256(케이스 솔트 ‖ 값)의 앞 16 hex
 > (솔트 `.pweh/state/salts/<case_id>.key`, 32 바이트, 0600, 처음 쓸 때 만듦), 표시용 `mask_secret`. 테스트는 게이트 action·감사 로그·승인 레코드에 원문이 없음을 확인한다
-> (`approval_status` 응답·보고서는 그 레코드·감사 로그에서 나오므로 따로 시험하지 않았다). 비밀을 게이트에 넣는 새 도구가 없어 다이제스트를 쓰는 서버는 아직 없다
-> (기존 `shell_login` 은 `<given>`). pweh-fwtriage 의 자체 마스킹(앞 1–2자 + `*`)은 코어 `mask_secret` 으로 통일하지 않았다.
+> (`approval_status` 응답·보고서는 그 레코드·감사 로그에서 나오므로 따로 시험하지 않았다). 기존 `shell_login`의 게이트 인자는 `<given>`이다.
 > I2a: `fw_esp_nvs`·`fw_save_diff` 가 NVS 비밀값 표시에 코어 `mask_secret` + `rt().secret_digest` 를 쓴다(첫 소비자 — 게이트 action 이 아니라 응답·결과 파일).
 > 반박 검증으로 확인한 한계: 솔트는 같은 계정의 에이전트가 읽을 수 있다(자동 허용된 REA `open_binary` + `read_bytes`). 다이제스트는 보고서·감사 로그를 읽는 제3자에게서만 원문을 가린다
 > — 낮은 엔트로피 값은 게이트에 넣지 않는다(safety.md §3.5). 자동 허용된 REA `export_evidence_bundle`·`close_binary` 는 `.pweh/state` 를 덮어쓸 수 있다(위조는 안 되고 실패 쪽으로 닫힘)
@@ -109,28 +110,28 @@
 
 ## 6. 안전 관련 설정의 위치
 
+아래의 새 `safety.*` 키·`authorize(policy_key=...)`·정책 해시 기록은 **미승인 후속 설계**이며 현재 설정에 추가하지 않았다. 현재 지원하는 설정·게이트 계약은 architecture §4를 따른다.
+
 - 새 정책 설정은 모두 `safety:` 아래에 둔다(AGENTS.md 가 에이전트 수정을 금지하는 범위): `safety.play_policy`·`safety.play.{max_duration_s, max_inputs, rate}`, `safety.rf.{region, rx_extra_bands, allow_amp}`,
   `safety.nfc.cu_slot`, `safety.forensics.*`(SD 포렌식), `safety.ports.remote_serial_hosts`(원격 시리얼 LAN 호스트, port-routing §5.5),
   `safety.espprobe.*`(컴파일된 한도를 좁히기만 하는 키와, 무선 프로필처럼 운영자만 켜는 opt-in 키를 구분 — esp32-instrument §2.5). 외부 도구 경로(`tools.*`)는 실행 파일 이름 허용 목록으로 검사한다(esptool 의 espefuse/espsecure 거부와 같은 방식, 송신 가능 도구는 거부).
 - `SafetyConfig` 는 모르는 `safety.*` 키를 거부한다(오타가 조용히 무시되지 않게). (제안 — 지금은 모르는 키를 조용히 무시하고 필드도 평평하다, `src/pweh/config.py:139-151`.)
 - **호스트 위험**: UAC 가 꺼진 관리자 계정 호스트에서는 interop 으로 띄운 Windows 프로세스가 관리자 권한(High IL)으로 돈다. `wsl.exe -u root` 는 어디서나 비밀번호 없는 root 이고(MS 문서), `docker`·`disk` 그룹은 root 와 같다(sd-forensics §0).
-  그래서 OS 계정 분리로는 막을 수 없다. 에이전트 가드레일은 AGENTS.md 규칙과 `.claude/settings.json` deny 규칙(제안 — 지금 deny 목록은 비어 있다)에 둔다.
+  그래서 OS 계정 분리만으로는 이 권한을 차단하지 못한다. AGENTS.md 호스트 위험 규칙과 `.claude/settings.json` deny 규칙 추가 제안은 사용자 결정에 따라 적용하지 않았다.
   코드 쪽은 port-routing §11 의 interop 실행 허용 목록(`wsl.exe`·`cmd.exe`·diskpart 등 거부)이 맡는다. UAC 설정은 사용자 결정이다.
 - `authorize(..., policy_key=...)` 를 더해 위험도 대신 기능별 정책(`safety.play_policy`)을 고를 수 있게 한다(지금은 play 만, rf 송신·esp 쓰기 키는 그 기능이 생길 때).
 - 서버는 시작 때 유효한 안전 설정의 해시를 감사 로그에 남기고 승인 지문에 넣는다. `pipeline_safety_policy` 가 새 키를 모두 보여 준다.
 
 ## 7. master-prompt: 목표 분기
 
-> **구현 상태 (I1)**: master-prompt Phase 0 에 목표 표(보안 분석 = 지원, 나머지 셋 = 준비 중 → §3.1), 목표별 장비 체크리스트(Windows 관리자 권한 포함),
-> 고른 목표를 `case_create` 의 `notes` 에 기록, §3.1 준비 중 목표에서 지금 할 수 있는 일, §9 목표별 완료 기준(펌웨어 확보는 보안 분석만), pweh-start 설명을 더했다.
+> **구현 상태 (I1 이후)**: master-prompt Phase 0 에 목표 표(보안 분석 = 지원, 게임·SD = 일부 지원, RF = 준비 중), 목표별 장비 체크리스트,
+> 고른 목표를 `case_create` 의 `notes` 에 기록, §3.1에서 지금 할 수 있는 일, §9 목표별 완료 기준(펌웨어 확보는 보안 분석만), pweh-start 설명이 있다.
 > 설계와 다른 점: `PIPELINE_PHASES` 는 그대로 두고 선택 단계 레지스트리 `OPTIONAL_PHASES`(기록될 때만 생김)와 보고서 §4 의 '선택 단계' 블록·라벨을 더했다.
-> 목표별 Skill·서버는 아직 없다.
-> I3b: SD 카드 포렌식 목표는 `sd-card-forensics` Skill 과 `pweh-forensics` 서버로 '일부 지원'이 됐다(master-prompt §3·§3.1, sd-forensics §4 구현 상태).
+> 게임은 `game-save-unlock-analysis`와 fwtriage, SD는 `sd-card-forensics`와 `pweh-forensics`로 일부 지원한다. B·C·D에서 `firmware-emulation`·`image-hints-analysis`·`android-forensics`도 추가됐다. RF 전용 Skill·서버는 아직 없다.
 
 - Phase 0 접수에서 목표를 먼저 고른다: **보안 분석**(기존 CCTV/IoT 흐름) / **게임 콘솔 분석** / **RF·하드웨어 분석** / **SD 카드 포렌식**.
-- 목표마다 결정 트리, 장비 체크리스트(Flipper 펌웨어·지역·SD 플러그인, CU 모델, SDR, 캡처 카드, 브리지 보드, 카드 리더·쓰기 방지 장치, **Windows 관리자 권한 여부**), 완료 기준이 다르다
-  (지금 완료 기준은 펌웨어 확보를 요구해 RF·SD 전용 케이스가 끝날 수 없다).
-- pweh-start 설명, `PIPELINE_PHASES`, 보고서 섹션·라벨을 목표별로 갱신한다.
+- 목표마다 장비 체크리스트·완료 기준이 다르다. master-prompt §9는 펌웨어 확보를 보안 분석에서만 요구한다.
+- pweh-start 설명·보고서 섹션·라벨은 목표를 반영한다. `PIPELINE_PHASES`의 기존 보안 분석 단계와 선택 단계 레지스트리를 함께 쓴다.
 
 ## 8. 위험도·job 규칙 보완
 

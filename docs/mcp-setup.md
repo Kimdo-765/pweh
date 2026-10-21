@@ -93,7 +93,7 @@ REA 는 Codex 에서도 런처로 실행돼 env.sh 를 실행할 때 불러온�
 |---|---|---|
 | `mcp` | **Claude Code:** `.mcp.json` 과 `.claude/settings.json` 의 `enabledMcpjsonServers` 가 서버 10개와 맞는지 확인한다. 사용자 전역 설정(`~/.claude*`)은 건드리지 않는다. **Codex:** `pweh mcp-config --client codex --write`(프로젝트 범위, §3.2) 다음에 `pweh codex-trust`. **Cursor:** `--cursor` 를 줄 때만 `.cursor/mcp.json` 을 만든다(§4) | `<저장소>/.codex/config.toml`, 동의하면 Codex 홈마다 `config.toml` 의 trust 항목, `--cursor` 면 `.cursor/mcp.json` |
 | `skills` | `pweh skills install --target claude-project` 와 `pweh skills install --target agents`. 이미 맞는 링크는 그대로 둔다 | `.claude/skills/<name>`, `.agents/skills/<name>` 링크 (저장소에 이미 들어 있다) |
-| `verify` | `pweh doctor` 와 `pweh mcp-check`. 서버를 띄워 도구 목록만 받고 도구는 호출하지 않는다(§3.6). REA(선택 구성요소)가 설치되지 않았으면 `rea` 서버만 선택 서버로 넘겨(`--optional rea`) 그 실패는 경고로 본다. 다른 서버의 실패는 실패다 | 설정 파일은 없음. `pweh doctor` 가 저장소의 `cases/`·`.pweh/state` 가 없으면 만든다(어느 디렉터리에서 실행해도 저장소 설정 `PWEH_CONFIG` 로 돈다) |
+| `verify` | `pweh doctor` 와 `pweh mcp-check`. 서버를 띄워 도구 목록만 받고 도구는 호출하지 않는다. 서버 시작 정리는 실행될 수 있다(§3.6). REA(선택 구성요소)가 설치되지 않았으면 `rea` 서버만 선택 서버로 넘겨(`--optional rea`) 그 실패는 경고로 본다. 다른 서버의 실패는 실패다 | 설정 파일은 바꾸지 않는다. `pweh doctor`가 `cases/`·`.pweh/state`를 만들 수 있고, 서버는 시작 시 고아 세션·중단된 접수 기록을 정리할 수 있다. 어느 디렉터리에서 실행해도 저장소 설정 `PWEH_CONFIG`를 따른다 |
 
 - `--no-mcp`: `mcp` 단계를 건너뛴다. `--no-verify`: `verify` 단계를 건너뛴다.
 - `--dry-run`: 실행 전체를 읽기 전용으로 바꾼다. 구성요소 설치·env.sh·`verify` 는 하지 않고, `skills` 는 링크 상태만 보여 주며,
@@ -103,7 +103,7 @@ REA 는 Codex 에서도 런처로 실행돼 env.sh 를 실행할 때 불러온�
 - `--codex-global`: 프로젝트 범위 대신 Codex 홈의 `config.toml` 에 서버를 등록한다(`--scope global`, §3.3).
 - `--codex-home DIR`: 자동 감지 대신 이 Codex 홈을 쓴다. 여러 번 줄 수 있고 `pweh mcp-config`·`pweh codex-trust` 에 그대로 넘긴다(§3.1).
 - `--cursor`: `.cursor/mcp.json` 도 만든다.
-- `--check`: 구성요소 점검에 더해 Codex 설정·trust 점검과 `pweh mcp-check` 를 돌린다. 아무것도 쓰지 않는다.
+- `--check`: 구성요소 점검에 더해 Codex 설정·trust 점검과 `pweh mcp-check` 를 돌린다. 설치물·클라이언트 설정은 바꾸지 않지만, 서버 시작 정리는 실행될 수 있다(§3.6).
   예전 pweh 가 서버 `env` 에 넣던 `PATH` 만 다르면 최신으로 본다(지금 pweh 는 `PATH` 를 쓰지 않는다).
   trust 점검은 `pweh codex-trust --check` 의 종료 코드를 따른다(0 신뢰됨, 1 신뢰 없음, 2 확인하지 못함 — 읽지 못한 설정·이전 판 가상환경).
   trust 를 거절한 뒤에도 `--check` 는 1 로 끝난다(설치 실행은 0). 이 점검을 끄려면 `--no-codex-trust` 를 준다.
@@ -335,7 +335,10 @@ WIN_CODEX_HOME="/mnt/c/Users/<Windows 사용자>/.codex"    # 예: 데스크톱 
 
 먼저 PWEH 쪽에서 서버가 뜨는지 보고, 그다음 Codex 가 무엇을 읽었는지 본다.
 1. `pweh mcp-check --client codex`: Codex 설정대로 서버마다 띄워(Codex 세션 시작처럼 동시에) `initialize` 와 `tools/list` 만 하고 도구는 호출하지 않는다.
-   서버는 설정의 `env` 그대로(`PWEH_CONFIG` = 저장소 설정) 뜬다. 도구를 부르지 않으므로 케이스나 승인 상태를 만들거나 바꾸지 않는다.
+   서버는 설정의 `env` 그대로(`PWEH_CONFIG` = 저장소 설정) 뜬다. **도구를 호출하지 않아도 서버 시작에 따른 상태 변경은 가능하다.**
+   예를 들어 `pweh-emu`는 주인이 죽은 세션의 프로세스 신원을 확인해 남은 프로세스를 종료하고 메타데이터·감사 기록을 갱신한다.
+   `pweh-forensics`도 중단된 접수 흔적을 정리할 수 있다. 따라서 `mcp-check`와 이를 포함한 설치 `verify`·`--check`를 케이스·상태의 읽기 전용 점검으로 보지 않는다.
+   개발·회귀 시험은 별도 `PWEH_CONFIG`·`PWEH_CASES_DIR`·`PWEH_STATE_DIR`를 지정한 격리 환경에서 한다.
    환경은 Codex 와 비슷하게 화이트리스트 변수(`HOME`, `LOGNAME`, `PATH`, `SHELL`, `USER`, `LANG`, `LC_ALL`, `TERM`, `TMPDIR`, `TZ`)와 설정의 `env`·`env_vars` 만 준다.
    서버마다 ok·걸린 시간·도구 수·오류를 보여 주고, 모두 ok 일 때만 종료 코드 0 이다. `--json`(기계용 출력), `--timeout S`, `--client claude`·`--client all` 도 쓸 수 있다.
    `--optional SERVER` 로 준 서버(설치 스크립트는 REA 가 없을 때 `rea`)의 실패는 보고만 하고 종료 코드에 넣지 않는다.

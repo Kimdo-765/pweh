@@ -85,6 +85,32 @@ async def test_case_mcp_stdio(workspace, auth):
         assert any(x["id"] == r["case"]["id"] for x in lst["cases"])
 
 
+async def test_case_create_keeps_id_reserved_after_case_directory_removed(workspace, auth):
+    """MCP·Runtime 경로에서도 케이스 폴더와 별개인 예약을 유지한다."""
+    from case_mcp.server import server
+    from pweh.runtime import reset_runtimes
+
+    async with Client(server) as c:
+        created = await call(c, "case_create", title="예약 검증", authorization=auth)
+        assert created["ok"], created
+        cid = created["case"]["id"]
+        reservation_dir = workspace["state_dir"] / "case-ids"
+        reservations = {p.name: p.read_bytes() for p in reservation_dir.glob("*.json")}
+        assert reservations
+        (workspace["cases_dir"] / cid).rename(workspace["root"] / "archived-case")
+        reset_runtimes()
+
+        denied = await call(c, "case_create", title="다른 대상", authorization=auth, case_id=cid)
+        assert not denied.get("ok"), denied
+        assert not (workspace["cases_dir"] / cid).exists()
+        assert {p.name: p.read_bytes() for p in reservation_dir.glob("*.json")} == reservations
+
+        fresh = await call(c, "case_create", title="예약 검증", authorization=auth)
+        assert fresh["ok"] and fresh["case"]["id"] != cid, fresh
+        old = await call(c, "case_get", case_id=cid)
+        assert not old.get("ok"), old
+
+
 async def test_report_uses_latest_summary_only(workspace, auth):
     from case_mcp.server import server
 

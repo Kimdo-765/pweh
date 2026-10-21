@@ -1,6 +1,6 @@
 # 설계안: 환경 감지와 물리 연결 라우팅 (COM·USB·libusb·캡처·블록 장치)
 
-> 상태: **제안 (구현 전 검토용)**. 계약(`docs/architecture.md`)이 아니다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md)(§2 가 이 문서의 요약).
+> 상태: **P0 구현과 P1–P5 후속 설계**. 현재 동작의 계약은 [architecture.md](../architecture.md)이며, 구현 상태는 §13.2를 따른다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md)(§2 가 이 문서의 요약).
 > 이 설계를 쓰는 곳: [game-console-flipper-rf.md](game-console-flipper-rf.md)(Flipper·ChameleonUltra·입력 브리지 COM 포트, SDR·캡처 도구), [sd-forensics.md](sd-forensics.md)(블록 장치는 사람 단계 — §9 R18), [esp32-instrument.md](esp32-instrument.md)(계측기 COM 포트·식별 고정·역할 표지).
 > 범위: COM·USB 직렬, libusb 장치, 영상 캡처, 블록 장치를 WSL2·WSL1·네이티브 Linux·macOS·네이티브 Windows 에서 감지·식별·열기·잠그는 방법.
 > 근거: 개발 환경 의 읽기 전용 probe(2026-10-19), 저장소 코드(`파일:줄`, **2026-10-19 22:52 기준** — 직전에 들어온 uart `validate_port` 변경 반영),
@@ -8,6 +8,7 @@
 > 초안을 두 관점(코드·계약 일관성 27건, 플랫폼 사실 29건)으로 적대적 검증했고, 부분 수정·반박 27건과 누락 6건을 반영했다.
 > 신뢰도: [높음] 출처 원문·실측, [중간] 간접 근거·추론, [미확인] 확인 안 함. 포트·USB 장치·디스크는 하나도 열지 않았다(직접 만든 pty·abstract 소켓만).
 > 도구별 바이너리·라이선스·sha256·설치 구성요소 표는 조사 노트에 있고 저장소에는 아직 없다(§13.4: `docs/references/` 로 옮김).
+> 과거 코드 조사와 이후 설계를 함께 보존한 문서다. 새 `safety.ports.*` 키는 미승인 제안이며, 공용 portlock·Windows COM 헬퍼는 아직 구현되지 않았다. I5는 고정 계측기의 식별·거부 규칙만 추가했으며 P1·P2 전체 완료를 뜻하지 않는다.
 
 ## 1. 요약과 원칙
 
@@ -21,7 +22,7 @@
 
 1. **라우팅은 (환경, 포트 참조, 용도)의 함수다.** 문자열만으로 정하지 않는다(지금 esp 방식, `esp_mcp/ports.py:3-9,69-95`).
    - `COM3` 은 WSL2+interop 에서는 헬퍼, WSL1 에서는 `/dev/ttyS3`(COM1–COM191 만)이고, 그 밖에서는 거부한다.
-   - COMn 이 pyserial-posix 에 닿지 않게 한다. uart 는 이미 막는다(`uart_mcp/session.py:282-289`). jtagulator 는 아직 상대 경로 파일로 연다(G5).
+   - COMn 이 pyserial-posix 에 닿지 않게 한다. uart·jtagulator는 현재 지원하지 않는 환경의 Windows COM 이름을 거부한다. G5의 상대 경로 열기는 과거 조사 당시의 문제다.
 2. **WSL2 + interop 의 기본은 "장치는 Windows 에 두고 Windows 쪽 프로세스가 연다"이다**(방법 A 의 일반화).
    - 직렬 장치는 `pweh-serial-helper.exe` 가, 도구형 장치는 Windows 판 도구가 연다. 드라이버 교체·LAN 노출이 없고 재열거에도 끊기지 않는다.
    - usbipd 는 사람이 고르는 대체 경로다.
@@ -517,7 +518,7 @@ flock 은 open 이 끝난 뒤에야 거절하므로, 남이 쓰는 포트를 열
 | 리눅스 | 열기 전에 `/proc` fd 검사(같은 계정만 보임, 최선 노력), 열고 나서 TIOCEXCL |
 | macOS | `/proc` 가 없다. portlock + TIOCEXCL 만 쓰고, 결과에 `busy_check: "portlock-only"` 를 적는다(조용한 fail-open 대신 표시) |
 
-`<runtime dir>`(`/tmp/pweh-<uid>` — 표지·소유 기록)를 AGENTS.md·safety.md 의 "에이전트 수정 금지" 목록과 `.claude/settings.json` deny 규칙(제안 — 지금 deny 목록은 비어 있다)에 넣는다.
+`<runtime dir>`(`/tmp/pweh-<uid>` — 표지·소유 기록)의 보호 범위는 구현 시 safety.md에 명시한다. AGENTS.md와 `.claude/settings.json` deny 규칙에 추가하는 제안은 사용자 결정에 따라 적용하지 않는다.
 잠금 자체는 파일이 아니라서 지울 대상이 없다.
 
 ## 7. DTR/RTS 정책
@@ -581,7 +582,7 @@ PWEH 처리:
 
 | # | 플랫폼 | 장치 종류 | 1차 | 대체 | 사람 단계 | 위험·상태 |
 |---|---|---|---|---|---|---|
-| R1 | WSL2+interop | 직렬(USB-UART 콘솔·JTAGulator·Flipper·CU·입력 브리지) | `win-helper`: Windows COMn 을 헬퍼가 연다 [P2] | ① `win-powershell`(D3) ② usbipd attach → `posix-tty` `/dev/serial/by-id`·`/dev/ttyACM*` | 1차: CDC(Flipper·ESP USB-Serial/JTAG 등)는 없음(inbox usbser). FTDI/CP210x/CH34x 는 처음 꽂을 때 드라이버가 필요하다 — 온라인이고 드라이버 업데이트가 허용돼 있으면 Windows Update, 아니면 벤더 설치 프로그램 [관리자]. ②: usbipd 설치 [관리자], 세션 동안만 bind [관리자]하고 끝나면 unbind, attach 는 모드별(§10) | P2 관문 전에는 uart·jtagulator 의 Windows COM 경로가 없다(uart 는 거부, jtagulator 는 상대 경로로 엶 — G5). CreateFile 때 DTR [미확인]. 단일 열기는 드라이버 성질. usbipd 는 3240 무인증이고 attach 동안 COM 이 사라진다 |
+| R1 | WSL2+interop | 직렬(USB-UART 콘솔·JTAGulator·Flipper·CU·입력 브리지) | `win-helper`: Windows COMn 을 헬퍼가 연다 [P2] | ① `win-powershell`(D3) ② usbipd attach → `posix-tty` `/dev/serial/by-id`·`/dev/ttyACM*` | 1차: CDC(Flipper·ESP USB-Serial/JTAG 등)는 없음(inbox usbser). FTDI/CP210x/CH34x 는 처음 꽂을 때 드라이버가 필요하다 — 온라인이고 드라이버 업데이트가 허용돼 있으면 Windows Update, 아니면 벤더 설치 프로그램 [관리자]. ②: usbipd 설치 [관리자], 세션 동안만 bind [관리자]하고 끝나면 unbind, attach 는 모드별(§10) | P2 관문 전에는 uart·jtagulator 의 Windows COM 경로가 없다(현재 둘 다 지원하지 않는 환경의 COM 이름 거부). CreateFile 때 DTR [미확인]. 단일 열기는 드라이버 성질. usbipd 는 3240 무인증이고 attach 동안 COM 이 사라진다 |
 | R2 | WSL2+interop | ESP ROM (esptool) | `win-exe` esptool.exe `--port COMn` (방법 A) [현행] | usbipd → Linux esptool `/dev/ttyACM*` | 자동 리셋 실패 시 BOOT+RESET(사람). 대체는 usbipd [관리자] | 헬퍼를 거치지 않는다(리셋 타이밍). PyInstaller 고아는 winproc 가 처리(현행). portlock·식별은 P1 |
 | R3 | WSL2+interop | JTAG/SWD (OpenOCD: FTDI·CMSIS-DAP·ST-Link·ESP USB-JTAG·J-Link) | `win-exe` openocd.exe + `tcl port pipe` [P3, Windows 미확인] | usbipd → Linux xPack openocd + udev [**현행 유일**] | 1차: 어댑터별 Windows 드라이버 — FTDI 는 Zadig 로 Interface 0 만 WinUSB, ST-Link STSW-LINK009, ESP JTAG Espressif 드라이버 [관리자]. CMSIS-DAP v1(HID)·v2 는 불필요. 대체: usbipd [관리자] + udev 규칙 [root] | TCP·`bindto` 금지. pipe 는 연결 1개·재연결 없음·`openocd_attach` 불가. J-Link WinUSB 전환 [미확인] |
 | R4 | WSL2+interop | 로직 애널라이저 (sigrok fx2lafw, 직렬형 드라이버) | `win-exe` sigrok-cli.exe 포터블 [P3, 미확인]. 직렬형은 `conn=COMn` | usbipd `--auto-attach` → Linux sigrok-cli [**현행 유일**] | 1차: Zadig 로 WinUSB 두 번(올리기 전 `0925:3881`, 뒤 `1d50:608x`) [관리자]. 시리얼 없는 클론(대부분)은 다른 물리 USB 포트로 옮기면 Zadig 를 다시 [관리자]. 대체: usbipd [관리자] + `61-libsigrok-plugdev.rules` [root] | 펌웨어 업로드 뒤 재열거 → usbipd 는 다시 붙여야 한다. 서명 없는 exe 는 SAC 에서 막힌다. 장치 `--scan` 은 fx2 펌웨어를 올리므로 장치 없는 확인만 한다 |
@@ -719,6 +720,7 @@ Windows 쪽 MCP 클라이언트는 사람이 설정한 `wsl.exe -d <배포판> -
 > 시뮬레이터 루프백 바인드(`--allow-lan` 때만 LAN, G13), 네이티브 Windows·Cygwin·MSYS 시작 거부와 `procutil.pid_alive`(G9 — openocd 만 옮김, 나머지 killpg 는 P1).
 > 설계와 다른 점: 코어 `pweh.ports` 는 P1 의 씨앗(문법 검사만), doctor 의 COM 별 `Service` 는 interop 이 될 때만, 보고서에 esptool.exe 버전·`ghost_ports_hidden`·`portlock` 은 없음.
 > 남은 usbipd 전용 안내: uart·sigrok·openocd 의 일부 힌트(P1·P2 에서 경로 기반으로).
+> **I5 1a 추가**: `pweh.portidentity`와 `pweh.instrument_guard`가 고정 계측기 식별·거부 규칙을 기존 4개 서버에 적용한다. `pweh-espprobe` 자체는 `sim://probe-hello`만 지원한다. 공용 resolve·portlock·TIOCEXCL·Windows COM 헬퍼는 여전히 P1·P2 후속 범위다.
 
 | 단계 | 내용 | 합격 기준 |
 |---|---|---|
@@ -731,11 +733,11 @@ Windows 쪽 MCP 클라이언트는 사람이 설정한 `wsl.exe -d <배포판> -
 
 **어떤 도구가 Windows COM 을 얻나:**
 - pweh-uart: 세션 도구 전부, P2. usbipd 없이 Windows COM 의 USB-UART 어댑터를 쓴다.
-- pweh-jtagulator: `jtagulator_connect` COMn, P2. 지금은 받지만 라우팅되지 않는다(G5).
+- pweh-jtagulator: `jtagulator_connect` COMn, P2. 현재 지원하지 않는 환경에서는 COM 이름을 거부하며 Windows 백엔드는 없다.
 - 계획된 pweh-flipper·pweh-nfc(CU)·pweh-play 입력 브리지: 처음부터 헬퍼를 쓴다.
 - pweh-sigrok 직렬형 드라이버: 헬퍼가 아니라 sigrok-cli.exe `conn=COMn`(P3). sigrok-cli 가 로컬 tty 를 직접 열기 때문이다.
 - pweh-esp: esptool.exe 직접(헬퍼 아님). portlock·식별만 공유한다.
-- pweh-espprobe(ESP32 계측기): 처음부터 헬퍼(esp32-instrument.md).
+- pweh-espprobe(ESP32 계측기): I5 1a는 in-process 시뮬레이터 전용. 실제 COM 연결의 헬퍼 경로는 후속 단계(esp32-instrument.md).
 
 ### 13.3 계약 변경 (architecture §6 절별)
 

@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -39,7 +40,8 @@ from .fsutil import (
     utcnow,
     utcnow_iso,
 )
-from . import schemas
+from . import safeio, schemas
+from .caseids import CreationGuard
 
 #: 케이스 id: 영문/숫자로 시작하고 영문/숫자/._- 만, 최대 80자. '.' 으로 끝날 수 없다 — Windows 경로 정규화가 요소 끝의 '.'·공백을
 #: 지워 다른 케이스 디렉터리를 가리키게 되기 때문이다(pweh-esp 방법 A 가 esptool.exe 에 \\wsl.localhost\… 경로를 넘긴다).
@@ -480,8 +482,10 @@ def normalize_authorization(authorization: dict[str, Any]) -> dict[str, Any]:
 
 
 class CaseStore:
-    def __init__(self, cases_dir: Path) -> None:
+    def __init__(self, cases_dir: Path, *, state_dir: Path | None = None) -> None:
         self.dir = Path(cases_dir)
+        # Runtime은 반드시 보호 상태를 넘긴다. 단독 라이브러리 호출은 기존 인자를 유지한다.
+        self.state_dir = Path(state_dir) if state_dir is not None else None
 
     def _case_dir(self, case_id: str) -> Path:
         if not CASE_ID_RE.match(case_id or ""):
@@ -531,21 +535,14 @@ class CaseStore:
         notes: str | None = None,
     ) -> Case:
         target = dict(target or {})
+        automatic = not case_id
         if not case_id:
             stamp = utcnow().strftime("%Y%m%d")
             base = _slug(" ".join(str(target.get(k, "")) for k in ("vendor", "model")).strip() or title)
             case_id = f"{stamp}-{base}"
-            n = 1
-            while self.exists(case_id if n == 1 else f"{case_id}-{n}"):
-                n += 1
-            if n > 1:
-                case_id = f"{case_id}-{n}"
-        d = self._case_dir(case_id)
-        if (d / "case.json").exists():
-            raise CaseError(f"이미 존재하는 케이스입니다: {case_id}")
-        d.mkdir(parents=True, exist_ok=True)
-        for sub in STANDARD_DIRS:
-            (d / sub).mkdir(exist_ok=True)
+        # 생성은 safe_join으로 링크를 풀기 전에 ID 자체를 확인해야 한다.
+        if not isinstance(case_id, str) or CASE_ID_RE.fullmatch(case_id) is None:
+            raise ValidationFailed("잘못된 case_id입니다.", hint="영문/숫자/._- 만 사용 (최대 80자, '.' 으로 끝나면 안 됨)")
         now = utcnow_iso()
         meta: dict[str, Any] = {
             "schema": "pweh.case/v1",
@@ -563,7 +560,17 @@ class CaseStore:
             "notes": [{"at": now, "author": "agent", "text": notes}] if notes else [],
         }
         schemas.validate("case", meta, label="case.json")
-        atomic_write_json(d / "case.json", meta)
-        case = Case(d)
-        case.audit({"event": "case_created", "title": title, "profile": meta["profile"], "authorized": bool(meta["authorization"])})
-        return case
+        json.dumps(meta, ensure_ascii=False)  # 직렬화 실패도 예약·디렉터리 생성 전에 확인한다.
+        with CreationGuard(self.dir, self.state_dir, CASE_ID_RE) as guard:
+            case_id, fd = guard.allocate(case_id, automatic=automatic)
+            meta["id"] = case_id
+            for sub in STANDARD_DIRS:
+                os.mkdir(sub, dir_fd=fd)
+            guard.check_case(case_id, fd)
+            safeio.write_new(fd, "case.json", (json.dumps(meta, ensure_ascii=False, indent=2) + "\n").encode(), final_mode=0o644)
+            event = {"ts": utcnow_iso(), "pid": os.getpid(), "event": "case_created", "title": title,
+                     "profile": meta["profile"], "authorized": bool(meta["authorization"])}
+            safeio.write_new(fd, "audit.jsonl", (json.dumps(event, ensure_ascii=False) + "\n").encode(), final_mode=0o644)
+            os.fsync(fd)
+            guard.check_case(case_id, fd)
+            return Case(guard.cases_dir / case_id)

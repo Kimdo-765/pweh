@@ -18,7 +18,7 @@
   pweh codex-trust [--codex-home PATH]... [--yes] [--dry-run] [--check]
                                     Codex 사용자 설정에 이 저장소를 신뢰 프로젝트로 등록 (프로젝트 설정을 읽게. --check: 0 신뢰됨, 1 없음, 2 확인 못 함)
   pweh mcp-check [--client codex|claude|all] [--deep] [--json] [--timeout S] [--optional SERVER]...
-                                    클라이언트 설정대로 MCP 서버를 띄워 initialize·tools/list 확인 (도구는 호출하지 않음)
+                                    클라이언트 설정대로 MCP 서버를 띄워 initialize·tools/list 확인 (도구 호출 없음, 서버 시작 정리는 실행될 수 있음)
   pweh skills install [--target]    Skill 을 에이전트가 찾는 위치에 심볼릭 링크로 설치
   pweh audit [--case ID]            감사 로그 꼬리 보기
 """
@@ -1336,7 +1336,7 @@ def build_parser() -> argparse.ArgumentParser:
     ct.add_argument("--check", action="store_true", help="쓰지 않고 확인만 (신뢰 항목이 없는 홈이 있으면 종료 코드 1)")
     ct.set_defaults(fn=cmd_codex_trust)
 
-    mc = sub.add_parser("mcp-check", help="클라이언트 설정대로 MCP 서버를 띄워 initialize·tools/list 확인 (도구는 호출하지 않음)")
+    mc = sub.add_parser("mcp-check", help="클라이언트 설정대로 MCP 서버를 띄워 initialize·tools/list 확인 (도구 호출 없음, 서버 시작 정리는 실행될 수 있음)")
     mc.add_argument("--client", choices=["codex", "claude", "all"], default="all",
                     help="codex = <repo>/.codex/config.toml(없으면 Codex 홈 설정·생성값), claude = <repo>/.mcp.json, all = 둘 다 (기본)")
     mc.add_argument("--deep", action="store_true",
