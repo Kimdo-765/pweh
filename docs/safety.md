@@ -432,7 +432,7 @@ pweh-forensics 와 그 코어(`pweh.fs`·`pweh.evidence`·`pweh.safeio`)가 지�
 - **`forensics_job_cancel` 의 설명**: 공통 job 도구의 설명은 '부분 결과는 보존된다'이지만 forensics job 은 도구마다 다르다 — 접수는 커밋(보관 기록 `intake`) 전이면 되돌려 아무것도 남기지 않고,
   검증은 재해시 도중이면 아무것도 기록하지 않는다. 부분 결과가 남는 것은 출력 디렉터리를 만든 뒤 취소를 받아들인 추출뿐이다(도구별 규칙은 docs/architecture.md §6.8 'job 과 취소').
 - **ref 가 모두 `bad_ref` 인 추출**: `forensics_extract` 의 ref 가 모두 모양이 틀리거나 없는 디렉터리·빈 슬롯·검증되지 않은 영역을 가리키고(`bad_ref`) `paths` 가 없어도 job 은 실패하지 않는다 —
-  파일 0개 매니페스트와 보관 기록 `extract` 를 남기고 `truncated=false` 다(`bad_ref` 는 잘림 사유가 아니라 `skipped` 에만 있다). job 이 실패하는 것은 확인 순회가 잘려 검증된 ref 가 하나도 없고 `paths` 도 없을 때(`refs_unverifiable`)뿐이다.
+  파일 0개 매니페스트와 보관 기록 `extract` 를 남기고 `truncated=false` 다(`bad_ref` 는 잘림 사유가 아니라 `skipped` 에만 있다). ref 확인 때문에 job 이 실패하는 것은 확인 순회가 잘려 검증된 ref 가 하나도 없고 `paths` 도 없을 때(`refs_unverifiable`)뿐이다.
 
 **같은 계정 프로세스의 경합 창** (모두 같은 계정의 프로세스가 호출 도중 이름을 바꾸거나 링크를 만들어야 생긴다. 케이스 밖에 쓰는 경로는 없다)
 - **경로로 확인하고 경로로 다시 여는 곳**: 확인과 열기 사이에 같은 계정 프로세스가 이름(파일이나 중간 디렉터리)을 바꿔치기하면 막지 못한다.
@@ -500,10 +500,10 @@ pweh-forensics 와 그 코어(`pweh.fs`·`pweh.evidence`·`pweh.safeio`)가 지�
 - **`forensics_partitions` 의 `truncated`**: 맨 위 `truncated`·`truncated_reason`(`time`·`partitions`·`steps`·`response`)은 예산·열 파티션 수 상한·응답 상한(파티션·볼륨 128개) 때문에 파티션을 다 열거나 싣지 못했다는 뜻뿐이다.
   이미지 잘림은 여기에 나오지 않고 파티션 경고(`partition_beyond_image`·`partition_truncated`)·`warnings` 의 `ebr_beyond_image`·`volume.truncated`·`beyond_image` 볼륨 오류로만 보인다 — `truncated=false` 를 이미지가 온전하다는 뜻으로 읽지 않는다.
 - **손상된 살아 있는 디렉터리**: 끝 표시 전에 체인이 비정상으로 끝나면 `dir_chain_broken`(exFAT 은 DataLength 보다 짧은 체인 포함 — 체인이 읽을 길이(DataLength, 슬롯 한도보다 길면 한도까지)를 다 모았으면
-  마지막 FAT 항목이 망가져도 `dir_chain_broken` 이 아니고 경고 `dir_chain_*` 만 남는다. DataLength 가 슬롯 한도보다 길면 그래도 `max_dir_slots` 잘림이다),
+  마지막 FAT 항목이 망가져도 `dir_chain_broken` 이 아니고 경고 `dir_chain_*` 만 남는다. DataLength 가 슬롯 한도보다 길고 한도 안에 끝 표시가 없으면 그래도 `max_dir_slots` 잘림이다),
   읽을 수 없으면 `dir_unreadable`(그 디렉터리의 내용이 하나도 없다), 검증하지 못한 단위에서 멈추면 `dir_unvalidated` 다. 이 사유들도 `truncated=true` 로 알리고 나머지 나무는 계속 본다.
   추출의 `paths` 는 끝까지 읽지 못한 디렉터리(예산·슬롯 한도·`beyond_image`·`dir_chain_broken`·검증 실패)에서 정확히 같은 이름(대소문자 포함)만 받는다 — 대소문자·8.3 별칭으로만 맞는 항목은 고르지 않는다.
-  그런 디렉터리에서 이름을 찾지 못하면 `not_found` 가 아니라 그 사유(`beyond_image`·`dir_chain_broken`·`dir_unvalidated`, 슬롯 한도면 `max_dir_slots`)가 code 이고(대소문자만 맞는 항목이 있으면 메시지가 그렇게 알린다),
+  그런 디렉터리에서 이름을 찾지 못하면 `not_found` 가 아니라 그 사유(`beyond_image`·`dir_chain_broken`·`dir_unvalidated`, 슬롯 한도면 `max_dir_slots`)가 code 이고(대소문자만 맞는 항목이 있으면 메시지가 그렇게 알린다. 예산 멈춤이면 code 는 `time`·`steps`·`cancelled` 이고 그 안내는 없다),
   읽지 못한 살아 있는 디렉터리를 지나는 `paths` 와 그런 디렉터리를 가리키는 ref 는 code `dir_unreadable` 이다. 이 code 들은 매니페스트의 `truncated_reasons` 에 들어 추출을 `truncated=true` 로 만든다.
   확인 순회가 끝까지 읽지 못한 살아 있는 디렉터리(`beyond_image`·`dir_chain_broken`·`dir_unreadable`) 때문에 잘려 디렉터리를 찾지 못한 ref 는 `refs_unverifiable` 이다.
 - **삭제된 디렉터리**(와 그 아래)는 원래 최선 노력이라 손상·이미지 끝을 잘림으로 세지 않는다(경고만 — 검증하지 못한 삭제 디렉터리는 `unvalidated_dirs` 개수에만 든다).

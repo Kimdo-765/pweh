@@ -208,7 +208,7 @@ forensics_fs_list(case_id="<id>", evidence_id="EV-0001")
 | beyond_image | 살아 있는 디렉터리의 데이터가 읽을 수 있는 범위(파티션 표 항목과 이미지 끝 중 짧은 쪽) 끝 너머라 그 디렉터리를 끝까지 읽지 못했다 — 원인은 같은 볼륨의 image_truncated·volume_exceeds_partition 으로 본다 | 사람에게 알리고 보고서 한계에 적는다(원인이 image_truncated 면 아래 행대로) |
 | image_truncated | 이미지가 카드보다 짧다 — 볼륨 끝이 이미지 끝 너머이거나(volume.truncated), partition 을 고르지 않았을 때 파티션이 통째로 이미지 끝 너머다(partition_beyond_image·ebr_beyond_image — 호출의 truncated_reasons 에만). 대개 이미징 중단·용량을 속인 카드 — 끝 너머의 파티션·디렉터리·파일 내용·삭제 흔적은 보이지 않는다 | 사람에게 알리고 이미징이 끝까지 됐는지 확인하게 한다(필요하면 다시 이미징). 보고서 한계에 적는다 |
 | volume_exceeds_partition | 이미지는 이어지는데 파일 시스템이 파티션 표 항목보다 크다(volume.truncated) — 파티션 표가 줄었거나 손상됐을 수 있다. 항목 밖으로 이어지는 부분의 디렉터리·파일 내용은 이 파티션으로 읽지 않는다 | 사람에게 알리고 보고서 한계에 적는다 |
-| dir_chain_broken, dir_unreadable, dir_unvalidated | 살아 있는 디렉터리를 끝까지 읽지 못함 — 체인 손상(exFAT 은 체인이 읽을 길이 — DataLength, 슬롯 한도보다 길면 한도 — 를 다 모았으면 마지막 FAT 항목이 망가져도 잘림이 아니고 경고 dir_chain_* 만)·읽기 실패·검증 실패(손상·교차 연결, 또는 엔진이 일부러 엄격하게 거르는 형식) | 사람에게 알리고 보고서 한계에 적는다 |
+| dir_chain_broken, dir_unreadable, dir_unvalidated | 살아 있는 디렉터리를 끝까지 읽지 못함 — 체인 손상(exFAT 은 체인이 읽을 길이 — DataLength, 슬롯 한도보다 길면 한도 — 를 다 모았으면 마지막 FAT 항목이 망가져도 dir_chain_broken 이 아니고 경고 dir_chain_* 만. DataLength 가 슬롯 한도보다 길고 한도 안에 끝 표시가 없으면 max_dir_slots)·읽기 실패·검증 실패(손상·교차 연결, 또는 엔진이 일부러 엄격하게 거르는 형식) | 사람에게 알리고 보고서 한계에 적는다 |
 
 고정 한도와 이미지·카드 상태(max_depth·max_dir_slots·beyond_image·image_truncated·volume_exceeds_partition·dir_*)는 max_seconds 를 늘려 답하지 않는다. 사유마다 도구별 뜻은 [reference.md §8](reference.md#8-잘림불완전-사유와-사람에게-알릴-것).
 

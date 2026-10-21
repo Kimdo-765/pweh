@@ -406,7 +406,8 @@ def _prepare_intake(case: Any, image_path: str, imaging_log_path: str | None) ->
         "파일을 지우고 번호를 돌려놓고, 그 뒤에 온 취소는 무시한다(succeeded). 서버가 도중에 끝나 남은 접수 디렉터리는 다음 접수·서버 시작 때 "
         "forensics/aborted-intakes/ 로 옮긴다(중단 흔적이 있는 것만, 번호는 다시 쓰지 않는다). 결과(forensics_job_status 의 result): "
         "evidence_id, hashes, copy_verified, imaging_log 대조, custody_seq, next_steps — 커밋 뒤 보조 기록(integrity-failed 사건·출처 원장·"
-        "아티팩트 색인) 실패는 post_commit_errors·note 로 알리고 접수는 그대로다(감사 로그 실패는 서버 로그에만 남는다)."
+        "아티팩트 색인)과 같은 sha256 확인(보관 기록 읽기)의 실패는 post_commit_errors·note 로 알리고 접수는 그대로다(감사 로그 실패는 "
+        "서버 로그에만 남는다)."
     ),
     annotations=ANN_LOCAL_WRITE,
 )
@@ -920,8 +921,8 @@ async def forensics_evidence_list(case_id: str, write_files: bool = True) -> dic
         "(superfloppy) → partitions[{index, scheme, start_offset, size_bytes, type_name, name·guid(GPT), fs_hint(fat12/fat16/fat32/exfat/"
         "ntfs/ext…), warnings}]와 지원하는 파티션(FAT12/16/32·exFAT)마다 volumes[{volume: fs_type·volume_label·cluster_size·volume_size·"
         "dirty(깨끗하지 않게 분리된 흔적)}]. 같은 (시작, 크기) 구간은 한 번만 열고(duplicate_of), 서로 다른 구간은 64개까지만 연다 — 나머지는 "
-        "omitted('partitions'|'time'|'steps')와 partitions_omitted. 응답은 파티션·볼륨 128개, 경고 50개까지(넘으면 truncated, "
-        "truncated_reason 'response' — 이 truncated 는 응답·한도 잘림만 뜻한다). 이미지 잘림은 partitions[].warnings(partition_beyond_image·"
+        "omitted('partitions'|'time'|'steps')와 partitions_omitted. 응답은 파티션·볼륨 128개까지(넘으면 truncated, truncated_reason "
+        "'response'), 경고는 50개까지 자른다(truncated 는 바뀌지 않음) — 이 truncated 는 예산·파티션 상한·응답 잘림만 뜻한다. 이미지 잘림은 partitions[].warnings(partition_beyond_image·"
         "partition_truncated)·레이아웃 warnings(ebr_beyond_image)·volume.truncated 로 보이고, 시작이 이미지 끝 너머인 파티션의 volumes[].error "
         "는 data.reason beyond_image 다('지원하지 않는 파일 시스템'이 아니다). 열 때마다 증거 사본의 빠른 지문을 확인한다(다르면 무결성 실패로 "
         "기록하고 거부)."
