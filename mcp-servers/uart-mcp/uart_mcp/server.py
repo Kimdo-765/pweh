@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import anyio
+from pweh import hostenv, portlock, ports
 
 from pweh.errors import Busy, DeviceError, NotFound, PwehError, SafetyDenied, ValidationFailed
 from pweh.fsutil import atomic_write_text, utcnow_iso
@@ -115,6 +116,56 @@ _RESERVED: dict[str, str] = {}  # port_key → 용도 (열기 중/보드레이�
 # 추적 env 는 넘기지 않는다 (세션 사이에 본 적 없는 재부팅이 있었으면 낡은 값이라 run 분류가 느슨해진다).
 _PORT_MEMORY: dict[tuple[str, str], dict[str, Any]] = {}
 _LOCK = threading.Lock()
+_CLEANUP_PENDING: dict[int, tuple[Any, Any, str, str, str]] = {}
+_CLEANUP_LOCK = threading.RLock()
+
+
+def _port_environment() -> dict[str, Any]:
+    """경로 선택용 환경 seam. 포트 선택 때문에 Windows smoke를 시작하지 않는다."""
+    return hostenv.detect(smoke=False, config=rt().config)
+
+
+def _resolve_port(r: Runtime, port: str) -> tuple[Any, dict[str, Any]]:
+    env = _port_environment()
+    return ports.resolve(env, port, "serial-session", config=r.config), env
+
+
+def _fresh_port(r: Runtime, route: Any, env: dict[str, Any], lease: Any, *, probe: bool = False) -> None:
+    lease.assert_held(ports.reset_scope(route))
+    ports.revalidate(route, env=env, config=r.config)
+    guard_target_port(r, route.ref, consumer="uart", phase="pre-io")
+    if probe:
+        portlock.get_role_store().assert_probe_allowed(route)
+
+
+def _release_detect(lease: Any, transport: Any, key: str, reservation: str, case_id: str) -> None:
+    """탐지 worker가 실제 닫힘을 확인했을 때만 OS 잠금·프로세스 예약을 해제한다."""
+    with _CLEANUP_LOCK:
+        with _LOCK:
+            _CLEANUP_PENDING[id(lease)] = (lease, transport, key, reservation, case_id)
+        if transport is not None and not transport.closed:
+            with contextlib.suppress(Exception):
+                lease.set_state("orphan")
+            return
+        lease.close()
+        with _LOCK:
+            _CLEANUP_PENDING.pop(id(lease), None)
+            if _RESERVED.get(key) == reservation:
+                _RESERVED.pop(key, None)
+
+
+def _retry_detect_cleanup(case_id: str | None = None, key: str | None = None) -> None:
+    """같은 케이스·끝점의 새 요청 또는 서버 종료 때만 보존한 핸들 정리를 재시도한다."""
+    with _CLEANUP_LOCK:
+        with _LOCK:
+            pending = list(_CLEANUP_PENDING.values())
+        for lease, transport, saved_key, reservation, saved_case in pending:
+            if case_id is not None and saved_case != case_id or key is not None and saved_key != key:
+                continue
+            if transport is not None:
+                with contextlib.suppress(Exception):
+                    transport.close()
+            _release_detect(lease, transport, saved_key, reservation, saved_case)
 
 
 def _busy_hint(base: str, port: str) -> str:
@@ -123,8 +174,7 @@ def _busy_hint(base: str, port: str) -> str:
         return base
     return f"{base} 같은 루프백 포트를 가리키는 다른 표기(127.0.0.1·다른 127.x·[::1]·localhost, socket/rfc2217)는 한 포트로 봅니다."
 
-USB_UART_VIDS = {0x0403: "FTDI", 0x067B: "Prolific", 0x10C4: "Silicon Labs", 0x1A86: "WCH", 0x04E2: "Exar", 0x04D8: "Microchip",
-                 0x0557: "ATEN", 0x0BDA: "Realtek", 0x2E8A: "Raspberry Pi", 0x1D50: "OpenMoko/BMP", 0x0483: "STMicro"}
+USB_UART_VIDS = ports.usb_uart_vendors()
 CONTEXT_CHOICES = ("uboot", "linux-shell", "login", "password", "booting", "unknown", "auto")
 READY_WAIT_S = 0.5  # 줄을 보내기 전에 기기가 프롬프트로 돌아오기를 기다리는 시간 (expect 로 일찍 끝난 명령 뒤 등)
 # shell_dump_start 가 읽을 수 있는 /dev 경로: 저장장치 블록/문자 장치만. /dev/watchdog(여는 순간 타이머 시작 → 재부팅),
@@ -187,9 +237,15 @@ def _remember_port(s: UartSession) -> None:
     """닫는 세션이 마지막으로 보낸 U-Boot 명령을 기억한다 (같은 케이스·포트의 다음 세션이 이어 받음)."""
     with s.cond:
         last = s.last_command
+    continuity = None
+    if s.route is not None and s.continuity is not None:
+        with contextlib.suppress(Exception):
+            fresh = ports.revalidate(s.route, env=s.port_environment, config=rt().config)
+            continuity = fresh.continuity_key()
     with _LOCK:
-        if last is not None:
-            _PORT_MEMORY[(s.case_id, s.port_key)] = {"last_command": last, "session_id": s.id, "closed_at": utcnow_iso()}
+        if last is not None and continuity is not None and continuity == s.continuity:
+            _PORT_MEMORY[(s.case_id, s.port_key)] = {"last_command": last, "session_id": s.id,
+                                                  "closed_at": utcnow_iso(), "continuity": continuity}
         else:
             _PORT_MEMORY.pop((s.case_id, s.port_key), None)
 
@@ -198,8 +254,6 @@ def shutdown_all(reason: str = "server shutdown") -> None:
     """모든 세션을 닫고(실행 중 job 취소) 로그 아티팩트를 등록한다. atexit 와 테스트 정리에서 부른다."""
     with _LOCK:
         sessions = list(_SESSIONS.values())
-        _SESSIONS.clear()
-        _RESERVED.clear()
         _PORT_MEMORY.clear()
     for s in sessions:
         jid = s.active_job()
@@ -209,9 +263,13 @@ def shutdown_all(reason: str = "server shutdown") -> None:
                 rt().jobs.wait(jid, 8.0)
         with contextlib.suppress(Exception):
             s.close(reason)
+        if s.lease is None or s.lease.closed:
+            with _LOCK:
+                _SESSIONS.pop(s.id, None)
         with contextlib.suppress(Exception):
             _register_logs(s)
-
+    with contextlib.suppress(Exception):
+        _retry_detect_cleanup()
 
 atexit.register(shutdown_all)
 
@@ -282,6 +340,7 @@ def _log_decision(s: UartSession, tool: str, decision: GateDecision, *, plan: An
 
 async def _authorize_plan(s: UartSession, tool: str, plan: Any, action: dict[str, Any], ctx: Context | None,
                           approval_id: str | None) -> GateDecision:
+    action = {**action, "route": s.route.approval_identity() if s.route is not None else None}
     decision = await rt().authorize(tool=tool, action=action, classification=plan.classification, case_id=s.case_id,
                                     approval_id=approval_id, ctx=ctx, summary=f"{s.id} [{plan.context}] {plan.summary()}")
     _log_decision(s, tool, decision, plan=plan)
@@ -340,7 +399,7 @@ def _rel(s: UartSession, p: Path) -> str:
 
 @server.tool(
     description=(
-        "시리얼 포트 목록 (OBSERVE). ports[{device, description, hwid, vid, pid, serial_number, manufacturer, likely_usb_uart, in_use_by}]. "
+        "시리얼 포트 목록 (OBSERVE, 포트를 열지 않음). 기존 ports 항목에 route/device_id/held_by 를 더하고 env_kind 를 반환한다. "
         "include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(이 호스트의 ser2net, 시뮬레이터)은 목록에 없고 uart_open 에 "
         "socket://127.0.0.1:<포트> 로 준다(루프백만 — LAN 호스트는 validation_failed)."
     ),
@@ -348,38 +407,41 @@ def _rel(s: UartSession, p: Path) -> str:
 )
 @safe_tool
 def uart_list_ports(include_links: bool = False) -> dict[str, Any]:
-    from serial.tools import list_ports
-
-    ports = []
+    inventory = ports.list_serial(_port_environment(), include_links=include_links, config=rt().config)
+    rows = []
     with _LOCK:
         in_use = {s.port_key: s.id for s in _SESSIONS.values() if s.state in ("open", "disconnected")}
-    for p in sorted(list_ports.comports(include_links=include_links), key=lambda x: x.device):
-        desc = p.description or ""
-        likely = bool(p.vid in USB_UART_VIDS or re.search(r"(?i)uart|cp210|ch34|ch910|ft232|ft2232|pl2303|usb.?serial|ttl", f"{desc} {p.hwid}"))
-        ports.append({
-            "device": p.device,
-            "description": desc,
-            "hwid": p.hwid,
-            "vid": None if p.vid is None else f"0x{p.vid:04x}",
-            "pid": None if p.pid is None else f"0x{p.pid:04x}",
-            "serial_number": p.serial_number,
-            "manufacturer": p.manufacturer or USB_UART_VIDS.get(p.vid or -1),
-            "likely_usb_uart": likely,
-            "in_use_by": in_use.get(port_key(p.device)),
-        })
-    out: dict[str, Any] = {"ok": True, "ports": ports, "count": len(ports)}
-    if not ports:
-        out["hint"] = ("시리얼 포트가 없습니다. USB-UART 어댑터를 연결하세요 (WSL2 는 usbipd 로 장치를 붙여야 함). "
-                       "TCP 시리얼은 루프백의 socket://127.0.0.1:<포트> 만 (LAN 의 ser2net 은 지원하지 않음).")
+    for item in [*inventory["local"]["ports"], *inventory["windows"]["ports"]]:
+        row = dict(item)
+        known_vendor = row.get("vid") in USB_UART_VIDS
+        for field in ("vid", "pid"):
+            if isinstance(row.get(field), int):
+                row[field] = f"0x{row[field]:04x}"
+        row.setdefault("device", row.get("port"))
+        row.setdefault("description", row.get("name", ""))
+        row.setdefault("hwid", "")
+        row.setdefault("serial_number", None)
+        row.setdefault("manufacturer", None)
+        route = row.get("route") or {}
+        row["in_use_by"] = in_use.get(route.get("lock_key"))
+        row["likely_usb_uart"] = known_vendor or bool(re.search(r"(?i)uart|cp210|ch34|ch910|ft232|ft2232|pl2303|usb.?serial|ttl",
+                                               str(row.get("description")) + " " + str(row.get("hwid"))))
+        rows.append(row)
+    out = {"ok": True, "ports": rows, "count": len(rows), "env_kind": inventory["env_kind"],
+           "hidden_legacy_ports": inventory["local"].get("hidden_legacy_ports", 0), "windows": inventory["windows"]}
+    if not rows:
+        out["hint"] = "시리얼 포트가 없습니다. USB-UART 연결과 환경별 경로를 확인하세요."
     return out
 
 
 @server.tool(
     description=(
-        "UART 세션 열기 (INTERACT, dtr/rts=true 면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL "
+        "UART 세션 열기 (INTERACT, dtr/rts=true 또는 확인된 reset-wired 경로면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL "
         "(루프백 호스트만: socket://127.0.0.1:<포트>, rfc2217://[::1]:<포트> / 테스트용 loop:// — LAN 호스트는 validation_failed). DTR/RTS 는 열기 전에 설정하며 기본 False. line_ending 기본 \"\\r\" (U-Boot 문맥은 항상 \\r). "
         "profile 은 pipeline_profiles 이름(생략 시 케이스 프로필) — 프롬프트/autoboot 정규식과 인터럽트 키를 정한다. "
-        "반환: session_id, log_path/raw_path/events_path(케이스 상대), context, cursor. 세션이 열려 있는 동안 수신 스레드가 계속 기록한다."
+        "승인 전에 공통 포트 잠금을 얻고 실제 open 직전에 경로·기기 신원을 다시 확인한다. "
+        "끊어진 세션도 uart_close 까지 잠금을 유지하며, 물리 close 를 확인하지 못하면 잠금을 보존한다. "
+        "반환: session_id, route, device_id, log_path/raw_path/events_path(케이스 상대), context, cursor. 세션이 열려 있는 동안 수신 스레드가 계속 기록한다."
     ),
     annotations=ANN_DEVICE,
 )
@@ -414,87 +476,142 @@ async def uart_open(
         raise ValidationFailed(f"잘못된 stopbits: {stopbits}")
     le = normalize_line_ending(line_ending)
     prof = load_profile(r.config, profile or case.meta.get("profile"))
-    key = port_key(port)
+    route, env = await run_blocking(_resolve_port, r, port)
+    key = route.lock_key or port_key(port)
     settings = PortSettings(port=port, baudrate=int(baudrate), bytesize=int(bytesize), parity=parity,
                             stopbits=int(stopbits) if float(stopbits).is_integer() else float(stopbits), line_ending=le,
                             dtr=bool(dtr), rts=bool(rts))
-    if dtr or rts:
-        cls = Classification(Risk.MODIFY, "uart.open.signals", "DTR/RTS 를 켠 채 포트 열기 — 보드의 리셋/부트모드 핀에 연결돼 있으면 기기가 리셋될 수 있음")
+    if dtr or rts or route.reset_risk == "wired":
+        cls = Classification(Risk.MODIFY, "uart.open.signals", "DTR/RTS 또는 확인된 USB reset 경로로 포트 열기")
     else:
-        cls = Classification(Risk.INTERACT, "uart.open", "UART 포트 열기 (DTR/RTS 끔, 수신 기록 시작)")
-    with _LOCK:
-        used = _port_in_use(key)
-    if used:
-        raise Busy(f"포트 {port} 는 이미 사용 중입니다 ({used}).", hint=_busy_hint("기존 세션을 쓰거나 uart_close 후 다시 여세요.", port))
-    decision = await r.authorize(tool="uart_open", action={"port": port, "baudrate": settings.baudrate, "framing": settings.framing,
-                                                            "dtr": settings.dtr, "rts": settings.rts},
-                                 classification=cls, case_id=case_id, approval_id=approval_id, ctx=ctx,
-                                 summary=f"uart_open {port} @ {settings.baudrate} dtr={settings.dtr} rts={settings.rts}")
-    if not decision.allowed:
-        return gate_response(decision)
+        cls = Classification(Risk.INTERACT, "uart.open", "UART 포트 열기 — 최초 open의 DTR/RTS pulse 가능")
     with _LOCK:
         used = _port_in_use(key)
         if used:
-            raise Busy(f"포트 {port} 는 이미 사용 중입니다 ({used}).")
+            raise Busy(f"포트 {port} 는 이미 사용 중입니다 ({used}).", hint=_busy_hint("기존 세션을 쓰거나 uart_close 후 다시 여세요.", port))
         sid = _new_session_id(case.dir, label)
         _RESERVED[key] = sid
+    lease = None
+    s = None
+    complete = False
+    handoff = portlock.LeaseHandoff()
+    opening_lock = threading.Lock()
+    opening_finished = False
+    abandoned = False
+    cleanup_claimed = False
+
+    def cleanup_open() -> None:
+        # open worker가 끝난 뒤에만 호출한다. 정리 미확인은 명시 close용으로 남긴다.
+        try:
+            if s is not None:
+                with contextlib.suppress(Exception):
+                    s.close("open failed/cancelled")
+                with _LOCK:
+                    if lease is not None and not lease.closed:
+                        _SESSIONS[sid] = s
+                    else:
+                        _SESSIONS.pop(sid, None)
+            elif lease is not None:
+                lease.close()
+        finally:
+            with _LOCK:
+                if _RESERVED.get(key) == sid:
+                    _RESERVED.pop(key, None)
+
+    def opening() -> None:
+        nonlocal opening_finished, cleanup_claimed
+        if not handoff.claim_worker():
+            return
+        try:
+            s.open()
+        finally:
+            with opening_lock:
+                opening_finished = True
+                cleanup_here = abandoned and not cleanup_claimed
+                if cleanup_here:
+                    cleanup_claimed = True
+            if cleanup_here:
+                cleanup_open()
+
     try:
+        lease = portlock.get_manager().acquire(ports.reset_scope(route),
+                    owner=portlock.PortOwner(server=SERVER_NAME, case_id=case_id, ref=port, session_id=sid))
+        busy_info = await run_blocking(ports.check_holders, route, env=env)
+        lease.set_state("awaiting_approval")
+        decision = await r.authorize(tool="uart_open", action={"port": port, "baudrate": settings.baudrate,
+                                     "framing": settings.framing, "dtr": settings.dtr, "rts": settings.rts,
+                                     "route": route.approval_identity()},
+                                     classification=cls, case_id=case_id, approval_id=approval_id, ctx=ctx,
+                                     summary=f"uart_open {port} @ {settings.baudrate} dtr={settings.dtr} rts={settings.rts}")
+        if not decision.allowed:
+            return gate_response(decision)
+        await run_blocking(_fresh_port, r, route, env, lease)
         s = UartSession(session_id=sid, case=case, settings=settings, profile=prof, label=label,
                         buffer_bytes=int(r.config.uart.get("read_buffer_bytes", 4 * 1024 * 1024)),
                         persistent_paths=list(r.config.safety.persistent_paths), unknown_risk=r.config.safety.unknown_command_risk,
-                        audit=lambda ev, _cid=case_id: r.audit(ev, _cid),
-                        before_io=lambda: guard_target_port(r, port, consumer="uart", phase="pre-io"))
+                        audit=lambda ev, _cid=case_id: r.audit(ev, _cid), route=route, lease=lease,
+                        before_io=lambda: _fresh_port(r, route, env, lease))
+        s.port_environment = env
+        s.busy_info = busy_info
         s.job_lookup = _job_active
         with _LOCK:
-            inherited = _PORT_MEMORY.get((case_id, key))
-        if inherited:
+            inherited = _PORT_MEMORY.pop((case_id, key), None)
+        if inherited and s.continuity is not None and inherited.get("continuity") == s.continuity:
             s.last_command = inherited["last_command"]
-        await run_blocking(s.open)
-        _log_decision(s, "uart_open", decision, extra={"port": port, "dtr": settings.dtr, "rts": settings.rts})
+        else:
+            inherited = None
+        await run_blocking(opening)
+        with s.cond:
+            lease.set_state("open" if s.alive else "disconnected", session_id=sid)
+        portlock.get_role_store().mark_target(route, case_id=case_id, server=SERVER_NAME)
+        _log_decision(s, "uart_open", decision, extra={"port": port, "dtr": dtr, "rts": rts, "route": route.to_dict()})
         if inherited:
             s.event({"type": "inherited_last_command", "from_session": inherited["session_id"], "last_command": inherited["last_command"]})
         with _LOCK:
             _SESSIONS[sid] = s
+        arts = _register_logs(s)
+        r.audit({"event": "uart_open", "session_id": sid, "port": port, "baudrate": settings.baudrate,
+                 "framing": settings.framing, "dtr": dtr, "rts": rts, "profile": prof.name, "route": route.to_dict(), **busy_info}, case_id)
+        await anyio.sleep(0.15)
+        snap = s.snapshot()
+        out = {"ok": True, "session_id": sid, "port": port, "baudrate": settings.baudrate,
+               "framing": settings.framing, "line_ending": snap["line_ending"], "dtr": dtr, "rts": rts,
+               "profile": prof.summary(), "log_path": snap["log_path"], "raw_path": snap["raw_path"],
+               "events_path": snap["events_path"], "context": snap["context"], "phase": snap["phase"],
+               "cursor": snap["rx_bytes"], "artifacts": [a.get("id") for a in arts], "route": route.to_dict(),
+               "transport": snap["transport"], "device_id": route.device_id, "reset_risk": route.reset_risk, **busy_info,
+               "next_steps": ["부팅 로그는 사람에게 전원을 꺼 두게 한 뒤 uart_capture_boot 호출 시작 후 전원을 넣게 한다",
+                              "U-Boot 프롬프트가 필요하면 uboot_interrupt, 현재 문맥 확인은 uart_sync를 쓴다"]}
+        if port.startswith("socket://"):
+            out["note"] = "socket:// 연결은 보드레이트를 전달하지 않습니다 (서버 쪽 설정을 따름)."
+        if inherited:
+            out["inherited_last_command"] = inherited["last_command"]
+        complete = True
+        return out
     finally:
-        with _LOCK:
-            _RESERVED.pop(key, None)
-    arts = _register_logs(s)
-    r.audit({"event": "uart_open", "session_id": sid, "port": port, "baudrate": settings.baudrate, "framing": settings.framing,
-             "dtr": settings.dtr, "rts": settings.rts, "profile": prof.name}, case_id)
-    await anyio.sleep(0.15)  # 바로 들어오는 출력(프롬프트 등)으로 문맥을 잡을 시간
-    snap = s.snapshot()
-    out = {
-        "ok": True,
-        "session_id": sid,
-        "port": port,
-        "baudrate": settings.baudrate,
-        "framing": settings.framing,
-        "line_ending": snap["line_ending"],
-        "dtr": settings.dtr,
-        "rts": settings.rts,
-        "profile": prof.summary(),
-        "log_path": snap["log_path"],
-        "raw_path": snap["raw_path"],
-        "events_path": snap["events_path"],
-        "context": snap["context"],
-        "phase": snap["phase"],
-        "cursor": snap["rx_bytes"],
-        "artifacts": [a.get("id") for a in arts],
-        "next_steps": [
-            "출력이 없으면: 사람에게 전원을 꺼 두게 한 뒤 uart_capture_boot 를 호출하고, 호출이 시작되면 전원을 넣게 한다",
-            "U-Boot 가 필요하면: 전원을 꺼 둔 상태에서 uboot_interrupt 를 호출하고, 호출이 시작되면 사람이 전원을 넣는다",
-            "이미 프롬프트에 있는 기기면: uart_sync 로 문맥 확정",
-        ],
-    }
-    if is_url(port) and port.startswith("socket://"):
-        out["note"] = "socket:// 연결은 보드레이트를 전달하지 않습니다 (서버 쪽 설정을 따름)."
-    if inherited:
-        out["inherited_last_command"] = inherited["last_command"]  # 빈 Enter 는 이 명령의 반복으로 분류된다
-    return out
+        if not complete:
+            # asyncio.Task.cancel()은 AnyIO shield 밖에서 awaiter만 버릴 수 있다.
+            # 아직 실행 중인 worker가 핸들을 받기 전에 caller가 lease를 풀면 안 된다.
+            with opening_lock:
+                abandoned = True
+                cleanup_here = (handoff.abandon_caller() or opening_finished) and not cleanup_claimed
+                if cleanup_here:
+                    cleanup_claimed = True
+            if cleanup_here:
+                # cleanup await 자체가 다시 취소되어도 완료된 세션은 명시 close로 회수 가능하다.
+                if s is not None:
+                    with _LOCK:
+                        _SESSIONS[sid] = s
+                with anyio.CancelScope(shield=True):
+                    await run_blocking(cleanup_open)
+        else:
+            with _LOCK:
+                if _RESERVED.get(key) == sid:
+                    _RESERVED.pop(key, None)
 
 
 @server.tool(
-    description="UART 세션 닫기: 실행 중인 job 취소, 수신 스레드 정지, 포트 닫기, 로그(uart-log/uart-raw/uart-events) 아티팩트 등록. 끊어진(disconnected) 세션도 닫을 수 있다.",
+    description="UART 세션 닫기: 실행 중인 job 취소, 수신 스레드 정지, 포트 닫기, 로그(uart-log/uart-raw/uart-events) 아티팩트 등록. 끊어진(disconnected) 세션도 닫을 수 있다. 물리 close 확인 뒤 공통 잠금을 해제하며, 정리 미확인 시 잠금을 보존한다.",
     annotations=ANN_LOCAL_WRITE,
 )
 @safe_tool
@@ -522,6 +639,7 @@ async def uart_close(session_id: str) -> dict[str, Any]:
         "events_path": _rel(s, s.events_path),
         "artifacts": [{"id": a.get("id"), "path": a.get("path"), "kind": a.get("kind")} for a in arts],
         "job_cancelled": cancelled,
+        "transport": s.ser.metadata() if s.ser is not None else None,
     }
 
 
@@ -761,7 +879,7 @@ async def uart_send_break(session_id: str, ctx: Context, duration: float = 0.25,
     s = _device_session(session_id)
     duration = max(0.01, min(float(duration), 2.0))
     cls = Classification(Risk.MODIFY, "uart.break", "BREAK 신호 (리눅스 콘솔에서 Magic SysRq 를 시작할 수 있음)")
-    decision = await rt().authorize(tool="uart_send_break", action={"session_id": s.id, "port": s.port, "duration": duration},
+    decision = await rt().authorize(tool="uart_send_break", action={"session_id": s.id, "port": s.port, "route": s.route.approval_identity(), "duration": duration},
                                     classification=cls, case_id=s.case_id, approval_id=approval_id, ctx=ctx)
     _log_decision(s, "uart_send_break", decision, extra={"duration": duration})
     if not decision.allowed:
@@ -789,7 +907,7 @@ async def uart_set_signals(session_id: str, ctx: Context, dtr: bool | None = Non
     if dtr is None and rts is None:
         raise ValidationFailed("dtr 또는 rts 중 하나는 지정해야 합니다.")
     cls = Classification(Risk.MODIFY, "uart.signals", "DTR/RTS 변경 — 리셋/부트모드 핀이면 기기가 리셋될 수 있음")
-    decision = await rt().authorize(tool="uart_set_signals", action={"session_id": s.id, "port": s.port, "dtr": dtr, "rts": rts},
+    decision = await rt().authorize(tool="uart_set_signals", action={"session_id": s.id, "port": s.port, "route": s.route.approval_identity(), "dtr": dtr, "rts": rts},
                                     classification=cls, case_id=s.case_id, approval_id=approval_id, ctx=ctx)
     _log_decision(s, "uart_set_signals", decision, extra={"dtr": dtr, "rts": rts})
     if not decision.allowed:
@@ -815,10 +933,10 @@ async def uart_set_signals(session_id: str, ctx: Context, dtr: bool | None = Non
 
 @server.tool(
     description=(
-        "보드레이트 탐지: 후보마다 포트를 열고(DTR/RTS 끔) probe=\"ctrl-c\" 면 0x03 을 한 번 보낸 뒤 listen_seconds 동안 읽어 점수화(출력 가능 문자 비율, "
+        "보드레이트 탐지: 포트를 한 번 열고 같은 연결의 속도를 바꾸며(DTR/RTS 끔) probe=\"ctrl-c\" 면 0x03 을 한 번 보낸 뒤 listen_seconds 동안 읽어 점수화(출력 가능 문자 비율, "
         "부팅 키워드, 0x00/0xFF 연속 감점) → candidates(점수순), best, confidence, hint(데이터 없음: TX/RX 뒤바뀜·GND·무출력·전압). "
         "기기가 출력 중이어야 하므로 사람에게 전원을 먼저 꺼 두게 하고 '준비' 답을 받은 뒤 호출한다 — 사람은 호출이 시작되면 전원을 넣는다 (전원 투입 중에는 probe=\"none\" 권장: ctrl-c 가 autoboot 를 멈출 수 있음). probe=ctrl-c 는 MODIFY(다른 속도로 보낸 0x03 은 기기에서 다른 "
-        "바이트로 읽힐 수 있음), probe=none 은 INTERACT. 이 포트로 열린 세션이 없어야 한다. 총 50초 제한."
+        "바이트로 읽힐 수 있음), probe=none 은 INTERACT(확인된 reset-wired 경로는 MODIFY). 이 포트로 열린 세션이 없어야 한다. 총 50초 제한."
     ),
     annotations=ANN_DEVICE,
 )
@@ -836,34 +954,61 @@ async def uart_detect_baud(case_id: str, port: str, ctx: Context, candidates: li
         raise ValidationFailed(f"잘못된 candidates: {cands}")
     cands = list(dict.fromkeys(cands))
     listen = max(0.2, min(float(listen_seconds), 10.0))
-    key = port_key(port)
-    with _LOCK:
-        used = _port_in_use(key)
-    if used:
-        raise Busy(f"포트 {port} 는 사용 중입니다 ({used}).", hint=_busy_hint("uart_close 로 세션을 닫은 뒤 탐지하세요.", port))
-    if probe == "ctrl-c":
-        cls = Classification(Risk.MODIFY, "uart.detect-baud.probe",
-                             "후보 보드레이트마다 0x03 을 한 번 보냄 — 속도가 다르면 기기에서 다른 바이트(예: 0x04 Ctrl-D)로 읽혀 셸이 종료되는 등 휘발성 변화 가능")
-    else:
-        cls = Classification(Risk.INTERACT, "uart.detect-baud", "포트를 여러 속도로 열어 수신만 함 (DTR/RTS 끔)")
-    decision = await r.authorize(tool="uart_detect_baud", action={"port": port, "candidates": cands, "probe": probe},
-                                 classification=cls, case_id=case_id, approval_id=approval_id, ctx=ctx)
-    if not decision.allowed:
-        return gate_response(decision)
+    route, env = await run_blocking(_resolve_port, r, port)
+    key = route.lock_key or port_key(port)
+    await run_blocking(_retry_detect_cleanup, case_id, key)
+    reservation = "uart_detect_baud:" + str(time.monotonic_ns())
     with _LOCK:
         used = _port_in_use(key)
         if used:
-            raise Busy(f"포트 {port} 는 사용 중입니다 ({used}).")
-        _RESERVED[key] = "uart_detect_baud"
+            raise Busy(f"포트 {port} 는 사용 중입니다 ({used}).", hint=_busy_hint("uart_close 뒤 탐지하세요.", port))
+        _RESERVED[key] = reservation
+    lease = None
+    handoff = portlock.LeaseHandoff()
+    ev = threading.Event()
+    transport = [None]
     try:
-        ev = threading.Event()
-        res = await run_blocking_cancellable(baudmod.detect, port, cands, listen, probe, cancel=ev.is_set, on_cancel=ev.set,
-                                             before_io=lambda: guard_target_port(r, port, consumer="uart", phase="baud-open"))
+        lease = portlock.get_manager().acquire(ports.reset_scope(route),
+                    owner=portlock.PortOwner(server=SERVER_NAME, case_id=case_id, ref=port))
+        busy_info = await run_blocking(ports.check_holders, route, env=env)
+        if probe == "ctrl-c":
+            portlock.get_role_store().assert_probe_allowed(route)
+        cls = Classification(Risk.MODIFY if probe == "ctrl-c" or route.reset_risk == "wired" else Risk.INTERACT,
+                             "uart.detect-baud.probe" if probe == "ctrl-c" else "uart.detect-baud",
+                             "포트를 한 번 열고 속도를 변경해 수신" + (" 및 후보마다 Ctrl-C 송신" if probe == "ctrl-c" else ""))
+        lease.set_state("awaiting_approval")
+        decision = await r.authorize(tool="uart_detect_baud", action={"port": port, "candidates": cands, "probe": probe,
+                                     "route": route.approval_identity()}, classification=cls, case_id=case_id,
+                                     approval_id=approval_id, ctx=ctx)
+        if not decision.allowed:
+            return gate_response(decision)
+
+        def work():
+            if not handoff.claim_worker():
+                return None
+            try:
+                if ev.is_set():
+                    raise PwehError("보드레이트 탐지를 취소했습니다.", code="cancelled")
+                _fresh_port(r, route, env, lease, probe=probe == "ctrl-c")
+                lease.set_state("running")
+                return baudmod.detect(port, cands, listen, probe, cancel=ev.is_set, route=route, lease=lease,
+                          on_transport=lambda handle: transport.__setitem__(0, handle),
+                          before_io=lambda: _fresh_port(r, route, env, lease, probe=probe == "ctrl-c"))
+            finally:
+                _release_detect(lease, transport[0], key, reservation, case_id)
+
+        res = await run_blocking_cancellable(work, on_cancel=ev.set)
     finally:
-        with _LOCK:
-            _RESERVED.pop(key, None)
-    r.audit({"event": "uart_detect_baud", "port": port, "best": res.get("best"), "tested": res.get("tested")}, case_id)
-    return {"ok": True, "port": port, "probe": probe, "listen_seconds": listen, **res}
+        if handoff.abandon_caller():
+            if lease is not None:
+                _release_detect(lease, None, key, reservation, case_id)
+            else:
+                with _LOCK:
+                    if _RESERVED.get(key) == reservation:
+                        _RESERVED.pop(key, None)
+    r.audit({"event": "uart_detect_baud", "port": port, "best": res.get("best"), "tested": res.get("tested"),
+             "route": route.to_dict(), **busy_info}, case_id)
+    return {"ok": True, "port": port, "probe": probe, "listen_seconds": listen, "route": route.to_dict(), **busy_info, **res}
 
 
 @server.tool(
@@ -996,7 +1141,7 @@ async def uboot_interrupt(session_id: str, ctx: Context, keys: list[str] | None 
         # Enter 키는 새 부팅을 본 뒤에만 보낸다(console.interrupt) → 사전 승인은 그 상태를 가정하고, 키마다 보낼 때 다시 분류한다
         plans = [s.plan(k.encode("latin-1"), assume_history_known=True) for k in dict.fromkeys(key_list)]
         cls = worst([p.classification for p in plans])
-        decision = await rt().authorize(tool="uboot_interrupt", action={"session_id": s.id, "port": s.port,
+        decision = await rt().authorize(tool="uboot_interrupt", action={"session_id": s.id, "port": s.port, "route": s.route.approval_identity(),
                                                                          "keys": [k.encode("latin-1").hex() for k in key_list]},
                                         classification=cls, case_id=s.case_id, ctx=ctx,
                                         summary=f"{s.id} autoboot 인터럽트 키 {[key_display(k) for k in key_list]}")
@@ -1302,7 +1447,7 @@ async def uboot_dump_start(
             raise SafetyDenied(f"계획된 명령 중 INTERACT 를 넘는 것이 있어 작업을 시작하지 않습니다: {line!r} → {c.risk.label} ({c.rule_id}: {c.reason})",
                                code="job_plan_denied", data={"offending": [{"line": ln_, **c_.to_dict()} for ln_, c_ in bad[:5]]})
         cls = Classification(Risk.INTERACT, "uart.dump.uboot", f"U-Boot md.b 덤프 계획 {len(lines)}개 명령 (모두 INTERACT 이하)")
-        decision = await rt().authorize(tool="uboot_dump_start", action={"session_id": s.id, "port": s.port, "source": source, "offset": off,
+        decision = await rt().authorize(tool="uboot_dump_start", action={"session_id": s.id, "port": s.port, "route": s.route.approval_identity(), "source": source, "offset": off,
                                                                           "length": ln, "ram_addr": ram, "chunk_size": chunk, "verify": verify},
                                         classification=cls, case_id=case_id, ctx=ctx,
                                         summary=f"{s.id} U-Boot 덤프 {source} 0x{off:x}+0x{ln:x}")
@@ -1320,7 +1465,8 @@ async def uboot_dump_start(
 
         job = rt().jobs.start("uart-uboot-dump", job_fn, description=f"U-Boot 덤프 {source} 0x{off:x}+0x{ln:x} → dumps/{name}.bin",
                               case_id=case_id, exclusive_key=f"uart:{s.port_key}",
-                              meta={"session_id": s.id, "output": f"dumps/{name}.bin", "source": source})
+                              meta={"session_id": s.id, "output": f"dumps/{name}.bin", "source": source,
+                                    "route": s.route.to_dict(), "port_keys": list(s.lease.keys)})
         s.job_id = job.id
     est = ln * (79 / 16 + (60 / max(chunk, 1))) * s.settings.bits_per_char / max(300, s.settings.baudrate)
     rt().audit({"event": "uart_dump_started", "job_id": job.id, "session_id": s.id, "source": source, "offset": off, "length": ln}, case_id)
@@ -1371,7 +1517,7 @@ async def shell_login(session_id: str, ctx: Context, username: str | None = None
                            hint="사용자에게 올바른 계정을 확인받으세요. 다시 시도하려면 uart_close 후 새 세션을 여세요.")
     _require_pending_clear(s)
     cls = Classification(Risk.INTERACT, "uart.login-input", "로그인 프롬프트 입력 (askfirst Enter / 사용자 이름 / 비밀번호, 프롬프트 확인 후 전송)")
-    decision = await rt().authorize(tool="shell_login", action={"session_id": s.id, "port": s.port, "username": username,
+    decision = await rt().authorize(tool="shell_login", action={"session_id": s.id, "port": s.port, "route": s.route.approval_identity(), "username": username,
                                                                  "password": "<given>" if password is not None else None},
                                     classification=cls, case_id=s.case_id, ctx=ctx,
                                     summary=f"{s.id} 로그인 {username if username is not None else '(콘솔 활성화만)'}")
@@ -1519,7 +1665,7 @@ async def shell_dump_start(case_id: str, session_id: str, path: str, ctx: Contex
             line, c = bad[0]
             raise SafetyDenied(f"계획된 명령 중 INTERACT 를 넘는 것이 있어 시작하지 않습니다: {line!r} → {c.risk.label} ({c.rule_id})", code="job_plan_denied")
         cls = Classification(Risk.INTERACT, "uart.dump.shell", f"리눅스 셸 dd 덤프 ({path}, 읽기 전용)")
-        decision = await rt().authorize(tool="shell_dump_start", action={"session_id": s.id, "port": s.port, "path": path, "offset": off,
+        decision = await rt().authorize(tool="shell_dump_start", action={"session_id": s.id, "port": s.port, "route": s.route.approval_identity(), "path": path, "offset": off,
                                                                           "length": ln, "method": method, "chunk_size": chunk},
                                         classification=cls, case_id=case_id, ctx=ctx, summary=f"{s.id} 셸 덤프 {path}")
         _log_decision(s, "shell_dump_start", decision, extra={"path": path, "offset": off, "length": ln})
@@ -1535,7 +1681,8 @@ async def shell_dump_start(case_id: str, session_id: str, path: str, ctx: Contex
                     _register_logs(s)
 
         job = rt().jobs.start("uart-shell-dump", job_fn, description=f"셸 덤프 {path} → dumps/{name}.bin", case_id=case_id,
-                              exclusive_key=f"uart:{s.port_key}", meta={"session_id": s.id, "output": f"dumps/{name}.bin", "path": path})
+                              exclusive_key=f"uart:{s.port_key}", meta={"session_id": s.id, "output": f"dumps/{name}.bin", "path": path,
+                              "route": s.route.to_dict(), "port_keys": list(s.lease.keys)})
         s.job_id = job.id
     rt().audit({"event": "uart_shell_dump_started", "job_id": job.id, "session_id": s.id, "path": path}, case_id)
     return {"ok": True, "status": "started", "job_id": job.id, "output": f"dumps/{name}.bin", "part_path": f"dumps/{name}.bin.part",

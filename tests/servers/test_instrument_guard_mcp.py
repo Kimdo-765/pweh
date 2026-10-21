@@ -94,7 +94,7 @@ async def test_unresolved_routes_fail_closed(name, kwargs, auth, monkeypatch):
 
 
 @pytest.mark.parametrize('module,name', [('uart_mcp', 'uart_open'), ('jtagulator_mcp', 'jtagulator_connect')])
-async def test_preopen_recheck_releases_reservation(module, name, auth, monkeypatch):
+async def test_preopen_recheck_releases_reservation(module, name, auth, monkeypatch, isolated_ports):
     import importlib
     S = importlib.import_module(module + '.server')
     rt = S.rt(); case = rt.cases.create(title='합성 재검사', authorization=auth)
@@ -105,11 +105,17 @@ async def test_preopen_recheck_releases_reservation(module, name, auth, monkeypa
     monkeypatch.setattr(G, 'probe_identity', sequence)
     import serial
     monkeypatch.setattr(serial, 'serial_for_url', lambda *a, **k: pytest.fail('open 전 재검사 누락'))
-    async with Client(S.server) as client:
-        result = await call(client, name, case_id=case.id, port='/dev/ttyACM123')
+    master, slave = os.openpty()
+    try:
+        async with Client(S.server) as client:
+            result = await call(client, name, case_id=case.id, port=os.ttyname(slave))
+    finally:
+        os.close(master)
+        os.close(slave)
     assert 'instrument_port' in result['_error'] and len(calls) == 2
     assert not (S._RESERVED if module == 'uart_mcp' else S._CONNECTING)
     assert not (S._SESSIONS if module == 'uart_mcp' else S._CONNS)
+    assert not isolated_ports['manager']._leases
 
 
 async def test_esp_worker_rechecks_before_process(esp_fake, auth, monkeypatch):
@@ -145,7 +151,7 @@ async def test_sigrok_queued_recheck_cleanup(sigrok_fake, auth, monkeypatch):
     assert not list(case.subdir('signals').glob('*.part'))
 
 
-async def test_uart_new_pin_blocks_tx_but_read_close_work(auth, monkeypatch):
+async def test_uart_new_pin_blocks_tx_but_read_close_work(auth, monkeypatch, isolated_ports):
     from uart_mcp import server as S
     rt = S.rt(); case = rt.cases.create(title='합성 UART', authorization=auth)
     master, slave = os.openpty()
@@ -158,8 +164,11 @@ async def test_uart_new_pin_blocks_tx_but_read_close_work(auth, monkeypatch):
             monkeypatch.setattr(G, 'probe_identity', lambda *a, **k: snapshot())
             result = await call(client, 'uart_write', session_id=sid, data='\x03')
             assert 'instrument_port' in result['_error']
+            key = opened['route']['lock_key']
+            assert isolated_ports['manager'].held_by(key) is not None
             assert (await call(client, 'uart_read', session_id=sid))['ok']
             assert (await call(client, 'uart_close', session_id=sid))['ok']
+            assert isolated_ports['manager'].held_by(key) is None
             assert S._SESSIONS[sid].tx_bytes == 0 if sid in S._SESSIONS else True
     finally:
         os.close(master); os.close(slave)
@@ -203,23 +212,34 @@ async def test_esp_second_read_guard_keeps_first_unverified(esp_fake, auth, monk
     assert not meta.get('provenance', {}).get('recorded')
 
 
-def test_baud_second_guard_not_swallowed(monkeypatch):
+def test_baud_next_candidate_guard_not_swallowed(monkeypatch):
     from uart_mcp import baud
     from pweh.errors import PwehError
     calls = []
     closed = []
+    speeds = []
+    resets = []
+    opened = []
     class FakeSerial:
-        def reset_input_buffer(self): pass
+        @property
+        def baudrate(self): return speeds[-1] if speeds else None
+        @baudrate.setter
+        def baudrate(self, value): speeds.append(value)
+        def reset_input_buffer(self): resets.append(1)
         def read(self, size): return b''
         def close(self): closed.append(1)
     def guard():
         calls.append(1)
-        if len(calls) == 2:
+        if len(calls) == 3:
             raise PwehError('합성 거부', code='instrument_port')
-    monkeypatch.setattr(baud, 'open_serial', lambda *a, **k: FakeSerial())
+    def open_fake(*args, **kwargs):
+        opened.append(1)
+        return FakeSerial()
+    monkeypatch.setattr(baud, 'open_serial', open_fake)
     with pytest.raises(PwehError, match='instrument_port'):
         baud.detect('/dev/synthetic', [9600, 115200], 0.001, 'none', early_stop=False, before_io=guard)
-    assert len(calls) == 2 and len(closed) == 1
+    assert len(calls) == 3 and len(closed) == 1
+    assert opened == [1] and speeds == [9600] and resets == [1]
 
 
 async def test_jtagulator_cancel_after_pin_sends_no_abort(sim_env, workspace, auth, monkeypatch):

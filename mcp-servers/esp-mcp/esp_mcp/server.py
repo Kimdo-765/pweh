@@ -21,7 +21,7 @@
   다른 설정 파일을 읽으면 바로 멈추고 ``esp_foreign_config`` 오류를 낸다.
 - 백그라운드 읽기 작업은 esptool 을 띄우기 직전마다 argv 를 다시 분류하고 소유/허가 증명과 dumps/ 실제 경로(심볼릭 링크로
   바뀌지 않았는지)를 다시 확인한다.
-- 같은 포트는 한 번에 한 작업만 쓴다(포트 잠금 + job 배타 키 — 서버 프로세스 안에서 유효). 리눅스 포트는 다른 프로세스가 열고
+- 같은 포트는 승인 전 확보하는 OS lease로 다른 PWEH 프로세스와도 배타한다. 리눅스 포트는 다른 프로세스가 열고
   있으면, Windows 포트는 그 COM 포트를 인자로 받은 esptool.exe 가 남아 있으면 거부한다.
 - 취소·시간 초과·서버 종료 때 Windows esptool.exe 는 PyInstaller 자식부터 끝내고 남은 것이 없는지 확인한다(남으면 PID 를 담은
   ``esp_orphan_process`` 오류). 덤프 중에는 숨은 예약 파일(``dumps/.<name>.readN.partial`` + 소유 표식 ``.<name>.owner.partial``)만
@@ -49,7 +49,7 @@ import stat
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -69,7 +69,7 @@ from pweh.mcpkit import (
     register_job_tools,
     safe_tool,
 )
-from pweh import hostenv
+from pweh import hostenv, ports as shared_ports, portlock, procutil
 from pweh.procutil import pid_alive
 from pweh.runtime import Runtime, get_runtime
 from pweh.instrument_guard import guard_target_port, guard_observed_mac
@@ -166,8 +166,145 @@ def rt() -> Runtime:
     return get_runtime(SERVER_NAME)
 
 
+def _port_environment() -> dict[str, Any]:
+    return hostenv.detect(smoke=False, config=rt().config)
+
+
+def _port_probe() -> shared_ports.PortProbe:
+    return shared_ports.PortProbe(realpath=ports.realpath)
+
+
+_ORPHAN_PORTS: list["_PortUse"] = []
+_ORPHAN_PORTS_LOCK = threading.Lock()
+
+
+class _PortUse:
+    """한 info/덤프가 gate 전부터 프로세스 정리까지 소유하는 OS lease."""
+
+    def __init__(self, r: Runtime, case_id: str, spec: ports.PortSpec, before: str, after: str):
+        self.runtime = r
+        self.route = shared_ports.resolve(_port_environment(), spec.port, "esptool", probe=_port_probe(), config=r.config)
+        self.spec = replace(spec, lock_key=self.route.lock_key, resolved=self.route.device_path, route=self.route)
+        self.whole = before == "usb-reset" or (self.route.reset_risk == "wired" and
+                    (before not in ("no-reset", "no-reset-no-sync") or after in ("hard-reset", "watchdog-reset")))
+        self.keys = shared_ports.reset_scope(self.route, whole_device=self.whole, config=r.config)
+        _reap_orphan_ports(self.keys)
+        self.lease = portlock.get_manager().acquire(self.keys, owner=portlock.PortOwner(
+            server=SERVER_NAME, case_id=case_id, ref=self.route.ref))
+        self.handoff = portlock.LeaseHandoff()
+        self.pending: list[tuple[RunResult, WinMatch | None, float]] = []
+        self.reservation: DumpPlan | None = None
+        self.unverified = False
+
+    def fresh(self) -> None:
+        fresh = shared_ports.revalidate(self.route, env=_port_environment(), probe=_port_probe(), config=self.runtime.config)
+        keys = shared_ports.reset_scope(fresh, whole_device=self.whole, config=self.runtime.config)
+        if keys != self.keys:
+            raise PwehError("승인 뒤 장치 전체 잠금 범위가 바뀌었습니다.", code="route_changed")
+        self.lease.assert_held(keys)
+
+    def note(self, result: RunResult, match: WinMatch | None, started: float) -> None:
+        if result.orphans or result.orphan_check_failed or not result.cleanup_verified:
+            self.pending.append((result, match, started))
+            self.unverified = True
+
+    def finish(self) -> None:
+        if self.unverified:
+            self.lease.set_state("orphan")
+            with _ORPHAN_PORTS_LOCK:
+                if self not in _ORPHAN_PORTS:
+                    _ORPHAN_PORTS.append(self)
+        else:
+            self.lease.close()
+
+
+def _reap_orphan_ports(keys: tuple[str, ...]) -> None:
+    """알려진 실행 맥락으로 부재가 확인된 고아만 해제한다. 미확인은 계속 보존한다."""
+    with _ORPHAN_PORTS_LOCK:
+        for use in list(_ORPHAN_PORTS):
+            if use.lease.closed:
+                _ORPHAN_PORTS.remove(use)
+                continue
+            if not set(use.keys) & set(keys):
+                continue
+            if not use.pending:
+                continue
+            verified = True
+            for result, match, started in use.pending:
+                if match is not None:
+                    try:
+                        alive = [p for p in winproc.query(match.image) if match.matches(p)]
+                    except Exception:
+                        verified = False
+                        break
+                    if alive:
+                        raise Busy("앞선 esptool 실행의 Windows 프로세스가 남아 있습니다: PID "
+                                   + ", ".join(str(p.pid) for p in alive),
+                                   hint="이 실행의 종료가 확인될 때까지 포트 lease를 유지합니다.")
+                if procutil.process_group_empty(result.pid, expect_start_ticks=result.start_ticks) is not True:
+                    verified = False
+                    break
+            if verified:
+                if all(esptool_cli.cleanup_owned(result.pid, process_token=result.process_token) for result, _match, _started in use.pending):
+                    use.unverified = False
+                    if use.reservation is not None:
+                        _release_reservation(use.reservation)
+                    use.lease.close()
+                    _ORPHAN_PORTS.remove(use)
+
+
+def _run_port_process(use: _PortUse, argv: list[str], **kwargs: Any) -> RunResult:
+    """runner 예외에서도 child 신원과 미확인 종료 상태를 lease 소유자에게 남긴다."""
+    state: dict[str, Any] = {}
+    started = time.monotonic()
+    match = kwargs.get("win_match")
+    try:
+        result = run_streaming(argv, process_state=state, **kwargs)
+    except BaseException:
+        verified = not state
+        if state:
+            try:
+                verified = esptool_cli.cleanup_owned(state["pid"], process_token=state.get("process_token"))
+            except Exception:
+                verified = False
+        use.unverified = not verified
+        if not verified:
+            use.note(RunResult(argv=[], returncode=None, pid=state.get("pid"), start_ticks=state.get("start_ticks"), process_token=state.get("process_token"),
+                               cleanup_verified=False, orphan_check_failed=bool(match)), match, started)
+        raise
+    use.unverified = False
+    use.note(result, match, started)
+    return result
+
+
 async def _offload(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     return await anyio.to_thread.run_sync(functools.partial(fn, *args, **kwargs))
+
+
+async def _acquire_port_use(factory: Callable[..., Any], *args: Any) -> Any:
+    """raw Task.cancel로 thread 반환값을 잃어도 생성된 lease를 정확히 한 번 회수한다."""
+    lock = threading.Lock()
+    state: dict[str, Any] = {"cancelled": False, "use": None}
+
+    def create() -> Any:
+        use = factory(*args)
+        with lock:
+            if state["cancelled"]:
+                if use is not None:
+                    use.finish()
+                return None
+            state["use"] = use
+        return use
+
+    try:
+        return await _offload(create)
+    except BaseException:
+        with lock:
+            state["cancelled"] = True
+            use, state["use"] = state["use"], None
+            if use is not None:
+                use.finish()
+        raise
 
 
 async def _run_cancellable(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -363,8 +500,7 @@ def _check_port_free(spec: ports.PortSpec, exe: str | None = None) -> None:
     images = ([exe_image(exe)] if exe else []) + ["esptool.exe"]
     holders = winproc.port_holders(spec.port, images)
     if holders is None:
-        log.warning("Windows esptool.exe 가 %s 를 잡고 있는지 확인하지 못함 (powershell 실패)", spec.port)
-        return
+        raise PwehError("Windows 포트 보유자 확인에 실패했습니다. 실행하지 않습니다.", code="port_holder_unknown")
     if holders:
         pids = [p.pid for p in holders]
         raise Busy(
@@ -718,6 +854,7 @@ async def esp_version() -> dict[str, Any]:
     description=(
         "시리얼 포트 목록 (포트를 열지 않음, OBSERVE). windows{available, ports, note}: Windows 의 COM 포트(powershell.exe 로 Win32_PnPEntity 조회 — "
         "port, name, vid, pid, serial_number, usb_id, kind, description_ko), linux{ports, hidden_legacy_ports}: pyserial 목록(+ in_use_by 다른 프로세스 PID). "
+        "기존 행에 route/device_id/held_by 를 더하고 env_kind 를 반환한다. "
         "알려진 USB ID 주석: 303a:1001 = ESP 내장 USB-Serial/JTAG, 303a:0009 = ESP32-S3 ROM USB-OTG 다운로드 모드, 10c4:ea60 = CP210x, "
         "1a86:7523 = CH340, 1a86:55d3 = CH343, 1a86:55d4 = CH9102, 0403:6001/6010/6014/6015 = FTDI. WSL interop/powershell 이 없으면 리눅스 목록과 note 만."
     ),
@@ -727,10 +864,30 @@ async def esp_version() -> dict[str, Any]:
 async def esp_list_ports() -> dict[str, Any]:
     win = await _offload(ports.list_windows_ports)
     lin_all = await _offload(ports.list_linux_ports, ports.device_users)
-    lin = [p for p in lin_all if p.get("hwid") not in ("n/a", None) or p.get("vid")]
-    hidden = len(lin_all) - len(lin)
+    env = _port_environment()
+    base_probe = _port_probe()
+
+    def listing_identity(ref: str) -> Any:
+        if base_probe.identity is not None:
+            return base_probe.identity(ref)
+        if shared_ports.parse_win_com(ref) is not None:
+            # 기존 flat CIM 목록에는 parent chain이 없다. COM마다 추가 PnP를
+            # 실행하거나 flat VID/PID만으로 USB 부모를 만들어 내지 않는다.
+            from pweh.portidentity import PortIdentity
+            return PortIdentity(ref, backend="windows", reasons=("flat_inventory_without_parent_chain",))
+        return shared_ports._probe_identity(ref, config=rt().config, stat_port=base_probe.stat or os.stat)
+
+    listing_probe = replace(base_probe, identity=listing_identity)
+    routed = await _offload(shared_ports.list_serial, env, purpose="esptool", config=rt().config,
+                           probe=listing_probe, local_provider=lambda **kw: lin_all, windows_provider=lambda: win)
+    # 원래 Windows 조회 실패 이유·행 필드를 보존하고 공통 route 사실만 덧붙인다.
+    if routed["windows"]["available"] or not win.get("available"):
+        win = {**win, "ports": routed["windows"]["ports"]}
+    lin = routed["local"]["ports"]
+    hidden = routed["local"]["hidden_legacy_ports"]
     out: dict[str, Any] = {
         "ok": True,
+        "env_kind": routed["env_kind"],
         "windows": win,
         "linux": {"ports": lin, "hidden_legacy_ports": hidden},
         "count": len(win.get("ports") or []) + len(lin),
@@ -760,8 +917,24 @@ async def esp_list_ports() -> dict[str, Any]:
     return out
 
 
-async def _run_info_command(
+async def _run_info_command(**kwargs: Any) -> dict[str, Any]:
+    r = rt()
+    case = r.case(kwargs["case_id"], hardware=True)
+    spec, _chip, _baud, before, _stub = _common_args(kwargs["port"], kwargs["chip"], kwargs["baud"],
+                                                       kwargs["before"], kwargs["no_stub"], INFO_BAUD_DEFAULT)
+    await _offload(guard_target_port, r, spec.port, consumer="esp")
+    use = await _acquire_port_use(_PortUse, r, case.id, spec, before, kwargs["after"])
+    try:
+        return await _run_info_command_inner(use=use, **kwargs)
+    finally:
+        if use.handoff.abandon_caller():
+            use.finish()
+
+
+async def _run_info_command_inner(
     *,
+    use: _PortUse,
+    finish: Callable[[dict[str, Any]], dict[str, Any]],
     tool: str,
     command: str,
     log_prefix: str,
@@ -780,7 +953,7 @@ async def _run_info_command(
     r = rt()
     case = r.case(case_id, hardware=True)
     spec, chip_v, baud_v, before_v, no_stub_v = _common_args(port, chip, baud, before, no_stub, INFO_BAUD_DEFAULT)
-    await _offload(guard_target_port, r, spec.port, consumer="esp")
+    spec = use.spec
     timeout = _clamp_timeout(timeout_s, INFO_TIMEOUT_S)
     located = await _offload(_locate_exe, spec)
     await _offload(_check_port_free, spec, located[0])  # 사용 중 확인이 먼저 — 버전 확인(실행)이 실패해도 busy 를 가리지 않는다
@@ -796,53 +969,68 @@ async def _run_info_command(
         action["after_requested"] = after_req
     if cls.risk >= Risk.DESTRUCTIVE:
         return {"gate": _policy_denied(tool, action, cls, case.id)}
+    action["route"] = use.route.approval_identity()
+    use.lease.set_state("awaiting_approval")
     decision = await r.authorize(tool=tool, action=action, classification=cls, case_id=case.id, approval_id=approval_id, ctx=ctx)
     if not decision.allowed:
         return {"gate": gate_response(decision)}
-    log_path = _reserve_numbered(case.subdir("uart"), log_prefix, ".log")
     started = utcnow_iso()
 
-    def work(cancel_event: threading.Event) -> tuple[RunResult, OutputCollector, ConfigWatch]:
+    def work(cancel_event: threading.Event) -> dict[str, Any]:
+        if not use.handoff.claim_worker():
+            return {}
         lock = _port_lock(_port_key(spec))
-        if not lock.acquire(blocking=False):
-            raise Busy(f"포트 {spec.port} 를 다른 esp 작업이 사용 중입니다.", hint="esp_jobs 로 확인하라.")
+        locked = False
         try:
+            if cancel_event.is_set():
+                return {}
+            locked = lock.acquire(blocking=False)
+            if not locked:
+                raise Busy(f"포트 {spec.port} 를 다른 esp 작업이 사용 중입니다.", hint="esp_jobs 로 확인하라.")
+            use.fresh()
+            use.lease.set_state("running")
             guard_target_port(r, spec.port, consumer="esp", phase="pre-process")
             again = classify_esptool_argv(argv, port=spec.port, esptool_major=backend.major, esptool_minor=backend.minor)
             if again.risk != Risk.MODIFY or again.rule_id != cls.rule_id:
                 raise SafetyDenied(f"실행 직전 재분류에서 거부됨: {again.reason}", data={"classification": again.to_dict()})
+            log_path = _reserve_numbered(case.subdir("uart"), log_prefix, ".log")
             with _run_dir(backend.windows) as rd:
                 watch = ConfigWatch(rd.allowed_configs())
                 col = OutputCollector(on_line=watch.line)
                 match = info_win_match(backend.exe, spec.port, command, backend.major) if backend.windows else None
-                res = run_streaming(argv, timeout=timeout, on_text=col.feed,
+                use.unverified = True
+                res = _run_port_process(use, argv, timeout=timeout, on_text=col.feed,
                                     cancel=lambda: cancel_event.is_set() or watch.foreign is not None, cwd=rd.path,
                                     env=child_env(windows=backend.windows, run_dir=rd.path, stub_version=backend.stub_version),
                                     win_match=match)
             col.close()
-            return res, col, watch
-        finally:
-            lock.release()
+            _write_log(log_path, argv=argv, backend=backend, port=spec.port, res=res, col=col, started_at=started)
+            art = _register_log(case, log_path, command, spec.port)
+            text = col.text
+            log_rel = case.rel(log_path)
+            r.audit({"event": f"esp_{command.replace('-', '_')}", "port": spec.port, "backend": backend.name, "returncode": res.returncode,
+                     "log": log_rel, "duration_s": round(res.duration_s, 2), "orphans": res.orphans or None,
+                     "foreign_config": watch.foreign}, case.id)
+            if res.orphans:
+                raise _orphan_error(res, f"{tool}({command})", spec.port, log_rel)
+            if not res.cleanup_verified or res.orphan_check_failed:
+                raise PwehError("esptool 종료를 확인하지 못했습니다.", code="process_cleanup_unverified")
+            if watch.foreign:
+                raise foreign_config_error(watch.foreign, watch.allowed, f"{tool}({command})", log_path=log_rel)
+            run = {"case": case, "spec": spec, "backend": backend, "argv": argv, "cls": cls, "res": res, "text": text,
+                    "log_path": log_rel, "artifact": art, "after": after_v, "after_requested": after_req, "no_stub": no_stub_v,
+                    "baud": baud_v}
 
-    try:
-        res, col, watch = await _run_cancellable(work)
-    except BaseException:
-        _unlink(log_path)
-        raise
-    _write_log(log_path, argv=argv, backend=backend, port=spec.port, res=res, col=col, started_at=started)
-    art = _register_log(case, log_path, command, spec.port)
-    text = col.text
-    log_rel = case.rel(log_path)
-    r.audit({"event": f"esp_{command.replace('-', '_')}", "port": spec.port, "backend": backend.name, "returncode": res.returncode,
-             "log": log_rel, "duration_s": round(res.duration_s, 2), "orphans": res.orphans or None,
-             "foreign_config": watch.foreign}, case.id)
-    if res.orphans:
-        raise _orphan_error(res, f"{tool}({command})", spec.port, log_rel)
-    if watch.foreign:
-        raise foreign_config_error(watch.foreign, watch.allowed, f"{tool}({command})", log_path=log_rel)
-    return {"case": case, "spec": spec, "backend": backend, "argv": argv, "cls": cls, "res": res, "text": text,
-            "log_path": log_rel, "artifact": art, "after": after_v, "after_requested": after_req, "no_stub": no_stub_v,
-            "baud": baud_v}
+            return finish(run)
+        except ToolMissing:
+            use.unverified = False
+            raise
+        finally:
+            if locked:
+                lock.release()
+            use.finish()
+
+    return await _run_cancellable(work)
 
 
 def _base_result(run: dict[str, Any]) -> dict[str, Any]:
@@ -851,6 +1039,7 @@ def _base_result(run: dict[str, Any]) -> dict[str, Any]:
     out = {
         "backend": backend.name,
         "port": spec.port,
+        "route": spec.route.to_dict() if spec.route else None,
         "esptool_version": backend.version,
         "esptool_path": backend.exe,
         "log_path": run["log_path"],
@@ -902,7 +1091,8 @@ def _connect_notes(conn: dict[str, Any], run: dict[str, Any]) -> tuple[list[str]
         "size_bytes, type_efuse, voltage}, secure_download_mode, stub, log_path(uart/esptool-chip-info-NNN.log), backend, port, esptool_version, "
         "warnings, notes. Secure Download Mode 면 flash-id 가 거부되므로 status='secure_download_mode' 와 칩 종류만 돌려준다. "
         "연결 실패면 사람에게 BOOT 를 누른 채 RESET 을 누르게 하고 before='no-reset' 으로 다시 호출한다. "
-        "modify_policy=approve 이면 approval_required → 사람이 pweh approve 후 approval_id 를 붙여 재호출."
+        "modify_policy=approve 이면 approval_required → 사람이 pweh approve 후 approval_id 를 붙여 재호출. "
+        "승인 전 공통 포트 잠금과 실행 직전 route 재검증을 적용하고, 프로세스 정리 미확인 시 잠금을 보존한다."
     ),
     annotations=ANN_DEVICE,
 )
@@ -921,9 +1111,11 @@ async def esp_chip_info(
 ) -> dict[str, Any]:
     run = await _run_info_command(tool="esp_chip_info", command="flash-id", log_prefix="esptool-chip-info", case_id=case_id, port=port,
                                   chip=chip, baud=baud, before=before, after=after, no_stub=no_stub, timeout_s=timeout_s,
-                                  approval_id=approval_id, ctx=ctx)
-    if "gate" in run:
-        return run["gate"]
+                                  approval_id=approval_id, ctx=ctx, finish=_chip_info_result)
+    return run.get("gate", run)
+
+
+def _chip_info_result(run: dict[str, Any]) -> dict[str, Any]:
     text, res = run["text"], run["res"]
     conn = parse_connect(text)
     flash = parse_flash_id(text)
@@ -1027,7 +1219,7 @@ _SECURITY_NULL_FIELDS = (
         "반환: status('ok' | 'unsupported'), secure_boot, flash_encryption(SPI_BOOT_CRYPT_CNT 홀수 비트=켜짐), crypt_cnt, secure_download_mode(플래그 비트 2), "
         "read_flash_possible, ciphertext_expected, jtag_hard_disabled/jtag_soft_disabled, usb_disabled, download_dcache/icache_disabled, "
         "key_blocks[{block, purpose}], flags_hex, parsed_flags, raw_fields(보안 블록의 'Label: value' 원문), chip_id, api_version, assessment, "
-        "log_path(uart/esptool-security-info-NNN.log). "
+        "log_path(uart/esptool-security-info-NNN.log). 승인 전 공통 포트 잠금과 실행 직전 route 재검증을 적용한다. "
         "Secure Download Mode 에서도 동작한다. read_flash_possible=false 면 덤프를 시도하지 말고 우회 없이 사용자에게 보고한다. "
         "원조 ESP32/ESP8266 은 이 명령을 지원하지 않아 ok=true, status='unsupported', 보안 필드·read_flash_possible 이 null(보안 상태 미확인)이다."
     ),
@@ -1048,9 +1240,11 @@ async def esp_security_info(
 ) -> dict[str, Any]:
     run = await _run_info_command(tool="esp_security_info", command="get-security-info", log_prefix="esptool-security-info",
                                   case_id=case_id, port=port, chip=chip, baud=baud, before=before, after=after, no_stub=no_stub,
-                                  timeout_s=timeout_s, approval_id=approval_id, ctx=ctx)
-    if "gate" in run:
-        return run["gate"]
+                                  timeout_s=timeout_s, approval_id=approval_id, ctx=ctx, finish=_security_info_result)
+    return run.get("gate", run)
+
+
+def _security_info_result(run: dict[str, Any]) -> dict[str, Any]:
     text, res = run["text"], run["res"]
     conn = parse_connect(text)
     sec = parse_security_info(text)
@@ -1180,6 +1374,7 @@ class DumpPlan:
     exclusive_key: str
     plan_notes: list[str] = field(default_factory=list)
     runtime: Runtime | None = field(default=None, repr=False, compare=False)
+    port_use: _PortUse | None = field(default=None, repr=False, compare=False)
 
     @property
     def n_reads(self) -> int:
@@ -1273,13 +1468,19 @@ def _update_owner(owner: Path, *, only_if_active: bool = False, **fields: Any) -
             log.warning("소유 표식 갱신 실패: %s", owner)
 
 
-def _release_reservation(plan: DumpPlan, *, orphan_pids: list[int] | None = None) -> None:
+def _release_reservation(plan: DumpPlan, *, orphan_pids: list[int] | None = None, keep: bool = False) -> None:
     """예약 해제: 데이터 예약 → 소유 표식 순서로 지운다. 남은 Windows esptool.exe 가 있으면 파일을 남기고 소유 표식에 PID 를 적는다
     (그 프로세스가 나중에 예약 파일을 쓸 수 있으므로 — 정리는 그 PID 가 없어진 뒤 _sweep_dumps_dir 가 한다)."""
     with _RESERVE_LOCK:
-        if orphan_pids:
-            _update_owner(plan.owner_path, windows_pids=list(orphan_pids), windows_images=[exe_image(plan.backend.exe)],
+        if orphan_pids or keep or (plan.port_use is not None and plan.port_use.unverified):
+            # 바깥 finally의 반복 보존이 먼저 확보한 PID를 빈 목록으로 지우지 않는다.
+            fields = {"windows_pids": list(orphan_pids)} if orphan_pids is not None else {}
+            _update_owner(plan.owner_path, **fields, windows_images=[exe_image(plan.backend.exe)],
                           released_at=utcnow_iso())
+            # 같은 서버의 다른 포트가 sweep해도 미확인 POSIX writer 예약을 지우지 않는다.
+            if plan.port_use is not None and plan.port_use.unverified:
+                plan.port_use.reservation = plan
+                return
         else:
             for st in plan.steps:
                 _unlink(st.partial)
@@ -1520,6 +1721,7 @@ def _finalize_dump(plan: DumpPlan, reads: list[dict[str, Any]], *, status: str, 
         "source": source,
         "backend": plan.backend.name,
         "port": plan.port.port,
+        "route": plan.port.route.to_dict() if plan.port.route else None,
         "esptool_version": plan.backend.version,
         "log_paths": [r.get("log_path") for r in reads],
         "artifacts": arts,
@@ -1539,6 +1741,21 @@ _CONNECT_FAILURE_CODES = {"esp_no_serial_data", "esp_connect_failed", "esp_wrong
 
 
 def _read_flash_worker(plan: DumpPlan, jctx: Any) -> dict[str, Any]:
+    use = plan.port_use
+    if use is None or not use.handoff.claim_worker():
+        return {"ok": False, "status": "cancelled"}
+    try:
+        use.lease.set_state("running", job_id=jctx.job.id)
+        return _read_flash_worker_inner(plan, jctx)
+    except ToolMissing:
+        use.unverified = False
+        raise
+    finally:
+        _release_reservation(plan, keep=use.unverified)
+        use.finish()
+
+
+def _read_flash_worker_inner(plan: DumpPlan, jctx: Any) -> dict[str, Any]:
     """두(또는 한) 번 읽기. 실행 직전마다 소유/허가 증명·dumps/ 실제 경로·argv 분류를 다시 확인한다.
 
     esptool 은 read-flash 결과를 모든 데이터를 받은 뒤에만 파일로 쓰므로, 끝나지 않은 읽기(취소·실패)에는 부분 데이터가 없다 →
@@ -1566,6 +1783,7 @@ def _read_flash_worker(plan: DumpPlan, jctx: Any) -> dict[str, Any]:
             if jctx.cancelled:
                 cancelled_at = step.index
                 break
+            plan.port_use.fresh()
             r.case(plan.case_id, hardware=True)  # 도중에 소유/허가 증명이 철회되면 멈춘다
             guard_target_port(r, plan.port.port, consumer="esp", phase=f"read-{step.index}")
             _recheck_dump_paths(plan, step)
@@ -1580,7 +1798,8 @@ def _read_flash_worker(plan: DumpPlan, jctx: Any) -> dict[str, Any]:
             with _run_dir(plan.backend.windows) as rd:
                 watch = ConfigWatch(rd.allowed_configs())
                 col = OutputCollector(on_progress=lambda p, i=step.index: _report_progress(jctx, i, n, p), on_line=watch.line)
-                res = run_streaming(step.argv, timeout=step.timeout_s, idle_timeout=READ_IDLE_TIMEOUT_S, on_text=col.feed,
+                plan.port_use.unverified = True
+                res = _run_port_process(plan.port_use, step.argv, timeout=step.timeout_s, idle_timeout=READ_IDLE_TIMEOUT_S, on_text=col.feed,
                                     cancel=lambda: jctx.cancelled or watch.foreign is not None, cwd=rd.path,
                                     env=child_env(windows=plan.backend.windows, run_dir=rd.path, stub_version=plan.backend.stub_version),
                                     win_match=step.win_match)
@@ -1594,6 +1813,8 @@ def _read_flash_worker(plan: DumpPlan, jctx: Any) -> dict[str, Any]:
             if res.orphans:
                 orphans = list(res.orphans)
                 raise _orphan_error(res, f"read-flash {step.index}/{n}", plan.port.port, log_rel)
+            if res.orphan_check_failed or not res.cleanup_verified:
+                raise PwehError("esptool 종료를 확인하지 못했습니다.", code="process_cleanup_unverified")
             if watch.foreign:
                 raise foreign_config_error(watch.foreign, watch.allowed, f"read-flash {step.index}/{n}", log_path=log_rel)
             if res.cancelled:
@@ -1690,7 +1911,8 @@ def _read_flash_worker(plan: DumpPlan, jctx: Any) -> dict[str, Any]:
         "결과: dumps/<name>.bin (+ dumps/<name>.read2.bin) + dumps/<name>.json(firmware-dump 스키마 모양 메타데이터, method 'esptool-read-flash'), "
         "flash-dump 아티팩트, 읽기별 로그 uart/esptool-<name>-readN-NNN.log. 최종 파일은 끝날 때 만들며 기존 파일은 덮어쓰지 않는다. 즉시 job_id 를 돌려주므로 "
         "esp_job_status(job_id, wait_seconds=30) 로 폴링(진행률 %)하고 esp_job_cancel 로 취소한다(취소된 읽기는 부분 데이터가 없어 삭제). "
-        "불일치면 result.match=false + warnings (파일 보존). Secure Download Mode 면 esp_secure_download_mode 로 실패한다(우회 금지)."
+        "불일치면 result.match=false + warnings (파일 보존). Secure Download Mode 면 esp_secure_download_mode 로 실패한다(우회 금지). "
+        "승인 전 공통 포트 잠금을 얻어 두 읽기와 취소 정리가 끝날 때까지 유지한다. 실행마다 route·확인된 USB reset 범위를 재검증하며 정리 미확인 시 잠금과 출력 예약을 보존한다."
     ),
     annotations=ANN_DEVICE,
 )
@@ -1715,148 +1937,161 @@ async def esp_read_flash_start(
     case = r.case(case_id, hardware=True)
     spec, chip_v, baud_v, before_v, no_stub_v = _common_args(port, chip, baud, before, no_stub, READ_BAUD_DEFAULT)
     await _offload(guard_target_port, r, spec.port, consumer="esp")
-    off = validate_offset(offset)
-    size_v = validate_size(size)
-    if size_v == "all" and off != 0:
-        raise ValidationFailed("size='all' 은 offset=0 일 때만 쓸 수 있습니다.",
-                               hint="esptool 은 감지한 플래시 크기를 넘는 읽기를 거부한다. offset 을 주려면 size 를 명시하라.")
-    if isinstance(size_v, int) and off + size_v > 2**32:
-        raise ValidationFailed("offset + size 가 32비트 주소 범위를 넘습니다.")
-    name = validate_output_name(output_name)
-    verify_v = validate_verify(verify)
-    n_reads = 2 if verify_v == "double" else 1
-    dumps_dir = case.subdir("dumps")
-    try:
-        dst = os.lstat(dumps_dir)
-    except OSError:
-        raise CaseError(f"케이스 dumps/ 를 확인할 수 없습니다: {dumps_dir}")
-    if stat.S_ISLNK(dst.st_mode) or not stat.S_ISDIR(dst.st_mode):
-        raise CaseError(f"케이스 dumps/ 가 실제 디렉터리가 아닙니다(심볼릭 링크): {dumps_dir}", hint="dumps/ 를 일반 디렉터리로 되돌려라.")
-    case_real = os.path.realpath(case.dir)
-    dumps_real = os.path.realpath(dumps_dir)
-    if not _within_real(dumps_real, case_real):
-        raise CaseError(f"케이스 dumps/ 의 실제 경로가 케이스 밖입니다: {dumps_real}")
-    real_dumps = Path(dumps_real)
-    await _offload(_sweep_dumps_dir, real_dumps, case.id)  # 죽은 프로세스가 남긴 예약 정리
-    if name:
-        _check_name_free(real_dumps, name, n_reads)
-    located = await _offload(_locate_exe, spec)
-    await _offload(_check_port_free, spec, located[0])  # 사용 중 확인이 먼저 — 버전 확인(실행)이 실패해도 busy 를 가리지 않는다
-    backend: Backend = await _offload(_resolve_backend, spec, located)
-    after_req = validate_after(after, backend.major, backend.minor)
-    after_v = stub_safe_after(after_req)
-    # 수동 다운로드 모드(before='no-reset')의 이중 읽기: 1차 뒤 칩(스텁 또는 ROM)이 바꾼 baud 로 남으면 2차 연결(115200 동기화)이
-    # USB-UART 브리지에서 맞지 않으므로 1차는 115200 으로 읽는다(네이티브 USB 는 baud 와 무관해 손해 없음)
-    read1_baud = min(baud_v, SYNC_BAUD) if (n_reads == 2 and before_v == "no-reset") else baud_v
-    step_specs = []
-    for i in range(1, n_reads + 1):
-        s_after = "no-reset-stub" if (n_reads == 2 and i == 1) else after_v
-        s_baud = read1_baud if i == 1 else baud_v
-        s_timeout = (_clamp_timeout(timeout_s, 0.0, minimum=30.0, maximum=MAX_READ_TIMEOUT_S) if timeout_s is not None
-                     else _read_timeout(size_v, s_baud, no_stub_v))
-        step_specs.append((i, s_after, s_baud, s_timeout))
-    action = {"command": "read-flash", "port": spec.port, "chip": chip_v, "offset": off, "size": size_v, "output_name": name,
-              "baud": baud_v, "verify": verify_v, "before": before_v, "after": after_v, "no_stub": no_stub_v}
-    if after_req != after_v:
-        action["after_requested"] = after_req
-    if n_reads == 2:
-        action["read1_after"] = "no-reset-stub"
-        if read1_baud != baud_v:
-            action["read1_baud"] = read1_baud
-    # 게이트 전 분류: 예약 전이라 계획 경로(리눅스)로 분류한다 (예약·Windows 경로 변환 후 다시 분류)
-    planned = real_dumps / f".{name or DEFAULT_DUMP_NAME}.read1.partial"
-    pre_argv = build_argv(backend.exe, major=backend.major, chip=chip_v, port=spec.port, baud=step_specs[0][2], before=before_v,
-                          after=step_specs[0][1], no_stub=no_stub_v, command="read-flash",
-                          args=[f"0x{off:x}", _size_token(size_v), str(planned)])
-    cls = classify_esptool_argv(pre_argv, port=spec.port, allowed_output_dir=real_dumps, esptool_major=backend.major,
-                                esptool_minor=backend.minor)
-    if cls.risk >= Risk.DESTRUCTIVE:
-        return _policy_denied("esp_read_flash_start", action, cls, case.id)
-    exclusive_key = _port_key(spec)
-    decision = await r.authorize(tool="esp_read_flash_start", action=action, classification=cls, case_id=case.id,
-                                 approval_id=approval_id, ctx=ctx)
-    if not decision.allowed:
-        return gate_response(decision)
-
-    stem, partials, owner = _reserve_dump(real_dumps, name, n_reads)
-    plan_notes: list[str] = []
-    mapped = _after_note(after_req, after_v)
-    if mapped:
-        plan_notes.append(mapped)
-    if read1_baud != baud_v:
-        plan_notes.append(f"수동 다운로드 모드(before='no-reset')의 이중 읽기라 1차 읽기는 {read1_baud} baud 로 했다: 1차 뒤 칩(스텁 또는 ROM)이 "
-                          f"그 속도로 남아 있어야 2차 연결(esptool 은 115200 으로 동기화)이 맞는다. 2차 읽기는 {baud_v} baud.")
+    use = await _acquire_port_use(_PortUse, r, case.id, spec, before_v, after)
+    spec = use.spec
     handed_off = False
-    plan: DumpPlan | None = None
     try:
-        steps: list[ReadStep] = []
-        for (i, s_after, s_baud, s_timeout), partial in zip(step_specs, partials):
-            tok, omap = await _offload(_output_token, spec, partial)
-            argv = build_argv(backend.exe, major=backend.major, chip=chip_v, port=spec.port, baud=s_baud, before=before_v,
-                              after=s_after, no_stub=no_stub_v, command="read-flash",
-                              args=[f"0x{off:x}", _size_token(size_v), tok])
-            c2 = classify_esptool_argv(argv, port=spec.port, allowed_output_dir=real_dumps, output_map=omap,
-                                       esptool_major=backend.major, esptool_minor=backend.minor)
-            if c2.risk != Risk.MODIFY or c2.rule_id != "esp.read-flash":
-                return _policy_denied("esp_read_flash_start", action, c2, case.id)
-            steps.append(ReadStep(index=i, after=s_after, baud=s_baud, timeout_s=s_timeout, partial=partial, argv=argv,
-                                  output_token=tok, output_map=omap,
-                                  win_match=output_win_match(backend.exe, tok) if backend.windows else None))
-        if backend.windows:
-            # 첫 esptool.exe 를 띄우기 전에 출력 경로를 소유 표식에 적는다: 이 서버가 SIGKILL 로 죽어도 다음 서버의 정리가 남은
-            # esptool.exe(명령줄에 이 경로)를 알아보고 예약을 지우지 않는다 (_reservation_state).
-            _update_owner(owner, only_if_active=True, windows_tokens=[st.output_token for st in steps],
-                          windows_images=[exe_image(backend.exe)])
-        plan = DumpPlan(case_id=case.id, case_dir=case.dir, case_real=case_real, dumps_dir=dumps_dir, dumps_real=dumps_real, stem=stem,
-                        owner_path=owner, port=spec, backend=backend, chip=chip_v, baud=baud_v, before=before_v, after=after_v,
-                        after_requested=after_req, no_stub=no_stub_v, offset=off, size=size_v, verify=verify_v, steps=steps,
-                        exclusive_key=exclusive_key, plan_notes=plan_notes, runtime=r)
-        the_plan = plan
+        off = validate_offset(offset)
+        size_v = validate_size(size)
+        if size_v == "all" and off != 0:
+            raise ValidationFailed("size='all' 은 offset=0 일 때만 쓸 수 있습니다.",
+                                   hint="esptool 은 감지한 플래시 크기를 넘는 읽기를 거부한다. offset 을 주려면 size 를 명시하라.")
+        if isinstance(size_v, int) and off + size_v > 2**32:
+            raise ValidationFailed("offset + size 가 32비트 주소 범위를 넘습니다.")
+        name = validate_output_name(output_name)
+        verify_v = validate_verify(verify)
+        n_reads = 2 if verify_v == "double" else 1
+        dumps_dir = case.subdir("dumps")
+        try:
+            dst = os.lstat(dumps_dir)
+        except OSError:
+            raise CaseError(f"케이스 dumps/ 를 확인할 수 없습니다: {dumps_dir}")
+        if stat.S_ISLNK(dst.st_mode) or not stat.S_ISDIR(dst.st_mode):
+            raise CaseError(f"케이스 dumps/ 가 실제 디렉터리가 아닙니다(심볼릭 링크): {dumps_dir}", hint="dumps/ 를 일반 디렉터리로 되돌려라.")
+        case_real = os.path.realpath(case.dir)
+        dumps_real = os.path.realpath(dumps_dir)
+        if not _within_real(dumps_real, case_real):
+            raise CaseError(f"케이스 dumps/ 의 실제 경로가 케이스 밖입니다: {dumps_real}")
+        real_dumps = Path(dumps_real)
+        await _offload(_sweep_dumps_dir, real_dumps, case.id)  # 죽은 프로세스가 남긴 예약 정리
+        if name:
+            _check_name_free(real_dumps, name, n_reads)
+        located = await _offload(_locate_exe, spec)
+        await _offload(_check_port_free, spec, located[0])  # 사용 중 확인이 먼저 — 버전 확인(실행)이 실패해도 busy 를 가리지 않는다
+        backend: Backend = await _offload(_resolve_backend, spec, located)
+        after_req = validate_after(after, backend.major, backend.minor)
+        after_v = stub_safe_after(after_req)
+        # 수동 다운로드 모드(before='no-reset')의 이중 읽기: 1차 뒤 칩(스텁 또는 ROM)이 바꾼 baud 로 남으면 2차 연결(115200 동기화)이
+        # USB-UART 브리지에서 맞지 않으므로 1차는 115200 으로 읽는다(네이티브 USB 는 baud 와 무관해 손해 없음)
+        read1_baud = min(baud_v, SYNC_BAUD) if (n_reads == 2 and before_v == "no-reset") else baud_v
+        step_specs = []
+        for i in range(1, n_reads + 1):
+            s_after = "no-reset-stub" if (n_reads == 2 and i == 1) else after_v
+            s_baud = read1_baud if i == 1 else baud_v
+            s_timeout = (_clamp_timeout(timeout_s, 0.0, minimum=30.0, maximum=MAX_READ_TIMEOUT_S) if timeout_s is not None
+                         else _read_timeout(size_v, s_baud, no_stub_v))
+            step_specs.append((i, s_after, s_baud, s_timeout))
+        action = {"command": "read-flash", "port": spec.port, "chip": chip_v, "offset": off, "size": size_v, "output_name": name,
+                  "baud": baud_v, "verify": verify_v, "before": before_v, "after": after_v, "no_stub": no_stub_v}
+        if after_req != after_v:
+            action["after_requested"] = after_req
+        if n_reads == 2:
+            action["read1_after"] = "no-reset-stub"
+            if read1_baud != baud_v:
+                action["read1_baud"] = read1_baud
+        # 게이트 전 분류: 예약 전이라 계획 경로(리눅스)로 분류한다 (예약·Windows 경로 변환 후 다시 분류)
+        planned = real_dumps / f".{name or DEFAULT_DUMP_NAME}.read1.partial"
+        pre_argv = build_argv(backend.exe, major=backend.major, chip=chip_v, port=spec.port, baud=step_specs[0][2], before=before_v,
+                              after=step_specs[0][1], no_stub=no_stub_v, command="read-flash",
+                              args=[f"0x{off:x}", _size_token(size_v), str(planned)])
+        cls = classify_esptool_argv(pre_argv, port=spec.port, allowed_output_dir=real_dumps, esptool_major=backend.major,
+                                    esptool_minor=backend.minor)
+        if cls.risk >= Risk.DESTRUCTIVE:
+            return _policy_denied("esp_read_flash_start", action, cls, case.id)
+        exclusive_key = _port_key(spec)
+        action["route"] = use.route.approval_identity()
+        use.lease.set_state("awaiting_approval")
+        decision = await r.authorize(tool="esp_read_flash_start", action=action, classification=cls, case_id=case.id,
+                                     approval_id=approval_id, ctx=ctx)
+        if not decision.allowed:
+            return gate_response(decision)
 
-        def job_fn(jctx: Any) -> dict[str, Any]:
-            return _read_flash_worker(the_plan, jctx)
+        stem, partials, owner = _reserve_dump(real_dumps, name, n_reads)
+        plan_notes: list[str] = []
+        mapped = _after_note(after_req, after_v)
+        if mapped:
+            plan_notes.append(mapped)
+        if read1_baud != baud_v:
+            plan_notes.append(f"수동 다운로드 모드(before='no-reset')의 이중 읽기라 1차 읽기는 {read1_baud} baud 로 했다: 1차 뒤 칩(스텁 또는 ROM)이 "
+                              f"그 속도로 남아 있어야 2차 연결(esptool 은 115200 으로 동기화)이 맞는다. 2차 읽기는 {baud_v} baud.")
+        handed_off = False
+        plan: DumpPlan | None = None
+        try:
+            steps: list[ReadStep] = []
+            for (i, s_after, s_baud, s_timeout), partial in zip(step_specs, partials):
+                tok, omap = await _offload(_output_token, spec, partial)
+                argv = build_argv(backend.exe, major=backend.major, chip=chip_v, port=spec.port, baud=s_baud, before=before_v,
+                                  after=s_after, no_stub=no_stub_v, command="read-flash",
+                                  args=[f"0x{off:x}", _size_token(size_v), tok])
+                c2 = classify_esptool_argv(argv, port=spec.port, allowed_output_dir=real_dumps, output_map=omap,
+                                           esptool_major=backend.major, esptool_minor=backend.minor)
+                if c2.risk != Risk.MODIFY or c2.rule_id != "esp.read-flash":
+                    return _policy_denied("esp_read_flash_start", action, c2, case.id)
+                steps.append(ReadStep(index=i, after=s_after, baud=s_baud, timeout_s=s_timeout, partial=partial, argv=argv,
+                                      output_token=tok, output_map=omap,
+                                      win_match=output_win_match(backend.exe, tok) if backend.windows else None))
+            if backend.windows:
+                # 첫 esptool.exe 를 띄우기 전에 출력 경로를 소유 표식에 적는다: 이 서버가 SIGKILL 로 죽어도 다음 서버의 정리가 남은
+                # esptool.exe(명령줄에 이 경로)를 알아보고 예약을 지우지 않는다 (_reservation_state).
+                _update_owner(owner, only_if_active=True, windows_tokens=[st.output_token for st in steps],
+                              windows_images=[exe_image(backend.exe)])
+            plan = DumpPlan(case_id=case.id, case_dir=case.dir, case_real=case_real, dumps_dir=dumps_dir, dumps_real=dumps_real, stem=stem,
+                            owner_path=owner, port=spec, backend=backend, chip=chip_v, baud=baud_v, before=before_v, after=after_v,
+                            after_requested=after_req, no_stub=no_stub_v, offset=off, size=size_v, verify=verify_v, steps=steps,
+                            exclusive_key=exclusive_key, plan_notes=plan_notes, runtime=r, port_use=use)
+            the_plan = plan
 
-        job = r.jobs.start("esp-read-flash", job_fn, description=f"esptool read-flash {spec.port} → dumps/{stem}.bin",
-                           case_id=case.id, meta={"planned_path": f"dumps/{stem}.bin", "port": spec.port, "backend": backend.name,
-                                                  "owner": _owner_record()},
-                           exclusive_key=exclusive_key)
-        handed_off = True
-        _update_owner(owner, only_if_active=True, job_id=job.id)
+            def job_fn(jctx: Any) -> dict[str, Any]:
+                return _read_flash_worker(the_plan, jctx)
+
+            job = r.jobs.start("esp-read-flash", job_fn, description=f"esptool read-flash {spec.port} → dumps/{stem}.bin",
+                               case_id=case.id, meta={"planned_path": f"dumps/{stem}.bin", "port": spec.port, "backend": backend.name,
+                                                      "owner": _owner_record(), "route": use.route.to_dict(), "port_keys": list(use.keys)},
+                               exclusive_key=exclusive_key)
+            handed_off = True
+            _update_owner(owner, only_if_active=True, job_id=job.id)
+        finally:
+            if not handed_off and use.handoff.abandon_caller():
+                try:
+                    with _RESERVE_LOCK:
+                        for p in partials:
+                            _unlink(p)
+                        _unlink(owner)
+                        _ACTIVE_RESERVATIONS.discard(str(owner))
+                finally:
+                    use.finish()
+        r.audit({"event": "esp_read_flash_started", "job_id": job.id, "output": f"dumps/{stem}.bin", "backend": backend.name, **plan.requested()},
+                case.id)
+        notes = list(plan_notes)
+        if n_reads == 2:
+            notes.insert(0, f"1차 읽기는 --after no-reset-stub(칩을 다운로드 모드에 둠), 2차 읽기 뒤 --after {after_v}.")
+        if spec.backend == "windows":
+            notes.append("Windows 백엔드: esptool.exe 가 wslpath 로 바꾼 경로(\\\\wsl.localhost\\…)에 직접 쓴다.")
+        return {
+            "ok": True,
+            "status": "started",
+            "job_id": job.id,
+            "planned_path": f"dumps/{stem}.bin",
+            "planned_read2_path": f"dumps/{stem}.read2.bin" if n_reads == 2 else None,
+            "metadata_path": f"dumps/{stem}.json",
+            "reads": n_reads,
+            "backend": backend.name,
+            "port": spec.port,
+            "esptool_version": backend.version,
+            "after": after_v,
+            **({"after_requested": after_req} if after_req != after_v else {}),
+            "read1_after": "no-reset-stub" if n_reads == 2 else None,
+            "read1_baud": read1_baud if n_reads == 2 else None,
+            "timeout_s_per_read": round(max(s[3] for s in step_specs), 1),
+            "route": use.route.to_dict(),
+            "classification": cls.to_dict(),
+            "notes": notes,
+            "message": (f"백그라운드 덤프 시작. esp_job_status(job_id='{job.id}', wait_seconds=30) 로 폴링하라 "
+                        f"(921600 baud 에서 4MB 는 보통 1~2분, 115200 이면 6분 이상)."),
+        }
     finally:
-        if not handed_off:
-            with _RESERVE_LOCK:
-                for p in partials:
-                    _unlink(p)
-                _unlink(owner)
-                _ACTIVE_RESERVATIONS.discard(str(owner))
-    r.audit({"event": "esp_read_flash_started", "job_id": job.id, "output": f"dumps/{stem}.bin", "backend": backend.name, **plan.requested()},
-            case.id)
-    notes = list(plan_notes)
-    if n_reads == 2:
-        notes.insert(0, f"1차 읽기는 --after no-reset-stub(칩을 다운로드 모드에 둠), 2차 읽기 뒤 --after {after_v}.")
-    if spec.backend == "windows":
-        notes.append("Windows 백엔드: esptool.exe 가 wslpath 로 바꾼 경로(\\\\wsl.localhost\\…)에 직접 쓴다.")
-    return {
-        "ok": True,
-        "status": "started",
-        "job_id": job.id,
-        "planned_path": f"dumps/{stem}.bin",
-        "planned_read2_path": f"dumps/{stem}.read2.bin" if n_reads == 2 else None,
-        "metadata_path": f"dumps/{stem}.json",
-        "reads": n_reads,
-        "backend": backend.name,
-        "port": spec.port,
-        "esptool_version": backend.version,
-        "after": after_v,
-        **({"after_requested": after_req} if after_req != after_v else {}),
-        "read1_after": "no-reset-stub" if n_reads == 2 else None,
-        "read1_baud": read1_baud if n_reads == 2 else None,
-        "timeout_s_per_read": round(max(s[3] for s in step_specs), 1),
-        "classification": cls.to_dict(),
-        "notes": notes,
-        "message": (f"백그라운드 덤프 시작. esp_job_status(job_id='{job.id}', wait_seconds=30) 로 폴링하라 "
-                    f"(921600 baud 에서 4MB 는 보통 1~2분, 115200 이면 6분 이상)."),
-    }
+        if not handed_off and use.handoff.abandon_caller():
+            use.finish()
 
 
 register_job_tools(server, rt, "esp")

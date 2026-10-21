@@ -22,6 +22,7 @@ import json
 import logging
 import select
 import threading
+import termios
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,6 +30,7 @@ from typing import Any, Callable, Iterator
 
 import serial
 
+from pweh import serialtransport
 from pweh.errors import DeviceError, PwehError, SafetyDenied, TimeoutExpired, ValidationFailed
 from pweh.instrument_guard import GUARD_CODES
 from pweh.fsutil import utcnow_iso
@@ -119,49 +121,55 @@ class SerialLink:
     MAX_BUFFER = 4 * 1024 * 1024
 
     def __init__(self, url: str, baudrate: int = 115200, *, transcript: Transcript | None = None,
-                 before_io: Callable[[], Any] | None = None) -> None:
+                 before_io: Callable[[], Any] | None = None, route: Any = None, lease: Any = None,
+                 on_disconnect: Callable[[], Any] | None = None) -> None:
         # 도구에서 이미 검사했어도 여기서 다시 (pyserial URL 처리기는 이름만 정해도 부작용이 있고, LAN 호스트는 열지 않는다)
         url = P.validate_port(url)
         self.before_io = before_io
+        self.on_disconnect = on_disconnect
         if before_io is not None:
             before_io()
         self.url = url
         self.baudrate = baudrate
         self.transcript = transcript
+        if route is None or lease is None:
+            raise ValidationFailed("직렬 연결에 확인한 route와 활성 lease가 필요합니다.")
+        self.route = route
         try:
-            # exclusive=True(flock): 다른 프로세스(예: uart-mcp 콘솔 세션도 exclusive 로 연다)가 쓰는 포트는 열지 않는다.
-            # 잘못 고른 포트가 대상 콘솔이면 재동기화 키(Ctrl-X, Ctrl-X+CR = U-Boot 의 빈 Enter → 직전 명령 반복)가
-            # 그 콘솔로 들어가기 때문이다. socket:// 등 URL 처리기는 이 옵션을 무시한다.
-            ser = serial.serial_for_url(
-                url, baudrate=baudrate, bytesize=8, parity="N", stopbits=1, timeout=0.05,
-                write_timeout=3.0, xonxoff=False, rtscts=False, dsrdtr=False, do_not_open=True, exclusive=True,
-            )
-            try:
-                # FT232RL 의 DTR 은 Propeller 리셋에 연결되어 있다. 열기 전에 내려 두지만, Linux 는 open 시 DTR 을
-                # 올리므로 대개 한 번은 리셋된다(연결할 때마다 재동기화·전압 재설정 필요).
-                ser.dtr = False
-                ser.rts = False
-            except Exception:  # noqa: BLE001 - URL 핸들러에 따라 미지원
-                pass
-            ser.open()
-        except (serial.SerialException, OSError, ValueError) as exc:
-            raise DeviceError(
-                f"JTAGulator 포트를 열 수 없습니다: {url}: {exc}",
-                hint="포트 경로(/dev/ttyUSB*), 권한(dialout 그룹), 다른 프로그램(터미널, sigrok 등)이 포트를 쓰고 있는지 확인하세요.",
-            ) from exc
+            ser = serialtransport.open_serial(route, serialtransport.SerialSettings(baudrate=baudrate, write_timeout=3.0),
+                                              lease=lease, before_io=before_io, serial_factory=serial.serial_for_url)
+        except PwehError:
+            raise
+        except (serial.SerialException, OSError, ValueError, NotImplementedError, termios.error) as exc:
+            raise DeviceError(f"JTAGulator 포트를 열 수 없습니다: {url}: {exc}",
+                              hint="장치 연결·권한과 다른 프로그램의 점유를 확인하세요.") from exc
         self._ser = ser
-        self._buf = bytearray()
-        self._base = 0
-        self._cond = threading.Condition()
-        self._last_rx = time.monotonic()
-        self._error: BaseException | None = None
-        self._closing = False
-        self._sinks: list[Callable[[bytes], None]] = []
-        self._write_lock = threading.Lock()
-        self.rx_bytes = 0
-        self.tx_bytes = 0
-        self._thread = threading.Thread(target=self._reader, name=f"jtagulator-rx[{url}]", daemon=True)
-        self._thread.start()
+        try:
+            self._buf = bytearray()
+            self._base = 0
+            self._cond = threading.Condition()
+            self._last_rx = time.monotonic()
+            self._error: BaseException | None = None
+            self._closing = False
+            self._sinks: list[Callable[[bytes], None]] = []
+            self._write_lock = threading.Lock()
+            self.rx_bytes = 0
+            self.tx_bytes = 0
+            self._thread = threading.Thread(target=self._reader, name=f"jtagulator-rx[{url}]", daemon=True)
+            self._thread.start()
+        except BaseException as exc:
+            # reader를 발행하기 전의 실패도 열린 transport의 정리 소유자를 잃지 않는다.
+            self._closing = True
+            with contextlib.suppress(Exception):
+                ser.close()
+            thread = getattr(self, "_thread", None)
+            if thread is not None and thread is not threading.current_thread():
+                with contextlib.suppress(RuntimeError):
+                    thread.join(timeout=2.0)
+            if not ser.closed:
+                raise serialtransport.SerialOpenError(ser, exc) from exc
+            raise DeviceError("JTAGulator 수신 스레드를 시작하지 못했습니다.",
+                              data={"cause": type(exc).__name__}) from exc
 
     # -- 수신 ------------------------------------------------------------------
     def _reader(self) -> None:
@@ -189,9 +197,9 @@ class SerialLink:
                     self._error = exc
                     log.warning("jtagulator link error on %s: %r", self.url, exc)
                     if self.transcript:
-                        self.transcript.note(f"link error: {exc!r}")
-                with self._cond:
-                    self._cond.notify_all()
+                        with contextlib.suppress(Exception):
+                            self.transcript.note(f"link error: {exc!r}")
+                self._disconnect(exc)
                 return
             if not data:
                 continue
@@ -259,6 +267,15 @@ class SerialLink:
         if self._closing:
             raise DeviceError("JTAGulator 연결이 이미 닫혔습니다.", code="disconnected")
 
+    def _disconnect(self, exc: BaseException) -> None:
+        """호스트 핸들을 닫되 소유 Connection의 lease는 명시 disconnect까지 남긴다."""
+        self._error = exc
+        with contextlib.suppress(Exception):
+            self.close()
+        if self.on_disconnect is not None:
+            with contextlib.suppress(Exception):
+                self.on_disconnect()
+
     # -- 송신 ------------------------------------------------------------------
     def check_target(self) -> None:
         """계측기로 고정되면 추가 송신 없이 호스트 연결만 닫고 거부를 전파한다."""
@@ -266,8 +283,8 @@ class SerialLink:
             try:
                 self.before_io()
             except PwehError as exc:
-                if exc.code in GUARD_CODES:
-                    self.close()
+                if exc.code in GUARD_CODES or exc.code in {"route_changed", "port_role_conflict", "port_role_unknown"}:
+                    self._disconnect(exc)
                 raise
 
     def write(self, data: bytes) -> None:
@@ -277,7 +294,7 @@ class SerialLink:
             try:
                 self._ser.write(data)
             except Exception as exc:  # noqa: BLE001
-                self._error = exc
+                self._disconnect(exc)
                 raise DeviceError(f"JTAGulator 로 쓰기 실패: {exc}", code="disconnected") from exc
             self.tx_bytes += len(data)
         if self.transcript:
@@ -292,16 +309,20 @@ class SerialLink:
         except ValueError:
             pass
 
+    @property
+    def physical_closed(self) -> bool:
+        return self._ser.closed
+
     def close(self) -> None:
         self._closing = True
         try:
-            self._ser.close()
-        except Exception:  # noqa: BLE001
-            pass
-        with self._cond:
-            self._cond.notify_all()
-        if threading.current_thread() is not self._thread:
-            self._thread.join(timeout=2.0)
+            self._ser.close()  # 미확인이면 lease 소유자에게 오류를 전파한다.
+        finally:
+            with self._cond:
+                self._cond.notify_all()
+            if threading.current_thread() is not self._thread:
+                with contextlib.suppress(RuntimeError):
+                    self._thread.join(timeout=2.0)
 
 
 # ---------------------------------------------------------------------------

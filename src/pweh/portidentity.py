@@ -1,4 +1,4 @@
-"""계측기 거부용 읽기 전용 포트 식별. 포트 열기·USB 질의·전체 P1 resolve는 하지 않는다.
+"""읽기 전용 포트 식별과 USB sibling 관찰. 포트 열기·USB control 질의는 하지 않는다.
 
 OS 관찰 실패는 unknown이다. 시험은 Windows runner 또는 합성 sysfs/stat 함수를 명시한다.
 """
@@ -51,6 +51,23 @@ class PortIdentity:
     reasons: tuple[str, ...] = ()
     observed_at: float = field(default_factory=time.time)
 
+    def __post_init__(self) -> None:
+        for name in ("endpoint_key", "status", "kind", "backend", "device_instance", "parent_instance", "usb_ancestor",
+                     "vid", "pid", "interface_number", "serial", "serial_basis"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or len(value) > 4096):
+                raise ValueError("identity_scalar_invalid")
+        for name in ("location_paths", "reasons"):
+            value = tuple(getattr(self, name))
+            if len(value) > 64 or any(not isinstance(v, str) or len(v) > 4096 for v in value):
+                raise ValueError("identity_tuple_invalid")
+            object.__setattr__(self, name, value)
+        if self.tty_devnum is not None:
+            devnum = tuple(self.tty_devnum)
+            if len(devnum) != 2 or any(type(v) is not int or v < 0 for v in devnum):
+                raise ValueError("identity_devnum_invalid")
+            object.__setattr__(self, "tty_devnum", devnum)
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -76,7 +93,7 @@ $out+=@{port=([regex]::Match($d.FriendlyName,'\((COM[1-9][0-9]{0,3})\)$').Groups
 ConvertTo-Json -InputObject $out -Depth 6 -Compress"""
 
 
-def _windows_output(config: Any = None) -> bytes:
+def _windows_output(config: Any = None, *, script: str | None = None) -> bytes:
     """검증된 System32 PowerShell로 고정 읽기 스크립트만 실행한다. 출력·시간 상한을 넘기면 실패."""
     from . import hostenv
     if hostenv.disabled_keys(config) & {"interop", "windows_tools", "serial_helper"}:
@@ -89,7 +106,10 @@ def _windows_output(config: Any = None) -> bytes:
     for key in ("WSL_INTEROP", "WSL_DISTRO_NAME", "SystemRoot", "WINDIR"):
         if key in os.environ:
             env[key] = os.environ[key]
-    p = subprocess.Popen([exe, "-NoProfile", "-NonInteractive", "-Command", PS_IDENTITIES],
+    script = PS_IDENTITIES if script is None else script
+    if script not in (PS_IDENTITIES, PS_USB_SCOPE):
+        raise ValueError("pnp_script_not_allowed")
+    p = subprocess.Popen([exe, "-NoProfile", "-NonInteractive", "-Command", script],
                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                          env=env, cwd="/", start_new_session=True, bufsize=0)
     assert p.stdout is not None
@@ -179,6 +199,7 @@ def parse_windows(endpoint: str, raw: bytes | str) -> PortIdentity:
                 continue
             # '&'가 든 tail은 OS 위치형일 수 있다. 관찰한 parent exact-match는 별도로 보존한다.
             serial = tail if "&" not in tail else None
+            duplicate = False
             for other in rows:
                 if other is selected[0] or not isinstance(other, dict):
                     continue
@@ -186,12 +207,12 @@ def parse_windows(endpoint: str, raw: bytes | str) -> PortIdentity:
                     oi = n.get("instance_id") if isinstance(n, dict) else None
                     om = _USB.fullmatch(oi) if isinstance(oi, str) else None
                     if serial and om and not om.group(3) and om.group(4).casefold() == serial.casefold() and oi.upper() != ident.upper():
-                        raise ValueError("duplicate_usb_serial")
-            return PortIdentity(key, "known", present=True, backend="windows", device_instance=first,
+                        duplicate = True
+            return PortIdentity(key, "unknown" if duplicate else "known", present=True, backend="windows", device_instance=first,
                                 parent_instance=ident, usb_ancestor=ident, vid=vid.lower(), pid=pid.lower(),
                                 interface_number=interface, serial=serial,
                                 serial_basis="instance-tail" if serial else "location-derived",
-                                location_paths=tuple(locations))
+                                location_paths=tuple(locations), reasons=("duplicate_usb_serial",) if duplicate else ())
         raise ValueError("usb_parent_unresolved")
     except (ValueError, TypeError, KeyError, RecursionError, UnicodeError) as exc:
         return unknown(key, str(exc)[:100])
@@ -280,3 +301,259 @@ def probe_identity(endpoint: str | None, *, config: Any = None, runner: Callable
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
             return unknown(endpoint, str(exc)[:100])
     return linux_identity(endpoint, sysfs_root=sysfs_root or Path("/sys"), stat_port=stat_port)
+
+
+# COM 조상만 읽는 PS_IDENTITIES와 달리 비직렬 WinUSB/JTAG 형제를 포함한다.
+# 두 전체 관찰의 모든 부모 관계를 Python에서 대조한다. 입력을 코드에 보간하지 않는다.
+PS_USB_SCOPE = r"""$ErrorActionPreference='Stop';[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false);
+function Read-Scope {
+ $all=@(Get-PnpDevice -PresentOnly | Select-Object -First 8193);
+ if($all.Count -gt 8192){throw 'device limit'};
+ $ids=@($all | Where-Object {$_.InstanceId -ne 'HTREE\ROOT\0'} | ForEach-Object {$_.InstanceId});
+ $props=@(Get-PnpDeviceProperty -InstanceId $ids -KeyName DEVPKEY_Device_Parent | Select-Object -First 8193);
+ if($props.Count -gt 8192){throw 'property limit'};
+ $parents=@{};foreach($p in $props){if($parents.ContainsKey($p.InstanceId)){throw 'duplicate property'};$parents[$p.InstanceId]=$p};
+ $nodes=@();foreach($d in $all){$id=$d.InstanceId;$par=$null;$state='ok';
+ if($id -eq 'HTREE\ROOT\0'){$state='root'}else{
+  if(-not $parents.ContainsKey($id)){throw 'missing parent property'};
+  $par=$parents[$id].Data;if(-not ($par -is [string]) -or -not $par){throw 'invalid parent property'}};
+ $com=$null;$m=[regex]::Match([string]$d.FriendlyName,'\((COM[1-9][0-9]{0,3})\)$','IgnoreCase');
+ if($m.Success){$com=$m.Groups[1].Value.ToUpperInvariant()};
+ $nodes+=@{instance_id=$id;parent=$par;parent_state=$state;com=$com;pnp_class=[string]$d.Class}};
+ return @{present_count=$all.Count;nodes=$nodes;errors=@()}
+};
+$one=Read-Scope;$two=Read-Scope;
+ConvertTo-Json -InputObject @{schema='pweh.pnp-usb-scope/v1';snapshots=@($one,$two)} -Depth 6 -Compress"""
+
+
+def parse_windows_scope(route: Any, raw: bytes | str, *, deadline: float | None = None) -> Any:
+    """고정 PnP 두 관찰을 순수 검증하여 USB subtree 전체 key를 만든다."""
+    from .ports import SiblingScope
+    parent = route.identity.usb_ancestor
+    try:
+        if not parent or len(raw) > MAX_OUTPUT:
+            raise ValueError("pnp_scope_input_limit")
+        data = json.loads(raw)
+        if not isinstance(data, dict) or data.get("schema") != "pweh.pnp-usb-scope/v1":
+            raise ValueError("pnp_scope_schema")
+        snapshots = data.get("snapshots")
+        if not isinstance(snapshots, list) or len(snapshots) != 2:
+            raise ValueError("pnp_scope_snapshots")
+        deadline = deadline if deadline is not None else time.monotonic() + PNP_TIMEOUT_S
+        graphs = []
+        for snapshot in snapshots:
+            if not isinstance(snapshot, dict) or snapshot.get("errors") != []:
+                raise ValueError("pnp_scope_query_failed")
+            nodes = snapshot.get("nodes")
+            if (not isinstance(nodes, list) or not 1 <= len(nodes) <= 8192
+                    or type(snapshot.get("present_count")) is not int or snapshot["present_count"] != len(nodes)):
+                raise ValueError("pnp_scope_count")
+            graph = {}
+            for row in nodes:
+                if time.monotonic() > deadline:
+                    raise ValueError("pnp_scope_time_limit")
+                if not isinstance(row, dict):
+                    raise ValueError("pnp_scope_node")
+                ident = _text(row.get("instance_id")).upper()
+                par = _text(row.get("parent"), optional=True)
+                par = par.upper() if par else None
+                state = row.get("parent_state")
+                if not ((state == "root" and ident == "HTREE\\ROOT\\0" and par is None)
+                        or (state == "ok" and par)):
+                    raise ValueError("pnp_scope_parent_unreadable")
+                com = row.get("com")
+                if com is not None:
+                    n = parse_win_com(com)
+                    if n is None:
+                        raise ValueError("pnp_scope_com_invalid")
+                    com = f"COM{n}"
+                cls = _text(row.get("pnp_class"), optional=True) or ""
+                if ident in graph:
+                    raise ValueError("pnp_scope_duplicate_node")
+                graph[ident] = (par, state, com, cls.casefold())
+            for ident, row in graph.items():
+                if time.monotonic() > deadline:
+                    raise ValueError("pnp_scope_time_limit")
+                seen = set()
+                here = ident
+                for depth in range(17):
+                    if here == "HTREE\\ROOT\\0":
+                        break
+                    if depth == 16 or here in seen or here not in graph:
+                        raise ValueError("pnp_scope_parent_gap_cycle_depth")
+                    seen.add(here)
+                    here = graph[here][0]
+                else:
+                    raise ValueError("pnp_scope_parent_depth")
+            graphs.append(graph)
+        if graphs[0] != graphs[1]:
+            raise ValueError("pnp_scope_changed")
+        graph = graphs[0]
+        root = parent.upper()
+        if root not in graph or not _USB.fullmatch(root) or _USB.fullmatch(root).group(3):
+            raise ValueError("pnp_scope_usb_parent")
+        selected = [node for node, row in graph.items() if "win:" + str(row[2]) == route.lock_key]
+        if len(selected) != 1:
+            raise ValueError("pnp_scope_selected_com")
+        children: dict[str, list[str]] = {}
+        for node, row in graph.items():
+            children.setdefault(row[0], []).append(node)
+        pending = [(root, 0)]
+        subtree = set()
+        keys = set()
+        coms = set()
+        while pending:
+            if time.monotonic() > deadline:
+                raise ValueError("pnp_scope_time_limit")
+            node, depth = pending.pop()
+            if depth > 16 or len(subtree) >= 256 or node in subtree:
+                raise ValueError("pnp_scope_subtree_limit")
+            subtree.add(node)
+            row = graph[node]
+            keys.add("winif:" + node)
+            if row[3] == "ports" and not row[2]:
+                raise ValueError("pnp_scope_serial_unmapped")
+            if row[2]:
+                if row[2] in coms:
+                    raise ValueError("pnp_scope_duplicate_com")
+                coms.add(row[2])
+                keys.add("win:" + row[2])
+            pending.extend((child, depth + 1) for child in children.get(node, ()))
+        if selected[0] not in subtree or route.lock_key not in keys or len(keys) > 64:
+            raise ValueError("pnp_scope_keys_invalid")
+        if time.monotonic() > deadline:
+            raise ValueError("pnp_scope_time_limit")
+        return SiblingScope(tuple(sorted(keys)), parent, True)
+    except (ValueError, TypeError, KeyError, AttributeError, RecursionError, UnicodeError) as exc:
+        return SiblingScope((), parent, False, (str(exc)[:100],))
+
+
+def linux_sibling_scope(route: Any, *, sysfs_root: Path | None = None, stat_port: Callable | None = None) -> Any:
+    """active USB interface 전체와 tty class devnum을 두 번 대조한다. 장치를 열지 않는다."""
+    from .ports import SiblingScope
+    parent_id = route.identity.usb_ancestor
+    try:
+        if not parent_id:
+            raise ValueError("usb_parent_unknown")
+        root = (sysfs_root or Path("/sys")).resolve(strict=True)
+        parent = (root / parent_id).resolve(strict=True)
+        if not parent.is_relative_to(root) or parent == root:
+            raise ValueError("sysfs_scope_escape")
+        deadline = time.monotonic() + PNP_TIMEOUT_S
+        budget = 0
+        def spend(n: int = 0) -> None:
+            nonlocal budget
+            budget += n
+            if budget > MAX_OUTPUT or time.monotonic() > deadline:
+                raise ValueError("sysfs_scope_limit")
+        def attr(path: Path, optional: bool = False) -> str | None:
+            spend()
+            try:
+                real = path.resolve(strict=True)
+            except FileNotFoundError:
+                if optional:
+                    return None
+                raise
+            if not real.is_relative_to(root):
+                raise ValueError("sysfs_scope_escape")
+            with real.open("rb") as stream:
+                raw = stream.read(4097)
+            spend(len(raw))
+            if len(raw) > 4096:
+                raise ValueError("sysfs_scope_attribute_limit")
+            return _text(raw.decode("utf-8").strip(), optional=optional)
+        def names(path: Path, limit: int) -> tuple[str, ...]:
+            out = []
+            with os.scandir(path) as entries:
+                for entry in entries:
+                    spend(len(entry.name.encode()))
+                    out.append(entry.name)
+                    if len(out) > limit:
+                        raise ValueError("sysfs_scope_entries_limit")
+            return tuple(sorted(out))
+        stat_fn = stat_port or os.stat
+        def snapshot() -> tuple[Any, set[str]]:
+            st = stat_fn(route.device_path)
+            if not stat.S_ISCHR(st.st_mode) or (st.st_dev, st.st_ino, st.st_rdev) != route.node_identity:
+                raise ValueError("sysfs_scope_route_changed")
+            pst = parent.stat()
+            if not re.fullmatch(r"[0-9]+-[0-9]+(?:\.[0-9]+)*", parent.name):
+                raise ValueError("sysfs_scope_usb_name")
+            cfg_text, count_text = attr(parent / "bConfigurationValue"), attr(parent / "bNumInterfaces")
+            if not re.fullmatch(r"[0-9]{1,3}", cfg_text) or not re.fullmatch(r"[0-9]{1,3}", count_text):
+                raise ValueError("sysfs_scope_configuration")
+            cfg, count = int(cfg_text), int(count_text)
+            if not 1 <= cfg <= 255 or not 1 <= count <= 64:
+                raise ValueError("sysfs_scope_configuration")
+            ids = (attr(parent / "idVendor"), attr(parent / "idProduct"), attr(parent / "serial", True))
+            if ids != (route.identity.vid, route.identity.pid, route.identity.serial):
+                raise ValueError("sysfs_scope_identity_changed")
+            direct = names(parent, 256)
+            interfaces = {}
+            keys = set()
+            for name in direct:
+                match = re.fullmatch(re.escape(parent.name) + r":([0-9]+)\.([0-9]+)", name)
+                if not match:
+                    continue
+                path = (parent / name).resolve(strict=True)
+                if path.parent != parent:
+                    raise ValueError("sysfs_scope_interface_escape")
+                mi = attr(path / "bInterfaceNumber")
+                if not re.fullmatch(r"[0-9a-fA-F]{2}", mi):
+                    raise ValueError("sysfs_scope_interface_number")
+                number = int(mi, 16)
+                if int(match[1]) != cfg or int(match[2]) != number or number in interfaces:
+                    raise ValueError("sysfs_scope_interface_mismatch")
+                ist = path.stat()
+                interfaces[number] = (str(path.relative_to(root)), ist.st_dev, ist.st_ino)
+                keys.add(f"usbif:{parent.name}:{cfg}.{number}")
+            if len(interfaces) != count:
+                raise ValueError("sysfs_scope_interface_count")
+            ttys = names(root / "class" / "tty", 4096)
+            targets = []
+            for name in ttys:
+                spend()
+                target = (root / "class" / "tty" / name).resolve(strict=True)
+                if not target.is_relative_to(root):
+                    raise ValueError("sysfs_scope_tty_escape")
+                targets.append((name, str(target.relative_to(root))))
+                if not target.is_relative_to(parent):
+                    continue
+                if not any(target.is_relative_to(root / value[0]) for value in interfaces.values()):
+                    raise ValueError("sysfs_scope_tty_interface")
+                dev = attr(target / "dev")
+                if not re.fullmatch(r"[0-9]{1,10}:[0-9]{1,10}", dev):
+                    raise ValueError("sysfs_scope_tty_devnum")
+                major, minor = map(int, dev.split(":"))
+                if major > 0xffffffff or minor > 0xffffffff:
+                    raise ValueError("sysfs_scope_tty_devnum")
+                keys.add(f"tty:{major}:{minor}")
+                targets[-1] += (major, minor)
+            if route.lock_key not in keys or len(keys) > 64:
+                raise ValueError("sysfs_scope_keys_invalid")
+            spend()
+            return ((pst.st_dev, pst.st_ino, cfg, count, ids, direct, tuple(sorted(interfaces.items())), tuple(targets)), keys)
+        before, keys = snapshot()
+        after, after_keys = snapshot()
+        if before != after or keys != after_keys:
+            raise ValueError("sysfs_scope_changed")
+        spend()
+        return SiblingScope(tuple(sorted(keys)), parent_id, True)
+    except (OSError, ValueError, TypeError, AttributeError, RuntimeError, UnicodeError) as exc:
+        return SiblingScope((), parent_id, False, (str(exc)[:100],))
+
+
+def probe_siblings(route: Any, *, config: Any = None, windows_runner: Callable | None = None,
+                   sysfs_root: Path | None = None, stat_port: Callable | None = None) -> Any:
+    """기본 whole-device 관찰. 부분/지원하지 않는 관찰은 complete=False다."""
+    from .ports import SiblingScope
+    if route.side == "windows":
+        try:
+            deadline = time.monotonic() + PNP_TIMEOUT_S
+            raw = windows_runner() if windows_runner else _windows_output(config, script=PS_USB_SCOPE)
+            return parse_windows_scope(route, raw, deadline=deadline)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            return SiblingScope((), route.identity.usb_ancestor, False, (str(exc)[:100],))
+    if route.backend == "posix-tty":
+        return linux_sibling_scope(route, sysfs_root=sysfs_root, stat_port=stat_port)
+    return SiblingScope((), route.identity.usb_ancestor, False, ("scope_backend_unsupported",))

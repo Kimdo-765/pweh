@@ -112,7 +112,8 @@ async def test_connect_requires_authorization(workspace, sim_env):
     assert "_error" in r and "authorization_required" in r["_error"]
 
 
-async def test_connect_version_status_disconnect(workspace, auth, sim_env):
+async def test_connect_version_status_disconnect(workspace, auth, sim_env, isolated_ports):
+    from jtagulator_mcp import server as J
     from jtagulator_mcp.server import server
 
     sim, srv = sim_env()
@@ -128,18 +129,25 @@ async def test_connect_version_status_disconnect(workspace, auth, sim_env):
         assert v["firmware"] == "1.12" and v["supported"] is True
         st = await call(c, "jtagulator_status", case_id=cid)
         assert st["connected"] and st["connections"][0]["firmware"] == "1.12"
+        lease = J._CONNS[cid].lease
         again = await call(c, "jtagulator_connect", case_id=cid, port=srv.url)
         assert again["ok"] and again["reused"] is True
+        assert J._CONNS[cid].lease is lease and not lease.closed
         busy = await call(c, "jtagulator_connect", case_id=cid2, port=srv.url)
         assert "_error" in busy and "busy" in busy["_error"]
         # 연결이 끊기면(USB 분리) 다른 포트로 다시 연결할 수 있다 (끊긴 연결은 정리·기록)
         sim2, srv2 = sim_env()
         srv.drop_client()
         for _ in range(50):
-            if (await call(c, "jtagulator_status", case_id=cid))["connections"][0]["link_error"]:
+            status = (await call(c, "jtagulator_status", case_id=cid))["connections"][0]
+            owner = isolated_ports["manager"].held_by(J._CONNS[cid].route.lock_key)
+            if status["link_error"] and owner["state"] == "disconnected":
                 break
             time.sleep(0.05)
+        assert not lease.closed
+        assert isolated_ports["manager"].held_by(J._CONNS[cid].route.lock_key)["state"] == "disconnected"
         moved = await call(c, "jtagulator_connect", case_id=cid, port=srv2.url)
+        assert lease.closed
         assert moved["ok"] and moved["reused"] is False and moved["connection"]["transcript"] == "jtag/jtagulator-002.log"
         d = await call(c, "jtagulator_disconnect", case_id=cid)
         assert d["ok"] and d["transcript"] == "jtag/jtagulator-002.log"

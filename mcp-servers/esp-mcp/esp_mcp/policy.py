@@ -132,8 +132,8 @@ _EXE_FORBIDDEN_RE = re.compile(r"espefuse|espsecure|rfc2217", re.I)
 _HEX_RE = re.compile(r"^0[xX][0-9a-fA-F]{1,8}$")
 _DEC_RE = re.compile(r"^[0-9]{1,10}$")
 OUTPUT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
-_WIN_PORT_RE = re.compile(r"^COM([1-9][0-9]{0,2})$")
-_LINUX_PORT_RE = re.compile(r"^/dev/(?:tty(?:ACM|USB|S)[0-9]{1,3}|serial/by-id/[A-Za-z0-9._:+@-]{1,200})$")
+_WIN_PORT_RE = re.compile(r"^COM([1-9][0-9]{0,3})$")
+_LINUX_PORT_RE = re.compile(r"^/dev/(?:tty(?:ACM|USB|S)[0-9]{1,4}|pts/[0-9]{1,8}|serial/by-id/[A-Za-z0-9._:+@-]{1,200})$")
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +329,8 @@ def _within(path: str, base: str | os.PathLike[str]) -> bool:
 
 
 def _port_ok(port: str) -> bool:
-    return bool(_WIN_PORT_RE.match(port) or _LINUX_PORT_RE.match(port))
+    com = _WIN_PORT_RE.match(port)
+    return bool((com and int(com.group(1)) <= 4096) or _LINUX_PORT_RE.match(port))
 
 
 def _int_token(tok: str) -> int | None:

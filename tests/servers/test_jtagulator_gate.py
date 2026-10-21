@@ -84,10 +84,9 @@ def test_validate_port_win_com(monkeypatch):
     for not_com in ("COM٣", "COM１", "COM৩", "COM١٢"):  # ASCII 숫자가 아니면 COM 이름이 아니다(→ 장치 절대경로 아님)
         with pytest.raises(ValidationFailed):
             P.validate_port(not_com)
+    # 문법 검사는 환경과 독립적이며 COM 사용 가능 여부는 gate 전 resolve가 판단한다.
     for name in ("COM3", "com12", "COM1000", "COM4096"):
-        with pytest.raises(ValidationFailed, match="직접 열 수 없습니다") as ei:
-            P.validate_port(name)  # 리눅스·WSL: 문법은 맞지만 Windows COM 직접 연결은 아직 없다
-        assert "usbipd" in (ei.value.hint or "")
+        assert P.validate_port(name) == name.upper()
     with monkeypatch.context() as m:
         m.setattr(sys, "platform", "win32")
         assert P.validate_port("com3") == "COM3"
@@ -267,7 +266,7 @@ async def test_concurrent_connects_to_one_endpoint(workspace, auth):
                 results.append(await call(c, "jtagulator_connect", case_id=cid, port=url, timeout_seconds=5))
 
             async with anyio.create_task_group() as tg:
-                for cid, url in zip(cases, (srv.url, f"rfc2217://127.0.0.1:{srv.port}", f"SOCKET://127.0.0.1:{srv.port}")):
+                for cid, url in zip(cases, (srv.url, f"socket://localhost:{srv.port}", f"SOCKET://127.0.0.1:{srv.port}")):
                     tg.start_soon(one, cid, url)
         ok = [r for r in results if r.get("ok")]
         busy = [r for r in results if "[busy]" in r.get("_error", "")]
@@ -278,7 +277,7 @@ async def test_concurrent_connects_to_one_endpoint(workspace, auth):
         sim.stop()
 
 
-async def test_connect_refuses_port_locked_by_another_session(workspace, auth):
+async def test_connect_refuses_port_locked_by_another_session(workspace, auth, isolated_ports):
     """uart-mcp 처럼 exclusive 로 열린 포트(대상 콘솔일 수 있음)에는 재동기화 키를 보내지 않는다."""
     from jtagulator_mcp.server import server
 
@@ -291,7 +290,13 @@ async def test_connect_refuses_port_locked_by_another_session(workspace, auth):
         cid = _case(auth)
         async with Client(server) as c:
             r = await call(c, "jtagulator_connect", case_id=cid, port=name, timeout_seconds=3)
-            assert "_error" in r and "열 수 없습니다" in r["_error"], r
+            assert "serial_open_cleanup_failed" in r.get("_error", ""), r
+            # pyserial open 내부 실패는 fd 회수 확인이 안 되므로 process 종료까지 잠금을 보존한다.
+            from jtagulator_mcp import server as J
+            lease, transport, _ = next(iter(J._CLEANUP_PENDING.values()))
+            assert not lease.closed and not transport.closed
+            assert "open_failed_handle_ownership_unknown" in transport.cleanup_errors
+            isolated_ports["allow_orphans"] = True
         try:
             leaked = os.read(master, 4096)
         except OSError as exc:  # 읽을 바이트 없음

@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 from pweh.errors import PwehError, TimeoutExpired, ToolMissing
+from pweh import procutil
 from pweh.toolsdir import esptool_win_candidates
 
 from . import winproc
@@ -232,33 +233,32 @@ class RunResult:
     orphans: list[int] = field(default_factory=list)
     #: Windows 프로세스가 남았는지 확인하지 못함 (powershell 실패)
     orphan_check_failed: bool = False
+    cleanup_verified: bool = True
+    start_ticks: int | None = None
+    process_token: int | None = None  # 실행 객체별 내부 세대, PID 재사용과 분리
 
     @property
     def ok(self) -> bool:
-        return self.returncode == 0 and not (self.timed_out or self.idle_timed_out or self.cancelled)
+        return self.cleanup_verified and self.returncode == 0 and not (self.timed_out or self.idle_timed_out or self.cancelled)
 
 
-def kill_process_group(proc: subprocess.Popen, grace_s: float = 2.0) -> None:
-    """새 세션으로 띄운 프로세스 그룹 전체를 SIGTERM → (grace 후) SIGKILL."""
-    for sig, wait_s in ((signal.SIGTERM, grace_s), (signal.SIGKILL, 5.0)):
-        try:
-            os.killpg(proc.pid, sig)
-        except ProcessLookupError:
-            break
-        except PermissionError:  # pragma: no cover
-            try:
-                proc.send_signal(sig)
-            except ProcessLookupError:
-                break
-        try:
-            proc.wait(wait_s)
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-            break
-        except subprocess.TimeoutExpired:
-            continue
+def kill_process_group(proc: subprocess.Popen, grace_s: float = 2.0) -> bool:
+    """소유한 POSIX 그룹의 신원·종료를 확인하고 마지막에 리더를 거둔다."""
+    with _CLEANUP_LOCK:
+        if getattr(proc, "_pweh_cleanup_verified", False):
+            return True
+        ticks, pidfd = _CHILD_IDS.get(id(proc), (None, None))
+        if ticks is None:
+            return False
+        procutil.kill_process_group(proc.pid, grace=grace_s, expect_start_ticks=ticks, pidfd=pidfd)
+        if procutil.process_group_empty(proc.pid, expect_start_ticks=ticks) is not True:
+            return False
+        proc.wait(timeout=5)
+        if pidfd is not None:
+            os.close(pidfd)
+        _CHILD_IDS.pop(id(proc), None)
+        proc._pweh_cleanup_verified = True
+        return True
 
 
 #: 방법 A 종료 시간 (테스트에서 줄인다)
@@ -283,22 +283,21 @@ def stop_windows_run(proc: subprocess.Popen, match: WinMatch, started: float, *,
     verified = True
     try:
         procs = find()
-        if proc.poll() is None:
+        if not procutil.child_exited(proc.pid):
             deadline = time.monotonic() + WIN_CHILD_WAIT_S * scale
-            while procs and not winproc.children_first(procs)[0] and proc.poll() is None and time.monotonic() < deadline:
+            while procs and not winproc.children_first(procs)[0] and not procutil.child_exited(proc.pid) and time.monotonic() < deadline:
                 time.sleep(0.3)
                 procs = find()
             kids, _rest = winproc.children_first(procs)
             if kids:
                 winproc.terminate([p.pid for p in kids])
-                try:
-                    proc.wait(WIN_BOOT_EXIT_S * scale)
-                except subprocess.TimeoutExpired:
-                    pass
+                boot_deadline = time.monotonic() + WIN_BOOT_EXIT_S * scale
+                while not procutil.child_exited(proc.pid) and time.monotonic() < boot_deadline:
+                    time.sleep(0.05)
     except Exception:  # noqa: BLE001 - 조회 실패해도 리눅스 쪽은 끝낸다
         log.warning("Windows esptool.exe 조회/종료 실패", exc_info=True)
         verified = False
-    kill_process_group(proc, grace_s=0.5 if quick else 2.0)
+    verified = kill_process_group(proc, grace_s=0.5 if quick else 2.0) and verified
     if not verified:
         return [], False
     # 막 띄운 실행이면 Windows 프로세스가 interop 종료 직후에 나타날 수 있어 '없음'을 두 번 확인한다
@@ -325,25 +324,30 @@ def stop_windows_run(proc: subprocess.Popen, match: WinMatch, started: float, *,
         time.sleep(0.5)
 
 
+# PID를 거둔 뒤에도 Windows settle이 남을 수 있으므로 id(Popen) 세대로 보관한다.
 _LIVE: dict[int, tuple[subprocess.Popen, WinMatch | None, float]] = {}
 _LIVE_LOCK = threading.Lock()
+_CHILD_IDS: dict[int, tuple[int | None, int | None]] = {}
+_CLEANUP_LOCK = threading.Lock()
 
 
 def _kill_all_live() -> None:
     """서버 종료 시 남은 esptool 프로세스 정리 (새 세션이라 자동으로 죽지 않음. Windows 는 자식부터)."""
     with _LIVE_LOCK:
         items = list(_LIVE.values())
-        _LIVE.clear()
     for proc, match, started in items:
-        if proc.poll() is not None:
-            continue
+        verified = False
         if match is not None:
             try:
-                stop_windows_run(proc, match, started, quick=True)
+                remaining, verified = stop_windows_run(proc, match, started, quick=True)
+                verified = verified and not remaining
             except Exception:  # pragma: no cover
                 kill_process_group(proc, grace_s=0.5)
         else:
-            kill_process_group(proc, grace_s=0.5)
+            verified = kill_process_group(proc, grace_s=0.5)
+        if verified:
+            with _LIVE_LOCK:
+                _LIVE.pop(id(proc), None)
 
 
 atexit.register(_kill_all_live)
@@ -351,7 +355,28 @@ atexit.register(_kill_all_live)
 
 def live_process_count() -> int:
     with _LIVE_LOCK:
-        return sum(1 for p, _m, _t in _LIVE.values() if p.poll() is None)
+        return len(_LIVE)  # 리더 종료 뒤에도 미확인 자식은 live 소유 기록을 유지한다
+
+
+def cleanup_owned(pid: int, *, process_token: int | None = None) -> bool:
+    """이 runner가 보존한 실행만 정리한다. 임의 PID를 종료하지 않는다."""
+    with _LIVE_LOCK:
+        matches = [(token, item) for token, item in _LIVE.items()
+                   if item[0].pid == pid and (process_token is None or token == process_token)]
+    if not matches:
+        return True
+    if len(matches) != 1:
+        return False
+    token, (proc, match, started) = matches[0]
+    if match is not None:
+        remaining, verified = stop_windows_run(proc, match, started, quick=True)
+        verified = verified and not remaining
+    else:
+        verified = kill_process_group(proc, grace_s=0.5)
+    if verified:
+        with _LIVE_LOCK:
+            _LIVE.pop(token, None)
+    return verified
 
 
 class _WindowsDecoder:
@@ -391,6 +416,7 @@ def run_streaming(
     missing_hint: str = INSTALL_HINT,
     win_match: WinMatch | None = None,
     windows_output: bool = False,
+    process_state: dict[str, Any] | None = None,
 ) -> RunResult:
     """stdout+stderr 를 합쳐 읽으며 텍스트 조각을 on_text 로 넘긴다(펌프 스레드에서 호출).
 
@@ -418,11 +444,17 @@ def run_streaming(
     except OSError as exc:  # interop 비활성(Exec format error) 등
         raise ToolMissing(f"실행 실패: {argv[0]} ({exc})", hint=missing_hint)
     with _LIVE_LOCK:
-        _LIVE[proc.pid] = (proc, win_match, t0)
+        _LIVE[id(proc)] = (proc, win_match, t0)
+        st = procutil.proc_stat(proc.pid)
+        _CHILD_IDS[id(proc)] = (st[1] if st else None, procutil.open_pidfd(proc.pid))
+    start_ticks = _CHILD_IDS[id(proc)][0]
+    if process_state is not None:
+        process_state.update(pid=proc.pid, start_ticks=start_ticks, process_token=id(proc), cleanup_verified=False)
     last_out = [time.monotonic()]
     total = [0]
     orphans: list[int] = []
     check_failed = [False]
+    cleanup_verified = [False]
     windows = windows_output or win_match is not None
 
     def pump() -> None:
@@ -454,19 +486,18 @@ def run_streaming(
             rem, ok = stop_windows_run(proc, win_match, t0)
             orphans[:] = rem
             check_failed[0] = not ok
+            cleanup_verified[0] = ok and not rem
         else:
-            kill_process_group(proc)
+            cleanup_verified[0] = kill_process_group(proc)
 
     th = threading.Thread(target=pump, name="pweh-esptool-out", daemon=True)
-    th.start()
     timed_out = idle_out = cancelled = False
     try:
+        th.start()
         while True:
-            try:
-                proc.wait(timeout=poll_s)
+            if procutil.child_exited(proc.pid):
                 break
-            except subprocess.TimeoutExpired:
-                pass
+            time.sleep(poll_s)
             now = time.monotonic()
             if cancel is not None and cancel():
                 cancelled = True
@@ -484,22 +515,25 @@ def run_streaming(
         stop()
         raise
     finally:
-        th.join(timeout=5.0)
-        with _LIVE_LOCK:
-            _LIVE.pop(proc.pid, None)
+        if not cleanup_verified[0]:
+            stop()
+        if process_state is not None:
+            process_state.update(cleanup_verified=cleanup_verified[0], orphans=list(orphans),
+                                 orphan_check_failed=check_failed[0])
+        if th.ident is not None:
+            th.join(timeout=5.0)
+        if cleanup_verified[0]:
+            with _LIVE_LOCK:
+                _LIVE.pop(id(proc), None)
         try:
             if proc.stdout is not None:
                 proc.stdout.close()
         except OSError:
             pass
-    if proc.returncode is None:  # pragma: no cover
-        try:
-            proc.wait(5)
-        except subprocess.TimeoutExpired:
-            pass
     return RunResult(argv=argv, returncode=proc.returncode, timed_out=timed_out, idle_timed_out=idle_out,
                      cancelled=cancelled, duration_s=time.monotonic() - t0, output_bytes=total[0], pid=proc.pid,
-                     orphans=list(orphans), orphan_check_failed=check_failed[0])
+                     orphans=list(orphans), orphan_check_failed=check_failed[0],
+                     cleanup_verified=cleanup_verified[0], start_ticks=start_ticks, process_token=id(proc))
 
 
 # ---------------------------------------------------------------------------
@@ -672,7 +706,7 @@ def detect_version(path: str, *, windows: bool, run_dir: str | os.PathLike[str],
         raise TimeoutExpired(f"{path} version 이 {timeout:.0f}초 안에 끝나지 않았습니다.",
                              hint="Windows esptool.exe 첫 실행은 압축 해제로 느릴 수 있다. 다시 시도하라.")
     info = parse_version_output(text)
-    if res.returncode != 0 or info is None:
+    if not res.cleanup_verified or res.returncode != 0 or info is None:
         raise PwehError(
             f"esptool 버전을 확인할 수 없습니다 (rc={res.returncode}): {text.strip()[:300]}",
             code="esp_version_failed",
@@ -1121,6 +1155,8 @@ def foreign_config_error(path: str, ours: Sequence[str], what: str, *, log_path:
 def raise_for_result(res: RunResult, text: str, what: str, *, log_path: str | None = None, timeout_hint: str | None = None) -> None:
     """esptool 실행 결과가 실패면 매핑된 코드/힌트로 PwehError 를 던진다."""
     where = f" (로그: {log_path})" if log_path else ""
+    if not res.cleanup_verified or res.orphan_check_failed:
+        raise PwehError(f"{what}: 하위 프로세스 종료 미확인{where}", code="process_cleanup_unverified")
     if res.cancelled:
         raise PwehError(f"{what}: 취소됨{where}", code="cancelled", data={"log_path": log_path})
     if res.timed_out or res.idle_timed_out:

@@ -22,9 +22,8 @@ import json
 import logging
 import os
 import re
-import stat
-import sys
 import threading
+import termios
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,9 +32,11 @@ from typing import Any, Callable
 import serial
 
 from pweh.case import Case
+from pweh import ports, serialtransport
+from pweh.instrument_guard import GUARD_CODES
 from pweh.errors import Busy, DeviceError, PwehError, ValidationFailed
 from pweh.fsutil import utcnow_iso
-from pweh.ports import WIN_COM_MAX, endpoint_key, looks_like_win_com, parse_win_com, validate_net_url
+from pweh.ports import endpoint_key
 from pweh.safety import Classification, LineAssembler, Risk
 
 from .guard import (
@@ -260,58 +261,8 @@ PORT_URL_SCHEMES = ("socket://", "rfc2217://", "loop://")
 
 
 def validate_port(port: str) -> str:
-    """포트 문자열 검증 (열기 전, 게이트 전): 장치 절대경로, 루프백 원격 시리얼 URL(socket://, rfc2217://), 테스트용 loop://,
-    네이티브 Windows 의 COMn(COM1–COM4096) 만 받는다. 받은 값의 정규형을 돌려준다.
-
-    pyserial 의 다른 URL 처리기는 막는다. ``spy://…?file=<경로>`` 는 ``do_not_open=True`` 여도 포트 이름을 정하는 순간
-    호스트 파일을 쓰기로 열어 덮어쓰고, ``hwgrep://<정규식>`` 은 어떤 장치가 열릴지 정할 수 없으며 다른 포트를 배타 잠금 없이
-    (DTR/RTS 기본값으로) 열어 본다 — 대상 보드가 리셋될 수 있다. 장치 경로가 이미 있으면 문자 장치여야 한다(일반 파일 거부).
-
-    socket://·rfc2217:// 는 호스트가 루프백(127.0.0.0/8, [::1], localhost)이고 포트가 있는 정규형만 받아
-    ``<scheme>://<host>:<port>`` 로 돌려준다(사용자 정보·질의 옵션·LAN 호스트는 validation_failed). LAN 의 ser2net 은
-    지금 지원하지 않는다 — 설계의 운영자 허용 목록(``safety.ports.remote_serial_hosts``)은 아직 구현하지 않았다.
-    COMn 은 Windows COM 이름 문법(COM1–COM4096, 앞자리 0 없음)만 받고, Windows 가 아닌 곳에서는 거부한다.
-    """
-    p = (port or "").strip()
-    if not p:
-        raise ValidationFailed("port 가 필요합니다.", hint="uart_list_ports 의 device 또는 socket://127.0.0.1:<포트>")
-    if any(c in p for c in "\x00\r\n"):
-        raise ValidationFailed(f"port 에 제어 문자가 있습니다: {port!r}")
-    if is_url(p):
-        low = p.lower()
-        if not low.startswith(PORT_URL_SCHEMES):
-            raise ValidationFailed(
-                f"지원하지 않는 포트 URL 입니다: {p!r}",
-                hint="장치 경로(/dev/ttyUSB0, /dev/serial/by-id/…) 또는 루프백의 socket://127.0.0.1:<포트>, rfc2217://127.0.0.1:<포트> 만 "
-                     "쓸 수 있습니다 (spy://·hwgrep:// 등 다른 pyserial URL 은 호스트 파일 쓰기·임의 포트 열기 위험 때문에 막는다).",
-            )
-        if low.startswith("loop://"):
-            return p
-        return validate_net_url(p)
-    com = parse_win_com(p)
-    if com is None and looks_like_win_com(p):
-        raise ValidationFailed(
-            f"Windows COM 포트 이름은 COM1–COM{WIN_COM_MAX} 이고 앞자리 0 이 없어야 합니다: {p!r}",
-            hint="uart_list_ports 의 device 를 쓰세요.",
-        )
-    if com is not None:
-        if sys.platform == "win32":
-            return f"COM{com}"
-        raise ValidationFailed(
-            f"이 환경에서는 Windows COM 포트({p})를 직접 열 수 없습니다.",
-            hint="WSL2 에서는 Windows 쪽에서 usbipd 로 USB-UART 어댑터를 WSL 에 attach 한 뒤 /dev/ttyUSB0·/dev/ttyACM0 을 쓰세요 "
-                 "(ESP32 보드 덤프는 pweh-esp 의 방법 A 가 COMn 을 직접 씁니다).",
-        )
-    if not p.startswith("/"):
-        raise ValidationFailed(f"포트는 장치 절대경로여야 합니다: {p!r}",
-                               hint="예: /dev/ttyUSB0, /dev/serial/by-id/usb-FTDI_…, 원격이면 루프백의 socket://127.0.0.1:<포트>")
-    try:
-        st = os.stat(p)
-    except OSError:
-        return p  # 없는 장치는 열 때 DeviceError(연결 확인 힌트)로 알린다
-    if not stat.S_ISCHR(st.st_mode):
-        raise ValidationFailed(f"시리얼 장치(문자 장치)가 아닙니다: {p!r}", hint="uart_list_ports 의 device 를 쓰세요.")
-    return p
+    """문법만 검사한다. OS 경로·COM 라우팅은 gate 전 core.resolve가 확인한다."""
+    return ports.validate_ref(port, purpose="serial-session")
 
 
 def port_key(port: str) -> str:
@@ -324,45 +275,23 @@ def port_key(port: str) -> str:
     return endpoint_key(port)
 
 
-def open_serial(settings: PortSettings, *, timeout: float = 0.05, before_io: Callable[[], Any] | None = None) -> serial.SerialBase:
-    """DTR/RTS 를 열기 전에 설정하고 포트를 연다. 실패는 DeviceError(+힌트)."""
-    # 도구에서 이미 검사했어도 여기서 다시 (pyserial URL 처리기는 포트 이름만 정해도 부작용이 있다) — 검사한 정규형으로 연다
-    port = validate_port(settings.port)
-    if before_io is not None:
-        before_io()
-    kwargs: dict[str, Any] = dict(baudrate=settings.baudrate, bytesize=settings.bytesize, parity=settings.parity,
-                                  stopbits=settings.stopbits, timeout=timeout, write_timeout=5)
-    if not is_url(port):
-        kwargs["exclusive"] = True  # 장치 경로만: socket://·rfc2217:// 는 pyserial 이 exclusive 를 무시한다(프로세스 사이 배타 없음)
+def open_serial(settings: PortSettings, *, timeout: float = 0.05, before_io: Callable[[], Any] | None = None,
+                route: Any = None, lease: Any = None) -> Any:
+    """기존 시험 seam을 유지하며 공통 transport에 활성 lease를 빌려 준다."""
+    validate_port(settings.port)  # 잘못된 URL은 route/lease 유무보다 먼저 거부한다.
+    if route is None or lease is None:
+        raise ValidationFailed("직렬 포트를 열려면 확인한 route와 활성 lease가 필요합니다.")
+    core = serialtransport.SerialSettings(baudrate=settings.baudrate, bytesize=settings.bytesize, parity=settings.parity,
+                                         stopbits=settings.stopbits, timeout=timeout, write_timeout=5.0,
+                                         dtr=settings.dtr, rts=settings.rts)
     try:
-        ser = serial.serial_for_url(port, do_not_open=True, **kwargs)
-    except (ValueError, serial.SerialException) as exc:
-        raise DeviceError(f"포트 설정 실패: {port}: {exc}",
-                          hint="장치 경로(/dev/ttyUSB0) 또는 루프백 pyserial URL(socket://127.0.0.1:<포트>, rfc2217://127.0.0.1:<포트>, loop://)을 확인하세요.")
-    try:
-        ser.dtr = bool(settings.dtr)
-        ser.rts = bool(settings.rts)
-    except Exception:  # noqa: BLE001 - 일부 URL 핸들러는 신호를 지원하지 않는다
-        pass
-    try:
-        ser.open()
-    except Exception as exc:  # noqa: BLE001 - SerialException, OSError, termios.error(지원하지 않는 프레이밍 등)
-        with contextlib.suppress(Exception):
-            ser.close()
-        msg = f"{exc}" if isinstance(exc, serial.SerialException) else f"{type(exc).__name__}: {exc}"
-        hint = "uart_list_ports 로 포트를 확인하세요."
-        if "termios" in type(exc).__module__ or "Invalid argument" in msg:
-            hint = "포트가 이 설정(보드레이트·데이터 비트·패리티·정지 비트)을 지원하지 않습니다. 8N1 같은 다른 프레이밍으로 여세요 (PTY 는 7비트·패리티를 지원하지 않을 수 있음)."
-        if "Permission denied" in msg or "Errno 13" in msg:
-            hint = "포트 권한이 없습니다. 사용자를 dialout 그룹에 추가하고 다시 로그인하세요 (sudo usermod -aG dialout $USER)."
-        elif "busy" in msg.lower() or "lock" in msg.lower() or "Errno 16" in msg or "Errno 11" in msg:
-            hint = "다른 프로그램(minicom/screen/다른 MCP 서버)이 포트를 쓰고 있습니다. 그 프로그램을 닫으세요."
-        elif "No such file" in msg or "Errno 2" in msg:
-            hint = "장치가 없습니다. USB-UART 어댑터 연결과 장치 이름을 확인하세요 (uart_list_ports)."
-        elif "Connection refused" in msg:
-            hint = "TCP 포트에 연결할 수 없습니다. 이 호스트의 ser2net/시뮬레이터가 그 루프백 포트에서 실행 중인지 확인하세요."
-        raise DeviceError(f"포트를 열 수 없습니다: {port}: {msg}", hint=hint)
-    return ser
+        return serialtransport.open_serial(route, core, lease=lease, before_io=before_io,
+                                           serial_factory=serial.serial_for_url)
+    except PwehError:
+        raise
+    except (serial.SerialException, OSError, ValueError, NotImplementedError, termios.error) as exc:
+        raise DeviceError(f"포트를 열 수 없습니다: {settings.port}: {exc}",
+                          hint="장치 연결·프레이밍·권한과 다른 프로그램의 점유를 확인하세요.") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -384,14 +313,18 @@ class UartSession:
         unknown_risk: str,
         audit: Callable[[dict[str, Any]], None] | None = None,
         before_io: Callable[[], Any] | None = None,
+        route: Any = None,
+        lease: Any = None,
     ) -> None:
         self.id = session_id
         self.before_io = before_io
+        self.route, self.lease = route, lease
+        self.continuity = route.continuity_key() if route is not None else None
         self.case = case
         self.case_id = case.id
         self.settings = settings
         self.port = settings.port
-        self.port_key = port_key(settings.port)
+        self.port_key = route.lock_key if route is not None and route.lock_key else port_key(settings.port)
         self.profile = profile
         self.label = label
         self.persistent_paths = tuple(persistent_paths)
@@ -430,6 +363,7 @@ class UartSession:
         self.ser: serial.SerialBase | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self._close_lock = threading.RLock()
         udir = case.subdir("uart")
         self.log_path = udir / f"{session_id}.log"
         self.raw_path = udir / f"{session_id}.raw"
@@ -442,15 +376,23 @@ class UartSession:
     def check_target(self) -> None:
         """서버가 결속한 계측기 guard를 실행한다. 수신·닫기에는 호출하지 않는다."""
         if self.before_io is not None:
-            self.before_io()
+            try:
+                self.before_io()
+            except PwehError as exc:
+                if exc.code in GUARD_CODES or exc.code in {"route_changed", "port_role_conflict", "port_role_unknown"}:
+                    self.continuity = None
+                    self._on_disconnect(exc)
+                raise
 
     def open(self) -> None:
         self.logs.header(f"pweh uart session {self.id} port={self.port} baud={self.settings.baudrate} framing={self.settings.framing} "
                          f"dtr={self.settings.dtr} rts={self.settings.rts} profile={self.profile.name} opened={self.opened_at}")
         try:
-            self.ser = open_serial(self.settings, before_io=self.before_io)
-        except Exception:
-            self.state = "closed"
+            self.ser = open_serial(self.settings, before_io=self.before_io, route=self.route, lease=self.lease)
+        except Exception as exc:
+            if isinstance(exc, serialtransport.SerialOpenError):
+                self.ser = exc.transport
+            self.state = "disconnected" if self.ser is not None and not self.ser.closed else "closed"
             self.logs.close()
             for p in (self.log_path, self.raw_path, self.events_path):
                 with contextlib.suppress(OSError):
@@ -464,24 +406,44 @@ class UartSession:
         self._thread.start()
 
     def close(self, reason: str = "closed") -> None:
-        self._stop.set()
-        ser = self.ser
-        if ser is not None:
-            with contextlib.suppress(Exception):
-                ser.cancel_read()
-        th = self._thread
-        if th is not None and th is not threading.current_thread():
-            th.join(timeout=2.0)
-        if ser is not None:
-            with contextlib.suppress(Exception):
-                ser.close()
-        with self.cond:
-            prev = self.state
-            self.state = "closed"
-            self.closed_at = utcnow_iso()
-            self.cond.notify_all()
-        self.event({"type": "close", "reason": reason, "previous_state": prev, "rx_bytes": self.rx.total, "tx_bytes": self.tx_bytes})
-        self.logs.close()
+        """물리 close 확인 뒤에만 lease를 해제한다. 실패한 세션은 명시 재시도할 수 있다."""
+        with self._close_lock:
+            if self.state == "closed" and (self.lease is None or self.lease.closed):
+                return
+            self._stop.set()
+            ser = self.ser
+            if ser is not None:
+                with contextlib.suppress(Exception):
+                    ser.cancel_read()
+            th = self._thread
+            if th is not None and th is not threading.current_thread():
+                # Thread.start 실패로 아직 시작하지 않은 객체도 physical close를 막지 않는다.
+                with contextlib.suppress(RuntimeError):
+                    th.join(timeout=2.0)
+            close_error = None
+            if ser is not None:
+                try:
+                    ser.close()
+                except Exception as exc:
+                    close_error = exc
+                if not ser.closed:
+                    self.state = "disconnected"
+                    if self.lease is not None:
+                        with contextlib.suppress(Exception):
+                            self.lease.set_state("orphan")
+                    raise close_error or DeviceError("포트 닫힘을 확인하지 못했습니다.", code="serial_close_unverified")
+            if self.lease is not None:
+                self.lease.close()
+            with self.cond:
+                prev = self.state
+                self.state = "closed"
+                self.closed_at = utcnow_iso()
+                self.cond.notify_all()
+            try:
+                self.event({"type": "close", "reason": reason, "previous_state": prev, "rx_bytes": self.rx.total,
+                            "tx_bytes": self.tx_bytes, "cleanup_errors": list(getattr(ser, "cleanup_errors", ()))})
+            finally:
+                self.logs.close()
 
     @property
     def alive(self) -> bool:
@@ -574,11 +536,18 @@ class UartSession:
             self.error = f"{type(exc).__name__}: {exc}"
             self.cond.notify_all()
         log.warning("uart session %s disconnected: %s", self.id, self.error)
-        self.event({"type": "disconnected", "error": self.error})
-        self.logs.note(f"DISCONNECTED: {self.error}")
-        with contextlib.suppress(Exception):
-            if self.ser is not None:
-                self.ser.close()
+        try:
+            self.event({"type": "disconnected", "error": self.error})
+            self.logs.note(f"DISCONNECTED: {self.error}")
+        except Exception as log_error:
+            log.warning("uart disconnected 기록 실패: %s", type(log_error).__name__)
+        finally:
+            with contextlib.suppress(Exception):
+                if self.ser is not None:
+                    self.ser.close()
+            if self.lease is not None:
+                with contextlib.suppress(Exception):
+                    self.lease.set_state("disconnected")
         if self._audit:
             with contextlib.suppress(Exception):
                 self._audit({"event": "uart_disconnected", "session_id": self.id, "port": self.port, "error": self.error})
@@ -618,6 +587,8 @@ class UartSession:
                 "case_id": self.case_id,
                 "label": self.label,
                 "port": self.port,
+                "route": self.route.to_dict() if self.route is not None else None,
+                "transport": self.ser.metadata() if self.ser is not None and hasattr(self.ser, "metadata") else None,
                 "baudrate": self.settings.baudrate,
                 "framing": self.settings.framing,
                 "line_ending": escape_for_log(self.settings.line_ending),

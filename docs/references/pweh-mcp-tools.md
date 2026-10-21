@@ -58,11 +58,11 @@
 ## pweh-uart
 
 - **`uart_list_ports(include_links?)`** — [읽기전용]  
-  시리얼 포트 목록 (OBSERVE). ports[{device, description, hwid, vid, pid, serial_number, manufacturer, likely_usb_uart, in_use_by}]. include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(이 호스트의 ser2net, 시뮬레이터)은 목록에 없고 uart_ope
+  시리얼 포트 목록 (OBSERVE, 포트를 열지 않음). 기존 ports 항목에 route/device_id/held_by 를 더하고 env_kind 를 반환한다. include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(이 호스트의 ser2net, 시뮬레이터)은 목록에 없고 uart_open 에 socket://127.0.0.1:<포트> 로 준다
 - **`uart_open(case_id, port, baudrate?, bytesize?, parity?, stopbits?, line_ending?, dtr?, rts?, profile?, label?, approval_id?)`**  
-  UART 세션 열기 (INTERACT, dtr/rts=true 면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL (루프백 호스트만: socket://127.0.0.1:<포트>, rfc2217://[::1]:<포트> / 테스트용 loop:// — LAN 호스트는 validation_failed). DTR/RTS 는 열기 전에 설정하며 
+  UART 세션 열기 (INTERACT, dtr/rts=true 또는 확인된 reset-wired 경로면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL (루프백 호스트만: socket://127.0.0.1:<포트>, rfc2217://[::1]:<포트> / 테스트용 loop:// — LAN 호스트는 validation_failed). 
 - **`uart_close(session_id)`**  
-  UART 세션 닫기: 실행 중인 job 취소, 수신 스레드 정지, 포트 닫기, 로그(uart-log/uart-raw/uart-events) 아티팩트 등록. 끊어진(disconnected) 세션도 닫을 수 있다.
+  UART 세션 닫기: 실행 중인 job 취소, 수신 스레드 정지, 포트 닫기, 로그(uart-log/uart-raw/uart-events) 아티팩트 등록. 끊어진(disconnected) 세션도 닫을 수 있다. 물리 close 확인 뒤 공통 잠금을 해제하며, 정리 미확인 시 잠금을 보존한다.
 - **`uart_sessions(case_id?)`** — [읽기전용]  
   열린 UART 세션 목록: 상태(open/disconnected), 문맥/phase/프롬프트, rx/tx 바이트, 로그 경로, 미완성 입력, 실행 중 job.
 - **`uart_read(session_id, since_cursor?, max_bytes?, wait_seconds?, tail?)`** — [읽기전용]  
@@ -82,7 +82,7 @@
 - **`uart_set_signals(session_id, dtr?, rts?, approval_id?)`**  
   DTR/RTS 신호 설정 (MODIFY — 보드의 리셋/부트모드 핀에 연결돼 있으면 기기가 리셋된다). PTY·socket:// 등 신호가 없는 포트는 status=unsupported.
 - **`uart_detect_baud(case_id, port, candidates?, listen_seconds?, probe?, approval_id?)`**  
-  보드레이트 탐지: 후보마다 포트를 열고(DTR/RTS 끔) probe="ctrl-c" 면 0x03 을 한 번 보낸 뒤 listen_seconds 동안 읽어 점수화(출력 가능 문자 비율, 부팅 키워드, 0x00/0xFF 연속 감점) → candidates(점수순), best, confidence, hint(데이터 없음: TX/RX 뒤바뀜·GND·무출력·전압). 기기가 출력 중이어야 하므로 사람
+  보드레이트 탐지: 포트를 한 번 열고 같은 연결의 속도를 바꾸며(DTR/RTS 끔) probe="ctrl-c" 면 0x03 을 한 번 보낸 뒤 listen_seconds 동안 읽어 점수화(출력 가능 문자 비율, 부팅 키워드, 0x00/0xFF 연속 감점) → candidates(점수순), best, confidence, hint(데이터 없음: TX/RX 뒤바뀜·GND·무출력·전압). 기기가 
 - **`uart_capture_boot(session_id, duration?, until?, stop_on_prompt?)`** — [읽기전용]  
   부팅 로그 수집 (OBSERVE, 기기에 아무것도 보내지 않음): 사람에게 전원을 꺼 두게 한 뒤 호출하고, 호출이 시작되면 전원을 넣게 한다. duration 초(최대 300, MCP 클라이언트 제한 고려) 또는 until 정규식까지 수집. stop_on_prompt=true 면 이 창에서 부팅이 시작된 뒤 로그인/셸/U-Boot 프롬프트가 나오고 1.5초 조용하면 멈춘다. 파싱 결과: u
 - **`uboot_interrupt(session_id, keys?, window_seconds?)`**  
@@ -160,9 +160,9 @@
 - **`sigrok_decoder_help(decoder)`** — [읽기전용]  
   프로토콜 디코더 상세(sigrok-cli -P <id> --show 파싱): 필수/선택 채널, 옵션(값 목록·기본값), annotation 클래스/행, 바이너리 클래스, 문서. sigrok_decode 의 -P/-A 문자열을 만들 때 사용 (libsigrokdecode 버전마다 이름이 다르므로 하드코딩 금지).
 - **`sigrok_scan(driver?, conn?, case_id?, timeout_s?)`**  
-  연결된 sigrok 장치 스캔. 인자 없으면 모든 드라이버로 USB 등 자동 탐지(읽기 전용 식별). driver 로 한정 가능. conn(시리얼 /dev/ttyACM0, USB 'bus.addr'/'VID.PID', 'tcp-raw/host/port') 을 주면 그 포트로 식별 질의를 보내므로 시리얼/네트워크 conn 은 case_id(소유/허가 증명)가 필요하다. 결과 각 장치에 capt
+  연결된 sigrok 장치 스캔. 인자 없으면 모든 드라이버로 USB 등 자동 탐지(읽기 전용 식별). driver 로 한정 가능. conn(시리얼 /dev/ttyACM0, USB 'bus.addr'/'VID.PID', 'tcp-raw/host/port') 을 주면 그 포트로 식별 질의를 보내므로 시리얼/네트워크 conn 은 case_id(소유/허가 증명)가 필요하다. 명시 직렬 conn 은 
 - **`sigrok_device_info(case_id, driver, conn?, timeout_s?)`**  
-  로직 애널라이저 상세(sigrok-cli -d <driver> --show 파싱): 드라이버 기능, 채널/채널 그룹, 지원 samplerate 목록 또는 범위, 지원 트리거 문자, 최대 샘플 수. 장치를 열기만 하고 설정은 바꾸지 않는다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용.
+  로직 애널라이저 상세(sigrok-cli -d <driver> --show 파싱): 드라이버 기능, 채널/채널 그룹, 지원 samplerate 목록 또는 범위, 지원 트리거 문자, 최대 샘플 수. 장치를 열기만 하고 설정은 바꾸지 않는다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용. 명시 직렬 conn 은 공통 포트 잠금·route 재검증·target/bridge
 - **`sigrok_capture(case_id, driver, samplerate?, duration_ms?, samples?, channels?, triggers?, output_name?, conn?, capture_ratio?, background?, timeout_s?)`**  
   로직 애널라이저 캡처 → cases/<id>/signals/<name>.sr (srzip) 저장 + 아티팩트 등록. 입력 전용(OBSERVE)이지만 케이스 소유/허가 증명이 필요. driver 필수(sigrok_scan 결과), samplerate 예 '1m'/'8MHz'/'24m'(소문자 m=MHz, 정수 Hz 로 변환), duration_ms 와 samples 중 정확히 하나. chann
 - **`sigrok_decode(case_id, input_path, decoders, annotations?, input_format?, samplenum?, max_lines?, background?, timeout_s?, output_name?)`**  
@@ -184,10 +184,10 @@
 
 ## pweh-jtagulator
 
-- **`jtagulator_connect(case_id, port, baudrate?, timeout_seconds?, allow_untested_firmware?)`**  
+- **`jtagulator_connect(case_id, port, baudrate?, timeout_seconds?, allow_untested_firmware?, approval_id?)`**  
   JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 루프백 pyserial URL(socket://127.0.0.1:<포트> — LAN 호스트는 validation_failed). 포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽
 - **`jtagulator_disconnect(case_id)`**  
-  JTAGulator 연결 종료. 실행 중인 스캔이 있으면 먼저 중단(LF)하고 끝날 때까지 기다린 뒤 포트를 닫고 세션 기록을 등록한다. 권장 순서: 타깃 전원을 먼저 끈 다음 호출 (포트를 닫으면 DTR 리셋으로 VADJ 가 꺼질 수 있음).
+  JTAGulator 연결 종료. 실행 중인 스캔이 있으면 먼저 중단(LF)하고 끝날 때까지 기다린 뒤 포트를 닫고 세션 기록을 등록한다. 권장 순서: 타깃 전원을 먼저 끈 다음 호출 (포트를 닫으면 DTR 리셋으로 VADJ 가 꺼질 수 있음). 물리 close 를 확인해야 공통 잠금을 해제하며 정리 미확인 시 보존한다.
 - **`jtagulator_version(case_id)`**  
   JTAGulator 펌웨어 버전/배너 정보 (메인 메뉴 'I'). 지원 범위(1.10–1.12) 여부도 반환.
 - **`jtagulator_status(case_id?)`** — [읽기전용]  

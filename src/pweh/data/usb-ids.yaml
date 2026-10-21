@@ -1,0 +1,28 @@
+# 기존 UART/ESP 식별 목록의 합본. 범용 칩 ID만으로 대상 배선·역할을 확정하지 않는다.
+schema: pweh.usb-ids/v1
+uart_vendors:
+  '0403': FTDI
+  '067b': Prolific
+  '10c4': Silicon Labs
+  '1a86': WCH
+  '04e2': Exar
+  '04d8': Microchip
+  '0557': ATEN
+  '0bda': Realtek
+  '2e8a': Raspberry Pi
+  '1d50': OpenMoko/BMP
+  '0483': STMicro
+  '303a': Espressif
+devices:
+  '303a:1001': {kind: esp-usb-serial-jtag, generic: false, reset_wiring: chip-reset-on-lines, description_ko: ESP 내장 USB-Serial/JTAG}
+  '303a:0009': {kind: esp-usb-otg-rom, generic: false, reset_wiring: unknown, description_ko: ESP32-S3 ROM USB-OTG 다운로드 모드}
+  '303a:0002': {kind: esp-usb-otg-rom, generic: false, reset_wiring: unknown, description_ko: ESP32-S2 ROM USB-OTG 다운로드 모드}
+  '303a:4002': {kind: usb-cdc, generic: true, reset_wiring: unknown, description_ko: TinyUSB CDC — 계측기 여부는 고정 증명으로 확인}
+  '10c4:ea60': {kind: usb-uart-bridge, generic: true, reset_wiring: unknown, description_ko: Silicon Labs CP210x USB-UART 브리지}
+  '1a86:7523': {kind: usb-uart-bridge, generic: true, reset_wiring: unknown, description_ko: WCH CH340 USB-UART 브리지}
+  '1a86:55d3': {kind: usb-uart-bridge, generic: true, reset_wiring: unknown, description_ko: WCH CH343 USB-UART 브리지}
+  '1a86:55d4': {kind: usb-uart-bridge, generic: true, reset_wiring: unknown, description_ko: WCH CH9102 USB-UART 브리지}
+  '0403:6001': {kind: usb-uart-bridge, generic: true, reset_wiring: unknown, description_ko: FTDI FT232R USB-UART}
+  '0403:6010': {kind: usb-uart-bridge, generic: true, reset_wiring: unknown, description_ko: FTDI FT2232 복합 어댑터}
+  '0403:6014': {kind: usb-uart-bridge, generic: true, reset_wiring: unknown, description_ko: FTDI FT232H}
+  '0403:6015': {kind: usb-uart-bridge, generic: true, reset_wiring: unknown, description_ko: FTDI FT-X USB-UART}

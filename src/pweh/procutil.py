@@ -7,7 +7,9 @@
   OpenProcess·GetExitCodeProcess 로 이식(설계 §12)하기 전까지는 :class:`UnsupportedPlatform` 을 낸다
   (서버는 win32 에서 아예 시작하지 않는다 — ``pweh.mcpkit.create_server``).
 
-프로세스 그룹 종료(``killpg``) 4곳을 여기로 모으는 일은 P1 이다.
+P1의 ESP·sigrok 외부 실행기는 이 모듈로 그룹 종료를 위임하며 :func:`child_exited`의
+WNOWAIT 관찰 뒤 :func:`process_group_empty`로 종료를 별도 확인한다. 기존 emu·OpenOCD
+호출 경로와 :func:`kill_process_group`의 반환 문자열 의미는 유지한다(``killed``는 SIGKILL이 필요했다는 뜻).
 
 펌웨어 에뮬레이션(pweh-emu, 설계 docs/design/emulation.md §6.2)용으로 더한 것 (리눅스 ``/proc`` 기준, esp_mcp 의 사본을 일반화):
 
@@ -405,6 +407,56 @@ def kill_process_group(pgid: int, *, grace: float = 3.0, expect_start_ticks: int
     return "killed"
 
 
+def child_exited(pid: int) -> bool:
+    """직접 띄운 자식의 종료를 거두지 않고 관찰한다. 그룹 정리 뒤 부모가 wait해야 한다."""
+    try:
+        return os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+    except ChildProcessError:
+        return True
+
+
+def process_group_empty(pgid: int, *, expect_start_ticks: int | None) -> bool | None:
+    """소유한 그룹의 비좀비 구성원 부재를 확인한다(True/False/미확인 None).
+
+    종료 신호의 결과 문자열과 별개다. PID 재사용·관찰 실패·상한은 부재로 판정하지 않는다.
+    외부 실행 소비자는 리더를 거두기 전에 호출하고, 미확인이면 lease를 보존한다.
+    """
+    if not _valid_pid(pgid) or pgid <= 1 or expect_start_ticks is None:
+        return None
+    leader = proc_stat(pgid)
+    if leader is not None and leader[1] != expect_start_ticks:
+        return None
+    deadline = time.monotonic() + 2.0
+    try:
+        with os.scandir("/proc") as entries:
+            count = 0
+            for entry in entries:
+                if not entry.name.isdigit():
+                    continue
+                count += 1
+                if count > 65536 or time.monotonic() > deadline:
+                    return None
+                try:
+                    raw = Path(entry.path, "stat").read_bytes()
+                except FileNotFoundError:
+                    continue  # 관찰 도중 끝난 프로세스
+                except OSError:
+                    return None
+                _, sep, tail = raw.rpartition(b")")
+                fields = tail.split()
+                if not sep or len(fields) < 20:
+                    return None
+                try:
+                    member = int(fields[2]) == pgid
+                except ValueError:
+                    return None
+                if member and fields[0] not in (b"Z", b"X"):
+                    return False
+    except OSError:
+        return None
+    return True
+
+
 def find_processes(*, uid: int, cwd: str | os.PathLike[str], exe_allow: Collection[str | os.PathLike[str]]) -> list[int]:
     """``/proc`` 를 훑어 같은 uid(실제 uid)이고, cwd 의 실제 경로가 같고, 실행 파일의 실제 경로가 허용 목록에 있는 프로세스(자기 제외, 좀비 제외).
 
@@ -446,6 +498,7 @@ def find_processes(*, uid: int, cwd: str | os.PathLike[str], exe_allow: Collecti
 __all__ = [
     "UnsupportedPlatform",
     "boot_id",
+    "child_exited",
     "find_processes",
     "kill_process_group",
     "open_pidfd",
@@ -456,4 +509,5 @@ __all__ = [
     "pidfd_signal",
     "proc_identity",
     "proc_stat",
+    "process_group_empty",
 ]

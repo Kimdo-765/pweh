@@ -11,6 +11,7 @@ import time
 
 import pytest
 
+from pweh import ports, portlock
 from pweh.errors import DeviceError, SafetyDenied
 from pweh.safety import Risk
 
@@ -58,14 +59,18 @@ def make_device():
         sim = sim_cls(SimConfig(**kw)).start()
         srv = SimPTY(sim) if transport == "pty" else SimTCPServer(sim)
         url = srv.path if transport == "pty" else srv.url
-        link = SerialLink(url)
+        route = ports.resolve({"kind": "NATIVE_LINUX"}, url, "serial-session")
+        lease = portlock.get_manager().acquire(ports.reset_scope(route),
+                    owner=portlock.PortOwner(server="jtag-sim", case_id="synthetic", ref=url))
+        link = SerialLink(url, route=route, lease=lease)
         drv = JTAGulatorDriver(link)
-        created.append((sim, srv, link))
+        created.append((sim, srv, link, lease))
         return sim, srv, drv
 
     yield factory
-    for sim, srv, link in created:
+    for sim, srv, link, lease in created:
         link.close()
+        lease.close()
         srv.close()
         sim.stop()
 

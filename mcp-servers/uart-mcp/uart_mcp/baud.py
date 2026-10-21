@@ -1,4 +1,4 @@
-"""UART 보드레이트 자동 탐지 (후보마다 포트를 열고 수신 데이터를 점수화).
+"""UART 보드레이트 자동 탐지 (포트를 한 번 열고 같은 연결의 속도를 바꿔 수신 데이터를 점수화).
 
 기기가 출력 중이어야 한다(사람이 전원을 꺼 둔 상태에서 호출하고, 호출이 시작되면 전원을 넣는다). probe="ctrl-c" 면 후보마다 0x03 을 한 번 보내
 U-Boot/셸 프롬프트의 응답을 유도한다. 잘못된 속도로 보낸 0x03 은 기기에서 다른 바이트로 읽힐 수 있다
@@ -12,7 +12,7 @@ import time
 from typing import Any, Callable
 
 from pweh.errors import PwehError
-from pweh.instrument_guard import GUARD_CODES
+from pweh.serialtransport import SerialOpenError
 
 from .session import PortSettings, open_serial
 from .textutil import printable_ratio
@@ -58,66 +58,68 @@ def _sample_text(data: bytes, limit: int = 160) -> str:
 def detect(port: str, candidates: list[int], listen_seconds: float, probe: str, *,
            bytesize: int = 8, parity: str = "N", stopbits: float = 1,
            cancel: Callable[[], bool] | None = None, early_stop: bool = True,
-           before_io: Callable[[], Any] | None = None) -> dict[str, Any]:
+           before_io: Callable[[], Any] | None = None, route: Any = None, lease: Any = None,
+           on_transport: Callable[[Any], None] | None = None) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     t0 = time.monotonic()
     truncated = False
     errors: list[str] = []
-    for baud in candidates:
-        if cancel is not None and cancel():
-            break
-        if time.monotonic() - t0 + listen_seconds > MAX_TOTAL_SECONDS:
-            truncated = True
-            break
-        settings = PortSettings(port=port, baudrate=int(baud), bytesize=bytesize, parity=parity, stopbits=stopbits, dtr=False, rts=False)
+    ser = None
+    try:
+        if not candidates or (cancel is not None and cancel()):
+            raise PwehError("보드레이트 탐지를 취소했습니다.", code="cancelled")
+        settings = PortSettings(port=port, baudrate=int(candidates[0]), bytesize=bytesize, parity=parity,
+                                stopbits=stopbits, dtr=False, rts=False)
         if before_io is not None:
-            before_io()  # 탐지 재시도의 except 밖: 계측기 거부를 후보 실패로 삼키지 않는다.
+            before_io()
         try:
-            ser = open_serial(settings, timeout=0.05)
-        except Exception as exc:  # noqa: BLE001
-            if isinstance(exc, PwehError) and exc.code in GUARD_CODES:
-                raise
-            errors.append(f"{baud}: {exc}")
-            if not results:
-                raise
-            continue
-        data = bytearray()
-        try:
+            ser = open_serial(settings, timeout=0.05, before_io=before_io, route=route, lease=lease)
+        except SerialOpenError as exc:
+            ser = exc.transport
+            if on_transport is not None:
+                on_transport(ser)
+            raise
+        if on_transport is not None:
+            on_transport(ser)
+        for baud in candidates:
+            if cancel is not None and cancel():
+                break
+            if time.monotonic() - t0 + listen_seconds > MAX_TOTAL_SECONDS:
+                truncated = True
+                break
+            if before_io is not None:
+                before_io()  # 속도 변경 전 확인. 거부를 후보 실패로 삼키지 않는다.
             try:
-                ser.reset_input_buffer()
-            except Exception:  # noqa: BLE001
-                pass
+                ser.baudrate = int(baud)
+            except (ValueError, NotImplementedError) as exc:
+                errors.append(f"{baud}: {exc}")
+                continue
+            ser.reset_input_buffer()
             if probe == "ctrl-c":
+                if cancel is not None and cancel():
+                    break
                 if before_io is not None:
                     before_io()
                 ser.write(b"\x03")
-                try:
-                    ser.flush()
-                except Exception:  # noqa: BLE001
-                    pass
+                ser.flush()
+            data = bytearray()
             end = time.monotonic() + listen_seconds
             while time.monotonic() < end:
                 if cancel is not None and cancel():
                     break
-                chunk = ser.read(4096)
+                chunk = ser.read(min(4096, 256 * 1024 - len(data)))
                 if chunk:
                     data += chunk
-                    if len(data) > 256 * 1024:
+                    if len(data) >= 256 * 1024:
                         break
-        except Exception as exc:  # noqa: BLE001
-            if isinstance(exc, PwehError) and exc.code in GUARD_CODES:
-                raise
-            errors.append(f"{baud}: {exc}")
-        finally:
-            try:
-                ser.close()
-            except Exception:  # noqa: BLE001
-                pass
-        sc = score_sample(bytes(data))
-        sc.update({"baudrate": int(baud), "sample": _sample_text(bytes(data))})
-        results.append(sc)
-        if early_stop and sc["score"] >= 0.85 and sc["keyword_hits"]:
-            break
+            sc = score_sample(bytes(data))
+            sc.update({"baudrate": int(baud), "sample": _sample_text(bytes(data))})
+            results.append(sc)
+            if early_stop and sc["score"] >= 0.85 and sc["keyword_hits"]:
+                break
+    finally:
+        if ser is not None:
+            ser.close()  # 미확인 close는 caller가 handle+lease를 보존하도록 그대로 전파한다.
     ranked = sorted(results, key=lambda r: (-r["score"], -r["bytes"]))
     best = None
     if ranked:

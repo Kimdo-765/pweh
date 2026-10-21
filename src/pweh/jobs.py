@@ -206,9 +206,18 @@ class JobManager:
                 job.finished_at = utcnow_iso()
                 self._persist(job)
 
-        t = threading.Thread(target=runner, name=f"pweh-{job.id}", daemon=True)
-        job._thread = t
-        t.start()
+        try:
+            t = threading.Thread(target=runner, name=f"pweh-{job.id}", daemon=True)
+            job._thread = t
+            t.start()
+        except Exception:
+            # 시작하지 못한 queued 항목이 exclusive_key를 영구 점유하지 않게 한다.
+            # 이미 시작한 스레드는 호출자에게 예외가 돌아가도 등록을 유지한다.
+            if job._thread is None or job._thread.ident is None:
+                with self._lock:
+                    if self._jobs.get(job.id) is job:
+                        del self._jobs[job.id]
+            raise
         return job
 
     def get(self, job_id: str) -> Job:

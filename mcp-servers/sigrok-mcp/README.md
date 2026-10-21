@@ -75,6 +75,8 @@ REA 의 `decode_signal_recording` / `inspect_signal_decoders` 는 이미 녹화�
 - 디코드(`sigrok_decode` job, `sigrok_uart_autodecode` 의 sigrok-cli 경로)도 sigrok-cli 를 띄우기 직전에 argv 를 다시 분류해 **오프라인 명령(`sigrok.offline`)만** 실행한다.
   - 위험도는 다음과 같다. USB 캡처는 OBSERVE 다. 시리얼/네트워크 `conn` 은 드라이버가 그 포트로 식별 바이트를 보내므로 INTERACT 다.
 - 시리얼 `conn` 을 다른 프로세스가 열고 있으면 거부한다(Busy). 예를 들어 uart-mcp 가 대상 콘솔을 열고 있는 경우다. 대상 U-Boot/쉘 콘솔에 OLS 프로브 바이트(0x00, 0x02 …)가 들어가는 사고를 막기 위해서다.
+- 명시 직렬 `conn`은 승인 전 공용 portlock lease를 잡고 action에 route 지문, 결과·job metadata에 공개 route를 남긴다. child 종료를 확인할 때까지 잠금을 유지하며 취소/고아 정리 미확인으로 먼저 풀지 않는다.
+  USB 자동 탐지·일반 libusb는 이 공용 잠금의 적용 범위 밖이다. Windows COM conn은 P3 전까지 거부한다.
 - 백그라운드 작업은 프로세스를 띄우기 직전에 같은 분류기로 argv 를 **다시 검사**한다.
 - 같은 장치로는 캡처를 동시에 하나만 돌린다.
 - subprocess 실행 규칙은 다음과 같다.

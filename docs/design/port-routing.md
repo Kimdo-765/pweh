@@ -1,6 +1,6 @@
 # 설계안: 환경 감지와 물리 연결 라우팅 (COM·USB·libusb·캡처·블록 장치)
 
-> 상태: **P0 구현과 P1–P5 후속 설계**. 현재 동작의 계약은 [architecture.md](../architecture.md)이며, 구현 상태는 §13.2를 따른다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md)(§2 가 이 문서의 요약).
+> 상태: **P0·P1 구현과 P2–P5 후속 설계**. 현재 동작의 계약은 [architecture.md](../architecture.md)이며, 구현 상태는 §13.2를 따른다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md)(§2 가 이 문서의 요약).
 > 이 설계를 쓰는 곳: [game-console-flipper-rf.md](game-console-flipper-rf.md)(Flipper·ChameleonUltra·입력 브리지 COM 포트, SDR·캡처 도구), [sd-forensics.md](sd-forensics.md)(블록 장치는 사람 단계 — §9 R18), [esp32-instrument.md](esp32-instrument.md)(계측기 COM 포트·식별 고정·역할 표지).
 > 범위: COM·USB 직렬, libusb 장치, 영상 캡처, 블록 장치를 WSL2·WSL1·네이티브 Linux·macOS·네이티브 Windows 에서 감지·식별·열기·잠그는 방법.
 > 근거: 개발 환경 의 읽기 전용 probe(2026-10-19), 저장소 코드(`파일:줄`, **2026-10-19 22:52 기준** — 직전에 들어온 uart `validate_port` 변경 반영),
@@ -8,7 +8,7 @@
 > 초안을 두 관점(코드·계약 일관성 27건, 플랫폼 사실 29건)으로 적대적 검증했고, 부분 수정·반박 27건과 누락 6건을 반영했다.
 > 신뢰도: [높음] 출처 원문·실측, [중간] 간접 근거·추론, [미확인] 확인 안 함. 포트·USB 장치·디스크는 하나도 열지 않았다(직접 만든 pty·abstract 소켓만).
 > 도구별 바이너리·라이선스·sha256·설치 구성요소 표는 조사 노트에 있고 저장소에는 아직 없다(§13.4: `docs/references/` 로 옮김).
-> 과거 코드 조사와 이후 설계를 함께 보존한 문서다. 새 `safety.ports.*` 키는 미승인 제안이며, 공용 portlock·Windows COM 헬퍼는 아직 구현되지 않았다. I5는 고정 계측기의 식별·거부 규칙만 추가했으며 P1·P2 전체 완료를 뜻하지 않는다.
+> 과거 코드 조사와 이후 설계를 함께 보존한 문서다. 새 `safety.ports.*` 키는 미승인 제안이다. P1은 기존 직렬·esptool 경로에 공용 portlock을 적용했으며, Windows COM 헬퍼는 P2 후속이다. I5의 고정 계측기 거부와 일반 포트 역할 표지는 별개다.
 
 ## 1. 요약과 원칙
 
@@ -48,7 +48,7 @@
 | libusb 도구(WSL2) | usbipd 만(사람 단계 전부) | Windows 판 도구(P3) + usbipd 대체 |
 | doctor | 가짜 `/dev/ttyS0-7` 을 OK 로 표시, usbipd 만 안내 | 환경 보고서 + 장치 종류별 추천 경로 + 모드별 usbipd 안내 |
 
-## 2. 지금 코드의 빈틈 (이 설계가 고치는 것)
+## 2. 설계 당시 코드의 빈틈 (해결 상태는 §13.2)
 
 | # | 빈틈 | 근거 | 고치는 단계 |
 |---|---|---|---|
@@ -583,15 +583,15 @@ PWEH 처리:
 | # | 플랫폼 | 장치 종류 | 1차 | 대체 | 사람 단계 | 위험·상태 |
 |---|---|---|---|---|---|---|
 | R1 | WSL2+interop | 직렬(USB-UART 콘솔·JTAGulator·Flipper·CU·입력 브리지) | `win-helper`: Windows COMn 을 헬퍼가 연다 [P2] | ① `win-powershell`(D3) ② usbipd attach → `posix-tty` `/dev/serial/by-id`·`/dev/ttyACM*` | 1차: CDC(Flipper·ESP USB-Serial/JTAG 등)는 없음(inbox usbser). FTDI/CP210x/CH34x 는 처음 꽂을 때 드라이버가 필요하다 — 온라인이고 드라이버 업데이트가 허용돼 있으면 Windows Update, 아니면 벤더 설치 프로그램 [관리자]. ②: usbipd 설치 [관리자], 세션 동안만 bind [관리자]하고 끝나면 unbind, attach 는 모드별(§10) | P2 관문 전에는 uart·jtagulator 의 Windows COM 경로가 없다(현재 둘 다 지원하지 않는 환경의 COM 이름 거부). CreateFile 때 DTR [미확인]. 단일 열기는 드라이버 성질. usbipd 는 3240 무인증이고 attach 동안 COM 이 사라진다 |
-| R2 | WSL2+interop | ESP ROM (esptool) | `win-exe` esptool.exe `--port COMn` (방법 A) [현행] | usbipd → Linux esptool `/dev/ttyACM*` | 자동 리셋 실패 시 BOOT+RESET(사람). 대체는 usbipd [관리자] | 헬퍼를 거치지 않는다(리셋 타이밍). PyInstaller 고아는 winproc 가 처리(현행). portlock·식별은 P1 |
+| R2 | WSL2+interop | ESP ROM (esptool) | `win-exe` esptool.exe `--port COMn` (방법 A) [현행] | usbipd → Linux esptool `/dev/ttyACM*` | 자동 리셋 실패 시 BOOT+RESET(사람). 대체는 usbipd [관리자] | 헬퍼를 거치지 않는다(리셋 타이밍). PyInstaller 고아는 winproc가 처리. P1 공용 portlock·식별·전체 reset 범위 적용 |
 | R3 | WSL2+interop | JTAG/SWD (OpenOCD: FTDI·CMSIS-DAP·ST-Link·ESP USB-JTAG·J-Link) | `win-exe` openocd.exe + `tcl port pipe` [P3, Windows 미확인] | usbipd → Linux xPack openocd + udev [**현행 유일**] | 1차: 어댑터별 Windows 드라이버 — FTDI 는 Zadig 로 Interface 0 만 WinUSB, ST-Link STSW-LINK009, ESP JTAG Espressif 드라이버 [관리자]. CMSIS-DAP v1(HID)·v2 는 불필요. 대체: usbipd [관리자] + udev 규칙 [root] | TCP·`bindto` 금지. pipe 는 연결 1개·재연결 없음·`openocd_attach` 불가. J-Link WinUSB 전환 [미확인] |
 | R4 | WSL2+interop | 로직 애널라이저 (sigrok fx2lafw, 직렬형 드라이버) | `win-exe` sigrok-cli.exe 포터블 [P3, 미확인]. 직렬형은 `conn=COMn` | usbipd `--auto-attach` → Linux sigrok-cli [**현행 유일**] | 1차: Zadig 로 WinUSB 두 번(올리기 전 `0925:3881`, 뒤 `1d50:608x`) [관리자]. 시리얼 없는 클론(대부분)은 다른 물리 USB 포트로 옮기면 Zadig 를 다시 [관리자]. 대체: usbipd [관리자] + `61-libsigrok-plugdev.rules` [root] | 펌웨어 업로드 뒤 재열거 → usbipd 는 다시 붙여야 한다. 서명 없는 exe 는 SAC 에서 막힌다. 장치 `--scan` 은 fx2 펌웨어를 올리므로 장치 없는 확인만 한다 |
 | R5 | WSL2+interop | SDR (RTL-SDR·HackRF, 수신 전용) | `win-exe` `rtl_433_64bit_static.exe`, rtl-sdr-blog exe(파일 출력), HackRF 는 conda-forge exe [P4, 서버 없음] | usbipd → Linux 도구(WSL 커널에 DVB 드라이버 없음) | RTL-SDR: Zadig Interface 0 [관리자], VC++ 런타임 [관리자]. HackRF: 펌웨어의 WCID 로 WinUSB 자동 [중간]. 대체: usbipd·udev | `rtl_tcp`·`-F http`·바이어스 티 금지. `rtl_sdr` stdout 은 CRLF 로 깨진다 → 파일 |
 | R6 | WSL2+interop | 영상 캡처 | `win-exe` ffmpeg.exe `-f dshow` → rawvideo 파이프 또는 mkv(UNC), `-an` [P4, 서버 없음] | usbipd → uvcvideo + v4l2 [미확인 성능] | Windows 카메라 권한 "데스크톱 앱 허용"(사람). 대체: usbipd [관리자] | 강제 종료하면 mp4 가 손상된다 → mkv, 멈출 때는 `q` |
 | R7 | WSL2, interop 없음·차단 | 모든 USB 클래스 | usbipd attach → Linux 도구(`posix-tty`, Linux esptool·openocd·sigrok·rtl·v4l2) [현행, 사람 단계] | interop 다시 켜기(`wsl.conf [interop]`, 사람) | usbipd 설치·세션 동안 bind [관리자], attach(일반 사용자, 모드별 `--host-ip`: bridged 는 Windows LAN IP, consomme 는 127.0.0.1 — usbipd ≤5.3.0), libusb 용 udev 규칙 [root], 리셋 뒤 재attach | 재열거로 attach 가 끊기고 새 VID:PID 는 'Not shared'. 3240 LAN 노출(모든 모드) |
-| R8 | WSL1 | 직렬 + ESP | `posix-tty` `/dev/ttyS<n>` = `COM<n>`(lxcore, **COM1–COM191 만**). esptool 은 esptool.exe COMn 또는 Linux esptool `/dev/ttyS<n>` [P1, 최선 노력] | `win-helper`(interop 있음) | 없음 | 시험 안 함. COM192 이상은 거부(헬퍼로). lxcore 의 TIOCEXCL·flock·abstract 소켓 의미 [미확인]. USB 없음 |
+| R8 | WSL1 | 직렬 + ESP | `posix-tty` `/dev/ttyS<n>` = `COM<n>`(lxcore, **COM1–COM191만**). esptool은 esptool.exe COMn 또는 Linux esptool `/dev/ttyS<n>` [P1 구현, 실기 미확인] | `win-helper`(interop 있음) | 없음 | 시험 안 함. COM192 이상은 거부(헬퍼로). lxcore 의 TIOCEXCL·flock·abstract 소켓 의미 [미확인]. USB 없음 |
 | R9 | WSL1 | libusb·영상 | `win-exe` Windows 판 도구 [P3–P4] | 없음(WSL1 은 USB·usbipd 불가) | 도구별 Windows 드라이버 [관리자] | 최선 노력 |
-| R10 | 네이티브 Linux | 직렬 + ESP | `posix-tty` `/dev/serial/by-id/*`(권장)·`ttyUSB*`·`ttyACM*`, Linux esptool [현행] | — | `dialout` 그룹 추가 [root 1회]. Ubuntu 22.04 는 brltty 처리 [root](CH340 `1a86:7523` 을 잡음 — §10) | 열 때 DTR/RTS 펄스(§7). TIOCEXCL·portlock 은 P1 |
+| R10 | 네이티브 Linux | 직렬 + ESP | `posix-tty` `/dev/serial/by-id/*`(권장)·`ttyUSB*`·`ttyACM*`, Linux esptool [현행] | — | `dialout` 그룹 추가 [root 1회]. Ubuntu 22.04 는 brltty 처리 [root](CH340 `1a86:7523` 을 잡음 — §10) | 열 때 DTR/RTS 펄스(§7). P1 TIOCEXCL·portlock 적용 |
 | R11 | 네이티브 Linux | libusb (OpenOCD·sigrok·SDR) | Linux 도구 [현행] | — | PWEH udev 규칙(`GROUP="plugdev", MODE="0660"`, 쓰는 VID:PID 만) [root 1회]. RTL-SDR 은 `dvb_usb_rtl28xxu` blacklist [root] | xPack 규칙의 `MODE="666"` 보다 좁게 |
 | R12 | 네이티브 Linux | 영상 | ffmpeg `-f v4l2` [P4] | — | `video` 그룹 [root 1회] | — |
 | R13 | macOS | 직렬 + ESP | `posix-tty` `/dev/cu.*`(tty.* 거부), venv esptool [P5] | — | CP210x 등 벤더 VCP 드라이버가 필요할 수 있음 [관리자, 미확인] | 첫 open 에 DTR/RTS 가 올라간다 [높음 — 소스] → 리셋 배선 위험. `/proc` 없음 → 점유 검사는 portlock·TIOCEXCL 뿐 |
@@ -720,12 +720,17 @@ Windows 쪽 MCP 클라이언트는 사람이 설정한 `wsl.exe -d <배포판> -
 > 시뮬레이터 루프백 바인드(`--allow-lan` 때만 LAN, G13), 네이티브 Windows·Cygwin·MSYS 시작 거부와 `procutil.pid_alive`(G9 — openocd 만 옮김, 나머지 killpg 는 P1).
 > 설계와 다른 점: 코어 `pweh.ports` 는 P1 의 씨앗(문법 검사만), doctor 의 COM 별 `Service` 는 interop 이 될 때만, 보고서에 esptool.exe 버전·`ghost_ports_hidden`·`portlock` 은 없음.
 > 남은 usbipd 전용 안내: uart·sigrok·openocd 의 일부 힌트(P1·P2 에서 경로 기반으로).
-> **I5 1a 추가**: `pweh.portidentity`와 `pweh.instrument_guard`가 고정 계측기 식별·거부 규칙을 기존 4개 서버에 적용한다. `pweh-espprobe` 자체는 `sim://probe-hello`만 지원한다. 공용 resolve·portlock·TIOCEXCL·Windows COM 헬퍼는 여전히 P1·P2 후속 범위다.
+> **I5 1a 추가**: `pweh.portidentity`와 `pweh.instrument_guard`가 고정 계측기 식별·거부 규칙을 기존 4개 서버에 적용한다. `pweh-espprobe` 자체는 `sim://probe-hello`만 지원한다.
+>
+> **P1 구현**: 불변 route·식별·승인 지문, open 전 공용 lease, POSIX TIOCEXCL/TIOCNXCL, one-open baud, target/bridge 표지를 UART·JTAGulator·ESP·sigrok 명시 직렬 conn에 연결했다.
+> 확인된 WSL1 COM1–191/ttyS 대응을 지원하지만 WSL2 COM 세션은 P2, sigrok COM과 일반 libusb 소비자는 P3 후속이다. whole-device reset은 두 번의 bounded PnP/sysfs 형제 관찰이 완전할 때만 실행한다.
+> lease는 실제 worker/핸들 종료까지 유지하며 orphan 종료 미확인 시 보존한다. ESP/sigrok CLI는 공용 procutil 신원·WNOWAIT/그룹 부재 확인을 사용하고, 기존 emu/OpenOCD 종료 의미는 바꾸지 않았다.
+> 검증은 합성 identity·sysfs/PnP graph·가짜 CLI·자체 PTY/프로세스다. 실제 USB 재열거·Windows 질의 시간·DTR/RTS 전기 변화·WSL1 동작은 검증하지 않았다.
 
 | 단계 | 내용 | 합격 기준 |
 |---|---|---|
 | **P0** 감지·안전 정리 (동작 변화 최소) | `pweh.hostenv` + `pweh env` + doctor 환경 절(가짜 ttyS 숨김 — esp 규칙, WSL1/2 구분, 모드별 usbipd 힌트, esptool.exe 해석 통일, COM 별 `Service`, brltty·AutoBind·UAC 경고). `pipeline_environment()`(pweh-case). socket·rfc2217 루프백 검사(uart·jtagulator, D4 — 스킴 허용 목록은 uart 에 이미 있음). uart `_WIN_COM_RE` 에 상한 4096. win32·cygwin·msys 시작 거부와 코어 `procutil.pid_alive`(Windows 에서는 `os.kill(pid,0)` 금지)(G9). WSL 감지 통일(G6)·`/mnt/c` 제거(G7). 시뮬레이터 `--host`·`--tcp` 루프백 강제(G13) | 기존 시험 통과(§13.3 의 바뀌는 단정 제외). hostenv 주입 시험. URL·COM 문법 시험 |
-| **P1** 식별·portlock·TIOCEXCL (기존 경로 위에) | `pweh.ports`(문법·해석·열거·식별 표 `usb-ids.yaml`)와 `pweh.portlock`(OS 객체 키, abstract 이름, 장치 전체 동작, 역할 표지, 승인 대기 의미)을 uart(open·detect_baud)·jtagulator(connect)·esp(esptool 실행 전)·sigrok(직렬 conn)에 적용한다. 열기 순서 §5.1, TIOCEXCL/TIOCNXCL. `uart_detect_baud` 를 한 번만 열게 바꾼다. 결과에 `route`·`device_id`·`held_by` 를 추가하고, 열기·연결 지문에 `route` 를 넣는다. 4곳의 killpg 를 코어 `procutil` 로 모은다. 받을 수 없는 경로의 COMn 은 jtagulator·sigrok 에서도 명확한 오류로 바꾼다(G5) | 다중 프로세스 잠금 시험. "거부된 열기는 `os.open` 을 부르지 않는다" 시험. 승인 대기 중 busy·거부 뒤 해제 시험. esp 시험은 지문 단정만 변경 |
+| **P1** 식별·portlock·TIOCEXCL (기존 경로 위에) | `pweh.ports`(문법·해석·열거·식별 표 `usb-ids.yaml`)와 `pweh.portlock`(OS 객체 키, abstract 이름, 장치 전체 동작, 역할 표지, 승인 대기 의미)을 uart(open·detect_baud)·jtagulator(connect)·esp(esptool 실행 전)·sigrok(직렬 conn)에 적용한다. 열기 순서 §5.1, TIOCEXCL/TIOCNXCL. `uart_detect_baud` 를 한 번만 열게 바꾼다. 결과에 `route`·`device_id`·`held_by` 를 추가하고, 열기·연결 지문에 `route` 를 넣는다. ESP/sigrok CLI가 공용 `procutil`의 신원·WNOWAIT·그룹 종료 확인을 사용한다. emu/OpenOCD 의미는 유지한다. 받을 수 없는 경로의 COMn 은 jtagulator·sigrok 에서도 명확한 오류로 바꾼다(G5) | 다중 프로세스 잠금 시험. "거부된 열기는 `os.open` 을 부르지 않는다" 시험. 승인 대기 중 busy·거부 뒤 해제 시험. 기본 sibling provider의 합성 graph/sysfs·worker 수명·교차 서버 경합 시험. 실제 하드웨어는 별도 |
 | **P2** Windows COM 헬퍼 (진행/중단 관문 = 게임 문서 1b) | `tools/winserial` 소스·zig 빌드·`SHA256SUMS`·사전 빌드, 재현 빌드 확인(D3), install.sh `winserial` 구성요소(gate: `wsl_interop`). `pweh.winserial.HelperSerial` + 가짜 헬퍼. PowerShell 대체(기본 꺼짐). uart·jtagulator 가 WSL2 에서 COMn → `win-helper`, WSL1 은 ttyS. 목록 도구가 Windows COM 을 합쳐 보인다 | external: 헬퍼 HELLO·echo 256값·EOF 종료·PE import. hardware: USB-UART 루프백, Flipper DTR → `>: `, 드라이버별 두 번째 열기. 실패하면 PowerShell 대체 또는 usbipd 로 |
 | **P3** Windows 판 libusb 도구 | (D7 동의 뒤) openocd.exe dummy + `tcl port pipe` 확인 → openocd-mcp pipe transport(재연결 없음, attach 불가, 준비 줄 변경, `-f/-s`·덤프 경로 `wslpath -w`). sigrok-cli.exe 포터블(7z 해제 + 목록 검증). install.sh Windows 구성요소. doctor 가 USB 장치마다 Windows `Service`(WINUSB/FTDIBUS/usbser)를 보여 Zadig 가 필요한지 안내한다. libusb 인터페이스 portlock 키 | 가짜 openocd 의 pipe 모드 시험, 실제 dummy(external·opt-in) |
 | **P4** SDR·영상 (새 서버) | pweh-sdr, pweh-play 캡처를 같은 wininterop 규칙으로(rtl_sdr 은 파일 출력, ffmpeg `q`·`-an`, 리스너 옵션 거부) | 게임 문서 §8 의 가짜 도구 |
@@ -741,7 +746,7 @@ Windows 쪽 MCP 클라이언트는 사람이 설정한 `wsl.exe -d <배포판> -
 
 ### 13.3 계약 변경 (architecture §6 절별)
 
-도구 이름·인자는 그대로다(새 도구는 `pipeline_environment` 하나). 그러나 받는 `port` 값이 좁아지고 일부 반환의 의미가 바뀌므로 절마다 적는다.
+도구 이름은 유지한다(새 도구는 P0의 `pipeline_environment`). P1은 JTAGulator 새 open의 확인된 reset 배선을 MODIFY로 분류하므로 `jtagulator_connect`에 선택 인자 `approval_id=None`을 추가했다. 받는 `port` 값과 일부 반환 의미의 변화도 절마다 적는다.
 
 | 절 | 바뀌는 것 | 지금 문구 | 함께 고칠 시험·문서 |
 |---|---|---|---|
@@ -764,7 +769,7 @@ Windows 쪽 MCP 클라이언트는 사람이 설정한 `wsl.exe -d <배포판> -
 - `orchestrator/master-prompt.md` 를 고친다: 174·215행, Phase 0 에서 `pipeline_environment()` 호출(77행의 ESP32 예외는 이미 있음).
 - `hardware-setup.md` 를 고친다: §2.2 방법 A 일반화·모드별 attach·세션 동안만 bind·AutoBind 금지, §2.3 udev 문구 교체(97-102), brltty.
 - `safety.md` 를 고친다: §13.3 의 줄.
-- AGENTS.md 의 보호 경로에 `/tmp/pweh-<uid>`(§6.3 `<runtime dir>`)를 추가하고, `.claude/settings.json` deny 규칙을 제안한다.
+- AGENTS.md 보호 경로와 `.claude/settings.json` deny 규칙 추가는 적용하지 않는다(사용자 결정). runtime owner/role의 취급은 architecture/safety 문서에 기록한다.
 - 조사 노트의 도구별 바이너리·라이선스·sha256·설치 구성요소 표를 `docs/references/` 로 옮긴다.
 
 ## 14. 시험 전략 (하드웨어 없이)

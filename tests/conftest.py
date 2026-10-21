@@ -7,8 +7,10 @@
 from __future__ import annotations
 
 import os
+import importlib
 import shutil
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,63 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "tests"))
+
+
+@pytest.fixture(autouse=True)
+def isolated_ports(tmp_path, monkeypatch, request):
+    """합성 시험의 포트 잠금/역할과 기본 경로 관찰을 실제 호스트에서 분리한다.
+
+    개별 시험은 PortProbe 또는 서버 환경 seam을 명시적으로 덮어쓴다. 자체 생성한
+    PTY의 stat은 그대로 사용하고, 기본 route 식별에서 실제 sysfs/PnP를 조회하지 않는다.
+    """
+    if "hardware" in request.node.keywords:
+        yield None
+        return
+    from pweh import portlock, ports
+    from pweh.portidentity import PortIdentity
+    from serial.tools import list_ports
+
+    runtime_root = tmp_path / "port-runtime"
+    manager = portlock.PortLockManager(namespace="pweh-test-" + uuid.uuid4().hex, runtime_root=runtime_root)
+    roles = portlock.PortRoleStore(runtime_root=runtime_root)
+    monkeypatch.setattr(portlock, "get_manager", lambda: manager)
+    monkeypatch.setattr(portlock, "get_role_store", lambda: roles)
+    monkeypatch.setattr(list_ports, "comports", lambda *args, **kwargs: [])
+
+    def synthetic_identity(ref, **kwargs):
+        return PortIdentity(str(ref), status="unknown", reasons=("synthetic_route_identity",))
+
+    monkeypatch.setattr(ports, "_probe_identity", synthetic_identity)
+    check_holders = getattr(ports, "check_holders", None)
+    def synthetic_holders(*args, **kwargs):
+        if kwargs.get("proc_root") is not None and check_holders is not None:
+            return check_holders(*args, **kwargs)
+        return {"busy_check": "synthetic", "warnings": []}
+    monkeypatch.setattr(ports, "check_holders", synthetic_holders, raising=False)
+    for name in ("uart_mcp.server", "jtagulator_mcp.server", "esp_mcp.server", "sigrok_mcp.server"):
+        module = importlib.import_module(name)
+        monkeypatch.setattr(module, "_port_environment", lambda: {"kind": "NATIVE_LINUX"}, raising=False)
+    context = {"manager": manager, "roles": roles, "runtime_root": runtime_root, "allow_orphans": False}
+    yield context
+    # 오류 수명을 검증한 시험만 합성 orphan을 남길 수 있다. 운영 정리 경로는 완화하지 않는다.
+    remaining = list(manager._leases.values())
+    for lease in remaining:
+        lease.close()
+    uart = sys.modules["uart_mcp.server"]
+    jtag = sys.modules["jtagulator_mcp.server"]
+    for module, registry in ((uart, uart._SESSIONS), (jtag, jtag._CONNS)):
+        for key, entry in list(registry.items()):
+            lease = getattr(entry, "lease", None)
+            if lease is not None and lease._manager is manager and lease.closed:
+                registry.pop(key, None)
+        for key, entry in list(module._CLEANUP_PENDING.items()):
+            lease = entry[0]
+            if lease._manager is manager and lease.closed:
+                module._CLEANUP_PENDING.pop(key, None)
+                if module is uart and uart._RESERVED.get(entry[2]) == entry[3]:
+                    uart._RESERVED.pop(entry[2], None)
+    if remaining and not context["allow_orphans"]:
+        pytest.fail("합성 포트 lease가 남았습니다. 정상 정리를 검증하거나 의도한 orphan 시험으로 명시하세요.", pytrace=False)
 
 
 def write_config(root: Path, safety: dict[str, Any] | None = None, extra: dict[str, Any] | None = None) -> Path:

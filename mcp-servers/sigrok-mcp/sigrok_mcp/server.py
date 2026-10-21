@@ -47,8 +47,10 @@ from pweh.mcpkit import (
 from pweh.runtime import Runtime, get_runtime
 from pweh.instrument_guard import guard_target_port
 from pweh.safety import Classification, GateDecision, Risk
+from pweh import hostenv, ports, portlock, procutil
 
 from . import baud as baudmod
+from . import cli as cli_runner
 from . import signals as sig
 from .cli import (
     CliResult,
@@ -102,6 +104,122 @@ def rt() -> Runtime:
     return get_runtime(SERVER_NAME)
 
 
+def _port_environment() -> dict[str, Any]:
+    return hostenv.detect(smoke=False, config=rt().config)
+
+
+def _port_probe() -> ports.PortProbe:
+    return ports.PortProbe()
+
+
+_ORPHAN_PORTS: list["_SerialUse"] = []
+_ORPHAN_LOCK = threading.Lock()
+
+
+class _SerialUse:
+    """명시 serial conn의 gate/worker 수명. 외부 실행 전에 tty를 따로 열지 않는다."""
+
+    def __init__(self, case_id: str, conn: str):
+        self.runtime = rt()
+        self.route = ports.resolve(_port_environment(), conn, "sigrok-serial", probe=_port_probe(), config=self.runtime.config)
+        self.whole = self.route.reset_risk == "wired"
+        self.keys = ports.reset_scope(self.route, whole_device=self.whole, config=self.runtime.config)
+        with _ORPHAN_LOCK:
+            for old in list(_ORPHAN_PORTS):
+                if old.lease.closed:
+                    _ORPHAN_PORTS.remove(old)
+                elif set(old.keys) & set(self.keys) and old.result is not None:
+                    if (procutil.process_group_empty(old.result.pid, expect_start_ticks=old.result.start_ticks) is True
+                            and cli_runner.cleanup_owned(old.result.pid, process_token=old.result.process_token)):
+                        old.lease.close()
+                        _ORPHAN_PORTS.remove(old)
+        self.lease = portlock.get_manager().acquire(self.keys, owner=portlock.PortOwner(
+            server=SERVER_NAME, case_id=case_id, ref=conn, role="bridge"))
+        self.handoff = portlock.LeaseHandoff()
+        self.accepted = False
+        self.unverified = False
+        self.result: CliResult | None = None
+
+    def fresh(self) -> None:
+        fresh = ports.revalidate(self.route, env=_port_environment(), probe=_port_probe(), config=self.runtime.config)
+        keys = ports.reset_scope(fresh, whole_device=self.whole, config=self.runtime.config)
+        if keys != self.keys:
+            raise PwehError("승인 뒤 직렬 장치 범위가 바뀌었습니다.", code="route_changed")
+        self.lease.assert_held(keys)
+        portlock.get_role_store().assert_probe_allowed(fresh)
+
+    def finish(self) -> None:
+        if self.unverified:
+            self.lease.set_state("orphan")
+            with _ORPHAN_LOCK:
+                if self not in _ORPHAN_PORTS:
+                    _ORPHAN_PORTS.append(self)
+        else:
+            self.lease.close()
+
+
+def _serial_use(case_id: str | None, conn: str | None) -> _SerialUse | None:
+    if conn_kind(conn) != "serial":
+        return None
+    if not case_id:
+        raise ValidationFailed("serial conn에는 case_id가 필요합니다.")
+    case = rt().case(case_id, hardware=True)
+    return _SerialUse(case.id, conn)
+
+
+def _port_classification(use: _SerialUse | None, action: dict[str, Any], cls: Classification) -> Classification:
+    if use is not None:
+        action["route"] = use.route.approval_identity()
+        portlock.get_role_store().assert_probe_allowed(use.route)
+        use.lease.set_state("awaiting_approval")
+        if use.route.reset_risk == "wired":
+            return Classification(Risk.MODIFY, "serial.reset-wired", "내장 USB 직렬 장치를 열면 칩이 리셋될 수 있습니다.")
+    return cls
+
+
+def _port_run(use: _SerialUse | None, argv: list[str], **kwargs: Any) -> CliResult:
+    if use is None:
+        return run_process(argv, **kwargs)
+    use.fresh()
+    use.lease.set_state("running")
+    use.unverified = True
+    state: dict[str, Any] = {}
+    try:
+        result = run_process(argv, process_state=state, **kwargs)
+    except BaseException:
+        verified = not state
+        if state:
+            try:
+                verified = cli_runner.cleanup_owned(state["pid"], process_token=state.get("process_token"))
+            except Exception:
+                verified = False
+        use.unverified = not verified
+        if not verified:
+            use.result = CliResult([], None, b"", "", pid=state.get("pid"), start_ticks=state.get("start_ticks"), process_token=state.get("process_token"),
+                                   cleanup_verified=False)
+        raise
+    use.result = result
+    use.unverified = not result.cleanup_verified
+    if use.unverified:
+        check_result(result, "sigrok serial 실행")
+    return result
+
+
+def _port_worker(use: _SerialUse | None, work: Callable, finish: Callable, cancel_event: threading.Event) -> dict[str, Any]:
+    if use is not None and not use.handoff.claim_worker():
+        return {"ok": False, "status": "cancelled"}
+    try:
+        if cancel_event.is_set():
+            return {"ok": False, "status": "cancelled"}
+        result = finish(work(cancel_event))
+        if use is not None:
+            result["route"] = use.route.to_dict()
+        return result
+    finally:
+        if use is not None:
+            use.finish()
+
+
 def _cli() -> SigrokCli:
     return SigrokCli.from_config(rt().config.tool_path("sigrok_cli"))
 
@@ -142,6 +260,32 @@ def _device_lock(key: str) -> threading.Lock:
         if lk is None:
             lk = _DEVICE_LOCKS[key] = threading.Lock()
         return lk
+
+
+async def _acquire_port_use(factory: Callable[..., Any], *args: Any) -> Any:
+    """raw Task.cancel로 thread 반환값을 잃어도 생성된 lease를 정확히 한 번 회수한다."""
+    lock = threading.Lock()
+    state: dict[str, Any] = {"cancelled": False, "use": None}
+
+    def create() -> Any:
+        use = factory(*args)
+        with lock:
+            if state["cancelled"]:
+                if use is not None:
+                    use.finish()
+                return None
+            state["use"] = use
+        return use
+
+    try:
+        return await _offload(create)
+    except BaseException:
+        with lock:
+            state["cancelled"] = True
+            use, state["use"] = state["use"], None
+            if use is not None:
+                use.finish()
+        raise
 
 
 async def _run_cancellable(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -388,8 +532,7 @@ def _hardware_prelude(case_id: str | None, conn: str | None) -> Case | None:
             hint="case_id 를 함께 전달하라. USB 장치는 conn 없이 sigrok_scan() 으로 찾을 수 있다.",
         )
     if kind == "serial" and conn:
-        if conn.startswith("/dev/") and not os.path.exists(conn):
-            raise ValidationFailed(f"시리얼 장치가 없습니다: {conn}", hint="WSL2 이면 usbipd attach 후 다시 확인")
+        # 진입에서 공통 resolver가 문자장치와 rdev를 확인하고 lease를 확보했다.
         users = device_users(conn)
         if users:
             raise Busy(
@@ -404,7 +547,8 @@ def _hardware_prelude(case_id: str | None, conn: str | None) -> Case | None:
     description=(
         "연결된 sigrok 장치 스캔. 인자 없으면 모든 드라이버로 USB 등 자동 탐지(읽기 전용 식별). driver 로 한정 가능. "
         "conn(시리얼 /dev/ttyACM0, USB 'bus.addr'/'VID.PID', 'tcp-raw/host/port') 을 주면 그 포트로 식별 질의를 보내므로 "
-        "시리얼/네트워크 conn 은 case_id(소유/허가 증명)가 필요하다. 결과 각 장치에 capture_allowed 정책이 붙는다."
+        "시리얼/네트워크 conn 은 case_id(소유/허가 증명)가 필요하다. 명시 직렬 conn 은 공통 포트 잠금·route 재검증을 적용하고 target/bridge 표지가 있으면 거부한다. "
+        "결과 각 장치에 capture_allowed 정책이 붙는다."
     ),
     annotations=ANN_DEVICE,
 )
@@ -422,64 +566,76 @@ async def sigrok_scan(
     await _offload(guard_target_port, r, conn_v, consumer="sigrok", driver=drv)
     if conn_v and not drv:
         raise ValidationFailed("conn 을 쓰려면 driver 도 지정해야 합니다.", hint="예: sigrok_scan(driver='ols', conn='/dev/ttyACM0', case_id=...)")
-    case = _hardware_prelude(case_id, conn_v)
-    cli = _cli()
-    pol = _policy()
-    if drv:
-        args = [f"--driver={drv}" + (f":conn={conn_v}" if conn_v else ""), "--dont-scan", "--scan"]
-    else:
-        args = ["--scan"]
-    argv = [cli.path, *args]
-    cls = classify_sigrok_argv(argv, policy=pol)
-    action = {"driver": drv, "conn": conn_v}
-    cid = case.id if case else None
-    if cls.risk >= Risk.MODIFY:
-        return _policy_denied("sigrok_scan", action, cls, cid)
-    decision = await r.authorize(tool="sigrok_scan", action=action, classification=cls, case_id=cid, ctx=ctx)
-    if not decision.allowed:
-        return gate_response(decision)
-    timeout = _clamp_timeout(timeout_s, 45.0)
+    use = await _acquire_port_use(_serial_use, case_id, conn_v)
+    try:
+        case = _hardware_prelude(case_id, conn_v)
+        cli = _cli()
+        pol = _policy()
+        if drv:
+            args = [f"--driver={drv}" + (f":conn={conn_v}" if conn_v else ""), "--dont-scan", "--scan"]
+        else:
+            args = ["--scan"]
+        argv = [cli.path, *args]
+        cls = classify_sigrok_argv(argv, policy=pol)
+        action = {"driver": drv, "conn": conn_v}
+        cid = case.id if case else None
+        if cls.risk >= Risk.MODIFY:
+            return _policy_denied("sigrok_scan", action, cls, cid)
+        cls = _port_classification(use, action, cls)
+        decision = await r.authorize(tool="sigrok_scan", action=action, classification=cls, case_id=cid, ctx=ctx)
+        if not decision.allowed:
+            return gate_response(decision)
+        timeout = _clamp_timeout(timeout_s, 45.0)
 
-    def work(cancel_event: threading.Event) -> CliResult:
-        if not drv:
-            guard_target_port(r, conn_v, consumer="sigrok", driver=drv, phase="pre-process")
-            return run_process(argv, timeout=timeout, cancel=cancel_event.is_set, env=child_env())
-        lock = _device_lock(_device_key(drv, conn_v))
-        if not lock.acquire(blocking=False):
-            raise Busy(f"장치 {drv} 를 다른 작업(캡처 등)이 사용 중입니다.", hint="sigrok_jobs 로 실행 중인 캡처를 확인하라.")
-        try:
-            guard_target_port(r, conn_v, consumer="sigrok", driver=drv, phase="pre-process")
-            return run_process(argv, timeout=timeout, cancel=cancel_event.is_set, env=child_env())
-        finally:
-            lock.release()
+        def work(cancel_event: threading.Event) -> CliResult:
+            if not drv:
+                guard_target_port(r, conn_v, consumer="sigrok", driver=drv, phase="pre-process")
+                return _port_run(use, argv, timeout=timeout, cancel=cancel_event.is_set, env=child_env())
+            lock = _device_lock(_device_key(drv, conn_v))
+            if not lock.acquire(blocking=False):
+                raise Busy(f"장치 {drv} 를 다른 작업(캡처 등)이 사용 중입니다.", hint="sigrok_jobs 로 실행 중인 캡처를 확인하라.")
+            try:
+                guard_target_port(r, conn_v, consumer="sigrok", driver=drv, phase="pre-process")
+                return _port_run(use, argv, timeout=timeout, cancel=cancel_event.is_set, env=child_env())
+            finally:
+                lock.release()
 
-    res = await _run_cancellable(work)
-    rep = check_result(res, "sigrok-cli --scan")
-    devices = parse_scan(res.stdout_text)
-    for d in devices:
-        d.update(pol.describe(d["driver"]))
-    out: dict[str, Any] = {"ok": True, "count": len(devices), "devices": devices, "classification": cls.to_dict()}
-    if rep.warnings:
-        out["stderr_warnings"] = rep.warnings
-    noise = [ln for ln in res.stderr.splitlines() if ln.strip()]
-    if noise:
-        out["stderr"] = tail_text("\n".join(noise), 1500)
-    if not devices:
-        out["note"] = (
-            "장치를 찾지 못했다. USB 연결/케이블, (WSL2 이면) Windows 에서 usbipd attach --wsl, udev 권한, 시리얼 장치면 driver+conn 지정을 "
-            "확인하라. fx2lafw 장치는 첫 스캔에서 펌웨어 업로드 후 재열거되므로 몇 초 뒤 한 번 더 스캔하면 보일 수 있다."
-        )
-    elif not any(d["driver"] == "demo" for d in devices) or len(devices) > 1:
-        out["note"] = "캡처에는 driver(필요하면 conn=결과의 conn 값)를 명시한다. demo 는 가상 장치다."
-    if case:
-        r.audit({"event": "sigrok_scan", "driver": drv, "conn": conn_v, "devices": len(devices)}, case.id)
-    return out
+        def finish(res: CliResult) -> dict[str, Any]:
+            rep = check_result(res, "sigrok-cli --scan")
+            devices = parse_scan(res.stdout_text)
+            for d in devices:
+                d.update(pol.describe(d["driver"]))
+            out: dict[str, Any] = {"ok": True, "count": len(devices), "devices": devices, "classification": cls.to_dict()}
+            if rep.warnings:
+                out["stderr_warnings"] = rep.warnings
+            noise = [ln for ln in res.stderr.splitlines() if ln.strip()]
+            if noise:
+                out["stderr"] = tail_text("\n".join(noise), 1500)
+            if not devices:
+                out["note"] = (
+                    "장치를 찾지 못했다. USB 연결/케이블, (WSL2 이면) Windows 에서 usbipd attach --wsl, udev 권한, 시리얼 장치면 driver+conn 지정을 "
+                    "확인하라. fx2lafw 장치는 첫 스캔에서 펌웨어 업로드 후 재열거되므로 몇 초 뒤 한 번 더 스캔하면 보일 수 있다."
+                )
+            elif not any(d["driver"] == "demo" for d in devices) or len(devices) > 1:
+                out["note"] = "캡처에는 driver(필요하면 conn=결과의 conn 값)를 명시한다. demo 는 가상 장치다."
+            if case:
+                r.audit({"event": "sigrok_scan", "driver": drv, "conn": conn_v, "devices": len(devices)}, case.id)
+            return out
+
+        def wrapped(cancel_event: threading.Event) -> dict[str, Any]:
+            return _port_worker(use, work, finish, cancel_event)
+
+        return await _run_cancellable(wrapped)
+    finally:
+        if use is not None and use.handoff.abandon_caller():
+            use.finish()
 
 
 @server.tool(
     description=(
         "로직 애널라이저 상세(sigrok-cli -d <driver> --show 파싱): 드라이버 기능, 채널/채널 그룹, 지원 samplerate 목록 또는 범위, "
-        "지원 트리거 문자, 최대 샘플 수. 장치를 열기만 하고 설정은 바꾸지 않는다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용."
+        "지원 트리거 문자, 최대 샘플 수. 장치를 열기만 하고 설정은 바꾸지 않는다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용. "
+        "명시 직렬 conn 은 공통 포트 잠금·route 재검증·target/bridge 거부를 적용한다."
     ),
     annotations=ANN_DEVICE,
 )
@@ -495,42 +651,53 @@ async def sigrok_device_info(
     drv = validate_driver(driver)
     conn_v = validate_conn(conn)
     await _offload(guard_target_port, r, conn_v, consumer="sigrok", driver=drv)
-    case = _hardware_prelude(case_id, conn_v)
-    assert case is not None
-    cli = _cli()
-    pol = _policy()
-    argv = [cli.path, f"--driver={drv}" + (f":conn={conn_v}" if conn_v else ""), "--dont-scan", "--show"]
-    cls = classify_sigrok_argv(argv, policy=pol)
-    action = {"driver": drv, "conn": conn_v}
-    if cls.risk >= Risk.MODIFY:
-        return _policy_denied("sigrok_device_info", action, cls, case.id)
-    decision = await r.authorize(tool="sigrok_device_info", action=action, classification=cls, case_id=case.id, ctx=ctx)
-    if not decision.allowed:
-        return gate_response(decision)
-    timeout = _clamp_timeout(timeout_s, 60.0)
+    use = await _acquire_port_use(_serial_use, case_id, conn_v)
+    try:
+        case = _hardware_prelude(case_id, conn_v)
+        assert case is not None
+        cli = _cli()
+        pol = _policy()
+        argv = [cli.path, f"--driver={drv}" + (f":conn={conn_v}" if conn_v else ""), "--dont-scan", "--show"]
+        cls = classify_sigrok_argv(argv, policy=pol)
+        action = {"driver": drv, "conn": conn_v}
+        if cls.risk >= Risk.MODIFY:
+            return _policy_denied("sigrok_device_info", action, cls, case.id)
+        cls = _port_classification(use, action, cls)
+        decision = await r.authorize(tool="sigrok_device_info", action=action, classification=cls, case_id=case.id, ctx=ctx)
+        if not decision.allowed:
+            return gate_response(decision)
+        timeout = _clamp_timeout(timeout_s, 60.0)
 
-    def work(cancel_event: threading.Event) -> CliResult:
-        lock = _device_lock(_device_key(drv, conn_v))
-        if not lock.acquire(blocking=False):
-            raise Busy(f"장치 {drv} 를 다른 작업(캡처 등)이 사용 중입니다.", hint="sigrok_jobs 로 실행 중인 캡처를 확인하라.")
-        try:
-            guard_target_port(r, conn_v, consumer="sigrok", driver=drv, phase="pre-process")
-            return run_process(argv, timeout=timeout, cancel=cancel_event.is_set, env=child_env())
-        finally:
-            lock.release()
+        def work(cancel_event: threading.Event) -> CliResult:
+            lock = _device_lock(_device_key(drv, conn_v))
+            if not lock.acquire(blocking=False):
+                raise Busy(f"장치 {drv} 를 다른 작업(캡처 등)이 사용 중입니다.", hint="sigrok_jobs 로 실행 중인 캡처를 확인하라.")
+            try:
+                guard_target_port(r, conn_v, consumer="sigrok", driver=drv, phase="pre-process")
+                return _port_run(use, argv, timeout=timeout, cancel=cancel_event.is_set, env=child_env())
+            finally:
+                lock.release()
 
-    res = await _run_cancellable(work)
-    parsed = parse_device_show(res.stdout_text)
-    rep = stderr_problems(res.stderr)
-    if res.returncode != 0 or rep.fatal:
-        # 장치가 없어도 드라이버 기능/스캔 옵션은 출력된다 → 함께 돌려준다
-        if parsed["driver_functions"] and any(e["code"] == "no_device" for e in rep.errors):
-            return {"ok": False, "status": "no_device", "driver": drv, "conn": conn_v,
-                    "driver_functions": parsed["driver_functions"], "scan_options": parsed["scan_options"],
-                    "message": "장치를 찾지 못했다. USB/usbipd/udev 권한/conn 을 확인하라.", "stderr": tail_text(res.stderr, 1500)}
-        check_result(res, "sigrok-cli --show")
-    return {"ok": True, "driver": drv, "conn": conn_v, **parsed, **pol.describe(drv),
-            **({"stderr_warnings": rep.warnings} if rep.warnings else {})}
+        def finish(res: CliResult) -> dict[str, Any]:
+            parsed = parse_device_show(res.stdout_text)
+            rep = stderr_problems(res.stderr)
+            if res.returncode != 0 or rep.fatal:
+                # 장치가 없어도 드라이버 기능/스캔 옵션은 출력된다 → 함께 돌려준다
+                if parsed["driver_functions"] and any(e["code"] == "no_device" for e in rep.errors):
+                    return {"ok": False, "status": "no_device", "driver": drv, "conn": conn_v,
+                            "driver_functions": parsed["driver_functions"], "scan_options": parsed["scan_options"],
+                            "message": "장치를 찾지 못했다. USB/usbipd/udev 권한/conn 을 확인하라.", "stderr": tail_text(res.stderr, 1500)}
+                check_result(res, "sigrok-cli --show")
+            return {"ok": True, "driver": drv, "conn": conn_v, **parsed, **pol.describe(drv),
+                    **({"stderr_warnings": rep.warnings} if rep.warnings else {})}
+
+        def wrapped(cancel_event: threading.Event) -> dict[str, Any]:
+            return _port_worker(use, work, finish, cancel_event)
+
+        return await _run_cancellable(wrapped)
+    finally:
+        if use is not None and use.handoff.abandon_caller():
+            use.finish()
 
 
 # ---------------------------------------------------------------------------
@@ -560,6 +727,7 @@ class CapturePlan:
     exclusive_key: str
     warnings: list[str] = field(default_factory=list)
     runtime: Runtime | None = field(default=None, repr=False, compare=False)
+    port_use: _SerialUse | None = field(default=None, repr=False, compare=False)
 
     def requested(self) -> dict[str, Any]:
         return {
@@ -569,7 +737,23 @@ class CapturePlan:
         }
 
 
-def _capture_worker(plan: CapturePlan, cancel: Callable[[], bool], progress: Callable[[float, float, str], None] | None = None) -> dict[str, Any]:
+def _capture_worker(plan: CapturePlan, cancel: Callable[[], bool], progress: Callable | None = None) -> dict[str, Any]:
+    use = plan.port_use
+    if use is not None and not use.handoff.claim_worker():
+        return {"ok": False, "status": "cancelled"}
+    try:
+        if cancel():
+            return {"ok": False, "status": "cancelled"}
+        result = _capture_worker_inner(plan, cancel, progress)
+        if use is not None:
+            result["route"] = use.route.to_dict()
+        return result
+    finally:
+        if use is not None:
+            use.finish()
+
+
+def _capture_worker_inner(plan: CapturePlan, cancel: Callable[[], bool], progress: Callable[[float, float, str], None] | None = None) -> dict[str, Any]:
     """캡처 실행 (동기 호출/백그라운드 작업 공용). 실행 직전에 argv 를 다시 분류한다."""
     cls = classify_sigrok_argv(plan.argv, policy=plan.policy, allowed_output_dir=plan.sig_dir)
     if cls.risk > Risk.INTERACT:
@@ -591,7 +775,7 @@ def _capture_worker(plan: CapturePlan, cancel: Callable[[], bool], progress: Cal
                 progress(min(elapsed, total), total, f"캡처 중 {elapsed:.1f}s / 예상 {plan.expected_s:.1f}s"
                          + (" (트리거 대기 포함)" if plan.triggers else ""))
 
-        res = run_process(plan.argv, timeout=plan.timeout_s, cancel=cancel, env=child_env(), on_tick=tick,
+        res = _port_run(plan.port_use, plan.argv, timeout=plan.timeout_s, cancel=cancel, env=child_env(), on_tick=tick,
                           stdout_limit=1024 * 1024, cwd=plan.sig_dir)
     finally:
         lock.release()
@@ -731,7 +915,8 @@ def _salvage_partial(case: Case, plan: CapturePlan) -> dict[str, Any] | None:
         "channels 예 ['D0','D1'] 또는 ['D0=RX','D1=TX'](0번부터 연속 선택 권장), triggers 예 'RX=f'(rename 후 이름, 문자 0/1/r/f/e), "
         "capture_ratio=트리거 전 비율(%), conn=장치 지정. 전원공급기 등 출력 장치와 samplerate/captureratio 외 config 는 거부. "
         "예상 20초 초과 또는 트리거 사용 시 job 으로 실행되어 job_id 반환 → sigrok_job_status 로 폴링 (background 로 강제 가능). "
-        "부트 로그는 캡처를 먼저 시작한 뒤 사람이 대상 전원을 넣도록 안내한다."
+        "부트 로그는 캡처를 먼저 시작한 뒤 사람이 대상 전원을 넣도록 안내한다. "
+        "명시 직렬 conn 의 공통 포트 잠금은 worker의 프로세스 정리가 확인될 때까지 유지하며, libusb 장치 선택은 이 직렬 잠금의 대상이 아니다."
     ),
     annotations=ANN_DEVICE,
 )
@@ -756,105 +941,124 @@ async def sigrok_capture(
     drv = validate_driver(driver)
     conn_v = validate_conn(conn)
     await _offload(guard_target_port, r, conn_v, consumer="sigrok", driver=drv)
-    rate = parse_samplerate(samplerate)
-    dur = validate_duration_ms(duration_ms)
-    ns = validate_samples(samples)
-    if (dur is None) == (ns is None):
-        raise ValidationFailed(
-            "duration_ms 와 samples 중 정확히 하나를 지정해야 합니다.",
-            hint="예: duration_ms=5000 (5초) 또는 samples=1000000. 무한 캡처(--continuous)는 지원하지 않는다.",
-        )
-    chans = validate_channels(channels)
-    trig = validate_triggers(triggers, chans)
-    ratio = validate_capture_ratio(capture_ratio)
-    name = validate_output_name(output_name)
-    pol = _policy()
-    sig_dir = case.subdir("signals")
-    cli = _cli()
-    final, part = _reserve_capture_paths(sig_dir, name, drv)
-    handed_off = False
+    use = await _acquire_port_use(_serial_use, case_id, conn_v)
+    part = None
     try:
-        args = [f"--driver={drv}" + (f":conn={conn_v}" if conn_v else ""), "--dont-scan", f"--config=samplerate={rate}"]
-        if ratio is not None:
-            args.append(f"--config=captureratio={ratio}")
-        if chans:
-            args.append(f"--channels={chans.arg}")
-        if trig:
-            args.append(f"--triggers={trig}")
-        args.append(f"--time={dur}" if dur is not None else f"--samples={ns}")
-        args += ["--output-format=srzip", f"--output-file={part}"]
-        argv = [cli.path, *args]
-        action = {"driver": drv, "conn": conn_v, "samplerate": rate, "duration_ms": dur, "samples": ns,
-                  "channels": chans.tokens if chans else None, "triggers": trig, "capture_ratio": ratio, "output_name": name}
-        cls = classify_sigrok_argv(argv, policy=pol, allowed_output_dir=sig_dir)
-        if cls.risk >= Risk.MODIFY:
-            return _policy_denied("sigrok_capture", action, cls, case.id)
-        # 장치 사용 중 여부/시리얼 포트 점유 확인
-        if conn_kind(conn_v) == "serial":
-            _hardware_prelude(case.id, conn_v)
-        exclusive_key = _device_key(drv, conn_v)
-        for j in r.jobs.list(active_only=True):
-            if (j.get("meta") or {}).get("exclusive_key") == exclusive_key:
-                raise Busy(f"같은 장치로 캡처 작업이 실행 중입니다: {j['job_id']}", hint="sigrok_job_status 로 확인하거나 sigrok_job_cancel 로 취소하라.")
-        decision = await r.authorize(tool="sigrok_capture", action=action, classification=cls, case_id=case.id, ctx=ctx)
-        if not decision.allowed:
-            return gate_response(decision)
-
-        expected = (dur / 1000.0) if dur is not None else (ns / rate)  # type: ignore[operator]
-        margin = 60.0 if trig else 30.0
-        timeout = _clamp_timeout(timeout_s, expected + margin)
-        if timeout < expected + 1.0:
-            raise ValidationFailed(f"timeout_s({timeout})가 예상 캡처 시간({expected:.1f}s)보다 짧습니다.")
-        warnings = list(chans.warnings) if chans else []
-        nch = len(chans.final_names) if chans else 8
-        est_bytes = int((ns if ns is not None else rate * dur / 1000) * max(1, math.ceil(nch / 8)))  # type: ignore[operator]
-        free = shutil.disk_usage(sig_dir).free
-        if est_bytes > free:
-            warnings.append(f"압축 전 최대 데이터 크기({est_bytes} bytes)가 남은 디스크({free} bytes)보다 큼 — 신호가 단조로우면 압축되지만 주의")
-        if est_bytes > 2 * 1024**3:
-            warnings.append(f"큰 캡처(압축 전 최대 {est_bytes / 1024**3:.1f} GiB) — 분석/디코드가 오래 걸릴 수 있음")
-        if ratio is not None and not trig:
-            warnings.append("capture_ratio 는 트리거와 함께일 때만 의미가 있다")
-        plan = CapturePlan(case_id=case.id, case_dir=case.dir, sig_dir=sig_dir, driver=drv, conn=conn_v, samplerate=rate,
-                           duration_ms=dur, samples=ns, channels=chans, triggers=trig, capture_ratio=ratio, final_path=final,
-                           part_path=part, argv=argv, expected_s=expected, timeout_s=timeout, policy=pol,
-                           exclusive_key=exclusive_key, warnings=warnings, runtime=r)
-        bg = background if background is not None else (trig is not None or expected > SYNC_CAPTURE_LIMIT_S)
-        if bg:
-            def job_fn(jctx: Any) -> dict[str, Any]:
-                jctx.log(f"캡처 시작: {' '.join(_display_argv(argv))}")
-                try:
-                    res = _capture_worker(plan, cancel=lambda: jctx.cancelled,
-                                          progress=lambda d, t, m: jctx.progress(d, t, m))
-                finally:
-                    _remove_quiet_if_empty(plan.part_path)
-                if res.get("status") == "timeout":  # 작업 상태를 failed 로 (부분 결과는 error.data 에)
-                    raise TimeoutExpired(res.get("message", "캡처 시간 초과"), hint=res.get("hint"), data=res)
-                return res
-
-            job = r.jobs.start("sigrok-capture", job_fn, description=f"sigrok 캡처 {drv} {rate} Hz → {case.rel(final)}",
-                               case_id=case.id, meta={"planned_path": case.rel(final), "driver": drv},
-                               exclusive_key=exclusive_key)
-            handed_off = True
-            return {"ok": True, "status": "started", "job_id": job.id, "planned_path": case.rel(final),
-                    "expected_duration_s": round(expected, 3), "timeout_s": timeout, "warnings": warnings,
-                    "classification": cls.to_dict(),
-                    "message": f"백그라운드 캡처 시작. sigrok_job_status(job_id='{job.id}', wait_seconds=30) 로 폴링하라. "
-                               + ("부트 로그라면 지금 사람에게 대상 전원을 넣도록 요청하라." if trig or expected > 2 else "")}
-        handed_off = True
-    finally:
-        if not handed_off:
-            _remove_quiet(part)
-
-    def work(cancel_event: threading.Event) -> dict[str, Any]:
+        rate = parse_samplerate(samplerate)
+        dur = validate_duration_ms(duration_ms)
+        ns = validate_samples(samples)
+        if (dur is None) == (ns is None):
+            raise ValidationFailed(
+                "duration_ms 와 samples 중 정확히 하나를 지정해야 합니다.",
+                hint="예: duration_ms=5000 (5초) 또는 samples=1000000. 무한 캡처(--continuous)는 지원하지 않는다.",
+            )
+        chans = validate_channels(channels)
+        trig = validate_triggers(triggers, chans)
+        ratio = validate_capture_ratio(capture_ratio)
+        name = validate_output_name(output_name)
+        pol = _policy()
+        sig_dir = case.subdir("signals")
+        cli = _cli()
+        final, part = _reserve_capture_paths(sig_dir, name, drv)
+        handed_off = False
         try:
-            return _capture_worker(plan, cancel=cancel_event.is_set)
-        finally:
-            _remove_quiet_if_empty(plan.part_path)
+            args = [f"--driver={drv}" + (f":conn={conn_v}" if conn_v else ""), "--dont-scan", f"--config=samplerate={rate}"]
+            if ratio is not None:
+                args.append(f"--config=captureratio={ratio}")
+            if chans:
+                args.append(f"--channels={chans.arg}")
+            if trig:
+                args.append(f"--triggers={trig}")
+            args.append(f"--time={dur}" if dur is not None else f"--samples={ns}")
+            args += ["--output-format=srzip", f"--output-file={part}"]
+            argv = [cli.path, *args]
+            action = {"driver": drv, "conn": conn_v, "samplerate": rate, "duration_ms": dur, "samples": ns,
+                      "channels": chans.tokens if chans else None, "triggers": trig, "capture_ratio": ratio, "output_name": name}
+            cls = classify_sigrok_argv(argv, policy=pol, allowed_output_dir=sig_dir)
+            if cls.risk >= Risk.MODIFY:
+                return _policy_denied("sigrok_capture", action, cls, case.id)
+            # 장치 사용 중 여부/시리얼 포트 점유 확인
+            if conn_kind(conn_v) == "serial":
+                _hardware_prelude(case.id, conn_v)
+            exclusive_key = _device_key(drv, conn_v)
+            for j in r.jobs.list(active_only=True):
+                if (j.get("meta") or {}).get("exclusive_key") == exclusive_key:
+                    raise Busy(f"같은 장치로 캡처 작업이 실행 중입니다: {j['job_id']}", hint="sigrok_job_status 로 확인하거나 sigrok_job_cancel 로 취소하라.")
+            cls = _port_classification(use, action, cls)
+            decision = await r.authorize(tool="sigrok_capture", action=action, classification=cls, case_id=case.id, ctx=ctx)
+            if not decision.allowed:
+                return gate_response(decision)
 
-    result = await _run_cancellable(work)
-    result["classification"] = cls.to_dict()
-    return result
+            expected = (dur / 1000.0) if dur is not None else (ns / rate)  # type: ignore[operator]
+            margin = 60.0 if trig else 30.0
+            timeout = _clamp_timeout(timeout_s, expected + margin)
+            if timeout < expected + 1.0:
+                raise ValidationFailed(f"timeout_s({timeout})가 예상 캡처 시간({expected:.1f}s)보다 짧습니다.")
+            warnings = list(chans.warnings) if chans else []
+            nch = len(chans.final_names) if chans else 8
+            est_bytes = int((ns if ns is not None else rate * dur / 1000) * max(1, math.ceil(nch / 8)))  # type: ignore[operator]
+            free = shutil.disk_usage(sig_dir).free
+            if est_bytes > free:
+                warnings.append(f"압축 전 최대 데이터 크기({est_bytes} bytes)가 남은 디스크({free} bytes)보다 큼 — 신호가 단조로우면 압축되지만 주의")
+            if est_bytes > 2 * 1024**3:
+                warnings.append(f"큰 캡처(압축 전 최대 {est_bytes / 1024**3:.1f} GiB) — 분석/디코드가 오래 걸릴 수 있음")
+            if ratio is not None and not trig:
+                warnings.append("capture_ratio 는 트리거와 함께일 때만 의미가 있다")
+            plan = CapturePlan(case_id=case.id, case_dir=case.dir, sig_dir=sig_dir, driver=drv, conn=conn_v, samplerate=rate,
+                               duration_ms=dur, samples=ns, channels=chans, triggers=trig, capture_ratio=ratio, final_path=final,
+                               part_path=part, argv=argv, expected_s=expected, timeout_s=timeout, policy=pol,
+                               exclusive_key=exclusive_key, warnings=warnings, runtime=r, port_use=use)
+            bg = background if background is not None else (trig is not None or expected > SYNC_CAPTURE_LIMIT_S)
+            if bg:
+                def job_fn(jctx: Any) -> dict[str, Any]:
+                    jctx.log(f"캡처 시작: {' '.join(_display_argv(argv))}")
+                    try:
+                        res = _capture_worker(plan, cancel=lambda: jctx.cancelled,
+                                              progress=lambda d, t, m: jctx.progress(d, t, m))
+                    finally:
+                        if use is None or not use.unverified:
+                            _remove_quiet_if_empty(plan.part_path)
+                    if res.get("status") == "timeout":  # 작업 상태를 failed 로 (부분 결과는 error.data 에)
+                        raise TimeoutExpired(res.get("message", "캡처 시간 초과"), hint=res.get("hint"), data=res)
+                    return res
+
+                job = r.jobs.start("sigrok-capture", job_fn, description=f"sigrok 캡처 {drv} {rate} Hz → {case.rel(final)}",
+                                   case_id=case.id, meta={"planned_path": case.rel(final), "driver": drv,
+                                                        **({"route": use.route.to_dict(), "port_keys": list(use.keys)} if use else {})},
+                                   exclusive_key=exclusive_key)
+                handed_off = True
+                if use is not None:
+                    use.accepted = True
+                return {"ok": True, "status": "started", "job_id": job.id, "planned_path": case.rel(final),
+                        "expected_duration_s": round(expected, 3), "timeout_s": timeout, "warnings": warnings,
+                        **({"route": use.route.to_dict()} if use else {}),
+                        "classification": cls.to_dict(),
+                        "message": f"백그라운드 캡처 시작. sigrok_job_status(job_id='{job.id}', wait_seconds=30) 로 폴링하라. "
+                                   + ("부트 로그라면 지금 사람에게 대상 전원을 넣도록 요청하라." if trig or expected > 2 else "")}
+            handed_off = True
+        finally:
+            if not handed_off and (use is None or use.handoff.abandon_caller()):
+                try:
+                    _remove_quiet(part)
+                finally:
+                    if use is not None:
+                        use.finish()
+
+        def work(cancel_event: threading.Event) -> dict[str, Any]:
+            try:
+                return _capture_worker(plan, cancel=cancel_event.is_set)
+            finally:
+                if use is None or not use.unverified:
+                    _remove_quiet_if_empty(plan.part_path)
+
+        result = await _run_cancellable(work)
+        result["classification"] = cls.to_dict()
+        return result
+    finally:
+        if use is not None and not use.accepted and use.handoff.abandon_caller():
+            if part is not None:
+                _remove_quiet(part)
+            use.finish()
 
 
 # ---------------------------------------------------------------------------

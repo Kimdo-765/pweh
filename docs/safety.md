@@ -257,9 +257,13 @@ pweh-emu 의 고정 argv 허용 목록 위반도 `gate.via: "emu-policy"`, `stat
     남아 있는 동안 예약 파일을 지우지 않는다. 이때 남는 `%TEMP%\_MEI*` 압축 해제 디렉터리는 막을 수 없다.
 - **JTAGulator · sigrok**
   - JTAGulator UART 스캔 프로브는 대상 콘솔이 여러 번 받으므로, 두 번 이어 붙인 형태까지 콘솔 분류기로 검사한다(`_erase X\rflash` → `flash_erase X`).
-    `jtagulator_connect` 는 장치 경로·루프백 호스트의 `socket://`·`rfc2217://`(·테스트용 `loop://`) 형식만 받는다(LAN 호스트와 Windows `COMn` 은 `validation_failed`). 장치 경로는 exclusive(flock)로 열어, 다른 세션이 쓰는 대상 콘솔에 재동기화 키를 보내지 않는다.
-    **`socket://`·`rfc2217://` 에는 이 배타가 없다** — pyserial 이 `exclusive` 를 무시하기 때문이다. 한 서버 안에서는 같은 루프백 포트를 가리키는 모든 표기(`127.0.0.1`·다른 `127.x`·`[::1]`·`localhost`, 두 스킴)를 한 포트로 보고 두 번째 열기·연결을 `busy` 로 거부하지만,
-    다른 서버 프로세스가 잡은 URL 은 막지 못한다(예: pweh-uart 세션이 연 시뮬레이터·ser2net 포트에 pweh-jtagulator 가 연결하면 재동기화 키 Ctrl-X·CR — U-Boot 에서 CR 은 빈 Enter = 직전 명령 반복 — 이 그 콘솔로 간다). 원격 URL 은 한 서버에만 넘긴다(프로세스 사이 배타는 P1 portlock).
+    `jtagulator_connect`는 문자장치·루프백 socket/RFC2217·loop와 확인된 WSL1 COM1–191을 받는다. WSL2 COM 세션은 P2 helper 전까지 거부한다.
+    공용 portlock을 승인·open 전에 잡아 다른 PWEH 세션의 포트에 재동기화 키를 보내지 않는다. 루프백 URL은 모든 호스트 표기·두 스킴을 포트 번호 하나로 묶는다.
+    UART가 기록한 target/bridge 역할 표지도 프로브를 막는다. 미확인 식별이면 표지를 임의로 해제하지 않는다. sigrok는 명시 직렬 conn만 같은 잠금에 참여한다.
+- **포트와 연결 수명**: 경로·OS 노드·USB 식별을 승인 뒤 다시 확인하며 바뀌면 `route_changed`로 중단한다. 확인된 장치 전체 reset은 같은 부모의 모든 현재 형제 키가 필요하다.
+  형제 관찰이 불완전하면 `port_scope_unknown`이다. POSIX는 open 뒤 TIOCEXCL, close 전에 TIOCNXCL을 적용한다. 최초 open pulse와 비PWEH 프로그램의 open–ioctl 경합까지 없애지는 못한다.
+  승인 대기에도 잠금을 유지한다. 끊어진 세션은 명시 close까지, 취소한 worker는 실제 핸들·프로세스 종료가 확인될 때까지 유지한다. GC·시간 경과로 orphan 잠금을 풀지 않는다.
+  `/tmp/pweh-<uid>/port-owners/`와 `port-roles/`는 서버가 관리하므로 에이전트가 직접 고치지 않는다. 기존 I5 instrument `tags/`와는 별개다.
 - **원격 시리얼·리스너·플랫폼**: uart·jtagulator 는 `socket://`·`rfc2217://` 를 루프백 호스트만 받는다(인증 없는 시리얼을 LAN 에 열지 않고, 뒤에 어떤 장치가 있는지 식별할 수 없기 때문. 운영자 허용 목록 `safety.ports.remote_serial_hosts` 는 아직 구현하지 않았다).
   시뮬레이터는 루프백에만 바인드하고, 루프백이 아닌 주소는 `--allow-lan` 이 있을 때만 stderr 경고와 함께 연다. PWEH MCP 서버는 네이티브 Windows·Cygwin·MSYS 에서 시작하지 않는다(PID 생존 확인·프로세스 그룹 종료·점유 검사가 안전하게 동작하지 않음).
   - sigrok 디코드는 sigrok-cli 를 띄우기 직전에 오프라인 명령인지 다시 확인한다.
@@ -308,9 +312,11 @@ pweh-emu 의 고정 argv 허용 목록 위반도 `gate.via: "emu-policy"`, `stat
     init 조기 실행 검사는 init 을 실행한 그 cfg 파일·그 `extra_commands` 항목이 끝난 뒤에 돈다. 그래서 init 을 실행한 신뢰 cfg 파일의 나머지 줄(신뢰 경계 안)과,
     init 을 실행한 `extra_commands` 항목 하나의 나머지(같은 `-c` 안 `;` 뒤 — 정적 검사를 피하고, DESTRUCTIVE 면 사람 승인까지 받은 경우만)는 semihosting 이 켜진 채 실행될 수 있다.
   - pweh-esp: 분류기는 argv 만 본다. 실행 파일은 설정(`tools.esptool`, `tools.esptool_win`)이 가리키는 것을 믿는다(이름이 espefuse·espsecure 면 거부).
-    포트 잠금은 서버 프로세스 안에서만 유효하다. 리눅스 tty 를 연 다른 프로세스는 `/proc` 를 훑어 찾으므로(최선 노력) 다른 계정의 프로세스는 보이지 않을 수 있다.
+    공용 포트 잠금은 같은 OS namespace의 참여 서버 사이에서 유효하다. 다른 netns·Windows 외부 프로그램·미통합 libusb/OpenOCD까지 보호하지 않는다.
+    리눅스 tty 를 연 다른 프로세스는 `/proc` 를 훑어 찾으므로(최선 노력) 다른 계정의 프로세스는 보이지 않을 수 있다.
     Windows COM 포트는 그 포트를 인자로 받은 esptool.exe 만 미리 찾는다(Windows 프로세스 명령줄). 다른 프로그램이 잡고 있으면 esptool 이 `esp_port_busy` 로 실패한다.
-    powershell.exe 가 실패하면 이 확인과 취소 뒤 남은 esptool.exe 확인이 약해진다(포트 확인은 기록만 하고 진행, 취소는 경고와 함께 cancelled).
+    Windows 보유자 조회가 실패하면 거부하며, 취소 뒤 남은 프로세스나 종료 검사 실패가 있으면 lease·Windows 소유 토큰·예약을 유지한다.
+    전체 USB 형제 잠금은 명시 `usb-reset` 또는 OS가 확인한 native USB reset 계획에 적용한다. 식별 unknown의 `default-reset`에서 esptool 자체가 native USB를 감지해 reset하는 경우까지 모든 형제의 배타를 보장하지는 않는다.
     Windows exe 쪽에서는 WSLENV 가 빈 값을 넘기지 못해 IDE 웹소켓 로그 변수(`ESP_IDE_WS`)와 esptool 4.8.1 의 `ESPTOOL_TESTING` 을 중립화하지 못한다(기기 동작과는 무관).
     덤프의 MODIFY 연결(리셋·스텁)은 job 안에서 읽기마다 다시 일어나고, 승인은 도구 호출에 한 번이다.
 - Claude Code 사용자는 보조 장치를 추가로 얻는다.

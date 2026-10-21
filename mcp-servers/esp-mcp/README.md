@@ -156,8 +156,10 @@ DESTRUCTIVE 는 안전 게이트에 넘기지 않고 `{ok: false, status: "denie
   버전을 모르면 밑줄 이름을 쓴다(v5 도 경고와 함께 받아들인다). `after="watchdog-reset"` 은 v5 와 v4.12 이상에서만 허용한다.
 - 백그라운드 읽기는 esptool 을 띄우기 직전마다 argv 를 다시 분류하고, 케이스의 소유/허가 증명도 다시 확인한다.
   도중에 증명이 철회되면 `authorization_required` 로 멈춘다.
-- 같은 포트는 한 번에 한 작업만 쓴다. 포트 잠금과 job 배타 키(`esp-port:<포트>`)를 쓰며, 이 보호는 서버 프로세스 안에서만 유효하다.
-  리눅스 포트는 realpath 로 묶는다. 다른 프로세스가 그 tty 를 열고 있으면 `busy` 로 거부한다(시리얼 모니터, uart-mcp 세션).
+- 같은 포트는 한 번에 한 작업만 쓴다. 승인·실행 전에 공용 OS lease를 잡고 기존 예약·job 배타 키도 유지한다. tty 별칭은 rdev, COM은 `win:COMn`으로 묶어 다른 참여 서버와 경합한다.
+  action의 `route{backend,lock_key,device_id}`와 결과의 공개 route를 기록하고 실행 직전마다 재확인한다. 전체 USB reset이면 같은 부모의 완전한 형제 범위를 먼저 잠근다.
+  info 처리·두 읽기·실제 child 정리가 끝날 때까지 lease를 유지한다. Windows 보유자 조회 실패는 거부하고, 종료 미확인/남은 child는 lease·예약·소유 토큰을 보존한다.
+  다른 프로세스가 tty를 열고 있으면 `busy`로 거부한다. 이 조회는 최선 노력이며 비참여 프로그램·다른 netns·일반 libusb까지 배타하지 않는다.
 - 취소하거나 시간이 초과되면 프로세스 그룹을 SIGTERM, 이어서 SIGKILL 로 끝낸다. Windows esptool.exe 는 PyInstaller onefile 이라 WSL interop 프로세스를
   죽여도 자식(실제 esptool)이 COM 포트를 잡은 채 남는다(실측). 그래서 명령줄 표식(덤프는 UNC 출력 경로, 정보 명령은 `--port COMn` + 명령)으로 Windows
   프로세스를 찾아 자식부터 끝내고(부트로더가 `%TEMP%\_MEI*` 를 지우고 끝남) 남은 것이 없을 때만 취소로 보고한다. 남으면 PID 를 담은

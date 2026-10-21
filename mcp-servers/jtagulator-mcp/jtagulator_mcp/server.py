@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
 
+import anyio
+from pweh import hostenv, portlock, ports, serialtransport
 from pweh.errors import Busy, DeviceError, NotFound, PwehError, SafetyDenied, TimeoutExpired, ValidationFailed
 from pweh.fsutil import atomic_write_json, utcnow_iso
 from pweh.jobs import ACTIVE_STATES, JobContext
@@ -43,7 +45,7 @@ from pweh.mcpkit import (
 )
 from pweh.runtime import Runtime, get_runtime
 from pweh.instrument_guard import guard_target_port
-from pweh.safety import Risk
+from pweh.safety import Classification, Risk
 
 from . import protocol as P
 from .classify import classify_jtagulator
@@ -113,6 +115,8 @@ class Connection:
     transcript_rel: str
     session_n: int
     opened_at: str
+    route: Any = None
+    lease: Any = None
     firmware: str | None = None
     firmware_supported: bool = False
     allow_untested_firmware: bool = False
@@ -146,6 +150,8 @@ class Connection:
         return {
             "case_id": self.case_id,
             "port": self.port,
+            "route": self.route.to_dict() if self.route is not None else None,
+            "transport": self.link._ser.metadata(),
             "baudrate": self.baudrate,
             "connected": not self.closed and self.link.alive,
             "link_error": str(self.link.error) if self.link.error else None,
@@ -173,12 +179,62 @@ _CONNS_LOCK = threading.Lock()
 # port_key → case_id: 승인 뒤 연결(열기·재동기화)이 끝나 _CONNS 에 들어가기 전까지 그 끝점을 예약한다.
 # socket://·rfc2217:// 는 pyserial 이 exclusive 를 무시하므로 같은 서버 안의 동시 연결은 이 예약과 _CONNS 비교로만 막는다.
 _CONNECTING: dict[str, str] = {}
+_CLEANUP_PENDING: dict[int, tuple[Any, Any, str]] = {}
+_CLEANUP_LOCK = threading.RLock()
+_CASE_CONNECTING: set[str] = set()
+
+
+def _port_environment() -> dict[str, Any]:
+    """경로 선택만으로 Windows smoke를 시작하지 않는 시험 주입 seam."""
+    return hostenv.detect(smoke=False, config=rt().config)
+
+
+def _resolve_port(r: Runtime, port: str) -> tuple[Any, dict[str, Any]]:
+    env = _port_environment()
+    return ports.resolve(env, port, "serial-session", config=r.config), env
+
+
+def _fresh_port(r: Runtime, route: Any, env: dict[str, Any], lease: Any) -> None:
+    lease.assert_held(ports.reset_scope(route))
+    ports.revalidate(route, env=env, config=r.config)
+    guard_target_port(r, route.ref, consumer="jtagulator", phase="pre-io")
+    portlock.get_role_store().assert_probe_allowed(route)
+
+
+def _cleanup_open(lease: Any, transport: Any, case_id: str) -> None:
+    """Connection 생성 전 실패의 핸들도 닫힘 미확인이면 재시도용으로 남긴다."""
+    with _CLEANUP_LOCK:
+        with _CONNS_LOCK:
+            _CLEANUP_PENDING[id(lease)] = (lease, transport, case_id)
+        if transport is not None:
+            with contextlib.suppress(Exception):
+                transport.close()
+            if not transport.closed:
+                with contextlib.suppress(Exception):
+                    lease.set_state("orphan")
+                return
+        lease.close()
+        with _CONNS_LOCK:
+            _CLEANUP_PENDING.pop(id(lease), None)
+
+
+def _retry_open_cleanup(case_id: str | None = None) -> int:
+    """명시 disconnect/서버 종료가 미발행 연결의 정리도 다시 시도한다."""
+    with _CLEANUP_LOCK:
+        with _CONNS_LOCK:
+            pending = list(_CLEANUP_PENDING.values())
+        selected = [row for row in pending if case_id is None or row[2] == case_id]
+        for lease, transport, saved_case in selected:
+            _cleanup_open(lease, transport, saved_case)
+            if not lease.closed:
+                raise DeviceError("포트 닫힘을 확인하지 못했습니다. 잠금을 유지합니다.", code="serial_close_unverified")
+        return len(selected)
 
 
 def _port_holder(key: str, case_id: str) -> str | None:
     """같은 끝점(P.port_key)을 다른 케이스가 쓰고 있거나 누군가 연결 중이면 그 케이스 id. _CONNS_LOCK 안에서 부른다."""
     for c in _CONNS.values():
-        if not c.closed and c.case_id != case_id and P.port_key(c.port) == key:
+        if not c.closed and c.case_id != case_id and (c.route.lock_key if c.route and c.route.lock_key else P.port_key(c.port)) == key:
             return c.case_id
     return _CONNECTING.get(key)
 
@@ -266,15 +322,22 @@ def _safety_kw() -> dict[str, Any]:
 
 
 def _close_conn(conn: Connection, note: str) -> None:
-    conn.closed = True
-    try:
+    with contextlib.suppress(Exception):
         conn.transcript.note(note)
-    except Exception:  # noqa: BLE001
-        pass
     try:
         conn.driver.close()
     finally:
-        conn.transcript.close()
+        if conn.link.physical_closed:
+            if conn.lease is not None:
+                conn.lease.close()
+            conn.closed = True
+            with _CONNS_LOCK:
+                if _CONNS.get(conn.case_id) is conn:
+                    _CONNS.pop(conn.case_id, None)
+            conn.transcript.close()
+        elif conn.lease is not None:
+            with contextlib.suppress(Exception):
+                conn.lease.set_state("orphan")
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +351,8 @@ def _close_conn(conn: Connection, note: str) -> None:
         "(socket://127.0.0.1:<포트> — LAN 호스트는 validation_failed). "
         "포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽는다. "
         "영속 모드(OpenOCD/로직 분석기)였다면 빠져나오며 경고한다. 연결할 때마다 서버의 전압 상태는 '미설정'으로 초기화된다. "
+        "확인된 reset-wired 경로의 새 open은 MODIFY이며 approval_required면 사람이 승인한 뒤 approval_id로 재시도한다. "
+        "공통 포트 잠금과 fresh route 검증을 적용하며 target 으로 표시된 포트는 거부한다. 연결 끊김만으로 잠금을 해제하지 않고 disconnect 에서 물리 close 를 확인한다. "
         "세션 원시 기록은 jtag/jtagulator-<n>.log. 지원 펌웨어 1.10–1.12."
     ),
     annotations=ANN_DEVICE,
@@ -299,6 +364,7 @@ async def jtagulator_connect(
     baudrate: int = 115200,
     timeout_seconds: float = 12.0,
     allow_untested_firmware: bool = False,
+    approval_id: str | None = None,
     ctx: Context | None = None,
 ) -> dict[str, Any]:
     r = rt()
@@ -313,125 +379,183 @@ async def jtagulator_connect(
         raise ValidationFailed(f"baudrate 범위 밖: {baudrate}")
     timeout_seconds = max(3.0, min(float(timeout_seconds), 60.0))
 
-    # 같은 끝점의 다른 표기(socket://127.0.0.1:P = socket://localhost:P = rfc2217://[::1]:P, by-id 링크 = /dev/ttyUSB0)는 한 포트로 본다
-    key = P.port_key(port)
+    route, env = await run_blocking(_resolve_port, r, port)
+    key = route.lock_key or P.port_key(port)
     with _CONNS_LOCK:
+        if case_id in _CASE_CONNECTING:
+            raise Busy("이 케이스의 JTAGulator 연결 작업이 진행 중입니다.")
         existing = _CONNS.get(case_id)
         holder = _port_holder(key, case_id)
-    if holder is not None:
-        raise Busy(f"포트 {port} 는 이미 케이스 {holder} 가 사용 중입니다(같은 끝점의 다른 표기 포함).",
-                   hint="그 케이스에서 jtagulator_disconnect 를 먼저 하세요.")
-    if existing is not None and not existing.closed and P.port_key(existing.port) != key and existing.link.alive:
-        raise Busy(
-            f"이 케이스는 이미 {existing.port} 에 연결되어 있습니다.",
-            hint="jtagulator_disconnect 후 다시 연결하세요.",
-        )
-
-    resync_cls = classify_jtagulator(P.RESYNC_FIRST, P.DeviceContext("unknown"))
-    decision = await r.authorize(
-        tool="jtagulator_connect", action={"port": port, "baudrate": baudrate}, classification=resync_cls,
-        case_id=case_id, ctx=ctx, summary=f"JTAGulator 연결·재동기화 ({port})",
-    )
-    if not decision.allowed:
-        return gate_response(decision)
-
-    if existing is not None and not existing.closed and existing.link.alive:
-        def rework() -> dict[str, Any]:
-            with _op(existing):
-                # 다시 연결 = 타깃이 바뀌었을 수 있음 → 전압 상태를 항상 '미설정'으로 (재측정·재승인 필요)
-                existing.voltage = None
-                existing.driver.voltage = None
-                existing.token = "jc-" + secrets.token_hex(4)  # 이전 연결 시점의 승인 무효화
-                existing.transcript.note("connect (reuse): voltage state cleared")
-                info = existing.driver.resync(timeout_seconds)
-                existing.connect_info = {**info, "version_lines": existing.connect_info.get("version_lines")}
-                return info
-
-        info = await run_blocking(rework)
-        return {
-            "ok": True, "reused": True, "connection": existing.status(), "firmware": existing.firmware, "resync": info,
-            "warnings": _resync_warnings(info) + ["기존 연결을 재사용했습니다. 서버의 전압 상태는 초기화되었으므로 전압을 다시 설정해야 합니다."],
-        }
-    if existing is not None:
-        with _CONNS_LOCK:
-            _CONNS.pop(case_id, None)
-        with contextlib.suppress(Exception):
-            _close_conn(existing, "stale connection replaced")
-        _register(case, existing.transcript_rel, f"JTAGulator 세션 원시 기록 ({existing.port}, 끊긴 연결)",
-                  {"type": "session-transcript", "port": existing.port})
-
-    with _CONNS_LOCK:  # 승인을 기다리는 동안 다른 케이스가 같은 끝점에 붙었을 수 있다 → 다시 확인하고 예약
-        holder = _port_holder(key, case_id)
         if holder is not None:
-            raise Busy(f"포트 {port} 는 이미 케이스 {holder} 가 사용 중이거나 연결 중입니다.",
-                       hint="그 케이스에서 jtagulator_disconnect 를 먼저 하세요.")
+            raise Busy(f"포트 {port} 는 이미 케이스 {holder} 가 사용 중입니다.")
+        if existing is not None and not existing.closed and existing.link.alive:
+            old_key = existing.route.lock_key or P.port_key(existing.port)
+            if old_key != key:
+                raise Busy("이 케이스는 다른 포트에 연결되어 있습니다.", hint="먼저 jtagulator_disconnect 하세요.")
+        _CASE_CONNECTING.add(case_id)
         _CONNECTING[key] = case_id
+    reused = existing is not None and not existing.closed and existing.link.alive
+    lease = existing.lease if reused else None
+    conn = None
+    link = [None]
+    transport = [None]
+    complete = False
+    handoff = portlock.LeaseHandoff()
+    opening_lock = threading.Lock()
+    opening_finished = False
+    abandoned = False
+    cleanup_claimed = False
+    opened_conn = [None]
 
-    def work() -> Connection:
-        n = _next_session_n(case)
-        rel = f"jtag/jtagulator-{n:03d}.log"
-        transcript = Transcript(case.path(rel), {"case_id": case_id, "port": port, "baudrate": baudrate, "server": SERVER_NAME})
-        try:
-            link = SerialLink(port, baudrate, transcript=transcript,
-                              before_io=lambda: guard_target_port(r, port, consumer="jtagulator", phase="pre-io"))
-        except Exception as exc:
-            transcript.note(f"open failed: {exc}")
-            transcript.close()
-            _register(case, rel, f"JTAGulator 세션 원시 기록 (연결 실패: {port})", {"type": "session-transcript", "port": port})
-            raise
-        driver = JTAGulatorDriver(link, **_safety_kw())
-        try:
-            info = driver.resync(timeout_seconds)
-            ver = driver.version()
-        except Exception as exc:
-            transcript.note(f"connect failed: {exc}")
-            driver.close()
-            transcript.close()
-            _register(case, rel, f"JTAGulator 세션 원시 기록 (연결 실패: {port})", {"type": "session-transcript", "port": port})
-            raise
-        conn = Connection(
-            case_id=case_id, port=port, baudrate=baudrate, link=link, driver=driver, transcript=transcript,
-            transcript_rel=rel, session_n=n, opened_at=utcnow_iso(), firmware=ver["firmware"],
-            firmware_supported=bool(ver["supported"]), allow_untested_firmware=bool(allow_untested_firmware),
-            connect_info={**info, "version_lines": ver["lines"]},
-        )
+    def release_reservation() -> None:
         with _CONNS_LOCK:
-            _CONNS[case_id] = conn
-        _register(case, rel, f"JTAGulator 세션 원시 기록 ({port}, FW {ver['firmware']})", {"type": "session-transcript", "port": port})
-        return conn
+            if _CONNECTING.get(key) == case_id:
+                _CONNECTING.pop(key, None)
+            _CASE_CONNECTING.discard(case_id)
+
+    def cleanup_connect() -> None:
+        # 실행 중인 SerialLink 생성/재동기화가 끝나기 전에는 호출하지 않는다.
+        try:
+            saved_conn = opened_conn[0]
+            if saved_conn is not None:
+                with _CONNS_LOCK:
+                    _CONNS[case_id] = saved_conn
+                with contextlib.suppress(Exception):
+                    _close_conn(saved_conn, "connect failed/cancelled")
+            elif lease is not None:
+                if link[0] is not None:
+                    with contextlib.suppress(Exception):
+                        link[0].close()
+                _cleanup_open(lease, transport[0], case_id)
+        finally:
+            release_reservation()
 
     try:
-        conn = await run_blocking(work)
-    finally:
+        if existing is not None and not reused:
+            await run_blocking(_close_conn, existing, "stale connection replaced")
+            _register(case, existing.transcript_rel, "끊긴 JTAGulator 연결 기록", {"type": "session-transcript", "port": existing.port})
+        if reused:
+            # 기존 연결의 callback도 원래 route와 대조한다. 새 관찰로 옛 승인을 갱신하지 않는다.
+            await run_blocking(existing.link.check_target)
+            if existing.route.approval_identity() != route.approval_identity():
+                raise PwehError("기존 연결의 포트 식별이 바뀌었습니다.", code="route_changed")
+        else:
+            lease = portlock.get_manager().acquire(ports.reset_scope(route),
+                        owner=portlock.PortOwner(server=SERVER_NAME, case_id=case_id, ref=port, role="instrument"))
+        busy_info = await run_blocking(ports.check_holders, route, env=env)
+        portlock.get_role_store().assert_probe_allowed(route)
+        lease.set_state("awaiting_approval")
+        resync_cls = classify_jtagulator(P.RESYNC_FIRST, P.DeviceContext("unknown"))
+        if not reused and route.reset_risk == "wired" and resync_cls.risk < Risk.MODIFY:
+            resync_cls = Classification(Risk.MODIFY, "jtagulator.connect.reset-wired", "확인된 reset 배선의 포트 열기·재동기화")
+        decision = await r.authorize(tool="jtagulator_connect", action={"port": port, "baudrate": baudrate,
+                                     "route": route.approval_identity()}, classification=resync_cls,
+                                     case_id=case_id, approval_id=approval_id, ctx=ctx, summary=f"JTAGulator 연결·재동기화 ({port})")
+        if not decision.allowed:
+            return gate_response(decision)
+        await run_blocking(_fresh_port, r, route, env, lease)
+        if reused:
+            def rework():
+                with _op(existing):
+                    existing.voltage = None
+                    existing.driver.voltage = None
+                    existing.token = "jc-" + secrets.token_hex(4)
+                    existing.transcript.note("connect (reuse): voltage state cleared")
+                    info = existing.driver.resync(timeout_seconds)
+                    existing.connect_info = {**info, "version_lines": existing.connect_info.get("version_lines")}
+                    return info
+            info = await run_blocking(rework)
+            complete = True
+            return {"ok": True, "reused": True, "connection": existing.status(), "firmware": existing.firmware,
+                    **busy_info, "resync": info, "warnings": busy_info["warnings"] + _resync_warnings(info) + ["기존 연결을 재사용했습니다. 전압을 다시 설정해야 합니다."]}
+
+        def work():
+            n = _next_session_n(case)
+            rel = f"jtag/jtagulator-{n:03d}.log"
+            transcript = Transcript(case.path(rel), {"case_id": case_id, "port": port, "baudrate": baudrate,
+                                                      "server": SERVER_NAME, "route": route.to_dict()})
+            try:
+                try:
+                    link[0] = SerialLink(port, baudrate, transcript=transcript, route=route, lease=lease,
+                                         before_io=lambda: _fresh_port(r, route, env, lease),
+                                         on_disconnect=lambda: lease.set_state("disconnected"))
+                except serialtransport.SerialOpenError as exc:
+                    transport[0] = exc.transport
+                    raise
+                transport[0] = link[0]._ser
+                driver = JTAGulatorDriver(link[0], **_safety_kw())
+                info = driver.resync(timeout_seconds)
+                ver = driver.version()
+                return Connection(case_id=case_id, port=port, baudrate=baudrate, link=link[0], driver=driver,
+                    transcript=transcript, transcript_rel=rel, session_n=n, opened_at=utcnow_iso(),
+                    firmware=ver["firmware"], firmware_supported=bool(ver["supported"]),
+                    allow_untested_firmware=bool(allow_untested_firmware), route=route, lease=lease,
+                    connect_info={**info, "version_lines": ver["lines"]})
+            except BaseException:
+                with contextlib.suppress(Exception):
+                    transcript.close()
+                raise
+
+        def opening():
+            nonlocal opening_finished, cleanup_claimed
+            if not handoff.claim_worker():
+                return None
+            try:
+                opened_conn[0] = work()
+                return opened_conn[0]
+            finally:
+                with opening_lock:
+                    opening_finished = True
+                    cleanup_here = abandoned and not cleanup_claimed
+                    if cleanup_here:
+                        cleanup_claimed = True
+                if cleanup_here:
+                    cleanup_connect()
+
+        conn = await run_blocking(opening)
         with _CONNS_LOCK:
-            _CONNECTING.pop(key, None)
-    r.audit(
-        {"event": "jtagulator_connected", "port": port, "firmware": conn.firmware, "resync": conn.connect_info,
-         "transcript": conn.transcript_rel},
-        case_id,
-    )
-    warnings = _resync_warnings(conn.connect_info)
-    if not conn.firmware_supported:
-        warnings.append(
-            f"FW {conn.firmware} 은 지원 범위(1.10–1.12) 밖입니다. 펌웨어 업데이트를 권장하며, allow_untested_firmware 없이는 "
-            "전압 설정·스캔을 거부합니다."
-        )
-    if baudrate != 115200:
-        warnings.append("JTAGulator 호스트 링크는 115200 bps 고정입니다. 다른 보드레이트로는 통신되지 않을 수 있습니다.")
-    return {
-        "ok": True,
-        "reused": False,
-        "connection": conn.status(),
-        "firmware": conn.firmware,
-        "version_lines": conn.connect_info.get("version_lines"),
-        "resync": {k: v for k, v in conn.connect_info.items() if k != "version_lines"},
-        "warnings": warnings,
-        "next_steps": [
-            "사람이 멀티미터로 타깃의 I/O 전압을 측정해 알려 달라고 요청한다(추정 금지).",
-            "jtagulator_set_voltage(case_id, volts) — DESTRUCTIVE, 사람 승인 필요.",
-            "수동 관찰부터: jtagulator_uart_txd_scan → 능동 스캔(jtagulator_uart_scan / jtagulator_idcode_scan 등).",
-        ],
-    }
+            _CONNS[case_id] = conn
+        lease.set_state("open" if conn.link.alive else "disconnected")
+        await anyio.lowlevel.checkpoint()  # open/resync 도중 보류된 취소도 인계 전에 정리한다.
+        _register(case, conn.transcript_rel, f"JTAGulator 세션 원시 기록 ({port}, FW {conn.firmware})",
+                  {"type": "session-transcript", "port": port})
+        r.audit({"event": "jtagulator_connected", "port": port, "firmware": conn.firmware,
+                 "resync": conn.connect_info, "transcript": conn.transcript_rel, "route": route.to_dict(), **busy_info}, case_id)
+        warnings = busy_info["warnings"] + _resync_warnings(conn.connect_info)
+        if not conn.firmware_supported:
+            warnings.append(f"FW {conn.firmware} 은 지원 범위 밖입니다. allow_untested_firmware 없이는 전압 설정·스캔을 거부합니다.")
+        if baudrate != 115200:
+            warnings.append("JTAGulator 호스트 링크는 115200 bps 고정입니다.")
+        out = {"ok": True, "reused": False, "busy_check": busy_info["busy_check"], "connection": conn.status(), "firmware": conn.firmware,
+               "version_lines": conn.connect_info.get("version_lines"),
+               "resync": {k: v for k, v in conn.connect_info.items() if k != "version_lines"}, "warnings": warnings,
+               "next_steps": ["사람이 타깃 I/O 전압을 측정한 뒤 jtagulator_set_voltage로 확인한다",
+                              "수동 UART TXD 관찰부터 진행한다"]}
+        complete = True
+        return out
+    finally:
+        if reused:
+            with contextlib.suppress(Exception):
+                lease.set_state("open" if existing.link.alive else "disconnected")
+            release_reservation()
+        elif not complete:
+            # raw asyncio 취소도 worker의 핸들 할당보다 먼저 lease를 해제할 수 없다.
+            with opening_lock:
+                abandoned = True
+                cleanup_here = (handoff.abandon_caller() or opening_finished) and not cleanup_claimed
+                if cleanup_here:
+                    cleanup_claimed = True
+            if cleanup_here:
+                # 두 번째 취소로 cleanup await가 버려져도 명시 disconnect의 회수 대상을 남긴다.
+                with _CONNS_LOCK:
+                    if opened_conn[0] is not None:
+                        _CONNS[case_id] = opened_conn[0]
+                    elif lease is not None:
+                        _CLEANUP_PENDING[id(lease)] = (lease, transport[0], case_id)
+                with anyio.CancelScope(shield=True):
+                    await run_blocking(cleanup_connect)
+        else:
+            release_reservation()
 
 
 def _resync_warnings(info: dict[str, Any]) -> list[str]:
@@ -454,14 +578,20 @@ def _resync_warnings(info: dict[str, Any]) -> list[str]:
 @server.tool(
     description=(
         "JTAGulator 연결 종료. 실행 중인 스캔이 있으면 먼저 중단(LF)하고 끝날 때까지 기다린 뒤 포트를 닫고 세션 기록을 등록한다. "
-        "권장 순서: 타깃 전원을 먼저 끈 다음 호출 (포트를 닫으면 DTR 리셋으로 VADJ 가 꺼질 수 있음)."
+        "권장 순서: 타깃 전원을 먼저 끈 다음 호출 (포트를 닫으면 DTR 리셋으로 VADJ 가 꺼질 수 있음). 물리 close 를 확인해야 공통 잠금을 해제하며 정리 미확인 시 보존한다."
     ),
     annotations=ANN_DEVICE,
 )
 @safe_tool
 async def jtagulator_disconnect(case_id: str) -> dict[str, Any]:
     r = rt()
-    conn = _get_conn(case_id)
+    with _CONNS_LOCK:
+        conn = _CONNS.get(case_id)
+    if conn is None:
+        cleaned = await run_blocking(_retry_open_cleanup, case_id)
+        if cleaned:
+            return {"ok": True, "case_id": case_id, "cleaned_pending": cleaned, "connected": False}
+        raise NotFound(f"연결을 찾을 수 없습니다: {case_id}")
     try:
         case: Any = r.cases.get(case_id)  # 정리 작업이므로 권한 증명 없이도 허용 (장치를 안전한 쪽으로만 바꿈)
     except PwehError:
@@ -477,9 +607,6 @@ async def jtagulator_disconnect(case_id: str) -> dict[str, Any]:
             out["cancelled_job_status"] = r.jobs.get(jid).status
         got = conn.lock.acquire(timeout=10.0)
         try:
-            with _CONNS_LOCK:
-                if _CONNS.get(case_id) is conn:
-                    _CONNS.pop(case_id, None)
             _close_conn(conn, "disconnect")
         finally:
             if got:
@@ -511,7 +638,7 @@ async def jtagulator_version(case_id: str, ctx: Context | None = None) -> dict[s
     conn = _get_conn(case_id)
     cls = classify_jtagulator("I\r", P.DeviceContext("menu", menu="main"))
     decision = await r.authorize(
-        tool="jtagulator_version", action={"port": conn.port, "command": "I"}, classification=cls, case_id=case_id, ctx=ctx,
+        tool="jtagulator_version", action={"port": conn.port, "route": conn.route.approval_identity(), "command": "I"}, classification=cls, case_id=case_id, ctx=ctx,
     )
     if not decision.allowed:
         return gate_response(decision)
@@ -580,7 +707,7 @@ async def jtagulator_set_voltage(
         "사람이 멀티미터로 타깃 I/O 전압을 측정해 일치함을 확인한 경우에만 승인하세요. VADJ 핀은 타깃에 연결하지 않습니다."
     )
     decision = await r.authorize(
-        tool="jtagulator_set_voltage", action={"port": conn.port, "connection": conn.token, "volts": v}, classification=cls,
+        tool="jtagulator_set_voltage", action={"port": conn.port, "route": conn.route.approval_identity(), "connection": conn.token, "volts": v}, classification=cls,
         case_id=case_id, approval_id=approval_id, ctx=ctx, summary=summary,
     )
     if not decision.allowed:
@@ -682,7 +809,7 @@ async def _start_scan(
         + (f", 순열 {perms}" if perms else "") + f", 전압 {conn.voltage} V ({conn.port})"
     )
     decision = await r.authorize(
-        tool=tool, action={"port": conn.port, "connection": conn.token, "volts": conn.voltage, **spec.action()}, classification=cls,
+        tool=tool, action={"port": conn.port, "route": conn.route.approval_identity(), "connection": conn.token, "volts": conn.voltage, **spec.action()}, classification=cls,
         case_id=case_id, approval_id=approval_id, ctx=ctx, summary=summary,
     )
     if not decision.allowed:
@@ -733,7 +860,8 @@ async def _start_scan(
                     f"jtagulator-{spec.kind}-scan", job_fn,
                     description=f"JTAGulator {SCAN_TITLES[spec.kind]} CH{spec.start}-{spec.end} ({conn.port})",
                     case_id=case_id,
-                    meta={"port": conn.port, "scan": spec.kind, "permutations": run.permutations, "raw_log": raw_rel, "result_json": json_rel},
+                    meta={"port": conn.port, "scan": spec.kind, "permutations": run.permutations, "raw_log": raw_rel, "result_json": json_rel,
+                          "route": conn.route.to_dict(), "port_keys": list(conn.lease.keys)},
                     exclusive_key=f"port:{P.port_key(conn.port)}",
                 )
             except BaseException:
@@ -1131,7 +1259,7 @@ async def _known_pins_command(
     plan = build_known_pins_plan(command, pins)
     cls = plan.worst()
     decision = await r.authorize(
-        tool=tool, action={"port": conn.port, "connection": conn.token, "volts": conn.voltage, "command": command, **pins}, classification=cls,
+        tool=tool, action={"port": conn.port, "route": conn.route.approval_identity(), "connection": conn.token, "volts": conn.voltage, "command": command, **pins}, classification=cls,
         case_id=case_id, approval_id=approval_id, ctx=ctx,
         summary=f"JTAGulator JTAG '{command}' (핀 {pins}) — 24채널 전부를 출력 HIGH 로 만든 뒤 지정 핀 구동 ({conn.port})",
     )
@@ -1252,7 +1380,7 @@ async def jtagulator_gpio_read(
     _require_scan_ready(conn)
     cls = classify_jtagulator("R\r", P.DeviceContext("menu", menu="gpio"))
     decision = await r.authorize(
-        tool="jtagulator_gpio_read", action={"port": conn.port, "connection": conn.token, "volts": conn.voltage, "command": "R", "samples": n},
+        tool="jtagulator_gpio_read", action={"port": conn.port, "route": conn.route.approval_identity(), "connection": conn.token, "volts": conn.voltage, "command": "R", "samples": n},
         classification=cls, case_id=case_id, ctx=ctx,
     )
     if not decision.allowed:
@@ -1311,7 +1439,6 @@ register_job_tools(server, rt, "jtagulator")
 def _shutdown_all() -> None:
     with _CONNS_LOCK:
         conns = list(_CONNS.values())
-        _CONNS.clear()
     for conn in conns:
         try:
             if conn.busy_job() and conn.link.alive:
@@ -1321,6 +1448,8 @@ def _shutdown_all() -> None:
             pass
         with contextlib.suppress(Exception):
             _close_conn(conn, "server shutdown")
+    with contextlib.suppress(Exception):
+        _retry_open_cleanup()
 
 
 atexit.register(_shutdown_all)

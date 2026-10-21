@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any, BinaryIO, Callable, Sequence
 
 from pweh.errors import PwehError, TimeoutExpired, ToolMissing
+from pweh import procutil
 
 log = logging.getLogger("pweh.sigrok")
 
@@ -98,6 +99,9 @@ class CliResult:
     stdout_bytes: int = 0
     stderr_bytes: int = 0
     pid: int | None = None
+    cleanup_verified: bool = True
+    start_ticks: int | None = None
+    process_token: int | None = None  # 실행 객체별 내부 세대
 
     @property
     def stdout_text(self) -> str:
@@ -105,7 +109,7 @@ class CliResult:
 
     @property
     def ok(self) -> bool:
-        return self.returncode == 0 and not (self.timed_out or self.cancelled or self.output_limit_hit)
+        return self.cleanup_verified and self.returncode == 0 and not (self.timed_out or self.cancelled or self.output_limit_hit)
 
     def summary(self, stderr_chars: int = 2000) -> dict[str, Any]:
         return {
@@ -113,6 +117,7 @@ class CliResult:
             "timed_out": self.timed_out,
             "cancelled": self.cancelled,
             "output_limit_hit": self.output_limit_hit,
+            "cleanup_verified": self.cleanup_verified,
             "duration_s": round(self.duration_s, 3),
             "stdout_bytes": self.stdout_bytes,
             "stderr": tail_text(self.stderr, stderr_chars),
@@ -125,42 +130,44 @@ def tail_text(text: str, n: int) -> str:
     return "…(앞부분 생략)…\n" + text[-n:]
 
 
-def kill_process_group(proc: subprocess.Popen, grace_s: float = 2.0) -> None:
-    """새 세션으로 띄운 프로세스 그룹 전체를 SIGTERM → (grace 후) SIGKILL."""
-    for sig, wait_s in ((signal.SIGTERM, grace_s), (signal.SIGKILL, 5.0)):
-        try:
-            os.killpg(proc.pid, sig)
-        except ProcessLookupError:
-            break
-        except PermissionError:  # pragma: no cover - 다른 사용자 프로세스
-            try:
-                proc.send_signal(sig)
-            except ProcessLookupError:
-                break
-        try:
-            proc.wait(wait_s)
-            # 그룹의 다른 프로세스(래퍼가 띄운 자식 등)도 정리
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
-            break
-        except subprocess.TimeoutExpired:
-            continue
+def kill_process_group(proc: subprocess.Popen, grace_s: float = 2.0) -> bool:
+    """리더를 거두기 전에 신원 확인 종료, 그룹 부재 확인 뒤에만 reap한다."""
+    with _CLEANUP_LOCK:
+        return _finish_process_group(proc, grace_s)
 
 
+def _finish_process_group(proc: subprocess.Popen, grace_s: float) -> bool:
+    if getattr(proc, "_pweh_cleanup_verified", False):
+        return True
+    ticks, pidfd = _CHILD_IDS.get(id(proc), (None, None))
+    if ticks is None:
+        return False
+    procutil.kill_process_group(proc.pid, grace=grace_s, expect_start_ticks=ticks, pidfd=pidfd)
+    if procutil.process_group_empty(proc.pid, expect_start_ticks=ticks) is not True:
+        return False
+    proc.wait(timeout=5)
+    if pidfd is not None:
+        os.close(pidfd)
+    _CHILD_IDS.pop(id(proc), None)
+    proc._pweh_cleanup_verified = True
+    return True
+
+
+# reap 뒤 같은 PID의 새 실행이 들어와도 옛 finally가 그 기록을 지우지 않는다.
 _LIVE: dict[int, subprocess.Popen] = {}
+_CHILD_IDS: dict[int, tuple[int | None, int | None]] = {}
 _LIVE_LOCK = threading.Lock()
+_CLEANUP_LOCK = threading.Lock()
 
 
 def _kill_all_live() -> None:
     """서버 프로세스 종료 시 아직 실행 중인 sigrok-cli 프로세스 그룹을 정리 (새 세션이라 자동으로 죽지 않음)."""
     with _LIVE_LOCK:
         procs = list(_LIVE.values())
-        _LIVE.clear()
     for proc in procs:
-        if proc.poll() is None:
-            kill_process_group(proc, grace_s=0.5)
+        if kill_process_group(proc, grace_s=0.5):
+            with _LIVE_LOCK:
+                _LIVE.pop(id(proc), None)
 
 
 atexit.register(_kill_all_live)
@@ -168,7 +175,24 @@ atexit.register(_kill_all_live)
 
 def live_process_count() -> int:
     with _LIVE_LOCK:
-        return sum(1 for p in _LIVE.values() if p.poll() is None)
+        return len(_LIVE)
+
+
+def cleanup_owned(pid: int, *, process_token: int | None = None) -> bool:
+    """자기 runner가 띄워 보존한 프로세스만 정리한다."""
+    with _LIVE_LOCK:
+        matches = [(token, proc) for token, proc in _LIVE.items()
+                   if proc.pid == pid and (process_token is None or token == process_token)]
+    if not matches:
+        return True
+    if len(matches) != 1:
+        return False
+    token, proc = matches[0]
+    verified = kill_process_group(proc, grace_s=0.5)
+    if verified:
+        with _LIVE_LOCK:
+            _LIVE.pop(token, None)
+    return verified
 
 
 def run_process(
@@ -183,6 +207,7 @@ def run_process(
     env: dict[str, str] | None = None,
     on_tick: Callable[[float], None] | None = None,
     poll_s: float = 0.1,
+    process_state: dict[str, Any] | None = None,
 ) -> CliResult:
     """인자 리스트로 실행, 타임아웃/취소/출력 상한 시 프로세스 그룹 종료.
 
@@ -206,7 +231,12 @@ def run_process(
     except PermissionError as exc:
         raise ToolMissing(f"실행 권한이 없습니다: {argv[0]} ({exc})", hint=INSTALL_HINT)
     with _LIVE_LOCK:
-        _LIVE[proc.pid] = proc
+        _LIVE[id(proc)] = proc
+        st = procutil.proc_stat(proc.pid)
+        _CHILD_IDS[id(proc)] = (st[1] if st else None, procutil.open_pidfd(proc.pid))
+    start_ticks = _CHILD_IDS[id(proc)][0]
+    if process_state is not None:
+        process_state.update(pid=proc.pid, start_ticks=start_ticks, process_token=id(proc), cleanup_verified=False)
 
     out_buf = bytearray()
     out_total = [0]
@@ -265,17 +295,15 @@ def run_process(
                     err_tail_len[0] -= len(err_tail.popleft())
 
     threads = [threading.Thread(target=pump_stdout, daemon=True), threading.Thread(target=pump_stderr, daemon=True)]
-    for t in threads:
-        t.start()
-
     timed_out = cancelled = False
+    cleanup_verified = False
     try:
+        for t in threads:
+            t.start()
         while True:
-            try:
-                proc.wait(timeout=poll_s)
+            if procutil.child_exited(proc.pid):
                 break
-            except subprocess.TimeoutExpired:
-                pass
+            time.sleep(poll_s)
             elapsed = time.monotonic() - t0
             if on_tick is not None:
                 try:
@@ -284,34 +312,30 @@ def run_process(
                     log.debug("on_tick failed", exc_info=True)
             if cancel is not None and cancel():
                 cancelled = True
-                kill_process_group(proc)
                 break
             if elapsed > timeout:
                 timed_out = True
-                kill_process_group(proc)
                 break
             if limit_hit.is_set():
-                kill_process_group(proc)
                 break
     except BaseException:
-        kill_process_group(proc)
         raise
     finally:
+        cleanup_verified = kill_process_group(proc)
+        if process_state is not None:
+            process_state["cleanup_verified"] = cleanup_verified
         for t in threads:
-            t.join(timeout=5.0)
-        with _LIVE_LOCK:
-            _LIVE.pop(proc.pid, None)
+            if t.ident is not None:
+                t.join(timeout=5.0)
+        if cleanup_verified:
+            with _LIVE_LOCK:
+                _LIVE.pop(id(proc), None)
         for f in (proc.stdout, proc.stderr):
             try:
                 if f is not None:
                     f.close()
             except OSError:
                 pass
-    if proc.returncode is None:  # pragma: no cover - kill 후에도 남은 경우
-        try:
-            proc.wait(5)
-        except subprocess.TimeoutExpired:
-            pass
     stderr_bytes = bytes(err_head)
     if err_tail:
         dropped = err_total[0] - len(err_head) - err_tail_len[0]
@@ -330,6 +354,9 @@ def run_process(
         stdout_bytes=out_total[0],
         stderr_bytes=err_total[0],
         pid=proc.pid,
+        cleanup_verified=cleanup_verified,
+        start_ticks=start_ticks,
+        process_token=id(proc),
     )
 
 
@@ -425,6 +452,8 @@ def stderr_problems(stderr: str) -> StderrReport:
 
 def check_result(res: CliResult, what: str, *, allow_rc: Sequence[int] = (0,)) -> StderrReport:
     """실패면 PwehError(timeout 포함). 성공이면 stderr 보고서 반환."""
+    if not res.cleanup_verified:
+        raise PwehError(f"{what}: 하위 프로세스 종료를 확인하지 못했습니다.", code="process_cleanup_unverified", data=res.summary())
     if res.timed_out:
         raise TimeoutExpired(
             f"{what}: sigrok-cli 가 {res.duration_s:.1f}초 안에 끝나지 않아 종료했다.",

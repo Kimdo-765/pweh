@@ -2,7 +2,7 @@
 
 백엔드는 포트 형식으로 정한다.
 
-- ``COM<n>`` (대소문자 무관, n=1~256) → **windows** 백엔드: WSL interop 으로 Windows 용 esptool.exe 를 실행한다(방법 A).
+- ``COM<n>`` (대소문자 무관, n=1~4096) → **windows** 백엔드: WSL interop 으로 Windows 용 esptool.exe 를 실행한다(방법 A).
   usbipd 가 필요 없고, 장치는 Windows 에 붙은 그대로다. 출력 파일 경로는 ``wslpath -w`` 로 바꿔 넘긴다.
 - ``/dev/ttyACM<n>``, ``/dev/ttyUSB<n>``, ``/dev/ttyS<n>``, ``/dev/serial/by-id/<이름>`` → **linux** 백엔드
   (usbipd 로 WSL 에 attach 한 장치 또는 네이티브 리눅스). 장치가 있어야 하고, 심볼릭 링크의 실제 대상도 /dev 아래여야 한다.
@@ -27,28 +27,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from pweh import hostenv
+from pweh import hostenv, ports as common_ports
 from pweh.errors import ToolMissing, ValidationFailed
 
-WIN_COM_RE = re.compile(r"^COM([1-9][0-9]{0,2})$", re.I)
-LINUX_TTY_RE = re.compile(r"^/dev/tty(?:ACM|USB|S)[0-9]{1,3}$")
+WIN_COM_RE = re.compile(r"^COM([1-9][0-9]{0,3})$", re.I)
+LINUX_TTY_RE = re.compile(r"^/dev/(?:tty(?:ACM|USB|S)[0-9]{1,4}|pts/[0-9]{1,8})$")
 LINUX_BYID_RE = re.compile(r"^/dev/serial/by-id/[A-Za-z0-9._:+@-]{1,200}$")
 UNC_OK_RE = re.compile(r"^(?:\\\\wsl(?:\.localhost|\$)\\[^\\/:*?\"<>|\r\n]+\\|[A-Za-z]:\\)")
 
-#: 알려진 USB VID:PID (소문자 4자리 16진수)
+#: 기존 import 호환용 view. 분류·설명은 공통 USB 표에서 읽는다.
 KNOWN_USB_IDS: dict[str, tuple[str, str]] = {
-    "303a:1001": ("esp-usb-serial-jtag", "ESP 내장 USB-Serial/JTAG (ESP32-S3/C3/C6/H2 네이티브 USB — esptool 은 USB-JTAG 리셋 사용)"),
-    # ROM USB-OTG 다운로드 모드: 칩이 이미 ROM 다운로드 모드다(before='no-reset', 끝나면 사람이 RESET)
-    "303a:0009": ("esp-usb-otg-rom", "ESP32-S3 ROM USB-OTG 다운로드 모드 (TinyUSB CDC)"),
-    "303a:0002": ("esp-usb-otg-rom", "ESP32-S2 ROM USB-OTG 다운로드 모드 (TinyUSB CDC)"),
-    "10c4:ea60": ("usb-uart-bridge", "Silicon Labs CP210x USB-UART 브리지"),
-    "1a86:7523": ("usb-uart-bridge", "WCH CH340 USB-UART 브리지"),
-    "1a86:55d3": ("usb-uart-bridge", "WCH CH343 USB-UART 브리지"),
-    "1a86:55d4": ("usb-uart-bridge", "WCH CH9102 USB-UART 브리지"),
-    "0403:6001": ("usb-uart-bridge", "FTDI FT232R USB-UART"),
-    "0403:6010": ("usb-uart-bridge", "FTDI FT2232 (2채널 — 한 채널이 JTAG 일 수 있음)"),
-    "0403:6014": ("usb-uart-bridge", "FTDI FT232H"),
-    "0403:6015": ("usb-uart-bridge", "FTDI FT-X (FT231X/FT230X)"),
+    key: (row["kind"], row["description_ko"])
+    for key in ("303a:1001", "303a:0009", "303a:0002", "10c4:ea60", "1a86:7523", "1a86:55d3",
+                "1a86:55d4", "0403:6001", "0403:6010", "0403:6014", "0403:6015")
+    for row in [common_ports.usb_device_info(*key.split(":"))]
 }
 
 
@@ -58,11 +50,14 @@ class PortSpec:
     backend: str  # windows | linux
     lock_key: str  # 같은 물리 포트를 가리키는 키 (리눅스는 realpath)
     resolved: str | None = None  # 리눅스: 실제 장치 경로
+    route: Any = None  # 실행 진입에서 공통 resolver로 확인한 불변 route
 
     def to_dict(self) -> dict[str, Any]:
         out = {"port": self.port, "backend": self.backend}
         if self.resolved and self.resolved != self.port:
             out["resolved"] = self.resolved
+        if self.route is not None:
+            out["route"] = self.route.to_dict()
         return out
 
 
@@ -78,8 +73,8 @@ def validate_port(port: Any) -> PortSpec:
     m = WIN_COM_RE.match(p)
     if m:
         n = int(m.group(1))
-        if not 1 <= n <= 256:
-            raise ValidationFailed(f"COM 포트 번호 범위 밖: {p}", hint="COM1 ~ COM256")
+        if not 1 <= n <= 4096:
+            raise ValidationFailed(f"COM 포트 번호 범위 밖: {p}", hint="COM1 ~ COM4096")
         norm = f"COM{n}"
         return PortSpec(port=norm, backend="windows", lock_key=f"win:{norm}")
     if LINUX_TTY_RE.match(p) or LINUX_BYID_RE.match(p):
@@ -198,7 +193,8 @@ def annotate_usb(vid: int | None, pid: int | None) -> dict[str, Any]:
     if vid is None or pid is None:
         return {"usb_id": None, "kind": "unknown", "description_ko": None}
     key = f"{vid:04x}:{pid:04x}"
-    kind, desc = KNOWN_USB_IDS.get(key, ("unknown", None))
+    row = common_ports.usb_device_info(vid, pid)
+    kind, desc = row.get("kind", "unknown"), row.get("description_ko")
     if kind == "unknown" and vid == 0x303A:
         kind, desc = "esp-usb", "Espressif USB 장치 (앱의 TinyUSB CDC 등)"
     return {"usb_id": key, "kind": kind, "description_ko": desc}

@@ -750,7 +750,7 @@
   "tools": [
    {
     "name": "uart_list_ports",
-    "description": "시리얼 포트 목록 (OBSERVE). ports[{device, description, hwid, vid, pid, serial_number, manufacturer, likely_usb_uart, in_use_by}]. include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(이 호스트의 ser2net, 시뮬레이터)은 목록에 없고 uart_open 에 socket://127.0.0.1:<포트> 로 준다(루프백만 — LAN 호스트는 validation_failed).",
+    "description": "시리얼 포트 목록 (OBSERVE, 포트를 열지 않음). 기존 ports 항목에 route/device_id/held_by 를 더하고 env_kind 를 반환한다. include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(이 호스트의 ser2net, 시뮬레이터)은 목록에 없고 uart_open 에 socket://127.0.0.1:<포트> 로 준다(루프백만 — LAN 호스트는 validation_failed).",
     "params": [
      {
       "name": "include_links",
@@ -769,7 +769,7 @@
    },
    {
     "name": "uart_open",
-    "description": "UART 세션 열기 (INTERACT, dtr/rts=true 면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL (루프백 호스트만: socket://127.0.0.1:<포트>, rfc2217://[::1]:<포트> / 테스트용 loop:// — LAN 호스트는 validation_failed). DTR/RTS 는 열기 전에 설정하며 기본 False. line_ending 기본 \"\\r\" (U-Boot 문맥은 항상 \\r). profile 은 pipeline_profiles 이름(생략 시 케이스 프로필) — 프롬프트/autoboot 정규식과 인터럽트 키를 정한다. 반환: session_id, log_path/raw_path/events_path(케이스 상대), context, cursor. 세션이 열려 있는 동안 수신 스레드가 계속 기록한다.",
+    "description": "UART 세션 열기 (INTERACT, dtr/rts=true 또는 확인된 reset-wired 경로면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL (루프백 호스트만: socket://127.0.0.1:<포트>, rfc2217://[::1]:<포트> / 테스트용 loop:// — LAN 호스트는 validation_failed). DTR/RTS 는 열기 전에 설정하며 기본 False. line_ending 기본 \"\\r\" (U-Boot 문맥은 항상 \\r). profile 은 pipeline_profiles 이름(생략 시 케이스 프로필) — 프롬프트/autoboot 정규식과 인터럽트 키를 정한다. 승인 전에 공통 포트 잠금을 얻고 실제 open 직전에 경로·기기 신원을 다시 확인한다. 끊어진 세션도 uart_close 까지 잠금을 유지하며, 물리 close 를 확인하지 못하면 잠금을 보존한다. 반환: session_id, route, device_id, log_path/raw_path/events_path(케이스 상대), context, cursor. 세션이 열려 있는 동안 수신 스레드가 계속 기록한다.",
     "params": [
      {
       "name": "case_id",
@@ -854,7 +854,7 @@
    },
    {
     "name": "uart_close",
-    "description": "UART 세션 닫기: 실행 중인 job 취소, 수신 스레드 정지, 포트 닫기, 로그(uart-log/uart-raw/uart-events) 아티팩트 등록. 끊어진(disconnected) 세션도 닫을 수 있다.",
+    "description": "UART 세션 닫기: 실행 중인 job 취소, 수신 스레드 정지, 포트 닫기, 로그(uart-log/uart-raw/uart-events) 아티팩트 등록. 끊어진(disconnected) 세션도 닫을 수 있다. 물리 close 확인 뒤 공통 잠금을 해제하며, 정리 미확인 시 잠금을 보존한다.",
     "params": [
      {
       "name": "session_id",
@@ -1194,7 +1194,7 @@
    },
    {
     "name": "uart_detect_baud",
-    "description": "보드레이트 탐지: 후보마다 포트를 열고(DTR/RTS 끔) probe=\"ctrl-c\" 면 0x03 을 한 번 보낸 뒤 listen_seconds 동안 읽어 점수화(출력 가능 문자 비율, 부팅 키워드, 0x00/0xFF 연속 감점) → candidates(점수순), best, confidence, hint(데이터 없음: TX/RX 뒤바뀜·GND·무출력·전압). 기기가 출력 중이어야 하므로 사람에게 전원을 먼저 꺼 두게 하고 '준비' 답을 받은 뒤 호출한다 — 사람은 호출이 시작되면 전원을 넣는다 (전원 투입 중에는 probe=\"none\" 권장: ctrl-c 가 autoboot 를 멈출 수 있음). probe=ctrl-c 는 MODIFY(다른 속도로 보낸 0x03 은 기기에서 다른 바이트로 읽힐 수 있음), probe=none 은 INTERACT. 이 포트로 열린 세션이 없어야 한다. 총 50초 제한.",
+    "description": "보드레이트 탐지: 포트를 한 번 열고 같은 연결의 속도를 바꾸며(DTR/RTS 끔) probe=\"ctrl-c\" 면 0x03 을 한 번 보낸 뒤 listen_seconds 동안 읽어 점수화(출력 가능 문자 비율, 부팅 키워드, 0x00/0xFF 연속 감점) → candidates(점수순), best, confidence, hint(데이터 없음: TX/RX 뒤바뀜·GND·무출력·전압). 기기가 출력 중이어야 하므로 사람에게 전원을 먼저 꺼 두게 하고 '준비' 답을 받은 뒤 호출한다 — 사람은 호출이 시작되면 전원을 넣는다 (전원 투입 중에는 probe=\"none\" 권장: ctrl-c 가 autoboot 를 멈출 수 있음). probe=ctrl-c 는 MODIFY(다른 속도로 보낸 0x03 은 기기에서 다른 바이트로 읽힐 수 있음), probe=none 은 INTERACT(확인된 reset-wired 경로는 MODIFY). 이 포트로 열린 세션이 없어야 한다. 총 50초 제한.",
     "params": [
      {
       "name": "case_id",
@@ -2577,7 +2577,7 @@
    },
    {
     "name": "sigrok_scan",
-    "description": "연결된 sigrok 장치 스캔. 인자 없으면 모든 드라이버로 USB 등 자동 탐지(읽기 전용 식별). driver 로 한정 가능. conn(시리얼 /dev/ttyACM0, USB 'bus.addr'/'VID.PID', 'tcp-raw/host/port') 을 주면 그 포트로 식별 질의를 보내므로 시리얼/네트워크 conn 은 case_id(소유/허가 증명)가 필요하다. 결과 각 장치에 capture_allowed 정책이 붙는다.",
+    "description": "연결된 sigrok 장치 스캔. 인자 없으면 모든 드라이버로 USB 등 자동 탐지(읽기 전용 식별). driver 로 한정 가능. conn(시리얼 /dev/ttyACM0, USB 'bus.addr'/'VID.PID', 'tcp-raw/host/port') 을 주면 그 포트로 식별 질의를 보내므로 시리얼/네트워크 conn 은 case_id(소유/허가 증명)가 필요하다. 명시 직렬 conn 은 공통 포트 잠금·route 재검증을 적용하고 target/bridge 표지가 있으면 거부한다. 결과 각 장치에 capture_allowed 정책이 붙는다.",
     "params": [
      {
       "name": "driver",
@@ -2614,7 +2614,7 @@
    },
    {
     "name": "sigrok_device_info",
-    "description": "로직 애널라이저 상세(sigrok-cli -d <driver> --show 파싱): 드라이버 기능, 채널/채널 그룹, 지원 samplerate 목록 또는 범위, 지원 트리거 문자, 최대 샘플 수. 장치를 열기만 하고 설정은 바꾸지 않는다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용.",
+    "description": "로직 애널라이저 상세(sigrok-cli -d <driver> --show 파싱): 드라이버 기능, 채널/채널 그룹, 지원 samplerate 목록 또는 범위, 지원 트리거 문자, 최대 샘플 수. 장치를 열기만 하고 설정은 바꾸지 않는다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용. 명시 직렬 conn 은 공통 포트 잠금·route 재검증·target/bridge 거부를 적용한다.",
     "params": [
      {
       "name": "case_id",
@@ -2651,7 +2651,7 @@
    },
    {
     "name": "sigrok_capture",
-    "description": "로직 애널라이저 캡처 → cases/<id>/signals/<name>.sr (srzip) 저장 + 아티팩트 등록. 입력 전용(OBSERVE)이지만 케이스 소유/허가 증명이 필요. driver 필수(sigrok_scan 결과), samplerate 예 '1m'/'8MHz'/'24m'(소문자 m=MHz, 정수 Hz 로 변환), duration_ms 와 samples 중 정확히 하나. channels 예 ['D0','D1'] 또는 ['D0=RX','D1=TX'](0번부터 연속 선택 권장), triggers 예 'RX=f'(rename 후 이름, 문자 0/1/r/f/e), capture_ratio=트리거 전 비율(%), conn=장치 지정. 전원공급기 등 출력 장치와 samplerate/captureratio 외 config 는 거부. 예상 20초 초과 또는 트리거 사용 시 job 으로 실행되어 job_id 반환 → sigrok_job_status 로 폴링 (background 로 강제 가능). 부트 로그는 캡처를 먼저 시작한 뒤 사람이 대상 전원을 넣도록 안내한다.",
+    "description": "로직 애널라이저 캡처 → cases/<id>/signals/<name>.sr (srzip) 저장 + 아티팩트 등록. 입력 전용(OBSERVE)이지만 케이스 소유/허가 증명이 필요. driver 필수(sigrok_scan 결과), samplerate 예 '1m'/'8MHz'/'24m'(소문자 m=MHz, 정수 Hz 로 변환), duration_ms 와 samples 중 정확히 하나. channels 예 ['D0','D1'] 또는 ['D0=RX','D1=TX'](0번부터 연속 선택 권장), triggers 예 'RX=f'(rename 후 이름, 문자 0/1/r/f/e), capture_ratio=트리거 전 비율(%), conn=장치 지정. 전원공급기 등 출력 장치와 samplerate/captureratio 외 config 는 거부. 예상 20초 초과 또는 트리거 사용 시 job 으로 실행되어 job_id 반환 → sigrok_job_status 로 폴링 (background 로 강제 가능). 부트 로그는 캡처를 먼저 시작한 뒤 사람이 대상 전원을 넣도록 안내한다. 명시 직렬 conn 의 공통 포트 잠금은 worker의 프로세스 정리가 확인될 때까지 유지하며, libusb 장치 선택은 이 직렬 잠금의 대상이 아니다.",
     "params": [
      {
       "name": "case_id",
@@ -3073,7 +3073,7 @@
   "tools": [
    {
     "name": "jtagulator_connect",
-    "description": "JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 루프백 pyserial URL(socket://127.0.0.1:<포트> — LAN 호스트는 validation_failed). 포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽는다. 영속 모드(OpenOCD/로직 분석기)였다면 빠져나오며 경고한다. 연결할 때마다 서버의 전압 상태는 '미설정'으로 초기화된다. 세션 원시 기록은 jtag/jtagulator-<n>.log. 지원 펌웨어 1.10–1.12.",
+    "description": "JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 루프백 pyserial URL(socket://127.0.0.1:<포트> — LAN 호스트는 validation_failed). 포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽는다. 영속 모드(OpenOCD/로직 분석기)였다면 빠져나오며 경고한다. 연결할 때마다 서버의 전압 상태는 '미설정'으로 초기화된다. 확인된 reset-wired 경로의 새 open은 MODIFY이며 approval_required면 사람이 승인한 뒤 approval_id로 재시도한다. 공통 포트 잠금과 fresh route 검증을 적용하며 target 으로 표시된 포트는 거부한다. 연결 끊김만으로 잠금을 해제하지 않고 disconnect 에서 물리 close 를 확인한다. 세션 원시 기록은 jtag/jtagulator-<n>.log. 지원 펌웨어 1.10–1.12.",
     "params": [
      {
       "name": "case_id",
@@ -3104,6 +3104,12 @@
       "type": "boolean",
       "required": false,
       "default": false
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
      }
     ],
     "annotations": {
@@ -3116,7 +3122,7 @@
    },
    {
     "name": "jtagulator_disconnect",
-    "description": "JTAGulator 연결 종료. 실행 중인 스캔이 있으면 먼저 중단(LF)하고 끝날 때까지 기다린 뒤 포트를 닫고 세션 기록을 등록한다. 권장 순서: 타깃 전원을 먼저 끈 다음 호출 (포트를 닫으면 DTR 리셋으로 VADJ 가 꺼질 수 있음).",
+    "description": "JTAGulator 연결 종료. 실행 중인 스캔이 있으면 먼저 중단(LF)하고 끝날 때까지 기다린 뒤 포트를 닫고 세션 기록을 등록한다. 권장 순서: 타깃 전원을 먼저 끈 다음 호출 (포트를 닫으면 DTR 리셋으로 VADJ 가 꺼질 수 있음). 물리 close 를 확인해야 공통 잠금을 해제하며 정리 미확인 시 보존한다.",
     "params": [
      {
       "name": "case_id",
@@ -5124,7 +5130,7 @@
    },
    {
     "name": "esp_list_ports",
-    "description": "시리얼 포트 목록 (포트를 열지 않음, OBSERVE). windows{available, ports, note}: Windows 의 COM 포트(powershell.exe 로 Win32_PnPEntity 조회 — port, name, vid, pid, serial_number, usb_id, kind, description_ko), linux{ports, hidden_legacy_ports}: pyserial 목록(+ in_use_by 다른 프로세스 PID). 알려진 USB ID 주석: 303a:1001 = ESP 내장 USB-Serial/JTAG, 303a:0009 = ESP32-S3 ROM USB-OTG 다운로드 모드, 10c4:ea60 = CP210x, 1a86:7523 = CH340, 1a86:55d3 = CH343, 1a86:55d4 = CH9102, 0403:6001/6010/6014/6015 = FTDI. WSL interop/powershell 이 없으면 리눅스 목록과 note 만.",
+    "description": "시리얼 포트 목록 (포트를 열지 않음, OBSERVE). windows{available, ports, note}: Windows 의 COM 포트(powershell.exe 로 Win32_PnPEntity 조회 — port, name, vid, pid, serial_number, usb_id, kind, description_ko), linux{ports, hidden_legacy_ports}: pyserial 목록(+ in_use_by 다른 프로세스 PID). 기존 행에 route/device_id/held_by 를 더하고 env_kind 를 반환한다. 알려진 USB ID 주석: 303a:1001 = ESP 내장 USB-Serial/JTAG, 303a:0009 = ESP32-S3 ROM USB-OTG 다운로드 모드, 10c4:ea60 = CP210x, 1a86:7523 = CH340, 1a86:55d3 = CH343, 1a86:55d4 = CH9102, 0403:6001/6010/6014/6015 = FTDI. WSL interop/powershell 이 없으면 리눅스 목록과 note 만.",
     "params": [],
     "annotations": {
      "readOnlyHint": true,
@@ -5136,7 +5142,7 @@
    },
    {
     "name": "esp_chip_info",
-    "description": "칩·플래시 정보 (esptool flash-id, MODIFY: DTR/RTS 또는 USB-Serial/JTAG 리셋으로 ROM 다운로드 모드 진입 + RAM 스텁, 플래시/eFuse 쓰기 없음, 케이스 소유/허가 증명 필요). port: 'COM3'(방법 A, Windows esptool.exe) 또는 '/dev/ttyACM0'(리눅스 esptool). 반환: chip, chip_description, chip_revision, features, crystal_mhz, usb_mode, mac, flash{manufacturer_id, manufacturer, device_id, size, size_bytes, type_efuse, voltage}, secure_download_mode, stub, log_path(uart/esptool-chip-info-NNN.log), backend, port, esptool_version, warnings, notes. Secure Download Mode 면 flash-id 가 거부되므로 status='secure_download_mode' 와 칩 종류만 돌려준다. 연결 실패면 사람에게 BOOT 를 누른 채 RESET 을 누르게 하고 before='no-reset' 으로 다시 호출한다. modify_policy=approve 이면 approval_required → 사람이 pweh approve 후 approval_id 를 붙여 재호출.",
+    "description": "칩·플래시 정보 (esptool flash-id, MODIFY: DTR/RTS 또는 USB-Serial/JTAG 리셋으로 ROM 다운로드 모드 진입 + RAM 스텁, 플래시/eFuse 쓰기 없음, 케이스 소유/허가 증명 필요). port: 'COM3'(방법 A, Windows esptool.exe) 또는 '/dev/ttyACM0'(리눅스 esptool). 반환: chip, chip_description, chip_revision, features, crystal_mhz, usb_mode, mac, flash{manufacturer_id, manufacturer, device_id, size, size_bytes, type_efuse, voltage}, secure_download_mode, stub, log_path(uart/esptool-chip-info-NNN.log), backend, port, esptool_version, warnings, notes. Secure Download Mode 면 flash-id 가 거부되므로 status='secure_download_mode' 와 칩 종류만 돌려준다. 연결 실패면 사람에게 BOOT 를 누른 채 RESET 을 누르게 하고 before='no-reset' 으로 다시 호출한다. modify_policy=approve 이면 approval_required → 사람이 pweh approve 후 approval_id 를 붙여 재호출. 승인 전 공통 포트 잠금과 실행 직전 route 재검증을 적용하고, 프로세스 정리 미확인 시 잠금을 보존한다.",
     "params": [
      {
       "name": "case_id",
@@ -5203,7 +5209,7 @@
    },
    {
     "name": "esp_security_info",
-    "description": "보안 설정 조회 (esptool get-security-info, MODIFY: 리셋으로 ROM 다운로드 모드 진입, 쓰기 없음, 케이스 소유/허가 증명 필요). 반환: status('ok' | 'unsupported'), secure_boot, flash_encryption(SPI_BOOT_CRYPT_CNT 홀수 비트=켜짐), crypt_cnt, secure_download_mode(플래그 비트 2), read_flash_possible, ciphertext_expected, jtag_hard_disabled/jtag_soft_disabled, usb_disabled, download_dcache/icache_disabled, key_blocks[{block, purpose}], flags_hex, parsed_flags, raw_fields(보안 블록의 'Label: value' 원문), chip_id, api_version, assessment, log_path(uart/esptool-security-info-NNN.log). Secure Download Mode 에서도 동작한다. read_flash_possible=false 면 덤프를 시도하지 말고 우회 없이 사용자에게 보고한다. 원조 ESP32/ESP8266 은 이 명령을 지원하지 않아 ok=true, status='unsupported', 보안 필드·read_flash_possible 이 null(보안 상태 미확인)이다.",
+    "description": "보안 설정 조회 (esptool get-security-info, MODIFY: 리셋으로 ROM 다운로드 모드 진입, 쓰기 없음, 케이스 소유/허가 증명 필요). 반환: status('ok' | 'unsupported'), secure_boot, flash_encryption(SPI_BOOT_CRYPT_CNT 홀수 비트=켜짐), crypt_cnt, secure_download_mode(플래그 비트 2), read_flash_possible, ciphertext_expected, jtag_hard_disabled/jtag_soft_disabled, usb_disabled, download_dcache/icache_disabled, key_blocks[{block, purpose}], flags_hex, parsed_flags, raw_fields(보안 블록의 'Label: value' 원문), chip_id, api_version, assessment, log_path(uart/esptool-security-info-NNN.log). 승인 전 공통 포트 잠금과 실행 직전 route 재검증을 적용한다. Secure Download Mode 에서도 동작한다. read_flash_possible=false 면 덤프를 시도하지 말고 우회 없이 사용자에게 보고한다. 원조 ESP32/ESP8266 은 이 명령을 지원하지 않아 ok=true, status='unsupported', 보안 필드·read_flash_possible 이 null(보안 상태 미확인)이다.",
     "params": [
      {
       "name": "case_id",
@@ -5270,7 +5276,7 @@
    },
    {
     "name": "esp_read_flash_start",
-    "description": "플래시 덤프 작업 시작 (esptool read-flash, job, MODIFY: 리셋으로 ROM 다운로드 모드 진입 + RAM 스텁, 플래시/eFuse 쓰기 없음, 케이스 소유/허가 증명 필요). 방법 A: port='COM3' 이면 Windows esptool.exe 가 wslpath 로 바꾼 경로에 바로 쓴다. offset(정수/'0x..'), size('all'=감지 크기(offset=0 일 때만), 정수, '0x400000', '4M', '16MB', '512K'), output_name(생략 시 esp-flash, esp-flash-002 …), baud(기본 921600 — 오류가 나면 460800/115200), verify='double'(기본: 두 번 읽어 sha256 비교, 1차는 --after no-reset-stub 으로 칩을 다운로드 모드에 둬 앱이 실행되지 않게. before='no-reset'(수동 다운로드 모드)이면 1차는 115200 baud) | 'none'. after='no-reset' 은 no-reset-stub 으로 바꿔 실행한다. no_stub=True(ROM 직접 읽기, 전송 MD5 검증 없음)는 chip 을 ESP8266 이 아닌 칩으로 명시할 때만 받는다(auto·esp8266 은 validation_failed). 결과: dumps/<name>.bin (+ dumps/<name>.read2.bin) + dumps/<name>.json(firmware-dump 스키마 모양 메타데이터, method 'esptool-read-flash'), flash-dump 아티팩트, 읽기별 로그 uart/esptool-<name>-readN-NNN.log. 최종 파일은 끝날 때 만들며 기존 파일은 덮어쓰지 않는다. 즉시 job_id 를 돌려주므로 esp_job_status(job_id, wait_seconds=30) 로 폴링(진행률 %)하고 esp_job_cancel 로 취소한다(취소된 읽기는 부분 데이터가 없어 삭제). 불일치면 result.match=false + warnings (파일 보존). Secure Download Mode 면 esp_secure_download_mode 로 실패한다(우회 금지).",
+    "description": "플래시 덤프 작업 시작 (esptool read-flash, job, MODIFY: 리셋으로 ROM 다운로드 모드 진입 + RAM 스텁, 플래시/eFuse 쓰기 없음, 케이스 소유/허가 증명 필요). 방법 A: port='COM3' 이면 Windows esptool.exe 가 wslpath 로 바꾼 경로에 바로 쓴다. offset(정수/'0x..'), size('all'=감지 크기(offset=0 일 때만), 정수, '0x400000', '4M', '16MB', '512K'), output_name(생략 시 esp-flash, esp-flash-002 …), baud(기본 921600 — 오류가 나면 460800/115200), verify='double'(기본: 두 번 읽어 sha256 비교, 1차는 --after no-reset-stub 으로 칩을 다운로드 모드에 둬 앱이 실행되지 않게. before='no-reset'(수동 다운로드 모드)이면 1차는 115200 baud) | 'none'. after='no-reset' 은 no-reset-stub 으로 바꿔 실행한다. no_stub=True(ROM 직접 읽기, 전송 MD5 검증 없음)는 chip 을 ESP8266 이 아닌 칩으로 명시할 때만 받는다(auto·esp8266 은 validation_failed). 결과: dumps/<name>.bin (+ dumps/<name>.read2.bin) + dumps/<name>.json(firmware-dump 스키마 모양 메타데이터, method 'esptool-read-flash'), flash-dump 아티팩트, 읽기별 로그 uart/esptool-<name>-readN-NNN.log. 최종 파일은 끝날 때 만들며 기존 파일은 덮어쓰지 않는다. 즉시 job_id 를 돌려주므로 esp_job_status(job_id, wait_seconds=30) 로 폴링(진행률 %)하고 esp_job_cancel 로 취소한다(취소된 읽기는 부분 데이터가 없어 삭제). 불일치면 result.match=false + warnings (파일 보존). Secure Download Mode 면 esp_secure_download_mode 로 실패한다(우회 금지). 승인 전 공통 포트 잠금을 얻어 두 읽기와 취소 정리가 끝날 때까지 유지한다. 실행마다 route·확인된 USB reset 범위를 재검증하며 정리 미확인 시 잠금과 출력 예약을 보존한다.",
     "params": [
      {
       "name": "case_id",

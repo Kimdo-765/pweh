@@ -54,6 +54,14 @@ def fake(workspace, tmp_path, monkeypatch):
     from esp_mcp import esptool_cli, ports, winproc
     from esp_mcp.esptool_cli import clear_cache
     from pweh.runtime import reset_runtimes
+    from pweh.ports import PortProbe
+    from esp_mcp import server as srv
+    import stat
+
+    monkeypatch.setattr(srv, "_port_environment", lambda: {"kind": "WSL2_INTEROP", "wsl": {"interop": {"usable": True}}})
+    def fake_stat(path):
+        return SimpleNamespace(st_mode=stat.S_IFCHR | 0o600, st_dev=1, st_ino=100, st_rdev=os.makedev(166, 0))
+    monkeypatch.setattr(srv, "_port_probe", lambda: PortProbe(stat=fake_stat, realpath=ports.realpath))
 
     lin = make_fake_esptool(tmp_path / "bin", "esptool")
     win = make_fake_esptool(tmp_path / "bin", "esptool.exe")
@@ -118,6 +126,10 @@ def fake(workspace, tmp_path, monkeypatch):
                           tmp=tmp_path, winprocs=fw, mei=mei)
     fw.deny = False
     kill_fake_processes()
+    # 시험이 의도적으로 남긴 고아는 합성 Windows 조회로 종료 확인 뒤 회수한다.
+    monkeypatch.setattr(winproc, "query", fw.query)
+    for use in list(srv._ORPHAN_PORTS):
+        srv._reap_orphan_ports(use.keys)
     clear_cache()
 
 
@@ -334,8 +346,9 @@ def test_port_validation(monkeypatch):
     from esp_mcp import ports
     from pweh.errors import ValidationFailed
 
-    assert ports.validate_port("com3").port == "COM3" and ports.validate_port("COM256").backend == "windows"
-    for bad in ("COM0", "COM257", "COM1000", "rfc2217://h:2217", "socket://h:1", "/dev/sda", "/tmp/x", "", "LPT1", "/dev/ttyACM0;rm"):
+    assert ports.validate_port("com3").port == "COM3" and ports.validate_port("COM4096").backend == "windows"
+    assert ports.validate_port("COM1000").lock_key == "win:COM1000"
+    for bad in ("COM0", "COM4097", "COM10000", "rfc2217://h:2217", "socket://h:1", "/dev/sda", "/tmp/x", "", "LPT1", "/dev/ttyACM0;rm"):
         with pytest.raises(ValidationFailed):
             ports.validate_port(bad)
     monkeypatch.setattr(ports, "path_exists", lambda p: False)
@@ -719,6 +732,13 @@ async def test_list_ports_windows_and_linux(fake, monkeypatch):
     import serial.tools.list_ports as lp
     from esp_mcp import ports
     from esp_mcp.server import server
+    from pweh import ports as shared_ports
+
+    identity_probe = shared_ports._probe_identity
+    def no_extra_windows_query(ref, **kwargs):
+        assert not ref.upper().startswith("COM"), "flat Windows 목록 뒤 포트별 PnP 조회 금지"
+        return identity_probe(ref, **kwargs)
+    monkeypatch.setattr(shared_ports, "_probe_identity", no_extra_windows_query)
 
     ps_json = json.dumps([
         {"Name": "USB 직렬 장치(COM3)", "PNPDeviceID": "USB\\VID_303A&PID_1001&MI_00\\7&2A9A1C3E&0&0000", "Manufacturer": "Microsoft",
@@ -756,6 +776,10 @@ async def test_list_ports_windows_and_linux(fake, monkeypatch):
     assert w["COM3"]["usb_id"] == "303a:1001" and w["COM3"]["kind"] == "esp-usb-serial-jtag" and "USB-Serial/JTAG" in w["COM3"]["description_ko"]
     assert w["COM7"]["kind"] == "usb-uart-bridge" and "CP210x" in w["COM7"]["description_ko"] and w["COM7"]["serial_number"] == "0001"
     assert w["COM9"]["kind"] == "esp-usb-otg-rom"
+    assert r["env_kind"] == "WSL2_INTEROP"
+    assert w["COM3"]["route"]["lock_key"] == "win:COM3"
+    assert w["COM3"]["route"]["identity"]["status"] == "unknown" and w["COM3"]["device_id"] is None
+    assert "held_by" in w["COM3"]
     lin = r["linux"]["ports"]
     assert [p["port"] for p in lin] == ["/dev/ttyACM0"] and r["linux"]["hidden_legacy_ports"] == 1
     assert lin[0]["kind"] == "esp-usb-serial-jtag" and lin[0]["in_use_by"] == [4242]
@@ -1359,8 +1383,11 @@ async def test_read_flash_orphan_keeps_reservation_until_gone(fake, monkeypatch)
     assert srv._sweep_dumps_dir(dumps.resolve(), cid) == []  # 남은 프로세스가 살아 있는 동안은 지우지 않는다
     os.kill(child, signal.SIGKILL)
     assert wait_until(lambda: not pid_alive(child), 5)
-    removed = srv._sweep_dumps_dir(dumps.resolve(), cid)
-    assert removed and removed[0]["stem"] == "esp-flash" and sorted(os.listdir(dumps)) == []
+    # PID가 끝났다는 관찰만으로 active 예약을 지우지 않는다. 원래 실행 맥락을
+    # 다시 확인한 orphan 회수가 lease와 예약을 함께 해제한다.
+    assert srv._sweep_dumps_dir(dumps.resolve(), cid) == []
+    srv._reap_orphan_ports(("win:COM3",))
+    assert sorted(os.listdir(dumps)) == []
 
 
 async def test_windows_output_tokens_recorded_before_first_spawn(fake, monkeypatch):
@@ -1551,10 +1578,11 @@ def _plan_for(srv, cid, backend, spec, argv_for, *, name="t"):
     argv, omap = argv_for(partials[0])
     step = srv.ReadStep(index=1, after="hard-reset", baud=115200, timeout_s=30, partial=partials[0], argv=argv, output_token=argv[-1],
                         output_map=omap)
+    use = srv._PortUse(get_runtime("esp-mcp"), cid, spec, "default-reset", "hard-reset")
     return srv.DumpPlan(case_id=cid, case_dir=case.dir, case_real=os.path.realpath(case.dir), dumps_dir=dumps, dumps_real=str(real),
-                        stem=stem, owner_path=owner, port=spec, backend=backend, chip="auto", baud=115200, before="default-reset",
+                        stem=stem, owner_path=owner, port=use.spec, backend=backend, chip="auto", baud=115200, before="default-reset",
                         after="hard-reset", after_requested="hard-reset", no_stub=False, offset=0, size=4096, verify="none",
-                        steps=[step], exclusive_key=srv._port_key(spec))
+                        steps=[step], exclusive_key=srv._port_key(use.spec), port_use=use)
 
 
 class _J:
@@ -1792,10 +1820,25 @@ async def test_esp_mcp_stdio(fake):
 
 _SHIM = """import os
 try:
+    import stat
+    from pathlib import Path
+    from types import SimpleNamespace
+    from pweh import ports as _shared, portlock as _locks
+    from pweh.portidentity import PortIdentity
+    from esp_mcp import server as _srv
     from esp_mcp import ports as _p
     _p.path_exists = lambda p: True
     _p.realpath = lambda p: p
     _p.device_users = lambda p: []
+    _srv._port_environment = lambda: {"kind": "NATIVE_LINUX"}
+    _srv._port_probe = lambda: _shared.PortProbe(
+        stat=lambda p: SimpleNamespace(st_mode=stat.S_IFCHR | 0o600, st_dev=1, st_ino=100, st_rdev=os.makedev(166, 0)),
+        realpath=lambda p: p, identity=lambda p: PortIdentity(p, status="unknown", reasons=("synthetic",)))
+    _testroot = Path(os.environ["PWEH_CONFIG"]).parent.parent / "synthetic-port-runtime"
+    _manager = _locks.PortLockManager(namespace="esp-child-synthetic", runtime_root=_testroot)
+    _roles = _locks.PortRoleStore(runtime_root=_testroot)
+    _locks.get_manager = lambda: _manager
+    _locks.get_role_store = lambda: _roles
 except Exception as e:  # pragma: no cover
     import sys
     print("shim failed", e, file=sys.stderr)

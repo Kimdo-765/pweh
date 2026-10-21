@@ -339,7 +339,7 @@ async def test_bare_enter_with_unknown_device_history_is_refused(devices, auth):
 # ---------------------------------------------------------------------------
 
 
-async def test_high_bit_and_seven_bit_bytes_are_classified_as_the_device_sees_them(devices, auth):
+async def test_high_bit_and_seven_bit_bytes_are_classified_as_the_device_sees_them(devices, auth, isolated_ports):
     from uart_mcp.server import server
 
     dev = devices("hisilicon-like")
@@ -353,9 +353,14 @@ async def test_high_bit_and_seven_bit_bytes_are_classified_as_the_device_sees_th
         r = await call(c, "uart_send_command", session_id=sid, command="echo café")
         assert r.get("status") == "denied" and "ASCII" in r.get("hint", ""), r
         await call(c, "uart_close", session_id=sid)
-        # PTY 는 7비트 프레이밍을 거부한다 → 내부 오류가 아니라 장치 오류 + 힌트
+        # PTY는 7비트 프레이밍을 거부한다. pyserial이 open 중 fd 참조를 잃을 수 있어 잠금을 보존한다.
         r = await call(c, "uart_open", case_id=cid, port=path, bytesize=7, parity="E")
-        assert "_error" in r and "device_error" in r["_error"] and "internal_error" not in r["_error"], r
+        assert "serial_open_cleanup_failed" in r.get("_error", "") and "internal_error" not in r["_error"], r
+        from uart_mcp import server as U
+        orphan = next(s for s in U._SESSIONS.values() if s.case_id == cid and s.port == path)
+        assert not orphan.lease.closed and not orphan.ser.closed
+        assert "open_failed_handle_ownership_unknown" in orphan.ser.cleanup_errors
+        isolated_ports["allow_orphans"] = True
         # 7비트(7E1) 세션 (socket:// 은 프레이밍을 전달하지 않음): 기기는 하위 7비트만 받는다 → 그 바이트로 분류
         host, port = dev.start_tcp()
         r = await call(c, "uart_open", case_id=cid, port=f"socket://{host}:{port}", bytesize=7, parity="E")
@@ -590,6 +595,10 @@ async def test_signal_and_probe_tools_respect_modify_policy(workspace, devices, 
         assert r.get("status") == "denied" and rule(r) == "uart.signals", r
         await call(c, "uart_close", session_id=sid)
         r = await call(c, "uart_detect_baud", case_id=cid, port=path, candidates=[115200], listen_seconds=0.3)
+        assert "port_role_conflict" in r.get("_error", ""), r
+        # 이미 대상 콘솔로 확인한 포트는 정책보다 먼저 거부한다. 새 합성 끝점에서는 MODIFY 정책을 검사한다.
+        unmarked = devices("hisilicon-like").start_pty()
+        r = await call(c, "uart_detect_baud", case_id=cid, port=unmarked, candidates=[115200], listen_seconds=0.3)
         assert r.get("status") == "denied" and rule(r) == "uart.detect-baud.probe", r
         r = await call(c, "uart_detect_baud", case_id=cid, port=path, candidates=[115200], listen_seconds=0.3, probe="none")
         assert r["ok"], r

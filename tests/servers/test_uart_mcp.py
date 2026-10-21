@@ -675,7 +675,7 @@ def test_validate_port_unit(tmp_path):
     finally:
         os.close(master)
         os.close(slave)
-    for bad in ("", "  ", "spy://x", "hwgrep://.*", "cp2110://0001:0002", "/dev/tty\x00USB0", str(tmp_path), "relative/path", "COM3", "com12",
+    for bad in ("", "  ", "spy://x", "hwgrep://.*", "cp2110://0001:0002", "/dev/tty\x00USB0", str(tmp_path), "relative/path",
                 # 원격 URL 은 루프백 호스트·포트가 있는 정규형만 (D4 — 수정 전에는 RFC2217://10.0.0.2:4000 이 유효했다)
                 "RFC2217://10.0.0.2:4000", "socket://192.0.2.10:7777", "socket://0.0.0.0:7777", "socket://127.1:7777",
                 "socket://user@127.0.0.1:7777", "socket://127.0.0.1", "rfc2217://127.0.0.1:2217?ign_set_control",
@@ -702,8 +702,7 @@ def test_validate_port_win_com_bound(monkeypatch):
         with pytest.raises(ValidationFailed, match="COM1–COM4096"):
             validate_port(bad)
     for ok_name in ("COM1", "com12", "COM4096"):
-        with pytest.raises(ValidationFailed, match="직접 열 수 없습니다"):
-            validate_port(ok_name)  # 리눅스·WSL: 문법은 맞지만 이 환경에서는 열 수 없다(usbipd 힌트)
+        assert validate_port(ok_name) == ok_name.upper()  # 실제 환경 허용은 resolve 단계에서 확인한다.
     with monkeypatch.context() as m:  # 가짜 win32 는 이 블록 안에서만 (fixture 정리는 실제 플랫폼에서)
         m.setattr(sys, "platform", "win32")
         assert validate_port("com12") == "COM12"
