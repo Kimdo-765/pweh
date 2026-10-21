@@ -69,6 +69,7 @@ OPTIONAL_PHASES = (
     "sd-card-forensics",
     "firmware-emulation",
     "image-hints-analysis",
+    "android-forensics",
     "espprobe",
 )
 PHASE_STATUSES = ("pending", "in-progress", "done", "partial", "failed", "skipped", "blocked")

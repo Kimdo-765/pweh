@@ -28,6 +28,7 @@ SKILL_DATA_SCHEMAS: dict[str, str] = {
     "sd-card-forensics": "sd-forensics",
     "firmware-emulation": "emulation",
     "image-hints-analysis": "image-hints",
+    "android-forensics": "android-forensics",
 }
 
 

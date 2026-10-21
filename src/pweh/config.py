@@ -63,6 +63,7 @@ DEFAULTS: dict[str, Any] = {
             "/var/lib",
         ],
     },
+    "forensics": {"reference_roots": []},
     "tools": {
         "sigrok_cli": "${PWEH_SIGROK_CLI:-sigrok-cli}",
         "openocd": "${PWEH_OPENOCD:-openocd}",

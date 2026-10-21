@@ -275,3 +275,9 @@ job 의 실패는 `forensics_job_status` 의 `error` 에 있다(예상하지 못
   `tests/fs/test_hardening.py`·`tests/fs/test_limits_lookup.py` 는 검증·예산·한도·경로 찾기, `tests/fs/test_incomplete_dirs.py` 는 끝까지 읽지 못한 디렉터리의 보고를 본다.
   `tests/fs/test_fuzz.py` 는 메타데이터를 고정 시드로 변조해 예외가 새지 않고 시간 상한 안에 끝나는지 본다. `tests/fs/test_external.py` 는 mkfs.fat·sgdisk 가 있을 때만 도는 `@pytest.mark.external` 교차 확인이다.
 - `tests/servers/test_fwtriage_forensics_guard.py`: pweh-fwtriage 가 `forensics/` 와 그 링크·상위 디렉터리를 거부하는지. `case_import_file`·`case_hash_file`·`case_register_artifact` 의 거부는 `tests/servers/test_case_mcp.py` 에 있다.
+
+## Android 논리 증거
+
+TAR/ZIP 목록·멤버 해시·선택 추출과 선택한 SQLite DB의 구조·앱 기록·타임라인을 지원한다. `forensics_sqlite_inventory`, `forensics_android_artifacts`, `forensics_timeline`은 같은 EV 무결성 입구에서 읽고 JSON을 보관 기록에 결속한다. 폰 내용은 전용 도구 응답으로 반환하며 원본·추출 DB를 직접 열지 않는다. 영상·음성은 여전히 사람이 확인한다. 복구 후보·미검사 범위·시각 기준을 보존한다.
+
+접수 기본은 copy, reference는 `forensics.reference_roots`의 실제 읽기 전용 마운트만 허용한다. 참조 EV가 있는 evidence-list는 전체 재해시 job 완료 후 확인서를 만든다. [계약](../../docs/architecture.md) §6.8, [설계·제한](../../docs/design/android-analysis.md), [Skill](../../skills/android-forensics/SKILL.md)을 따른다.

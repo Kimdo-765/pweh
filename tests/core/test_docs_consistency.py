@@ -46,7 +46,8 @@ REA_RUNTIME_ASK = {"gdb_console", "cutter_command", "load_frida_script", "resume
 #: 나머지 pweh 서버는 카탈로그에서 readOnlyHint 인 도구만 allow 에 있다.
 FULL_ALLOW_SERVERS = ("pweh-case", "pweh-fwtriage")
 #: 사용자가 정지 그림·OCR 반환을 별도 승인 없이 허용한 도구. 로컬 산출물을 쓰므로 readOnlyHint 는 false 다.
-LOCAL_WRITE_ALLOW = {"mcp__pweh-forensics__forensics_image_hints"}
+LOCAL_WRITE_ALLOW = {f"mcp__pweh-forensics__{name}" for name in (
+    "forensics_image_hints", "forensics_sqlite_inventory", "forensics_android_artifacts", "forensics_timeline")}
 #: architecture §6 에 시그니처(모든 인자)까지 적어야 하는 서버. 다른 서버는 도구 이름만 있으면 된다.
 FULL_SIGNATURE_SERVERS = ("pweh-uart", "pweh-case")
 #: 서버 이름 → mcp-servers/ 아래 디렉터리. 기본 규칙('pweh-esp' → 'esp-mcp')을 벗어나는 서버만 적는다.

@@ -231,8 +231,10 @@
   블록 Shannon 엔트로피(0~8) 계산. 높은 엔트로피 연속 구간을 압축/암호화 '후보'로 표시하고 카이제곱으로 균일(암호화·강한 압축) / 비균일(일반 압축)을 구분, annotate=true 면 알려진 시그니처와의 겹침도 표시(설명되지 않는 고엔트로피 = 암호화·난독화 의심). 낮은 엔트로피 구간(패딩), 한 줄 프로파일 문자열 포함. 전체 블록 값은 analysis/entropy-N
 - **`fw_uboot_env(case_id, path, sizes?, align?, include_default_env?, max_results?)`**  
   덤프/파티션에서 U-Boot 환경변수 블록 탐색 (pweh.formats.find_uboot_env: 후보 크기별 CRC 검증, redundant 플래그; 빅엔디안 CRC 보완). env 전체, 주요 변수(bootcmd/bootargs/mtdparts/ethaddr ...), mtdparts 해석(pweh.formats.parse_mtdparts, '-' 크기는 파일 끝까지), redunda
-- **`fw_carve(case_id, path, mtdparts?, partitions?, output_label?, mtd_device?, probe?)`**  
-  덤프를 파티션으로 분할: mtdparts 문자열(예: 'mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),-(rootfs)') 또는 partitions 목록([{name, offset, size}], 16진 문자열/크기 문자열 허용, size 생략 시 끝까지)을 사용. 둘 다 없으면 이미지 안의 U-Boot env(mtdparts/bootargs) → 
+- **`fw_carve(case_id, path, mtdparts?, partitions?, output_label?, mtd_device?, probe?, layout_source?, lp_slot?, max_output_bytes?)`**  
+  덤프를 파티션으로 분할: mtdparts 문자열(예: 'mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),-(rootfs)') 또는 partitions 목록([{name, offset, size}], 16진 문자열/크기 문자열 허용, size 생략 시 끝까지)을 사용. 둘 다 없으면 이미지 안의 raw GPT/LP → U-Boot env(mtdparts
+- **`fw_android_surface(case_id, rootfs_dir?, image_path?, max_results?, max_evidence?, max_file_size?, max_seconds?, background?)`**  
+  Android 펌웨어 정적 점검 AN-01~09: ADB 통신/인증, debug/root 빌드, test-keys, SELinux permissive, AVB disabled flags, init 서비스 권한, OTA 검증 구성, 특권 APK/permission XML, 하드코딩 자격증명. rootfs_dir(이미 추출한 트리) 또는 image_path(boot/vendor_boot/vbme
 - **`fw_uimage_info(case_id, path, offset?)`**  
   offset 의 legacy uImage 헤더 파싱(이름, load/entry 주소, OS/arch/type/압축, 헤더·데이터 CRC 검증, multi 이미지 크기표, 실제 페이로드 형식과 헤더 압축 표시 일치 여부) 또는 FIT/DTB 해석(images: type/arch/compression/load/entry/data 크기/해시, configurations; DTB 면 model/co
 - **`fw_extract_squashfs(case_id, path, offset?, output_label?, timeout_seconds?, max_output_bytes?, engine?, allow_listing_anomalies?, background?)`**  
@@ -296,23 +298,29 @@
 - **`forensics_jobs(active_only?)`** — [읽기전용]  
   이 서버 프로세스의 백그라운드 작업 목록.
 - **`forensics_image_hints(case_id, evidence_id, partition?, ref?, path?, method?, ocr?, ocr_lang?, qr?, preview?, crop?, max_seconds?)`**  
-  증거의 정지이미지 1개를 오프라인 분석한다(소유/허가·보관 기록·open_checked 무결성 검사 필수). ref 또는 path 로 FAT/exFAT 파일 1개를 선택한다(동시 지정 금지); 둘 다 없으면 EV 자체를 정지이미지로 읽는다. 삭제 파일은 ref 와 복구 method(auto 기본)로 선택하며 방법·신뢰도·완전성을 출처에 기록한다. 불완전한 파일은 거부한다. 최대 64 MiB,
-- **`forensics_intake_start(case_id, image_path, purpose, legal_basis, site_type, business_purpose, role, imaging_log_path?, label?, verify_copy?)`**  
-  증거 이미지 접수 (job). 이미지 파일만 받는다 — 원시 디스크·장치·FIFO·빈 파일·E01, 케이스·상태 폴더 안의 파일, NUL 이 든 경로, 증거 디렉터리 예약 이름(EV-NNNN.json·imaging-log.txt·*.partial)은 거부. 케이스 소유/허가와 purpose·legal_basis·site_type(home/public/business/vehicle/mobile
+  증거의 정지이미지 1개를 오프라인 분석한다(소유/허가·보관 기록·open_checked 무결성 검사 필수). ref 또는 path 로 FAT/exFAT·TAR/ZIP 파일 1개를 선택한다(동시 지정 금지); 둘 다 없으면 EV 자체를 정지이미지로 읽는다. 삭제 파일은 ref 와 복구 method(auto 기본)로 선택하며 방법·신뢰도·완전성을 출처에 기록한다. 불완전한 파일은 거부한다. 최대
+- **`forensics_intake_start(case_id, image_path, purpose, legal_basis, site_type, business_purpose, role, imaging_log_path?, label?, verify_copy?, storage?)`**  
+  증거 이미지·TAR/ZIP 논리 추출 파일 접수 (job). storage=copy(기본)는 사본을 만들고 reference 는 제자리 참조다. reference 는 비안전 설정 forensics.reference_roots(기본 []) 아래 실제 읽기 전용 마운트(ST_RDONLY)의 일반 파일만 받으며 매번 열 때 현재 정책·마운트를 확인한다. 원본을 chmod·마운트·삭제하지 않는다. 
 - **`forensics_verify_start(case_id, evidence_id)`**  
   증거 사본 전체 재해시 (job). 접수 때의 sha256·md5·sha1(보관 기록 intake 사건의 값)과 비교해 match/mismatch 를 보관 기록 verify 사건으로 남긴다. 다르면 integrity-failed 로 표시되고 그 증거의 내용 도구는 모두 거부된다(되돌리지 않는다 — 원본에서 다시 접수). 빠른 지문(크기·mtime·앞뒤 1 MiB 해시·쓰기 권한 없음)이 이미
 - **`forensics_acquisition_attest(case_id, evidence_id)`**  
   획득 방법의 사람 증명 (write-blocker). 사람이 별도 터미널에서 `pweh attest <id>` 로 '하드웨어 쓰기 방지 장치를 거쳐 이미징했다'와 장치 모델·희생용 카드 시험 여부·이미징 도구를 답한다(증거 id·sha256 에 묶임, 90일). 에이전트는 답하거나 증명을 대신 만들지 않는다. 결과(승인·거부, 앞 증명의 철회·만료)는 보관 기록 attest 사건으로 남고 증
 - **`forensics_evidence_list(case_id, write_files?)`**  
-  증거 목록과 해시값 확인서. 항목마다 크기·해시·status(ok/unverified/integrity-failed/missing/record-invalid/custody-broken/record-without-intake/intake-in-progress)·status_label(사람이 읽는 표시, 예: 'missing (integrity-failed)')·마지막 검증·쓰기 방지 장치 증명
+  증거 목록과 해시값 확인서. reference 증거가 있으면 자동 job으로 전체 재해시하고 forensics_job_status로 폴링한다. 참조 정책·읽기 전용 상태·전체 해시 확인이 끝나지 않으면 성공 확인서를 만들지 않는다. 사본만 있으면 즉시 반환한다. 항목마다 크기·해시·status(ok/unverified/integrity-failed/missing/record-invalid/c
 - **`forensics_partitions(case_id, evidence_id)`** — [읽기전용]  
   증거 이미지의 파티션 구조 (읽기 전용, 호출 예산 60초): MBR/EBR·GPT(헤더·항목 CRC 검사, 512/4096 바이트 섹터)·파티션 표 없음(superfloppy) → partitions[{index, scheme, start_offset, size_bytes, type_name, name·guid(GPT), fs_hint(fat12/fat16/fat32/exfat/ntfs/e
 - **`forensics_image_check(case_id, evidence_id, partition?, acquisition_date?)`** — [읽기전용]  
   호스트 오염 흔적 검사 (읽기 전용): 보관 기간에 분석 PC 가 카드에 남겼을 흔적 — strong: $RECYCLE.BIN, System Volume Information 의 IndexerVolumeGuid·WPSettings.dat, .DS_Store·._*(AppleDouble)·.Spotlight-V100·.fseventsd·.Trashes, Thumbs.db·desktop.ini,
 - **`forensics_fs_list(case_id, evidence_id, partition?, include_deleted?, max_entries?, max_seconds?)`**  
-  파일 시스템 목록 (FAT12/16/32·exFAT, 삭제 항목 포함). 전체 목록(경로·이름·크기·시각·삭제 여부·ref·체인·exFAT ValidDataLength 잔여)은 forensics/analysis/fs-list-<EV>-NNN.json(0444)에만 쓰고 보관 기록 list 사건에 sha256 을 남긴다. 응답은 볼륨마다 요약: stats, time_ranges(바탕별 — FA
+  파일 시스템·논리 TAR/ZIP 목록(FAT12/16/32·exFAT 삭제 항목 포함). TAR/ZIP 은 arc:<순번> ref, 멤버 sha256를 바이트 상한 1 GiB와 max_seconds 안에서 계산한다. 예산 밖 멤버는 sha256=null,status=unverified 이며 사유를 남긴다. 비압축 TAR, ZIP stored/deflate만 지원하며 암호화·링크·sparse·
 - **`forensics_extract(case_id, evidence_id, refs?, paths?, partition?, method?, region?, label?, max_files?, max_bytes?)`**  
-  파일·삭제 파일 추출 (job). refs(forensics_fs_list 결과 JSON 의 ref) 또는 paths(살아 있는 파일 경로)로 고른 파일만 forensics/recovered/<label>-NNN/ 에 0444 파일로 쓴다(이름 정리·번호, 원래 경로는 manifest.json, 실행 비트·링크 없음). refs·paths 는 중복을 없앤다(같은 항목을 가리키면 하나). re
+  파일·삭제 파일·TAR/ZIP 멤버 추출 (job). 아카이브는 arc:<순번> ref 또는 정확한 path를 쓰며 중복 이름은 ref로 선택한다. 경로 탈출·링크·특수파일·암호화는 거부하고 ZIP CRC 검증을 끝낸 파일만 보존한다. refs(forensics_fs_list 결과 JSON 의 ref) 또는 paths(살아 있는 파일 경로)로 고른 파일만 forensics/recovered/
+- **`forensics_sqlite_inventory(case_id, evidence_id, partition?, ref?, path?, wal_ref?, wal_path?, journal_ref?, journal_path?, method?, max_seconds?)`**  
+  증거에서 선택한 SQLite DB 1개의 헤더·schema·table 행 수·freelist와 제공된 WAL/journal 정보를 읽는다. ref/path는 FAT/exFAT 또는 TAR/ZIP 멤버 선택자이며 둘 다 없으면 EV 자체가 DB여야 한다. WAL/journal은 자동 탐색하지 않고 같은 EV·파티션·디렉터리의 DB 이름+-wal/-journal을 명시한다. 각 입력64MiB, 
+- **`forensics_android_artifacts(case_id, evidence_id, partition?, ref?, path?, wal_ref?, wal_path?, journal_ref?, journal_path?, method?, families?, include_deleted?, max_records?, max_seconds?)`**  
+  선택한 증거 SQLite에서 SMS·통화·연락처·브라우저 기록을 스키마 프로필로 분석해 내용도 반환한다. 입력 선택·무결성·64MiB/45초 제한은 forensics_sqlite_inventory와 같다. families는 sms/calls/contacts/browser, include_deleted는 WAL 과거기록·freelist 복구 후보 포함이며 삭제 확정을 뜻하지 않는다. 최대 ma
+- **`forensics_timeline(case_id, evidence_id, partition?, analysis_paths?, max_events?, max_seconds?)`**  
+  증거 FAT/exFAT·TAR/ZIP의 파일 시각과 명시한 앱 분석 JSON의 사건을 타임라인으로 묶는다. analysis_paths는 같은 EV의 android-artifacts 보관 기록·SHA256에 맞는 JSON만 받는다(최대16개, 합16MiB). 시각의 raw/단위/epoch/time_basis를 보존하며 FAT·ZIP DOS의 시간대는 추정하지 않는다. UTC로 바꿀 수 없는 사
 
 ## pweh-emu
 

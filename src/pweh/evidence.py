@@ -100,7 +100,8 @@ _QUARANTINE_RE = re.compile(r"^EV-(\d{4,6})-")
 #: 이미지 사본 이름으로 쓸 수 없는 이름 (같은 디렉터리의 접수 기록·로그 사본·잠금·복사 중 이름과 겹침)
 RESERVED_NAME_RE = re.compile(r"(?i)^(?:EV-\d+\.json|imaging-log\.txt|\.intake\.lock|.*\.partial)$")
 #: 보관 기록 사건 종류 (닫힌 집합)
-CUSTODY_EVENTS = ("intake", "intake-aborted", "verify", "integrity-failed", "attest", "check", "list", "extract", "image-hints", "evidence-list", "note")
+ANALYSIS_EVENTS = frozenset({"sqlite-inventory", "android-artifacts", "timeline"})
+CUSTODY_EVENTS = ("intake", "intake-aborted", "verify", "integrity-failed", "attest", "check", "list", "extract", "image-hints", "sqlite-inventory", "android-artifacts", "timeline", "evidence-list", "note")
 CUSTODY_ACTORS = ("server", "agent", "human")
 #: 빠른 지문: 앞·뒤 1 MiB 의 sha256 + 크기·mtime_ns
 FINGERPRINT_BLOCK = 1 << 20
@@ -485,7 +486,7 @@ def fingerprint(path: Path) -> dict[str, Any]:
         os.close(fd)
 
 
-def fingerprint_problems_fd(expected: dict[str, Any], fd: int, st: os.stat_result) -> list[str]:
+def fingerprint_problems_fd(expected: dict[str, Any], fd: int, st: os.stat_result, *, require_readonly_mode: bool = True) -> list[str]:
     """보관 기록(접수 때)의 지문과 연 fd 의 지금 지문을 비교한다. 문제 목록(비어 있으면 일치)."""
     try:
         now = fingerprint_fd(fd, st)
@@ -493,7 +494,7 @@ def fingerprint_problems_fd(expected: dict[str, Any], fd: int, st: os.stat_resul
         return [f"파일을 읽을 수 없음: {exc.strerror or exc}"]
     problems = [f"{key} 다름" for key in ("size", "mtime_ns", "head_sha256", "tail_sha256") if expected.get(key) != now.get(key)]
     mode = stat.S_IMODE(st.st_mode)
-    if mode & 0o222:
+    if require_readonly_mode and mode & 0o222:
         problems.append(f"쓰기 권한이 생김({mode:o})")
     return problems
 
@@ -976,6 +977,50 @@ def stored_name(record: dict[str, Any], evidence_id: str) -> str:
     return name
 
 
+def check_reference_fd(fd: int, path: Path, roots: Any) -> None:
+    """제자리 참조는 현재 허용 폴더·열린 실제 파일 경로·읽기 전용 마운트가 모두 맞아야 한다."""
+    if callable(roots):
+        roots = roots()
+    actual = safeio.fd_real_path(fd)
+    p = Path(os.path.abspath(path))
+    if actual is None or Path(actual) != p or not isinstance(roots, (list, tuple)):
+        raise EvidenceError("참조 파일의 실제 경로를 확인하지 못했습니다.", code="reference_unavailable")
+    allowed = [Path(os.path.abspath(os.path.expanduser(str(root)))) for root in roots if isinstance(root, (str, Path))]
+    if not any(safeio.is_under(p, root) and p != root for root in allowed):
+        raise EvidenceError("참조 파일이 현재 forensics.reference_roots 안에 없습니다.", code="reference_not_allowed")
+    if not hasattr(os, "fstatvfs") or not hasattr(os, "ST_RDONLY"):
+        raise EvidenceError("이 환경에서는 읽기 전용 마운트를 확인하지 못합니다.", code="reference_unavailable")
+    if not os.fstatvfs(fd).f_flag & os.ST_RDONLY:
+        raise EvidenceError("참조 파일의 파일 시스템이 읽기 전용 마운트가 아닙니다.", code="reference_not_readonly")
+
+
+def open_reference(path: str | Path, roots: Any) -> tuple[int, os.stat_result]:
+    """외부 참조를 루트부터 nofollow 로 연 뒤 정책을 확인한다. 원본 권한·마운트를 바꾸지 않는다."""
+    p = Path(os.path.abspath(os.path.expanduser(os.fspath(path))))
+    if "\x00" in str(p) or p == Path("/"):
+        raise EvidenceError("참조 경로가 잘못되었습니다.", code="reference_not_allowed")
+    value = roots() if callable(roots) else roots
+    if not isinstance(value, (list, tuple)) or not any(isinstance(r, (str, Path)) and safeio.is_under(p, Path(os.path.abspath(os.path.expanduser(str(r))))) for r in value):
+        raise EvidenceError("참조 파일이 현재 허용 폴더 안에 없습니다.", code="reference_not_allowed")
+    fd = None
+    try:
+        parent = safeio.open_dir_chain("/", p.parts[1:-1])
+        try:
+            fd, st = safeio.open_regular(p.name, dir_fd=parent, what="참조 이미지")
+        finally:
+            os.close(parent)
+        check_reference_fd(fd, p, value)
+        return fd, st
+    except (OSError, UnsafeFile) as exc:
+        if fd is not None:
+            os.close(fd)
+        raise EvidenceError("참조 파일을 현재 안전하게 열 수 없습니다.", code="reference_unavailable") from exc
+    except BaseException:
+        if fd is not None:
+            os.close(fd)
+        raise
+
+
 def validate_record(case: Case, evidence_id: str, raw: bytes) -> dict[str, Any]:
     """접수 기록 바이트의 모양을 확인한다 (schema·id·케이스·저장 경로·해시 길이). 아니면 EvidenceError(integrity_failed)."""
     try:
@@ -984,7 +1029,15 @@ def validate_record(case: Case, evidence_id: str, raw: bytes) -> dict[str, Any]:
         raise EvidenceError(f"접수 기록을 읽을 수 없습니다({evidence_id}): {exc}", code="integrity_failed") from exc
     if not isinstance(rec, dict) or rec.get("schema") != SCHEMA_EVIDENCE or rec.get("evidence_id") != evidence_id or rec.get("case_id") != case.id:
         raise EvidenceError(f"접수 기록의 모양이 다릅니다({evidence_id}).", code="integrity_failed")
-    stored_name(rec, evidence_id)
+    mode = (rec.get("stored") or {}).get("mode", "copy")
+    if mode == "reference":
+        locator = (rec.get("reference") or {}).get("path")
+        if not isinstance(locator, str) or not Path(locator).is_absolute() or "\x00" in locator or rec["stored"].get("path") is not None:
+            raise EvidenceError("참조 접수 기록 경로가 잘못되었습니다.", code="integrity_failed")
+    elif mode == "copy":
+        stored_name(rec, evidence_id)
+    else:
+        raise EvidenceError("접수 저장 방식이 잘못되었습니다.", code="integrity_failed")
     for alg in HASH_ALGORITHMS:
         v = (rec.get("hashes") or {}).get(alg)
         if not isinstance(v, str) or len(v) != _HEX_LEN[alg]:
@@ -1024,6 +1077,8 @@ def load_record(case: Case, evidence_id: str) -> dict[str, Any]:
 
 def stored_path(case: Case, record: dict[str, Any]) -> Path:
     """접수 기록의 저장 경로 (케이스 디렉터리 기준, 링크를 풀지 않음 — 열 때는 open_checked 의 fd 를 쓴다)."""
+    if (record.get("stored") or {}).get("mode") == "reference":
+        raise EvidenceError("외부 참조는 open_checked fd 로만 읽습니다.", code="reference_unavailable")
     return case.dir / record["stored"]["path"]
 
 
@@ -1068,6 +1123,8 @@ def record_problems(record: dict[str, Any], record_sha256: str, intake_data: dic
         problems.append("저장 경로가 보관 기록과 다름")
     if intake_data.get("fingerprint") != record.get("fingerprint"):
         problems.append("빠른 지문이 보관 기록과 다름")
+    if (record.get("stored") or {}).get("mode", "copy") != intake_data.get("storage_mode", "copy") or record.get("reference") != intake_data.get("reference"):
+        problems.append("저장 방식·외부 참조가 보관 기록과 다름")
     return problems
 
 
@@ -1099,7 +1156,7 @@ class OpenedEvidence:
         self.close()
 
 
-def open_checked(case: Case, evidence_id: str, entries: list[dict[str, Any]]) -> OpenedEvidence:
+def open_checked(case: Case, evidence_id: str, entries: list[dict[str, Any]], *, reference_roots: Any = ()) -> OpenedEvidence:
     """내용 도구·검증의 공통 입구: 보관 기록(entries, 이미 검증된 것)의 intake 사건 → 상태(무결성 실패면 거부) → EV 디렉터리·접수 기록을
     링크를 따르지 않고 열어 intake 사건과 대조 → 사본을 safeio.open_regular 로 열어 그 fd 로 빠른 지문을 intake 사건의 지문과 대조.
 
@@ -1140,9 +1197,13 @@ def open_checked(case: Case, evidence_id: str, entries: list[dict[str, Any]]) ->
         if problems:
             raise IntegrityProblem(f"접수 기록이 보관 기록의 접수 사건과 다릅니다({evidence_id}): {', '.join(problems)}", reason="record-mismatch",
                                    problems=problems)
-        name = stored_name(rec, evidence_id)
+        is_reference = (rec.get("stored") or {}).get("mode") == "reference"
+        name = None if is_reference else stored_name(rec, evidence_id)
         try:
-            fd, fst = safeio.open_regular(name, dir_fd=ev_fd, what="증거 사본")
+            if is_reference:
+                fd, fst = open_reference(rec["reference"]["path"], reference_roots)
+            else:
+                fd, fst = safeio.open_regular(name, dir_fd=ev_fd, what="증거 사본")
         except FileNotFoundError:
             raise IntegrityProblem(f"증거 사본이 없습니다({evidence_id}).", reason="stored-copy-missing", problems=["사본 없음"]) from None
         except UnsafeFile as exc:
@@ -1152,7 +1213,7 @@ def open_checked(case: Case, evidence_id: str, entries: list[dict[str, Any]]) ->
             raise IntegrityProblem(f"증거 사본을 열 수 없습니다({evidence_id}): {exc.strerror or exc}", reason="stored-copy-unreadable",
                                    problems=[str(exc.strerror or exc)]) from exc
         try:
-            fp_problems = fingerprint_problems_fd(data.get("fingerprint") or {}, fd, fst)
+            fp_problems = fingerprint_problems_fd(data.get("fingerprint") or {}, fd, fst, require_readonly_mode=not is_reference)
             if fp_problems:
                 raise IntegrityProblem(f"증거 사본이 접수 때와 다릅니다({evidence_id}): {', '.join(fp_problems)}", reason="fingerprint-mismatch",
                                        problems=fp_problems, hint="무결성 실패로 기록했다. 원본 이미지에서 다시 접수하세요.")
@@ -1485,6 +1546,93 @@ def read_image_bytes(fd: int, *, max_bytes: int, deadline: float, cancel: Callab
     return b"".join(chunks)
 
 
+def recheck_opened(case: Case, opened: OpenedEvidence, entries: list[dict[str, Any]], *, reference_roots: Any = ()) -> None:
+    """분석 커밋 직전 같은 fd 와 현재 접수 권위 값을 다시 확인한다. 전체 재해시는 아니다."""
+    roots = reference_roots() if callable(reference_roots) else reference_roots
+    now = os.fstat(opened.fd)
+    problems = fingerprint_problems_fd(opened.intake.get("fingerprint") or {}, opened.fd, now,
+                                      require_readonly_mode=(opened.record.get("stored") or {}).get("mode") != "reference")
+    if (now.st_dev, now.st_ino, now.st_ctime_ns) != (opened.st.st_dev, opened.st.st_ino, opened.st.st_ctime_ns):
+        problems.append("열린 증거의 파일 신원 또는 변경 시각이 달라짐")
+    if problems:
+        raise IntegrityProblem("분석 도중 증거가 변경되었습니다.", reason="source-changed", problems=problems)
+    if (opened.record.get("stored") or {}).get("mode") == "reference":
+        check_reference_fd(opened.fd, Path(opened.record["reference"]["path"]), roots)
+    with open_checked(case, opened.evidence_id, entries, reference_roots=roots):
+        pass
+
+
+def store_analysis(case: Case, opened: OpenedEvidence, report: dict[str, Any], *, event: str,
+                   custody_log: CustodyLog, reference_roots: Any = (), check: Callable[[], None] | None = None,
+                   on_commit: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+    """분석 JSON 을 0444 로 저장하고 같은 EV 를 재검증해 보관 기록에 결속한다.
+
+    내용은 JSON 에만 두고 보관 기록·아티팩트에는 해시/크기/출처만 남긴다. 커밋 전 실패만 생성 파일을 지우며,
+    커밋 뒤 감사·색인 오류나 취소는 이미 기록한 분석을 되돌리지 않는다.
+    """
+    if event not in ANALYSIS_EVENTS:
+        raise ValidationFailed("지원하지 않는 분석 보관 기록 사건입니다.")
+    source = report.get("source") or {}
+    if source.get("kind") != "evidence" or source.get("evidence_id") != opened.evidence_id or source.get("evidence_sha256") != opened.intake["hashes"]["sha256"]:
+        raise ValidationFailed("분석 출처가 열린 증거와 다릅니다.")
+    raw = (json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode("utf-8")
+    if len(raw) > 16 << 20:
+        raise ValidationFailed("분석 JSON 이 16 MiB 상한을 넘었습니다.")
+    dfd = open_forensics(case, "analysis", create=True)
+    name = None
+    fd = None
+    committed = False
+    try:
+        for n in range(1, 100000):
+            candidate = f"{event}-{opened.evidence_id}-{n:03d}.json"
+            try:
+                fd = safeio.create_excl(dfd, candidate, 0o600)
+                name = candidate
+                break
+            except FileExistsError:
+                continue
+        if fd is None:
+            raise EvidenceError("분석 출력 번호를 확보하지 못했습니다.")
+        if check:
+            check()
+        safeio.write_all(fd, raw)
+        os.fchmod(fd, 0o444)
+        os.fsync(fd)
+        os.close(fd)
+        fd = None
+        os.fsync(dfd)
+        analysis = {"path": forensics_rel("analysis", name), "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)}
+
+        def verify(entries: list[dict[str, Any]]) -> None:
+            if check:
+                check()
+            recheck_opened(case, opened, entries, reference_roots=reference_roots)
+
+        entry = custody_log.append(event, evidence_id=opened.evidence_id,
+                                   data={"analysis": analysis, "source": source, "status": report.get("status"), "params": report.get("params")},
+                                   check=verify)
+        committed = True
+        analysis = {**analysis, "custody_seq": entry["seq"], "custody_hash": entry["hash"]}
+        warnings = []
+        if on_commit:
+            try:
+                on_commit(entry)
+            except Exception:
+                warnings.append("분석은 보존했으나 보조 감사 기록에 실패했습니다.")
+        try:
+            case.register_artifact(analysis["path"], kind=event, producer="pweh-forensics", sha256=analysis["sha256"])
+        except Exception:
+            warnings.append("분석은 보존했으나 아티팩트 색인 등록에 실패했습니다.")
+        return {"ok": True, "report": report, "analysis": analysis, "warnings": warnings}
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if not committed and name:
+            with contextlib.suppress(OSError):
+                os.unlink(name, dir_fd=dfd)
+        os.close(dfd)
+
+
 def store_image_hints(case: Case, report: dict[str, Any], previews: list[dict[str, Any]], *,
                       forensic: bool = False, evidence_id: str | None = None,
                       commit: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
@@ -1744,12 +1892,15 @@ def evidence_items(case: Case, anchor_dir: str | Path | None = None, *, attestat
             "evidence_id": ev,
             "label": d.get("label"),
             "stored_path": d.get("stored_path"),
+            "storage_mode": d.get("storage_mode", "copy"),
             "size": d.get("size"),
             "hashes": hashes,
             "intake_ts": intake.get("ts"),
             "imaging_log": (d.get("imaging_log") or {}).get("comparison"),
             **st,
         }
+        if d.get("storage_mode") == "reference":
+            item["verification_scope"] = "마지막 보관 기록의 재해시 결과다. 이 목록 함수는 현재 외부 파일·허용 폴더·마운트를 검증하지 않는다."
         state, problems = (None, [])
         if ev not in dirs:
             state = "missing"

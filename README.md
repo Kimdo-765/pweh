@@ -202,3 +202,7 @@ pweh/
 MIT (외부 도구와 REA 는 각자의 라이선스를 따른다).
 
 정지 그림의 단서는 `image-hints-analysis` Skill로 분석한다. 일반 기판·기기 사진/스크린샷/펌웨어 그림은 `case_image_hints`, 증거 사진은 `forensics_image_hints`를 사용한다. EXIF/XMP·OCR(kor+eng)·QR/바코드·숨은 데이터 후보와 실제 미리보기의 시각 관찰을 근거별로 기록한다. 영상·음성은 지원하지 않는다. 설치·지원 범위는 [설계](docs/design/image-hints.md)에 있다.
+
+### Android 펌웨어·논리 증거
+
+Android 펌웨어의 형식·raw GPT/LP 배치·AN 정적 점검과, 사람이 만든 TAR/ZIP 또는 FAT/exFAT 증거의 선택 SQLite·SMS·통화·연락처·브라우저·타임라인을 분석한다. WAL/freelist는 근거와 신뢰도를 갖는 후보로 보고한다. [지원 범위](docs/design/android-analysis.md), [android-forensics Skill](skills/android-forensics/SKILL.md)을 참고한다. ext4/EROFS/F2FS 파일 목록 엔진·잠금/암호화 우회·실기기 획득·영상/음성 해독은 제공하지 않는다.

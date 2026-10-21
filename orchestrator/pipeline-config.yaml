@@ -43,6 +43,10 @@ safety:
     - /appfs
     - /mnt/sd
 
+forensics:
+  # 제자리 참조는 이 폴더 아래의 읽기 전용 마운트 파일만 받는다. 기본은 비활성이다.
+  reference_roots: []
+
 tools:
   sigrok_cli: ${PWEH_SIGROK_CLI:-sigrok-cli}
   openocd: ${PWEH_OPENOCD:-openocd}

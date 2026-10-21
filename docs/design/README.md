@@ -12,6 +12,7 @@
 | [port-routing.md](port-routing.md) | 실행 환경 감지(WSL2/WSL1/리눅스/macOS/Windows)와 물리 연결 라우팅(COM·USB·libusb·캡처·블록 장치), 포트 잠금, Windows COM 헬퍼 |
 | [game-console-flipper-rf.md](game-console-flipper-rf.md) | 게임 콘솔 분석(NFC 동작, 해금 조건, 하이 스코어 — 저장값 수정·플레이 자동화)과 Flipper Zero·RTL-SDR 하드웨어·주파수 분석 |
 | [sd-forensics.md](sd-forensics.md) | SD 카드 포렌식: 증거 분석(이미지·해시·보관 기록·복구·카빙·CCTV 인덱스·타임라인)과 보안 분석(SD 공격 표면, 카드의 민감 정보) |
+| [android-analysis.md](android-analysis.md) | Android 펌웨어 형식·AN 점검, 논리 증거·SQLite·앱 내용·후보 복구·타임라인 |
 | [image-hints.md](image-hints.md) | 정지 이미지: 공통 해독기, OCR·QR·메타데이터·구조 지표, 증거 보관 기록과 모델 시각 관찰 |
 | [emulation.md](emulation.md) | 구현(증분 B): ESP32·S3·C3 QEMU, Arduino AVR simavr 펌웨어 실행. 출처 확인·봉인 memfd·마스킹 콘솔·세션 수명·고정 백엔드 설치 |
 | [esp32-instrument.md](esp32-instrument.md) | ESP32 기반 계측기 MCP(pweh-espprobe): PWEH 전용 펌웨어로 SPI/I2C 읽기·핀 찾기·전압 조사·로직 캡처·UART 브리지, (선택) Wi-Fi/BLE 수동 분석 |
@@ -36,8 +37,9 @@
 | 단계 | 내용 | 사용자 장비 |
 |---|---|---|
 | **0 공통 기반** | common-core(증명·출처·마스킹·safety 설정·목표 분기·호스트 위험 규칙) + 포트 라우팅 P0(감지 통일, doctor 환경 절, 원격 URL 루프백, Windows 네이티브 시작 거부) + 테스트 기반 정리<br>**구현 상태: 일부 완료(I1, 2026-10-20)** — 증명·출처 원장·마스킹(코어, 소비자 서버는 아직 없음)·목표 분기·테스트 기반 정리(common-core §3·§4·§5·§7·§9 의 구현 상태). 포트 라우팅 P0 은 I4 에서 끝냈다(port-routing §13.2 구현 상태). 남음: safety 설정 위치(common-core §6 — 새 `safety.*` 키 없음). 호스트 위험 규칙(settings deny·AGENTS.md)은 넣지 않았다(사용자 결정, 2026-10-20) | 없음 |
-| **1a 오프라인 트랙** | ESP32 세이브·해금 분석(fwtriage ESP 도구·패치 빌드·쓰기 검증)<br>**구현 상태: 게임 분석 부분 완료(I2a, 2026-10-20)** — ESP 파티션·앱 이미지·ELF·NVS, 세이브 비교·체크섬·치트 입력 표, 게임 문자열 팩, `game-save-unlock-analysis`(분석만). I2b: 패치 빌드·쓰기 검증(ESP NVS·사용자 데이터 파티션, 사람이 쓴다). 남음: 가져온 원시 세이브 패치. REA 는 Xtensa ELF 를 열지 못한다(game-console-flipper-rf §3.5 구현 상태)<br>SD 포렌식 F1(접수·해시·보관 기록·FAT/exFAT·삭제 복구·증거 목록 + 펌웨어 SD 표면)<br>**구현 상태: SD 포렌식 F1 대부분 완료(I3a 2026-10-20, I3b 2026-10-21)** — I3a: 펌웨어 SD 표면(`fw_sd_surface` SD-01~09, `fw_uboot_env` 의 sd_boot, `uart_capture_boot` 의 sd_events). I3b: `pweh-forensics`(접수·해시·보관 기록·검증·쓰기 방지 장치 사람 증명·파티션·호스트 오염 흔적·FAT/exFAT 목록·삭제 파일 추출·증거 목록), 코어 `pweh.fs`·`pweh.evidence`·`pweh.safeio`, `sd-forensics` 스키마, `sd-card-forensics` Skill, 보고서 증거 절. 남음: F2(CCTV 형식·카빙·타임라인·카드 쪽 비밀·암호화·침해 흔적 스캔)·F3(ext4 등), E01, 외부 증거 폴더 제자리 참조, 장치에서 카드 식별 정보 읽기(sd-forensics §4·§5.1 구현 상태). 알려진 한계는 safety.md §3.6<br>ESP32 계측기 펌웨어·프로토콜·시뮬레이터·재현 빌드(오프라인), espprobe 거부 규칙(pweh-esp/uart/sigrok/jtagulator)·코어 이동 | 없음(ESP32 덤프는 기존 pweh-esp) |
+| **1a 오프라인 트랙** | ESP32 세이브·해금 분석(fwtriage ESP 도구·패치 빌드·쓰기 검증)<br>**구현 상태: 게임 분석 부분 완료(I2a, 2026-10-20)** — ESP 파티션·앱 이미지·ELF·NVS, 세이브 비교·체크섬·치트 입력 표, 게임 문자열 팩, `game-save-unlock-analysis`(분석만). I2b: 패치 빌드·쓰기 검증(ESP NVS·사용자 데이터 파티션, 사람이 쓴다). 남음: 가져온 원시 세이브 패치. REA 는 Xtensa ELF 를 열지 못한다(game-console-flipper-rf §3.5 구현 상태)<br>SD 포렌식 F1(접수·해시·보관 기록·FAT/exFAT·삭제 복구·증거 목록 + 펌웨어 SD 표면)<br>**구현 상태: SD 포렌식 F1 대부분 완료(I3a 2026-10-20, I3b 2026-10-21)** — I3a: 펌웨어 SD 표면(`fw_sd_surface` SD-01~09, `fw_uboot_env` 의 sd_boot, `uart_capture_boot` 의 sd_events). I3b: `pweh-forensics`(접수·해시·보관 기록·검증·쓰기 방지 장치 사람 증명·파티션·호스트 오염 흔적·FAT/exFAT 목록·삭제 파일 추출·증거 목록), 코어 `pweh.fs`·`pweh.evidence`·`pweh.safeio`, `sd-forensics` 스키마, `sd-card-forensics` Skill, 보고서 증거 절. 남음: F2(CCTV 형식·카빙·타임라인·카드 쪽 비밀·암호화·침해 흔적 스캔)·F3(ext4 등), E01, 장치에서 카드 식별 정보 읽기(sd-forensics §4·§5.1 구현 상태). 알려진 한계는 safety.md §3.6<br>ESP32 계측기 펌웨어·프로토콜·시뮬레이터·재현 빌드(오프라인), espprobe 거부 규칙(pweh-esp/uart/sigrok/jtagulator)·코어 이동 | 없음(ESP32 덤프는 기존 pweh-esp) |
 | **B 에뮬레이션** | 구현: `pweh-emu` 도구 6개, `firmware-emulation` Skill·요약 스키마, Espressif QEMU·simavr 선택 설치, 공용 ESP 형식·콘솔 마스킹·프로세스 신원·보호 하위 트리. 계약 architecture §6.9, 한계 safety §3.7 | 없음(이미 확보한 펌웨어 사용) |
+| **D Android** | 구현: Android 형식·raw GPT/LP 분할·AN 정적 점검, TAR/ZIP·SQLite·앱 기록·타임라인과 읽기 전용 외부 증거 참조. 파일 시스템 엔진은 FAT/exFAT이며 ext4/EROFS/F2FS 추출은 미지원. 계약 [android-analysis.md](android-analysis.md) | 없음(사람이 확보한 파일 사용) |
 | **관문** | 포트 라우팅 P1(portlock·식별) + P2 헬퍼 실기 점검: DTR → Flipper `>: `, 1 MB 왕복, CU 응답, USB-UART 루프백, ESP32 `probe-hello` 확인(MI_00/MI_02·부팅 창·다운로드 모드 핀·303a:1001 iSerial — esp32-instrument §9). 실패하면 즉시 대체(PowerShell 또는 usbipd) | Flipper/CU/ESP32/USB-UART |
 | **1b·1c 장치 트랙** | pweh-uart Windows COM, pweh-flipper(CLI), pweh-nfc(오프라인 + CU 읽기), pweh-sdr(RTL-SDR), NFC 읽기·비교 흐름 / pweh-espprobe 1차 역할(전압 조사·핀 활동·로직 캡처·SPI·I2C 읽기) | 장비별 |
 | **2 확장** | 2a NFC 에뮬레이션 캡처, 2b 자동화 MVP, 2c 플레이 job / SD F2(카빙·CCTV 인덱스·타임라인·비밀·암호화 판정) / 포트 P3(Windows 판 openocd·sigrok) / espprobe 2d(핀 스캔·UART 브리지) | 캡처 카드·브리지 보드 등 |
@@ -49,9 +51,8 @@
 
 - **고침(커밋 전)**: `pweh-uart` 의 `uart_open`·`uart_detect_baud` 가 모든 pyserial URL 을 받던 빈틈 — `spy://…?file=` 는 PC 파일을 덮어쓰고 `hwgrep://` 는 다른 포트를 잠금 없이 열어 보드를 리셋할 수 있었고,
   DTR/RTS 를 끄면 INTERACT 라 승인 없이 통과했다. 이제 게이트 전에 거부한다(장치 절대경로·`socket://`·`rfc2217://`·`loop://` 만). 회귀 테스트 포함.
-- **호스트 위험**: UAC 가 꺼진 관리자 계정 Windows 호스트에서는 WSL 에서 띄운 Windows 프로그램이 모두 관리자 권한으로 돌고, `wsl.exe -u root` 는 어디서나 비밀번호 없이 root 가 된다(docker 그룹도 root 와 같다).
-  "sudo 가 없다"는 전제가 아무것도 막지 못하므로 PWEH 쪽 거부 규칙을 제안한다(common-core §6). UAC 설정은 사용자 결정이다.
-- **현재 하드웨어 경로**: 개발 환경(WSL2, usbipd 없음)에서 지금 장치에 닿는 경로는 pweh-esp 방법 A 하나뿐이다. uart·jtagulator·sigrok·openocd 는 usbipd(미설치)를 전제로 한다 → 포트 라우팅 설계가 해결한다.
+- **호스트 권한**: WSL interop·컨테이너·장치 드라이버의 유효 권한은 설치 환경에 따라 달라진다. 환경 보고서로 확인하고 필요한 시스템 변경은 사람이 결정한다. 저장소에 개발 PC의 상태를 기록하지 않는다.
+- **하드웨어 경로**: pweh-esp는 Windows COM 백엔드와 Linux tty 백엔드를 지원한다. 나머지 장비는 환경 감지 결과와 포트 라우팅 설계에 따라 사용 가능한 경로를 선택한다.
 
 ## 5. 확인과 결정
 

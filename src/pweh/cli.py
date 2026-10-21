@@ -53,6 +53,7 @@ SKILL_NAMES = (
     "sd-card-forensics",
     "firmware-emulation",
     "image-hints-analysis",
+    "android-forensics",
 )
 SERVERS = {
     # MCP 서버 이름 → (콘솔 스크립트, 설명)

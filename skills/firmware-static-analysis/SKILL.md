@@ -33,6 +33,10 @@ description: Static analysis of camera/IoT firmware already in the case (UART/JT
 - **하드웨어**: 필요 없다. 기기 연결도 필요 없다.
 - **MCP 서버**: pweh-case, pweh-fwtriage, rea (Ghidra·JDK·binwalk·unblob 경로는 `~/pweh-tools/env.sh`). squashfs 추출에는 unsquashfs 가 필요하다.
 
+## Android 펌웨어 분기
+
+Android 형식이면 `fw_identify`로 boot/vendor_boot/init_boot·vbmeta·LP·sparse·F2FS 후보를 확인한다. raw GPT/LP는 `fw_carve(layout_source="auto", lp_slot=0)`로 분할하고, 이미 추출된 rootfs 또는 이미지에 `fw_android_surface`를 실행한다. AN-01~09의 found/not-found/unknown·coverage·limitations를 읽고 static-analysis 요약의 분석 파일 참조와 한계에 기록한다. 슬롯0을 활성 슬롯으로, AVB 헤더를 서명 검증으로, test-keys 문자열을 실제 서명으로 단정하지 않는다. sparse 펼치기와 ext4/EROFS/F2FS 목록 엔진은 이 도구에서 제공하지 않는다. `forensics/` 증거를 복사해서 이 분기로 우회하지 않는다. 폰 자료는 `android-forensics`를 따른다.
+
 ## 안전 규칙
 
 1. **오프라인 분석만 한다.** 하드웨어 도구를 부르지 않는다. 이 Skill 에서는 추출물의 코드를 어떤 방식으로도 실행하지 않는다 (qemu·chroot·추출된 스크립트 실행 금지) — MCU 펌웨어(ESP32·S3·C3 전체 덤프, Arduino AVR)의 실행은 pweh-emu 와 firmware-emulation Skill 에서만 하고, 리눅스 바이너리 실행은 지원하지 않는다. REA 의 런타임 도구(Frida, GDB, rizin 디버거, capture_process_scenario 등)는 이 Skill 에서 쓰지 않는다.

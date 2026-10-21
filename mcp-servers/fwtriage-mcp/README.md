@@ -116,3 +116,7 @@ jffs2/UBI/cramfs/ext 파티션은 `fw_carve` 로 분리한 뒤 REA `extract_firm
 
 합성 입력(가짜 플래시, 취약 구성 rootfs, 손으로 만든 ELF, zig 로 만든 ARM/MIPS ELF)을 테스트 안에서 만든다.
 `mksquashfs`/`unsquashfs`/`zig`/`readelf`/`lz4`/`openssl` 이 필요한 테스트는 `@pytest.mark.external` 이며 없으면 skip 한다.
+
+## Android 펌웨어
+
+`fw_identify`로 Android boot/vendor_boot/init_boot·vbmeta·LP·sparse·F2FS 후보를 확인하고, raw GPT/LP는 `fw_carve(layout_source="auto", lp_slot=0)`로 분할한다. `fw_android_surface`는 이미 추출된 rootfs·이미지의 AN-01~09 근거와 coverage를 반환한다. sparse 펼치기·새 파일 시스템 엔진·AVB 서명 검증·증거 폴더 연결은 제공하지 않는다. [설계와 한계](../../docs/design/android-analysis.md)를 참고한다.

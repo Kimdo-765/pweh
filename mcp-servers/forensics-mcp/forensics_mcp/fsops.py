@@ -390,6 +390,7 @@ class CallBudget:
     skipped_examples: dict[str, list[Any]] = dataclasses.field(default_factory=dict)
     failed: int = 0
     failed_examples: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    unexamined: list[dict[str, Any]] = dataclasses.field(default_factory=list)
 
     @classmethod
     def from_limits(cls, limits: Limits) -> "CallBudget":
@@ -414,6 +415,7 @@ class CallBudget:
         return {"max_entries": self.max_entries, "entries_used": self.used_entries, "max_partitions": self.max_partitions,
                 "max_path_chars": self.max_path_chars, "path_chars_used": self.used_path_chars,
                 "partitions_walked": self.walked,
+                "partitions_unexamined": self.unexamined,
                 "partitions_skipped": {k: {"count": n, "examples": self.skipped_examples.get(k, [])} for k, n in sorted(self.skipped.items())},
                 "volumes_failed": {"count": self.failed, "examples": list(self.failed_examples)}}
 
@@ -444,6 +446,16 @@ def iter_volumes(img: Any, layout: dict[str, Any], partition: int | None, limits
     - 오류가 난 볼륨(엔진의 FsError, 엔진이 바꾸지 못한 예외도)은 {partition, error} 로 내고 budget.fail 로 센다 — 나머지 볼륨은 계속
       본다. 엔진 예산이 다 돼 난 오류(budget_exceeded)는 손상이 아니라 한도다: budget.skipped[data.limit] 로 센다.
     """
+    if partition is None:
+        seen_unexamined = set()
+        supported = {(p.get("start_offset"), p.get("size_bytes")) for p in pick_partitions(layout, None)}
+        for p in layout.get("partitions") or []:
+            key = (p.get("start_offset"), p.get("size_bytes"))
+            if p.get("fs_hint") not in OPENABLE and key not in supported and key not in seen_unexamined:
+                seen_unexamined.add(key)
+                reason = "image_truncated" if beyond_image(p) else "unsupported_partitions"
+                budget.skip(reason, p.get("index"))
+                budget.unexamined.append({**partition_brief(p), "reason": reason})
     seen: dict[tuple[Any, Any], Any] = {}
     for p in pick_partitions(layout, partition):
         idx = p.get("index")
@@ -918,3 +930,108 @@ def extract_entries(vol: Any, entries: Iterable[dict[str, Any]], out_dir_fd: int
             rec["requested_path"] = e["requested_path"]
         files.append(rec)
     return {"files": files, "skipped": skipped, "bytes_total": total, "truncated": bool(reasons), "truncated_reasons": sorted(reasons)}
+
+
+def archive_inventory(fd: int, *, max_entries: int = LIST_MAX_ENTRIES, deadline: float,
+                      cancel: Callable[[], bool], hash_members: bool = False,
+                      max_hash_bytes: int = 1 << 30) -> dict[str, Any] | None:
+    """논리 아카이브 목록(비아카이브만 None). 메타데이터·해제 바이트·시간을 모두 제한한다."""
+    from pweh.archive import Archive, kind
+    if kind(fd) is None:
+        return None
+    return Archive(fd, max_entries=max_entries, deadline=deadline, cancel=cancel).inventory(
+        hash_members=hash_members, max_hash_bytes=max_hash_bytes)
+
+
+def read_selected_file(fd: int, *, partition: int | None = None, ref: str | None = None, path: str | None = None,
+                       method: str = "auto", max_bytes: int, deadline: float,
+                       cancel: Callable[[], bool]) -> tuple[bytes, dict[str, Any]]:
+    """검증된 EV fd 자체 또는 FAT/exFAT·TAR/ZIP 항목 1개의 완전한 바이트를 반환한다.
+
+    fd 의 소유/무결성 확인은 호출자가 E.open_checked 로 한다. 결과를 커밋할 때도 같은 fd 를 재검증해야 한다.
+    """
+    from pweh.archive import Archive, checkpoint, kind
+    checkpoint(deadline, cancel)
+    if ref is not None and path is not None:
+        raise FsError("ref 와 path 를 동시에 지정할 수 없습니다.", reason="bad_argument")
+    if ref is None and path is None:
+        if partition is not None:
+            raise FsError("EV 자체를 읽을 때 partition 을 지정할 수 없습니다.", reason="bad_argument")
+        size = os.fstat(fd).st_size
+        if size < 0 or size > max_bytes:
+            raise FsError("파일 크기가 읽기 상한을 넘습니다.", reason="max_bytes")
+        chunks = []
+        for at in range(0, size, 65536):
+            checkpoint(deadline, cancel)
+            blob = os.pread(fd, min(65536, size - at), at)
+            if len(blob) != min(65536, size - at):
+                raise FsError("파일을 끝까지 읽지 못했습니다.", reason="incomplete_file")
+            chunks.append(blob)
+        data = b"".join(chunks)
+        return data, {"container": "file", "member_selected": False, "complete": True, "size": len(data),
+                      "method": "whole-file", "confidence": "high", "sha256": hashlib.sha256(data).hexdigest()}
+    if kind(fd) is not None:
+        if partition is not None or method != "auto":
+            raise FsError("아카이브에는 partition·복구 method 를 지정하지 않습니다.", reason="bad_argument")
+        arc = Archive(fd, deadline=deadline, cancel=cancel)
+        entry = arc.select(ref, path)
+        data = b"".join(arc.chunks(entry, max_bytes=max_bytes))
+        return data, {"container": arc.format, "member_selected": True, "ref": entry["ref"], "path": entry["display_path"],
+                      "deleted": False, "method": "archive-member", "confidence": "high", "complete": True,
+                      "container_truncated": bool(arc.reasons), "container_truncated_reasons": sorted(arc.reasons),
+                      "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+    with image_reader(fd) as img:
+        data, source = read_selected_image(img, partition=partition, ref=ref, path=path, method=method,
+                                           max_bytes=max_bytes, deadline=deadline, cancel=cancel)
+    return data, {"container": "filesystem", "member_selected": True, **source}
+
+
+def extract_archive(fd: int, refs: list[str], paths: list[str], out_dir_fd: int, *, max_files: int,
+                    max_bytes_total: int, deadline: float, cancel: Callable[[], bool]) -> dict[str, Any]:
+    """선택한 아카이브 멤버를 평평한 생성 이름으로만 쓴다. CRC 실패·불완전 멤버는 파일을 지운다."""
+    from pweh.archive import Archive
+    arc = Archive(fd, deadline=deadline, cancel=cancel)
+    targets, skipped, files = [], [], []
+    seen = set()
+    reasons = set(arc.reasons)
+    for ref, path in [(r, None) for r in refs] + [(None, p) for p in paths]:
+        try:
+            e = arc.select(ref, path)
+            if e["ref"] not in seen:
+                targets.append(e)
+                seen.add(e["ref"])
+        except FsError as exc:
+            skipped.append({"ref": ref, "path": path, "code": exc.reason, "reason": exc.message})
+            reasons.add(exc.reason)
+    total = 0
+    for e in targets:
+        reason = "cancelled" if cancel() else ("max_files" if len(files) >= max_files else ("max_bytes" if e["size"] > max_bytes_total - total else None))
+        if reason:
+            skipped.append({"ref": e["ref"], "path": e["display_path"], "code": reason})
+            reasons.add(reason)
+            continue
+        name = safe_output_name(len(files) + 1, e["display_name"])
+        out = safeio.create_excl(out_dir_fd, name, 0o600)
+        h, size, complete = hashlib.sha256(), 0, False
+        try:
+            for blob in arc.chunks(e, max_bytes=max_bytes_total - total):
+                safeio.write_all(out, blob)
+                h.update(blob)
+                size += len(blob)
+            os.fchmod(out, 0o444)
+            os.fsync(out)
+            complete = True
+        except FsError as exc:
+            reasons.add(exc.reason)
+            skipped.append({"ref": e["ref"], "path": e["display_path"], "code": exc.reason})
+        finally:
+            os.close(out)
+            if not complete:
+                os.unlink(name, dir_fd=out_dir_fd)
+        if complete:
+            total += size
+            files.append({"seq": len(files) + 1, "file": name, "ref": e["ref"], "path": e["display_path"], "deleted": False,
+                          "method": "archive-member", "confidence": "high", "status": "ok", "size": size,
+                          "complete": True, "sha256": h.hexdigest()})
+    return {"format": arc.format, "files": files, "skipped": skipped, "bytes_total": total,
+            "truncated": bool(reasons), "truncated_reasons": sorted(reasons)}

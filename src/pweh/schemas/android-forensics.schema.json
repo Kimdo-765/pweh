@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/android-forensics.schema.json",
+  "title": "android-forensics 요약 data",
+  "description": "선택한 논리 추출·FAT/exFAT·SQLite 증거의 앱 내용·후보 복구·타임라인. 원문 내용은 도구 분석 JSON에 두고 요약에는 출처·해시·범위·한계를 기록한다.",
+  "type": "object",
+  "required": [
+    "evidence",
+    "analyses",
+    "coverage",
+    "privacy"
+  ],
+  "properties": {
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "evidence_id",
+          "sha256",
+          "status"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^EV-[0-9]{4,}$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "status": {
+            "type": "string"
+          },
+          "storage": {
+            "enum": [
+              "copy",
+              "reference"
+            ]
+          },
+          "verification": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "analyses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "evidence_id",
+          "path",
+          "sha256",
+          "status"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "sqlite-inventory",
+              "android-artifacts",
+              "timeline",
+              "image-hints"
+            ]
+          },
+          "evidence_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^forensics/analysis/[^/]+\\.json$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "partial",
+              "unsupported",
+              "corrupt",
+              "failed"
+            ]
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": [
+        "limitations",
+        "unexamined"
+      ],
+      "properties": {
+        "limitations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unexamined": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "sms",
+              "calls",
+              "contacts",
+              "browser"
+            ]
+          }
+        },
+        "recovery_candidates": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timeline_time_bases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "privacy": {
+      "type": "object",
+      "required": [
+        "phone_content_returned",
+        "still_image_content_returned",
+        "video_processed",
+        "audio_processed",
+        "external_uploads",
+        "credentials_used",
+        "sql_executed"
+      ],
+      "properties": {
+        "phone_content_returned": {
+          "type": "boolean"
+        },
+        "still_image_content_returned": {
+          "type": "boolean"
+        },
+        "video_processed": {
+          "const": false
+        },
+        "audio_processed": {
+          "const": false
+        },
+        "external_uploads": {
+          "const": false
+        },
+        "credentials_used": {
+          "const": false
+        },
+        "sql_executed": {
+          "const": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

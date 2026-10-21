@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from pweh.formats import COMMON_ENV_SIZES, find_uboot_env, parse_uimage_header
+from pweh.errors import ValidationFailed
 
 from .common import Ctl, hexs, printable
 
@@ -1542,7 +1543,39 @@ class Sig:
     cap: int = 20000
 
 
+def _android_validator(parser: Callable[..., dict[str, Any]]) -> Callable[..., Region | None]:
+    def validate(buf: Any, start: int, limit: int, ctx: ScanCtx) -> Region | None:
+        try:
+            info = parser(buf, start, limit, ctx.ctl)
+        except ValidationFailed:
+            return None
+        return Region(start, info["kind"], f"Android {info['kind']} 구조 (서명/파일 시스템 내용 검증 아님)",
+                      size=info.get("size"), details=info, truncated=info.get("truncated", False))
+    return validate
+
+
+def _lp_info(buf: Any, start: int, limit: int, ctl: Ctl) -> dict[str, Any]:
+    from .androidlayout import lp_layout
+    layout = lp_layout(buf, limit, ctl, base=start)
+    size = (4096 + layout["metadata_bytes"]) if layout["metadata_only"] else layout["block_devices"][0]["size"]
+    return {"kind": "android-lp", "size": size, "metadata_only": layout["metadata_only"],
+            "geometry": layout["geometry"], "header_version": layout["header_version"],
+            "header_flags": layout["header_flags"], "validation": layout["validation"],
+            "selected_copy": layout["selected_copy"], "warnings": layout["warnings"],
+            "partition_names": [p["name"] for p in layout["partitions"]], "truncated": start + size > limit}
+
+
+from .androidformats import boot_info, vendor_boot_info, vbmeta_info, avb_footer_info, sparse_info, f2fs_info
+
 SIGNATURES: tuple[Sig, ...] = (
+    Sig("android-sparse", (b"\x3a\xff\x26\xed",), 0, _android_validator(sparse_info), opaque=True, cap=128),
+    Sig("android-lp", (b"gDla",), 4096, _android_validator(_lp_info), opaque=False, cap=128),
+    Sig("android-lp", (b"gDla",), 0, _android_validator(_lp_info), opaque=False, cap=128),
+    Sig("android-boot", (b"ANDROID!",), 0, _android_validator(boot_info), opaque=False, cap=1024),
+    Sig("android-vendor-boot", (b"VNDRBOOT",), 0, _android_validator(vendor_boot_info), opaque=False, cap=1024),
+    Sig("android-vbmeta", (b"AVB0",), 0, _android_validator(vbmeta_info), opaque=False, cap=1024),
+    Sig("android-avb-footer", (b"AVBf",), 0, _android_validator(avb_footer_info), opaque=False, cap=1024),
+    Sig("f2fs", (b"\x10\x20\xf5\xf2",), 1024, _android_validator(f2fs_info), opaque=True, cap=1024),
     Sig("uimage", (b"\x27\x05\x19\x56",), 0, v_uimage, opaque=False),
     Sig("fdt", (b"\xd0\x0d\xfe\xed",), 0, v_fdt, opaque=False),
     Sig("squashfs", SQUASHFS_MAGICS, 0, v_squashfs, opaque=True),

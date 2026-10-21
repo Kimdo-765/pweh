@@ -494,3 +494,7 @@ case_record_step(case_id="<id>", skill="sd-card-forensics", step="summary", stat
 ### 정지 그림의 힌트가 필요한 경우
 
 목록에서 필요한 파일 하나의 ref 또는 살아 있는 경로를 골라 `image-hints-analysis`로 이어 간다. `forensics_image_hints`는 EV 접수 무결성을 확인하고 선택 파일 바이트를 직접 분석하며, 별도 추출이나 승인 없이 미리보기·마스킹하지 않은 OCR을 반환한다. EV 자체가 사진이면 ref/path를 생략한다. 분석 JSON과 PNG의 해시는 보관 기록 `image-hints`와 결속되고 증거 목록 derived에서 확인된다. SD 요약에는 `image_hint_results`와 정지 그림·OCR 반환 여부를, 상세 관찰·가설은 별도 `image-hints` summary에 남긴다.
+
+### 논리 아카이브·폰 기록으로 이어지는 경우
+
+TAR/ZIP의 멤버 해시·선택 추출은 같은 증거 도구를 쓴다. 선택한 DB의 앱 내용·WAL/freelist 후보·타임라인이 목적이면 `android-forensics` Skill로 이어 가고 그 요약을 따로 남긴다. 혼합 파티션의 `call.partitions_unexamined`·`unsupported_partitions`는 미검사 범위다. 대용량 reference 접수는 사람이 설정한 읽기 전용 허용 폴더만 가능하며, 해당 EV의 evidence-list는 재해시 job 완료를 확인한다.

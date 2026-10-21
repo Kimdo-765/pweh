@@ -7,7 +7,7 @@
 | 진입점 | 입력 | 저장·검증 |
 |---|---|---|
 | `case_image_hints` | 케이스 안 일반 이미지 하나 | `analysis/` JSON·PNG. 경로와 연 fd의 실제 경로에서 `forensics/`·`emu/` 보호 검사 |
-| `forensics_image_hints` | EV 자체 이미지 또는 FAT/exFAT의 `ref`/살아 있는 `path` 하나 | `open_checked` 접수 기록·지문 검사. `forensics/analysis/image-hints-<EV>-NNN.json`·PNG와 custody `image-hints` 사건 |
+| `forensics_image_hints` | EV 자체 이미지 또는 FAT/exFAT·TAR/ZIP의 `ref`/살아 있는 `path` 하나 | `open_checked` 접수 기록·지문 검사. `forensics/analysis/image-hints-<EV>-NNN.json`·PNG와 custody `image-hints` 사건 |
 
 증거의 파일 선택은 기존 검증 순회·복구 후보 계획을 재사용한다. 불완전한 파일은 해독하지 않는다. EV 접수 SHA256과 실제 선택한 바이트의 SHA256을 따로 기록하고 삭제 여부·복원 방법·confidence를 보존한다. 증거를 `forensics/recovered/`에서 다시 열거나 일반 케이스 폴더로 내보내지 않는다.
 

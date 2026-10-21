@@ -1210,7 +1210,7 @@ async def test_image_cut_before_its_only_partition_is_not_called_unsupported_or_
 
 
 async def test_image_check_with_no_supported_volume_says_nothing_was_examined(fcase, tmp_path):
-    """FAT/exFAT 파티션이 없는 카드(예: 다른 파일 시스템): 잘림은 아니지만 image_check 는 '흔적 없음'처럼 말하지 않는다."""
+    """FAT/exFAT 파티션이 없는 카드(예: 다른 파일 시스템): 검사 범위가 불완전하다고 표시하고 '흔적 없음'처럼 말하지 않는다."""
     from forensics_mcp import server as S
 
     img = bytearray(START_LBA * 512 + 4 * 1024 * 1024)
@@ -1222,8 +1222,9 @@ async def test_image_check_with_no_supported_volume_says_nothing_was_examined(fc
     async with Client(S.server) as c:
         ev = await _intake(c, fcase, p)
         chk = await call(c, "forensics_image_check", case_id=fcase.id, evidence_id=ev)
-        assert chk["volumes"] == [] and not chk["truncated"] and chk["truncated_reasons"] == [], chk
-        assert "본 볼륨이 없어" in chk["note"] and "지원하는 FAT/exFAT 파티션 없음" in chk["note"], chk["note"]
+        assert chk["volumes"] == [] and chk["truncated"] and "unsupported_partitions" in chk["truncated_reasons"], chk
+        assert chk["call"]["partitions_unexamined"], chk
+        assert "본 볼륨이 없어" in chk["note"] and "unsupported_partitions" in chk["note"], chk["note"]
 
 
 async def test_file_system_larger_than_its_partition_entry_is_not_blamed_on_imaging(fcase, tmp_path):
@@ -1297,3 +1298,17 @@ def test_unreadable_directory_codes_count_as_incomplete_in_extract(monkeypatch):
         codes.append(fsops._err_code(ei.value))
     assert codes == ["dir_unreadable", "dir_unreadable"] and "dir_unreadable" in fsops.LIMIT_CODES
     assert fsops.merge_reasons([], [{"path": "/A/a.txt", "code": "dir_unreadable"}]) == ["dir_unreadable"]
+
+
+async def test_mixed_fat_unsupported_partitions_are_reported(fcase, tmp_path):
+    """지원 볼륨에 흔적이 없어도 미지원 볼륨을 빠뜨려 완전한 검사처럼 보고하지 않는다."""
+    from forensics_mcp import server as S
+    card = _gpt_card(tmp_path, [_small_fat("FATOK", 2), pattern(4096, 9)], [0, 1], name="mixed.img")
+    async with Client(S.server) as c:
+        ev = await _intake(c, fcase, card)
+        for tool in ("forensics_fs_list", "forensics_image_check"):
+            result = await call(c, tool, case_id=fcase.id, evidence_id=ev)
+            assert result["truncated"] and "unsupported_partitions" in result["truncated_reasons"], result
+            assert result["call"]["partitions_unexamined"][0]["index"] == 2
+            scoped = await call(c, tool, case_id=fcase.id, evidence_id=ev, partition=1)
+            assert "unsupported_partitions" not in scoped["truncated_reasons"], scoped

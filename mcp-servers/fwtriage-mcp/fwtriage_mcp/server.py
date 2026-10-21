@@ -37,6 +37,9 @@ from pweh.safety.masking import mask_secret as core_mask_secret
 from pweh.toolsdir import tools_env
 
 from . import elfinfo, espfmt, saves
+from .androidlayout import android_layout, carve_android, check_output_budget
+from .androidsurface import AndroidSurface
+from .androidformats import hash_buffer
 from .common import (
     DEFAULT_MAX_RESULTS,
     HARD_MAX_RESULTS,
@@ -465,10 +468,12 @@ async def fw_uboot_env(
     description=(
         "덤프를 파티션으로 분할: mtdparts 문자열(예: 'mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),-(rootfs)') 또는 "
         "partitions 목록([{name, offset, size}], 16진 문자열/크기 문자열 허용, size 생략 시 끝까지)을 사용. 둘 다 없으면 이미지 안의 "
-        "U-Boot env(mtdparts/bootargs) → 기본 env → 'mtdparts=' 문자열 → DTB partition 노드 순으로 자동 결정. "
+        "raw GPT/LP → U-Boot env(mtdparts/bootargs) → 기본 env → 'mtdparts=' 문자열 → DTB partition 노드 순으로 자동 결정. "
         "extract/<label>-NNN/<idx>-<name>.bin + index.json 생성(partitions[].path = 케이스 상대 경로, file 은 같은 값의 별칭), "
         "각 파티션을 아티팩트(partition)로 등록하고 시작 위치의 형식(squashfs 등)을 판별. "
-        "mtdparts 에 장치가 여럿이면 mtd_device 로 선택(기본 첫 장치)."
+        "mtdparts 에 장치가 여럿이면 mtd_device 로 선택(기본 첫 장치). layout_source=auto|mtd|gpt|lp, lp_slot=0(활성 slot 추정 아님). "
+        "GPT CRC·LP SHA256/extent를 검증하고 LP의 여러 extent를 순서대로 결합하며 ZERO는 0으로 채운다. 외부 device·disabled·잘린 LP partition은 건너뛴다. "
+        "sparse 자동 분할은 미지원(확장 CRC 미검증). max_output_bytes는 모든 방식의 출력 합계 상한(기본 4GiB, 최대 16GiB)."
     ),
     annotations=ANN_LOCAL_WRITE,
 )
@@ -481,16 +486,37 @@ async def fw_carve(
     output_label: str = "parts",
     mtd_device: str | None = None,
     probe: bool = True,
+    layout_source: str = "auto",
+    lp_slot: int = 0,
+    max_output_bytes: int | str = "4G",
 ) -> dict[str, Any]:
     case = rt().case(case_id)
     src = resolve_input_file(case, path)
+    if layout_source not in ("auto", "mtd", "gpt", "lp"):
+        raise ValidationFailed("layout_source는 auto|mtd|gpt|lp 중 하나여야 합니다.")
+    if (partitions or mtdparts or mtd_device) and layout_source in ("gpt", "lp"):
+        raise ValidationFailed("explicit partitions/mtd 인자는 GPT/LP selector와 함께 쓸 수 없습니다.")
+    maximum = parse_int_arg(max_output_bytes, "max_output_bytes", allow_none=False)
+    if maximum is None or not 1 <= maximum <= 16 << 30:
+        raise ValidationFailed("max_output_bytes는 1바이트~16GiB여야 합니다.")
+    if type(lp_slot) is not int or not 0 <= lp_slot < 16:
+        raise ValidationFailed("lp_slot은 0~15 정수여야 합니다.")
 
     def work(ctl: Ctl) -> dict[str, Any]:
-        info = file_info(case, src)
+        info = file_info(case, src, with_hash=False)
         with open_mmap(src) as mm:
-            layout = resolve_layout(mm, info["size"], ctl, mtdparts=mtdparts, partitions=partitions, mtd_device=mtd_device)
-            res = carve(case, src, mm, info["size"], layout, label=output_label, ctl=ctl, probe=probe)
-        payload = base_payload("fw_carve", case, schema="carve", input_info=info, params={"mtdparts": mtdparts, "partitions": partitions, "mtd_device": mtd_device, "output_label": output_label})
+            layout = None if partitions or mtdparts or layout_source == "mtd" else android_layout(mm, info["size"], ctl, selector=layout_source, slot=lp_slot)
+            if layout is None:
+                layout = resolve_layout(mm, info["size"], ctl, mtdparts=mtdparts, partitions=partitions, mtd_device=mtd_device)
+                check_output_budget(layout["partitions"], info["size"], maximum)
+                info["sha256"] = hash_buffer(mm, info["size"], ctl)
+                res = carve(case, src, mm, info["size"], layout, label=output_label, ctl=ctl, probe=probe)
+            else:
+                check_output_budget(layout["partitions"], info["size"], maximum)
+                info["sha256"] = hash_buffer(mm, info["size"], ctl)
+                res = carve_android(case, src, mm, info["size"], layout, label=output_label, ctl=ctl, probe=probe, source_sha256=info["sha256"])
+        payload = base_payload("fw_carve", case, schema="carve", input_info=info, params={"mtdparts": mtdparts, "partitions": partitions, "mtd_device": mtd_device, "output_label": output_label,
+                                                                                  "layout_source": layout_source, "lp_slot": lp_slot, "max_output_bytes": maximum})
         payload.update(res)
         rel = _write(case, "carve", payload, f"fw_carve {info['path']} → {res['output_dir']}")
         rt().audit({"event": "fwtriage_carve", "input": info["path"], "output_dir": res["output_dir"], "partitions": len(res["partitions"])}, case.id)
@@ -498,7 +524,7 @@ async def fw_carve(
         steps = []
         for p in res["partitions"]:
             c = p.get("content") or {}
-            parts.append({k: p.get(k) for k in ("index", "name", "offset_hex", "size", "status", "path", "file", "truncated", "reason") if p.get(k) is not None} | ({"content": c.get("kind"), "content_description": clip(c.get("description") or "", 160)} if c else {}))
+            parts.append({k: p.get(k) for k in ("index", "name", "offset", "offset_hex", "size", "status", "path", "file", "sha256", "mapping", "attributes", "raw_name", "truncated", "reason") if p.get(k) is not None} | ({"content": c.get("kind"), "content_description": clip(c.get("description") or "", 160)} if c else {}))
             if c.get("kind") == "squashfs" and p.get("path"):
                 steps.append(f"fw_extract_squashfs(path='{p['path']}')")
             elif c.get("kind") in ("jffs2", "ubi", "ubifs", "cramfs") and p.get("path"):
@@ -524,6 +550,66 @@ async def fw_carve(
 # ---------------------------------------------------------------------------
 # fw_uimage_info
 # ---------------------------------------------------------------------------
+
+
+@server.tool(
+    description=(
+        "Android 펌웨어 정적 점검 AN-01~09: ADB 통신/인증, debug/root 빌드, test-keys, SELinux permissive, AVB disabled flags, "
+        "init 서비스 권한, OTA 검증 구성, 특권 APK/permission XML, 하드코딩 자격증명. rootfs_dir(이미 추출한 트리) 또는 "
+        "image_path(boot/vendor_boot/vbmeta 이미지) 중 하나 이상. 기기 접촉·코드 실행·파일 시스템 해독·증거 bridge 없음. "
+        "found/not-found/unknown은 제공한 입력 범위에 한정; 누락·크기/시간 제한·미해결 import는 coverage/limitations로 표시. "
+        "AVB 구조 검사는 서명 검증이 아니고 init/priv-app/OTA 키 존재는 정보성 inventory다. 자격증명은 마스킹. "
+        "max_file_size는 rootfs 텍스트 1개 상한(기본 1MiB, 최대 8MiB), max_evidence는 점검별 상한. "
+        "결과 analysis/android-surface-NNN.json. background=true면 fwtriage_job_status로 조회."
+    ),
+    annotations=ANN_LOCAL_WRITE,
+)
+@safe_tool
+async def fw_android_surface(
+    case_id: str,
+    rootfs_dir: str | None = None,
+    image_path: str | None = None,
+    max_results: int = DEFAULT_MAX_RESULTS,
+    max_evidence: int = 20,
+    max_file_size: int | str = "1M",
+    max_seconds: float = 300.0,
+    background: bool = False,
+) -> dict[str, Any]:
+    r = rt()
+    case = r.case(case_id)
+    if not rootfs_dir and not image_path:
+        raise ValidationFailed("rootfs_dir 또는 image_path 중 하나 이상이 필요합니다.")
+    root = resolve_input_dir(case, rootfs_dir) if rootfs_dir else None
+    src = resolve_input_file(case, image_path) if image_path else None
+    mr = clamp_int(max_results, 0, HARD_MAX_RESULTS, "max_results")
+    me = clamp_int(max_evidence, 1, 200, "max_evidence")
+    mfs = parse_int_arg(max_file_size, "max_file_size", allow_none=False)
+    if mfs is None or not 1 <= mfs <= 8 << 20:
+        raise ValidationFailed("max_file_size는 1바이트~8MiB여야 합니다.")
+    secs = _seconds(max_seconds, 300.0, 600.0)
+
+    def work(ctl: Ctl) -> dict[str, Any]:
+        audit = AndroidSurface(ctl, max_evidence=me, max_file_size=mfs)
+        inputs: dict[str, Any] = {"rootfs_dir": {"path": case.rel(root), "type": "directory"} if root else None, "image": None}
+        if root is not None:
+            audit.scan_rootfs(root)
+        if src is not None:
+            info = file_info(case, src, with_hash=False)
+            with open_mmap(src) as mm:
+                info["sha256"] = hash_buffer(mm, info["size"], ctl)
+                audit.scan_image(mm, info["size"], info["path"])
+            inputs["image"] = info
+        result = audit.result()
+        payload = base_payload("fw_android_surface", case, schema="android-surface", input_info=inputs,
+                               params={"max_evidence": me, "max_file_size": mfs, "max_seconds": secs})
+        payload.update(result)
+        rel = _write(case, "android-surface", payload, "Android 펌웨어 정적 표면 점검")
+        r.audit({"event": "fwtriage_android_surface", "result": rel, "counts": result["counts"]}, case.id)
+        return {"ok": True, "tool": "fw_android_surface", "result_path": rel, "input": inputs,
+                **result, "checks": result["checks"][:mr], "checks_omitted": max(0, len(result["checks"]) - mr)}
+
+    return await _execute(kind="fw_android_surface", case_id=case.id, background=background, max_seconds=secs,
+                          description="fw_android_surface", fn=work)
 
 
 @server.tool(

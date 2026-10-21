@@ -82,7 +82,10 @@
       "mcp__rea__inspect_address_context",
       "mcp__rea__address_name",
       "mcp__rea__inspect_native_load_image",
-      "mcp__pweh-forensics__forensics_image_hints"
+      "mcp__pweh-forensics__forensics_image_hints",
+      "mcp__pweh-forensics__forensics_sqlite_inventory",
+      "mcp__pweh-forensics__forensics_android_artifacts",
+      "mcp__pweh-forensics__forensics_timeline"
     ],
     "ask": [
       "mcp__pweh-uart__uart_write",

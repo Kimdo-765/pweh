@@ -3996,7 +3996,7 @@
    },
    {
     "name": "fw_carve",
-    "description": "덤프를 파티션으로 분할: mtdparts 문자열(예: 'mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),-(rootfs)') 또는 partitions 목록([{name, offset, size}], 16진 문자열/크기 문자열 허용, size 생략 시 끝까지)을 사용. 둘 다 없으면 이미지 안의 U-Boot env(mtdparts/bootargs) → 기본 env → 'mtdparts=' 문자열 → DTB partition 노드 순으로 자동 결정. extract/<label>-NNN/<idx>-<name>.bin + index.json 생성(partitions[].path = 케이스 상대 경로, file 은 같은 값의 별칭), 각 파티션을 아티팩트(partition)로 등록하고 시작 위치의 형식(squashfs 등)을 판별. mtdparts 에 장치가 여럿이면 mtd_device 로 선택(기본 첫 장치).",
+    "description": "덤프를 파티션으로 분할: mtdparts 문자열(예: 'mtdparts=hi_sfc:256k(boot),64k(env),2048k(kernel),-(rootfs)') 또는 partitions 목록([{name, offset, size}], 16진 문자열/크기 문자열 허용, size 생략 시 끝까지)을 사용. 둘 다 없으면 이미지 안의 raw GPT/LP → U-Boot env(mtdparts/bootargs) → 기본 env → 'mtdparts=' 문자열 → DTB partition 노드 순으로 자동 결정. extract/<label>-NNN/<idx>-<name>.bin + index.json 생성(partitions[].path = 케이스 상대 경로, file 은 같은 값의 별칭), 각 파티션을 아티팩트(partition)로 등록하고 시작 위치의 형식(squashfs 등)을 판별. mtdparts 에 장치가 여럿이면 mtd_device 로 선택(기본 첫 장치). layout_source=auto|mtd|gpt|lp, lp_slot=0(활성 slot 추정 아님). GPT CRC·LP SHA256/extent를 검증하고 LP의 여러 extent를 순서대로 결합하며 ZERO는 0으로 채운다. 외부 device·disabled·잘린 LP partition은 건너뛴다. sparse 자동 분할은 미지원(확장 CRC 미검증). max_output_bytes는 모든 방식의 출력 합계 상한(기본 4GiB, 최대 16GiB).",
     "params": [
      {
       "name": "case_id",
@@ -4039,6 +4039,85 @@
       "type": "boolean",
       "required": false,
       "default": true
+     },
+     {
+      "name": "layout_source",
+      "type": "string",
+      "required": false,
+      "default": "auto"
+     },
+     {
+      "name": "lp_slot",
+      "type": "integer",
+      "required": false,
+      "default": 0
+     },
+     {
+      "name": "max_output_bytes",
+      "type": "integer/string",
+      "required": false,
+      "default": "4G"
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_android_surface",
+    "description": "Android 펌웨어 정적 점검 AN-01~09: ADB 통신/인증, debug/root 빌드, test-keys, SELinux permissive, AVB disabled flags, init 서비스 권한, OTA 검증 구성, 특권 APK/permission XML, 하드코딩 자격증명. rootfs_dir(이미 추출한 트리) 또는 image_path(boot/vendor_boot/vbmeta 이미지) 중 하나 이상. 기기 접촉·코드 실행·파일 시스템 해독·증거 bridge 없음. found/not-found/unknown은 제공한 입력 범위에 한정; 누락·크기/시간 제한·미해결 import는 coverage/limitations로 표시. AVB 구조 검사는 서명 검증이 아니고 init/priv-app/OTA 키 존재는 정보성 inventory다. 자격증명은 마스킹. max_file_size는 rootfs 텍스트 1개 상한(기본 1MiB, 최대 8MiB), max_evidence는 점검별 상한. 결과 analysis/android-surface-NNN.json. background=true면 fwtriage_job_status로 조회.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "rootfs_dir",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "image_path",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "max_results",
+      "type": "integer",
+      "required": false,
+      "default": 50
+     },
+     {
+      "name": "max_evidence",
+      "type": "integer",
+      "required": false,
+      "default": 20
+     },
+     {
+      "name": "max_file_size",
+      "type": "integer/string",
+      "required": false,
+      "default": "1M"
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 300.0
+     },
+     {
+      "name": "background",
+      "type": "boolean",
+      "required": false,
+      "default": false
      }
     ],
     "annotations": {
@@ -5413,7 +5492,7 @@
    },
    {
     "name": "forensics_image_hints",
-    "description": "증거의 정지이미지 1개를 오프라인 분석한다(소유/허가·보관 기록·open_checked 무결성 검사 필수). ref 또는 path 로 FAT/exFAT 파일 1개를 선택한다(동시 지정 금지); 둘 다 없으면 EV 자체를 정지이미지로 읽는다. 삭제 파일은 ref 와 복구 method(auto 기본)로 선택하며 방법·신뢰도·완전성을 출처에 기록한다. 불완전한 파일은 거부한다. 최대 64 MiB, 선택·읽기·분석 전체 max_seconds 기본/최대 45초. OCR(kor+eng 기본)·QR/바코드·메타데이터·구조·스테가노그래피 단서를 JSON 으로, 정규화 PNG 를 MCP 이미지 콘텐츠로 반환한다. OCR·코드는 마스킹하지 않으며 URL 을 열지 않는다. crop=[x,y,width,height] 는 EXIF 방향 적용 후 좌표. preview=false 면 이미지 콘텐츠 없음. 동영상·오디오·다중 프레임은 해독하지 않는다. JSON·PNG 를 forensics/analysis/ 에 0444 로 저장하고 image-hints 보관 기록에 입수 해시·선택한 파일 해시·출력 해시를 묶는다. 원본·복구 파일을 에이전트가 직접 열지 않는다.",
+    "description": "증거의 정지이미지 1개를 오프라인 분석한다(소유/허가·보관 기록·open_checked 무결성 검사 필수). ref 또는 path 로 FAT/exFAT·TAR/ZIP 파일 1개를 선택한다(동시 지정 금지); 둘 다 없으면 EV 자체를 정지이미지로 읽는다. 삭제 파일은 ref 와 복구 method(auto 기본)로 선택하며 방법·신뢰도·완전성을 출처에 기록한다. 불완전한 파일은 거부한다. 최대 64 MiB, 선택·읽기·분석 전체 max_seconds 기본/최대 45초. OCR(kor+eng 기본)·QR/바코드·메타데이터·구조·스테가노그래피 단서를 JSON 으로, 정규화 PNG 를 MCP 이미지 콘텐츠로 반환한다. OCR·코드는 마스킹하지 않으며 URL 을 열지 않는다. crop=[x,y,width,height] 는 EXIF 방향 적용 후 좌표. preview=false 면 이미지 콘텐츠 없음. 동영상·오디오·다중 프레임은 해독하지 않는다. JSON·PNG 를 forensics/analysis/ 에 0444 로 저장하고 image-hints 보관 기록에 입수 해시·선택한 파일 해시·출력 해시를 묶는다. 원본·복구 파일을 에이전트가 직접 열지 않는다.",
     "params": [
      {
       "name": "case_id",
@@ -5498,7 +5577,7 @@
    },
    {
     "name": "forensics_intake_start",
-    "description": "증거 이미지 접수 (job). 이미지 파일만 받는다 — 원시 디스크·장치·FIFO·빈 파일·E01, 케이스·상태 폴더 안의 파일, NUL 이 든 경로, 증거 디렉터리 예약 이름(EV-NNNN.json·imaging-log.txt·*.partial)은 거부. 케이스 소유/허가와 purpose·legal_basis·site_type(home/public/business/vehicle/mobile-business/unknown — 적용 법률이 달라진다)·business_purpose(가정용이면 '없음')·role(owner/processor/investigator/other)을 기록한다. 보관 기록(forensics/custody.jsonl)을 먼저 확인해 깨졌으면 job 없이 바로 custody_broken. 원본을 한 번 연 fd 로 읽으며 sha256·md5·sha1 을 계산해 forensics/images/EV-NNNN/<이름>.partial 로 복사하고 끝나면 이름을 바꾼다(파일 0444, 디렉터리 0555). verify_copy=true(기본)면 사본을 다시 해시한다. imaging_log_path(FTK Imager·dc3dd·ewfacquire 로그)를 주면 해시를 대조하고 로그 사본을 보관한다. 커밋 지점은 보관 기록의 intake 사건이다: 그 전에 실패·취소하면 만든 파일을 지우고 번호를 돌려놓고, 그 뒤에 온 취소는 무시한다(succeeded). 서버가 도중에 끝나 남은 접수 디렉터리는 다음 접수·서버 시작 때 forensics/aborted-intakes/ 로 옮긴다(중단 흔적이 있는 것만, 번호는 다시 쓰지 않는다). 결과(forensics_job_status 의 result): evidence_id, hashes, copy_verified, imaging_log 대조, custody_seq, next_steps — 커밋 뒤 보조 기록(integrity-failed 사건·출처 원장·아티팩트 색인)과 같은 sha256 확인(보관 기록 읽기)의 실패는 post_commit_errors·note 로 알리고 접수는 그대로다(감사 로그 실패는 서버 로그에만 남는다).",
+    "description": "증거 이미지·TAR/ZIP 논리 추출 파일 접수 (job). storage=copy(기본)는 사본을 만들고 reference 는 제자리 참조다. reference 는 비안전 설정 forensics.reference_roots(기본 []) 아래 실제 읽기 전용 마운트(ST_RDONLY)의 일반 파일만 받으며 매번 열 때 현재 정책·마운트를 확인한다. 원본을 chmod·마운트·삭제하지 않는다. 참조 기록 아티팩트 해시는 원본 EV 해시와 다르다. 이미지 파일만 받는다 — 원시 디스크·장치·FIFO·빈 파일·E01, 케이스·상태 폴더 안의 파일, NUL 이 든 경로, 증거 디렉터리 예약 이름(EV-NNNN.json·imaging-log.txt·*.partial)은 거부. 케이스 소유/허가와 purpose·legal_basis·site_type(home/public/business/vehicle/mobile-business/unknown — 적용 법률이 달라진다)·business_purpose(가정용이면 '없음')·role(owner/processor/investigator/other)을 기록한다. 보관 기록(forensics/custody.jsonl)을 먼저 확인해 깨졌으면 job 없이 바로 custody_broken. 원본을 한 번 연 fd 로 읽으며 sha256·md5·sha1 을 계산해 forensics/images/EV-NNNN/<이름>.partial 로 복사하고 끝나면 이름을 바꾼다(파일 0444, 디렉터리 0555). verify_copy=true(기본)면 사본을 다시 해시한다. imaging_log_path(FTK Imager·dc3dd·ewfacquire 로그)를 주면 해시를 대조하고 로그 사본을 보관한다. 커밋 지점은 보관 기록의 intake 사건이다: 그 전에 실패·취소하면 만든 파일을 지우고 번호를 돌려놓고, 그 뒤에 온 취소는 무시한다(succeeded). 서버가 도중에 끝나 남은 접수 디렉터리는 다음 접수·서버 시작 때 forensics/aborted-intakes/ 로 옮긴다(중단 흔적이 있는 것만, 번호는 다시 쓰지 않는다). 결과(forensics_job_status 의 result): evidence_id, hashes, copy_verified, imaging_log 대조, custody_seq, next_steps — 커밋 뒤 보조 기록(integrity-failed 사건·출처 원장·아티팩트 색인)과 같은 sha256 확인(보관 기록 읽기)의 실패는 post_commit_errors·note 로 알리고 접수는 그대로다(감사 로그 실패는 서버 로그에만 남는다).",
     "params": [
      {
       "name": "case_id",
@@ -5559,6 +5638,12 @@
       "type": "boolean",
       "required": false,
       "default": true
+     },
+     {
+      "name": "storage",
+      "type": "string",
+      "required": false,
+      "default": "copy"
      }
     ],
     "annotations": {
@@ -5621,7 +5706,7 @@
    },
    {
     "name": "forensics_evidence_list",
-    "description": "증거 목록과 해시값 확인서. 항목마다 크기·해시·status(ok/unverified/integrity-failed/missing/record-invalid/custody-broken/record-without-intake/intake-in-progress)·status_label(사람이 읽는 표시, 예: 'missing (integrity-failed)')·마지막 검증·쓰기 방지 장치 증명, 보관 기록 체인 검증, 중단된 접수(aborted[] — 커밋하지 못해 aborted-intakes/ 로 옮긴 것, 증거가 아니다), 파생 산출물(recovered/ 매니페스트를 보관 기록 extract 사건과 대조한 custody: recorded/mismatch/unrecorded/missing/unknown). 확인서를 쓰기 전에 커밋한 증거마다 접수 기록·사본 지문을 다시 대조하고 새 문제는 무결성 실패로 남긴다(integrity_failures_recorded). write_files=true(기본)면 forensics/evidence-list.json·.md(해시값 확인서 서식·고지)를 쓰고 보관 기록에 남긴다.",
+    "description": "증거 목록과 해시값 확인서. reference 증거가 있으면 자동 job으로 전체 재해시하고 forensics_job_status로 폴링한다. 참조 정책·읽기 전용 상태·전체 해시 확인이 끝나지 않으면 성공 확인서를 만들지 않는다. 사본만 있으면 즉시 반환한다. 항목마다 크기·해시·status(ok/unverified/integrity-failed/missing/record-invalid/custody-broken/record-without-intake/intake-in-progress)·status_label(사람이 읽는 표시, 예: 'missing (integrity-failed)')·마지막 검증·쓰기 방지 장치 증명, 보관 기록 체인 검증, 중단된 접수(aborted[] — 커밋하지 못해 aborted-intakes/ 로 옮긴 것, 증거가 아니다), 파생 산출물(recovered/ 매니페스트를 보관 기록 extract 사건과 대조한 custody: recorded/mismatch/unrecorded/missing/unknown). 확인서를 쓰기 전에 커밋한 증거마다 접수 기록·사본 지문을 다시 대조하고 새 문제는 무결성 실패로 남긴다(integrity_failures_recorded). write_files=true(기본)면 forensics/evidence-list.json·.md(해시값 확인서 서식·고지)를 쓰고 보관 기록에 남긴다.",
     "params": [
      {
       "name": "case_id",
@@ -5708,7 +5793,7 @@
    },
    {
     "name": "forensics_fs_list",
-    "description": "파일 시스템 목록 (FAT12/16/32·exFAT, 삭제 항목 포함). 전체 목록(경로·이름·크기·시각·삭제 여부·ref·체인·exFAT ValidDataLength 잔여)은 forensics/analysis/fs-list-<EV>-NNN.json(0444)에만 쓰고 보관 기록 list 사건에 sha256 을 남긴다. 응답은 볼륨마다 요약: stats, time_ranges(바탕별 — FAT 은 local-unknown-tz, exFAT 은 UtcOffset 이 있으면 local+offset — 장치 시간대는 가정하지 않는다), top_dirs·extensions(개수만), files_with_residual, 표본 20개(경로·크기·수정 시각·ref), truncated_reason(s)·cut_dirs(잘린 디렉터리), unvalidated_dirs(검증하지 못해 목록에서 뺀 디렉터리 수 — 카드 손상·교차 연결 의심). 호출 전체(파티션 합계) 한도: max_entries(1~200000, 기본 200000), max_seconds(1~600, 기본 180 — 해석 시간이며 목록 파일 쓰기는 들어가지 않는다), 파티션 64개(같은 구간은 한 번), 경로 글자 수 268,435,456 — 볼륨마다 엔진 예산 하나(열기·정보·순회). 잘림 사유: time·steps·max_entries·max_total_slots·max_path_chars 는 순회를 멈추고, max_depth(64)·max_dir_slots 와 끝까지 읽지 못한 살아 있는 디렉터리(beyond_image — 읽을 수 있는 범위 끝, dir_chain_broken — 체인 손상, dir_unreadable)는 그 디렉터리만 빼고 계속한다(cut_dirs). 검증하지 못한 살아 있는 디렉터리(dir_unvalidated), 이미지 끝 너머까지 이어지는 볼륨·통째로 이미지 끝 너머인 파티션(image_truncated — 잘린 이미징), 파티션 표 항목보다 큰 파일 시스템(volume_exceeds_partition)도 사유다 — truncated_reasons·next_steps 로 알린다. 해석하지 못한 볼륨은 volumes[].error·call.volumes_failed 이고 truncated=true. 볼 수 있는 파티션이 없는데 파티션이 이미지 끝 너머면 validation_failed 가 그렇게 말하고, 그런 파티션을 partition 으로 고르면 beyond_image 다. 녹화 내용은 읽지 않는다. 삭제 파일 복구·추출은 forensics_extract 에 ref 를 넘긴다.",
+    "description": "파일 시스템·논리 TAR/ZIP 목록(FAT12/16/32·exFAT 삭제 항목 포함). TAR/ZIP 은 arc:<순번> ref, 멤버 sha256를 바이트 상한 1 GiB와 max_seconds 안에서 계산한다. 예산 밖 멤버는 sha256=null,status=unverified 이며 사유를 남긴다. 비압축 TAR, ZIP stored/deflate만 지원하며 암호화·링크·sparse·다른 압축은 명시 미지원이다. 해석하지 못한 파티션은 call.partitions_unexamined·unsupported_partitions로 표시한다.  전체 목록(경로·이름·크기·시각·삭제 여부·ref·체인·exFAT ValidDataLength 잔여)은 forensics/analysis/fs-list-<EV>-NNN.json(0444)에만 쓰고 보관 기록 list 사건에 sha256 을 남긴다. 응답은 볼륨마다 요약: stats, time_ranges(바탕별 — FAT 은 local-unknown-tz, exFAT 은 UtcOffset 이 있으면 local+offset — 장치 시간대는 가정하지 않는다), top_dirs·extensions(개수만), files_with_residual, 표본 20개(경로·크기·수정 시각·ref), truncated_reason(s)·cut_dirs(잘린 디렉터리), unvalidated_dirs(검증하지 못해 목록에서 뺀 디렉터리 수 — 카드 손상·교차 연결 의심). 호출 전체(파티션 합계) 한도: max_entries(1~200000, 기본 200000), max_seconds(1~600, 기본 180 — 해석 시간이며 목록 파일 쓰기는 들어가지 않는다), 파티션 64개(같은 구간은 한 번), 경로 글자 수 268,435,456 — 볼륨마다 엔진 예산 하나(열기·정보·순회). 잘림 사유: time·steps·max_entries·max_total_slots·max_path_chars 는 순회를 멈추고, max_depth(64)·max_dir_slots 와 끝까지 읽지 못한 살아 있는 디렉터리(beyond_image — 읽을 수 있는 범위 끝, dir_chain_broken — 체인 손상, dir_unreadable)는 그 디렉터리만 빼고 계속한다(cut_dirs). 검증하지 못한 살아 있는 디렉터리(dir_unvalidated), 이미지 끝 너머까지 이어지는 볼륨·통째로 이미지 끝 너머인 파티션(image_truncated — 잘린 이미징), 파티션 표 항목보다 큰 파일 시스템(volume_exceeds_partition)도 사유다 — truncated_reasons·next_steps 로 알린다. 해석하지 못한 볼륨은 volumes[].error·call.volumes_failed 이고 truncated=true. 볼 수 있는 파티션이 없는데 파티션이 이미지 끝 너머면 validation_failed 가 그렇게 말하고, 그런 파티션을 partition 으로 고르면 beyond_image 다. 녹화 내용은 읽지 않는다. 삭제 파일 복구·추출은 forensics_extract 에 ref 를 넘긴다.",
     "params": [
      {
       "name": "case_id",
@@ -5757,7 +5842,7 @@
    },
    {
     "name": "forensics_extract",
-    "description": "파일·삭제 파일 추출 (job). refs(forensics_fs_list 결과 JSON 의 ref) 또는 paths(살아 있는 파일 경로)로 고른 파일만 forensics/recovered/<label>-NNN/ 에 0444 파일로 쓴다(이름 정리·번호, 원래 경로는 manifest.json, 실행 비트·링크 없음). refs·paths 는 중복을 없앤다(같은 항목을 가리키면 하나). ref 는 루트에서 검증한 디렉터리만 따라가는 확인 순회가 그 디렉터리를 찾은 것만 받는다(요청한 디렉터리를 다 찾으면 멈춘다). 모양이 틀리거나 순회를 끝까지 돌았는데 없으면 bad_ref, 순회가 한도에서 잘렸거나 끝까지 읽지 못한 살아 있는 디렉터리(beyond_image·dir_chain_broken·dir_unreadable)가 있어 찾지 못했으면 그 ref 만 skipped 의 code refs_unverifiable(찾은 ref 는 받는다) — 검증된 ref 가 하나도 없고 paths 도 없을 때만 job 이 refs_unverifiable 로 실패한다. paths 는 이름이 정확히 같은 항목이 먼저, 없으면 대소문자 무시(글자 수를 바꾸는 접기 없음, FAT 은 8.3 이름도)로 찾고 여럿이 맞으면 code ambiguous_path 로 거부한다. 끝까지 읽지 못했거나 검증하지 못한 디렉터리에서는 대소문자까지 정확히 같은 이름만 받고(대소문자·8.3 별칭으로만 맞으면 고르지 않는다), 찾지 못하면 not_found 가 아니라 그 사유(max_dir_slots·beyond_image·dir_chain_broken·dir_unvalidated, 읽지 못한 디렉터리는 dir_unreadable)가 code 다 — manifest·응답의 path 는 디스크의 이름이고 호출자 철자가 다르면 requested_path. method: auto(가장 믿을 만한 후보) 또는 후보 이름(그 후보만 만든다) — 살아 있는 파일 chain·nofatchain, 삭제한 FAT 파일 contiguous·skip-allocated·skip-claimed·fat-chain, 삭제한 exFAT 파일 stale-chain·contiguous·skip-allocated. 파일마다 method·confidence·note·status(예산 때문에 덜 만든 계획은 'limit' + limit_reason)가 manifest 에 남는다. region='residual' 이면 exFAT ValidDataLength 뒤 잔여 영역(이전 녹화 흔적)만. 상한: max_files(기본 200, 최대 1000), max_bytes(기본 1 GiB, 최대 4 GiB), job 300초 — 덜 쓰면 truncated_reasons(max_files·max_bytes·time·steps·cancelled·refs_unverifiable·max_depth·max_dir_slots·beyond_image·dir_chain_broken·dir_unreadable·dir_unvalidated)와 next_steps. 내용이 이미지 끝 너머라 덜 읽은 파일은 상한이 아니라 파일 기록의 complete=false·bytes_beyond_image 다. 취소는 엔진 계산 중에도 받아들인다: 시도하지 않은 항목은 skipped('취소됨'), manifest 에 'cancelled', job 은 cancelled(보관 기록 extract 뒤에 온 취소는 무시). 실패한 추출은 출력 디렉터리를 지운다. 응답·보관 기록에는 해시·크기·방법만 남고 내용은 돌려주지 않는다. 에이전트는 추출물을 직접 열지 않는다. 정지이미지는 원래 ref/path 를 forensics_image_hints 에 넘겨 분석하고, 동영상·오디오는 사람이 자기 플레이어로 확인한다.",
+    "description": "파일·삭제 파일·TAR/ZIP 멤버 추출 (job). 아카이브는 arc:<순번> ref 또는 정확한 path를 쓰며 중복 이름은 ref로 선택한다. 경로 탈출·링크·특수파일·암호화는 거부하고 ZIP CRC 검증을 끝낸 파일만 보존한다. refs(forensics_fs_list 결과 JSON 의 ref) 또는 paths(살아 있는 파일 경로)로 고른 파일만 forensics/recovered/<label>-NNN/ 에 0444 파일로 쓴다(이름 정리·번호, 원래 경로는 manifest.json, 실행 비트·링크 없음). refs·paths 는 중복을 없앤다(같은 항목을 가리키면 하나). ref 는 루트에서 검증한 디렉터리만 따라가는 확인 순회가 그 디렉터리를 찾은 것만 받는다(요청한 디렉터리를 다 찾으면 멈춘다). 모양이 틀리거나 순회를 끝까지 돌았는데 없으면 bad_ref, 순회가 한도에서 잘렸거나 끝까지 읽지 못한 살아 있는 디렉터리(beyond_image·dir_chain_broken·dir_unreadable)가 있어 찾지 못했으면 그 ref 만 skipped 의 code refs_unverifiable(찾은 ref 는 받는다) — 검증된 ref 가 하나도 없고 paths 도 없을 때만 job 이 refs_unverifiable 로 실패한다. paths 는 이름이 정확히 같은 항목이 먼저, 없으면 대소문자 무시(글자 수를 바꾸는 접기 없음, FAT 은 8.3 이름도)로 찾고 여럿이 맞으면 code ambiguous_path 로 거부한다. 끝까지 읽지 못했거나 검증하지 못한 디렉터리에서는 대소문자까지 정확히 같은 이름만 받고(대소문자·8.3 별칭으로만 맞으면 고르지 않는다), 찾지 못하면 not_found 가 아니라 그 사유(max_dir_slots·beyond_image·dir_chain_broken·dir_unvalidated, 읽지 못한 디렉터리는 dir_unreadable)가 code 다 — manifest·응답의 path 는 디스크의 이름이고 호출자 철자가 다르면 requested_path. method: auto(가장 믿을 만한 후보) 또는 후보 이름(그 후보만 만든다) — 살아 있는 파일 chain·nofatchain, 삭제한 FAT 파일 contiguous·skip-allocated·skip-claimed·fat-chain, 삭제한 exFAT 파일 stale-chain·contiguous·skip-allocated. 파일마다 method·confidence·note·status(예산 때문에 덜 만든 계획은 'limit' + limit_reason)가 manifest 에 남는다. region='residual' 이면 exFAT ValidDataLength 뒤 잔여 영역(이전 녹화 흔적)만. 상한: max_files(기본 200, 최대 1000), max_bytes(기본 1 GiB, 최대 4 GiB), job 300초 — 덜 쓰면 truncated_reasons(max_files·max_bytes·time·steps·cancelled·refs_unverifiable·max_depth·max_dir_slots·beyond_image·dir_chain_broken·dir_unreadable·dir_unvalidated)와 next_steps. 내용이 이미지 끝 너머라 덜 읽은 파일은 상한이 아니라 파일 기록의 complete=false·bytes_beyond_image 다. 취소는 엔진 계산 중에도 받아들인다: 시도하지 않은 항목은 skipped('취소됨'), manifest 에 'cancelled', job 은 cancelled(보관 기록 extract 뒤에 온 취소는 무시). 실패한 추출은 출력 디렉터리를 지운다. 응답·보관 기록에는 해시·크기·방법만 남고 내용은 돌려주지 않는다. 에이전트는 추출물을 직접 열지 않는다. 정지이미지는 원래 ref/path 를 forensics_image_hints 에 넘겨 분석하고, 동영상·오디오는 사람이 자기 플레이어로 확인한다.",
     "params": [
      {
       "name": "case_id",
@@ -5818,6 +5903,231 @@
       "type": "integer/string",
       "required": false,
       "default": "1G"
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "forensics_sqlite_inventory",
+    "description": "증거에서 선택한 SQLite DB 1개의 헤더·schema·table 행 수·freelist와 제공된 WAL/journal 정보를 읽는다. ref/path는 FAT/exFAT 또는 TAR/ZIP 멤버 선택자이며 둘 다 없으면 EV 자체가 DB여야 한다. WAL/journal은 자동 탐색하지 않고 같은 EV·파티션·디렉터리의 DB 이름+-wal/-journal을 명시한다. 각 입력64MiB, 전체45초·페이지/셀/출력 상한. SQL을 실행하지 않으며 사용자 row 내용은 반환하지 않는다. 전체 row_count는 완주했을 때만 숫자, 불완전하면 null과 사유. 분석 JSON0444와 입수·멤버·출력 해시를 sqlite-inventory 보관 기록에 결속한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "evidence_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "partition",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "ref",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "wal_ref",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "wal_path",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "journal_ref",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "journal_path",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "method",
+      "type": "string",
+      "required": false,
+      "default": "auto"
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 45.0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "forensics_android_artifacts",
+    "description": "선택한 증거 SQLite에서 SMS·통화·연락처·브라우저 기록을 스키마 프로필로 분석해 내용도 반환한다. 입력 선택·무결성·64MiB/45초 제한은 forensics_sqlite_inventory와 같다. families는 sms/calls/contacts/browser, include_deleted는 WAL 과거기록·freelist 복구 후보 포함이며 삭제 확정을 뜻하지 않는다. 최대 max_records(기본500, 최대10000), 누적 TEXT8MiB·JSON16MiB. 프로필 미지원·누락·잘림은 unknown/partial과 사유로 기록한다. BLOB은 크기/해시만, 영상·음성·URL·SQL을 실행하지 않는다. JSON0444를 android-artifacts 보관 기록에 결속한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "evidence_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "partition",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "ref",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "wal_ref",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "wal_path",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "journal_ref",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "journal_path",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "method",
+      "type": "string",
+      "required": false,
+      "default": "auto"
+     },
+     {
+      "name": "families",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "include_deleted",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "max_records",
+      "type": "integer",
+      "required": false,
+      "default": 500
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 45.0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "forensics_timeline",
+    "description": "증거 FAT/exFAT·TAR/ZIP의 파일 시각과 명시한 앱 분석 JSON의 사건을 타임라인으로 묶는다. analysis_paths는 같은 EV의 android-artifacts 보관 기록·SHA256에 맞는 JSON만 받는다(최대16개, 합16MiB). 시각의 raw/단위/epoch/time_basis를 보존하며 FAT·ZIP DOS의 시간대는 추정하지 않는다. UTC로 바꿀 수 없는 사건은 undated_events로 분리한다. max_events 기본10000/최대100000, 전체45초. 미검사 파티션·손상·잘림을 coverage에 적고 timeline JSON0444를 보관 기록에 결속한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "evidence_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "partition",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "analysis_paths",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "max_events",
+      "type": "integer",
+      "required": false,
+      "default": 10000
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 45.0
      }
     ],
     "annotations": {

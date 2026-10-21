@@ -1,6 +1,6 @@
 ---
 name: image-hints-analysis
-description: Analyze still images already held in an authorized PWEH case for visual clues, Korean/English OCR, QR/barcodes, EXIF/XMP/GPS and embedded-data indicators. Use case_image_hints for board/device photos, screenshots and firmware/CTF pictures, or forensics_image_hints for an evidence image or a selected FAT/exFAT file. Returns normalized previews for model vision and records image-hints summary. No video/audio or automatic URL visits. 이미지 힌트, 그림 문구, 기판 사진, 스크린샷, OCR, QR, 숨은 데이터.
+description: Analyze still images already held in an authorized PWEH case for visual clues, Korean/English OCR, QR/barcodes, EXIF/XMP/GPS and embedded-data indicators. Use case_image_hints for board/device photos, screenshots and firmware/CTF pictures, or forensics_image_hints for an evidence image or a selected FAT/exFAT·TAR/ZIP file. Returns normalized previews for model vision and records image-hints summary. No video/audio or automatic URL visits. 이미지 힌트, 그림 문구, 기판 사진, 스크린샷, OCR, QR, 숨은 데이터.
 ---
 
 # 정지 이미지 힌트 분석
