@@ -1,0 +1,262 @@
+{
+  "app_elf_sha256": "c5e341c62ee7db185b9a56764fe45efc7012eff61173680f0627a5e74a49b84c",
+  "app_file_sha256": "46cdf560fc75fac5c44453548e67babec9847a32fc7980fe6a89f280171857d5",
+  "app_objects": [
+    {
+      "path": "esp-idf/main/CMakeFiles/__idf_main.dir/main.c.obj",
+      "sha256": "80113d80147b196e14fa8d3a23887b9f3efb0a4e36df0e554d6973725d69f847"
+    },
+    {
+      "path": "esp-idf/main/CMakeFiles/__idf_main.dir/policy.c.obj",
+      "sha256": "4d6f4bd4d122b07973b10d9b8e54d96cab0d80e3e5ce00f0d3e57b36a0be530e"
+    },
+    {
+      "path": "esp-idf/main/CMakeFiles/__idf_main.dir/usb_descriptors.c.obj",
+      "sha256": "a364b723d4787a4c3e27d854334bf76538df20ac940850cbc5c6eec39105bf82"
+    },
+    {
+      "path": "esp-idf/pweh_common/CMakeFiles/__idf_pweh_common.dir/work/src/firmware/common/cobs.c.obj",
+      "sha256": "02bb527ca93b312a462380387296d0e418527231205a3c41ee5747291337703f"
+    },
+    {
+      "path": "esp-idf/pweh_common/CMakeFiles/__idf_pweh_common.dir/work/src/firmware/common/crc32.c.obj",
+      "sha256": "cb16e97fe3762ac48e87f83a0b453d8f90da9af8a6aee59787bbdfc7169c9f03"
+    },
+    {
+      "path": "esp-idf/pweh_common/CMakeFiles/__idf_pweh_common.dir/work/src/firmware/common/protocol.c.obj",
+      "sha256": "85a2f0c877eea72909774cd3b019d849fd9ebb7c931b238999ba3dc8a3585a9e"
+    },
+    {
+      "path": "esp-idf/pweh_common/CMakeFiles/__idf_pweh_common.dir/work/src/firmware/common/session.c.obj",
+      "sha256": "14413e6e04afaffbb8d26edf61eaee99b6c15369b179ba2e96189f0858bca559"
+    },
+    {
+      "path": "esp-idf/pweh_common/CMakeFiles/__idf_pweh_common.dir/work/src/firmware/common/tlv.c.obj",
+      "sha256": "dd754de1b0ca12526f918600856c10beb02ae3c7435a398927f4cb3c007d9925"
+    }
+  ],
+  "board": "esp32s3-devkitc1-hello",
+  "build_profile": "probe-hello",
+  "checker_sha256": "87fc692400832d28b85614695094b7045a2f0d72cab6fabf17ee1205314f35e5",
+  "command_sha256": "7119f2608f43aaefd102da1778b5e20c79bc7581c30211b2b7587570c11f725e",
+  "fw_version": "0.1.0",
+  "git_commit": "4c801a3fbfe92b76d912e7b13f5fbb0026b3093f",
+  "hardware_verified": false,
+  "image_sha256": "e96e43263ecec810c34f50ac0e6a354efaaeae3146116aefa405dbfe9036a131",
+  "macro_checks": [
+    {
+      "object": "esp-idf/pweh_common/CMakeFiles/__idf_pweh_common.dir/work/src/firmware/common/cobs.c.obj",
+      "sha256": "55463652c25655f3c097ae65b4442161257dfe81caeeab3f27d8d888b0e95717"
+    },
+    {
+      "object": "esp-idf/pweh_common/CMakeFiles/__idf_pweh_common.dir/work/src/firmware/common/crc32.c.obj",
+      "sha256": "55463652c25655f3c097ae65b4442161257dfe81caeeab3f27d8d888b0e95717"
+    },
+    {
+      "object": "esp-idf/pweh_common/CMakeFiles/__idf_pweh_common.dir/work/src/firmware/common/protocol.c.obj",
+      "sha256": "8efcc56f11a6870e4d346f582937dcfcf233d6bc473f2a62ccf45c419319faf0"
+    },
+    {
+      "object": "esp-idf/pweh_common/CMakeFiles/__idf_pweh_common.dir/work/src/firmware/common/tlv.c.obj",
+      "sha256": "8efcc56f11a6870e4d346f582937dcfcf233d6bc473f2a62ccf45c419319faf0"
+    },
+    {
+      "object": "esp-idf/pweh_common/CMakeFiles/__idf_pweh_common.dir/work/src/firmware/common/session.c.obj",
+      "sha256": "bc4972603bde37acb4934309924fa2c808207e52c146cecb6271c2aa58ced0f4"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/cdc/cdc_device.c.obj",
+      "sha256": "c8f6f25387cc3e27f93195caf5ce72bd32d6b23a99b91ab5c14aa99965e73a66"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/hid/hid_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/midi/midi_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/midi/midi2_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/msc/msc_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/mtp/mtp_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/printer/printer_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/vendor/vendor_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/audio/audio_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/video/video_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/bth/bth_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/usbtmc/usbtmc_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/net/ecm_rndis_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/lib/networking/rndis_reports.c.obj",
+      "sha256": "0c8867c1f0378bff6e04acb95877eeb7357d6e13f40079379108f37847204c9f"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/net/ncm_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/dfu/dfu_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/class/dfu/dfu_rt_device.c.obj",
+      "sha256": "ec8ccc6b95e91e074197dca4cb8118a528bdd62c5546f188f77d87d2f9d2a974"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/portable/synopsys/dwc2/dcd_dwc2.c.obj",
+      "sha256": "a91a2a5bd512a6c1ea5f9639cb2923a456a333946636056b343adccfbaf92039"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/portable/synopsys/dwc2/dwc2_common.c.obj",
+      "sha256": "0a286677186f1d61442d2a3246e64f3722da1dbd80e54a3d54defc3df01761e7"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/common/tusb_fifo.c.obj",
+      "sha256": "4e5d0aa439c966367be1ed9eef72603cf6b6e717513993f3689386845d1e87d9"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/device/usbd.c.obj",
+      "sha256": "6837d82ae9522bd891697c29ccbaa8395255fbb80359a4ed3b665bc571d102ed"
+    },
+    {
+      "object": "esp-idf/tinyusb/CMakeFiles/__idf_tinyusb.dir/src/tusb.c.obj",
+      "sha256": "4dfbc2ff48411597294b2095340239736d6349625b704bfcb67f2db9866182c0"
+    },
+    {
+      "object": "esp-idf/esp_tinyusb/CMakeFiles/__idf_esp_tinyusb.dir/descriptors_control.c.obj",
+      "sha256": "4dc24a7a116cfac8bc0aafdaf87fec5ed545c3a5b73ba20123c1e6e1fab8256d"
+    },
+    {
+      "object": "esp-idf/esp_tinyusb/CMakeFiles/__idf_esp_tinyusb.dir/tinyusb.c.obj",
+      "sha256": "d8033fc7e204d68c98a1e12bb632492b2c2c69ca311fcdd9702c1f2e70b1ac2f"
+    },
+    {
+      "object": "esp-idf/esp_tinyusb/CMakeFiles/__idf_esp_tinyusb.dir/usb_descriptors.c.obj",
+      "sha256": "bcbc1bab725f5ba0ea7c97e8d7a346be5232248e557dd2e8eb8fe7ec1bb8eaa4"
+    },
+    {
+      "object": "esp-idf/esp_tinyusb/CMakeFiles/__idf_esp_tinyusb.dir/tinyusb_task.c.obj",
+      "sha256": "a594e4f63710b649b463a9d38df57d59a94e079491d9db42d1ccf3b92b98dcf5"
+    },
+    {
+      "object": "esp-idf/esp_tinyusb/CMakeFiles/__idf_esp_tinyusb.dir/cdc.c.obj",
+      "sha256": "52e68573ba6695ea0d3ea842569f55bdc566e3a2cca15ce6a6b0eecd3ea5c7f8"
+    },
+    {
+      "object": "esp-idf/esp_tinyusb/CMakeFiles/__idf_esp_tinyusb.dir/tinyusb_cdc_acm.c.obj",
+      "sha256": "afd4fa20b7687690d7f6bf6070e3e904092c3f36caf52c41e7a1d1d0c4f27211"
+    },
+    {
+      "object": "esp-idf/esp_tinyusb/CMakeFiles/__idf_esp_tinyusb.dir/tinyusb_console.c.obj",
+      "sha256": "f92c883fd8fdfec0d48cb10ea8a10101b40762903e552663034dda67c696ee6e"
+    },
+    {
+      "object": "esp-idf/esp_tinyusb/CMakeFiles/__idf_esp_tinyusb.dir/vfs_tinyusb.c.obj",
+      "sha256": "169d265ebb2bae5ced68dd471f42799bb1f866fcb8aa71f892ea7f58fecdaf41"
+    },
+    {
+      "object": "esp-idf/main/CMakeFiles/__idf_main.dir/main.c.obj",
+      "sha256": "9d6b53bb8dd000405a01394639bbd3d13a981d3fba728d04f284e08941ce8620"
+    },
+    {
+      "object": "esp-idf/main/CMakeFiles/__idf_main.dir/usb_descriptors.c.obj",
+      "sha256": "c6b55f999d894bc4ac47917ba4f54ce270a28acbccbf7580fe41803b4de863a5"
+    },
+    {
+      "object": "esp-idf/main/CMakeFiles/__idf_main.dir/policy.c.obj",
+      "sha256": "c6b55f999d894bc4ac47917ba4f54ce270a28acbccbf7580fe41803b4de863a5"
+    }
+  ],
+  "policy_sha256": "a4142248f20d0b020a2a58da43b701d01650e04f5984f3bb49fcd9cf9a259de6",
+  "schema": "pweh.firmware-build-check/v1",
+  "sdkconfig_sha256": "060d6e14bcaa4bf7ad5af9c4ef3d858e750ad93c50805a1349c0ceab9563fcbb",
+  "status": "passed",
+  "symbols": {
+    "app_objects": 8,
+    "final_symbols": 4129,
+    "sdk_rom_aliases": [
+      {
+        "address": 1073765152,
+        "name": "ieee80211_crypto_encap"
+      },
+      {
+        "address": 1073765128,
+        "name": "ieee80211_search_node"
+      },
+      {
+        "address": 1073764936,
+        "name": "ieee80211_align_eb"
+      },
+      {
+        "address": 1073765116,
+        "name": "ieee80211_recycle_cache_eb"
+      },
+      {
+        "address": 1073765188,
+        "name": "ieee80211_set_tx_pti"
+      },
+      {
+        "address": 1073765104,
+        "name": "ieee80211_copy_eb_header"
+      },
+      {
+        "address": 1073764984,
+        "name": "ieee80211_is_tx_allowed"
+      },
+      {
+        "address": 1073765020,
+        "name": "ieee80211_set_tx_desc"
+      },
+      {
+        "address": 1073765212,
+        "name": "ieee80211_gettid"
+      },
+      {
+        "address": 1073764996,
+        "name": "ieee80211_output_pending_eb"
+      },
+      {
+        "address": 1073764960,
+        "name": "ieee80211_ampdu_start_age_timer"
+      }
+    ],
+    "sdk_rom_linker_sha256": "3abed7ef1f85a810335b8f639ddee19f18fa9f7083253601548c25a17af62dc9"
+  },
+  "usb": {
+    "cdc_count": 2,
+    "pid": 16386,
+    "product": "PWEH espprobe",
+    "serial_rule": "base-mac-12hex",
+    "vid": 12346
+  }
+}
