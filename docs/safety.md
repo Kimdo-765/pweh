@@ -257,13 +257,18 @@ pweh-emu 의 고정 argv 허용 목록 위반도 `gate.via: "emu-policy"`, `stat
     남아 있는 동안 예약 파일을 지우지 않는다. 이때 남는 `%TEMP%\_MEI*` 압축 해제 디렉터리는 막을 수 없다.
 - **JTAGulator · sigrok**
   - JTAGulator UART 스캔 프로브는 대상 콘솔이 여러 번 받으므로, 두 번 이어 붙인 형태까지 콘솔 분류기로 검사한다(`_erase X\rflash` → `flash_erase X`).
-    `jtagulator_connect`는 문자장치·루프백 socket/RFC2217·loop와 확인된 WSL1 COM1–191을 받는다. WSL2 COM 세션은 P2 helper 전까지 거부한다.
+    `jtagulator_connect`는 문자장치·루프백 socket/RFC2217·loop와 WSL COM을 받는다. WSL1 COM1–191은 ttyS, 그 밖의 WSL COM은 interop과 검증된 helper가 필요하다.
     공용 portlock을 승인·open 전에 잡아 다른 PWEH 세션의 포트에 재동기화 키를 보내지 않는다. 루프백 URL은 모든 호스트 표기·두 스킴을 포트 번호 하나로 묶는다.
     UART가 기록한 target/bridge 역할 표지도 프로브를 막는다. 미확인 식별이면 표지를 임의로 해제하지 않는다. sigrok는 명시 직렬 conn만 같은 잠금에 참여한다.
 - **포트와 연결 수명**: 경로·OS 노드·USB 식별을 승인 뒤 다시 확인하며 바뀌면 `route_changed`로 중단한다. 확인된 장치 전체 reset은 같은 부모의 모든 현재 형제 키가 필요하다.
   형제 관찰이 불완전하면 `port_scope_unknown`이다. POSIX는 open 뒤 TIOCEXCL, close 전에 TIOCNXCL을 적용한다. 최초 open pulse와 비PWEH 프로그램의 open–ioctl 경합까지 없애지는 못한다.
   승인 대기에도 잠금을 유지한다. 끊어진 세션은 명시 close까지, 취소한 worker는 실제 핸들·프로세스 종료가 확인될 때까지 유지한다. GC·시간 경과로 orphan 잠금을 풀지 않는다.
   `/tmp/pweh-<uid>/port-owners/`와 `port-roles/`는 서버가 관리하므로 에이전트가 직접 고치지 않는다. 기존 I5 instrument `tags/`와는 별개다.
+- **Windows COM helper**: 설정은 실행 파일 경로만 고르며 신뢰 해시를 추가하지 못한다. 실행마다 고정 SHA256을 검증한 사본을 사용하고, HELLO의 프로토콜·빌드 식별도 확인한다.
+  COM 핸들은 게이트 뒤 OPEN에서만 연다. 소유 토큰은 모든 실행 모드에 필요하다. 정상 close는 QUIT 응답·EOF·자식 종료를 모두 확인하며,
+  비정상 종료는 복사본 경로·토큰·생성 시각이 일치하는 Windows 프로세스 핸들로만 종료한다. PID만으로 kill하지 않는다.
+  정리를 확인하지 못하면 orphan과 lease를 보존한다. helper가 종료됐다는 근거 없이 `is_open=false`만으로 잠금을 풀지 않는다.
+  PowerShell 직렬 relay는 구현하지 않았다. 포트 없는 버전·echo 검증은 드라이버별 실제 배타·DTR/RTS pulse 검증을 대신하지 않는다.
 - **원격 시리얼·리스너·플랫폼**: uart·jtagulator 는 `socket://`·`rfc2217://` 를 루프백 호스트만 받는다(인증 없는 시리얼을 LAN 에 열지 않고, 뒤에 어떤 장치가 있는지 식별할 수 없기 때문. 운영자 허용 목록 `safety.ports.remote_serial_hosts` 는 아직 구현하지 않았다).
   시뮬레이터는 루프백에만 바인드하고, 루프백이 아닌 주소는 `--allow-lan` 이 있을 때만 stderr 경고와 함께 연다. PWEH MCP 서버는 네이티브 Windows·Cygwin·MSYS 에서 시작하지 않는다(PID 생존 확인·프로세스 그룹 종료·점유 검사가 안전하게 동작하지 않음).
   - sigrok 디코드는 sigrok-cli 를 띄우기 직전에 오프라인 명령인지 다시 확인한다.

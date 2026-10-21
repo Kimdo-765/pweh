@@ -10,9 +10,9 @@
 | 모듈 (제안 위치) | 역할 | 지금 상태 |
 |---|---|---|
 | `src/pweh/hostenv.py` | 실행 환경 감지(WSL1/WSL2/리눅스/macOS/Windows/컨테이너, interop·네트워킹 모드·usbipd), 장치 종류별 경로 추천 | I4(P0) 구현. `pweh env`·doctor·`pipeline_environment`·esp가 사용 — §2 |
-| `src/pweh/ports.py`, `portidentity.py`, `serialtransport.py`, `data/usb-ids.yaml` | 포트 문법·불변 route·열거·식별·전체 USB 범위, open 전 검증과 TIOCEXCL transport | P1: 기존 UART/JTAGulator·ESP·sigrok 직렬 conn에 적용. WSL2 COM helper는 P2, 일반 libusb는 P3 후속 |
+| `src/pweh/ports.py`, `portidentity.py`, `serialtransport.py`, `data/usb-ids.yaml` | 포트 문법·불변 route·열거·식별·전체 USB 범위, open 전 검증과 TIOCEXCL transport | P1: 기존 UART/JTAGulator·ESP·sigrok 직렬 conn에 적용. WSL COM helper도 P2에 연결. 일반 libusb는 P3 후속 |
 | `src/pweh/wininterop.py` | interop 실행 허용 목록, `wslpath -w` 변환과 Windows 경로 검사(끝의 '.'·공백), Win32 프로세스 조회·종료·고아 처리, 자식 환경 정리, ACP 디코딩 스트리밍 실행 | 이 이름의 공용 모듈은 없음. 관련 기능은 hostenv와 esp-mcp(`ports.py`, `winproc.py`, `esptool_cli.py`)에 있음 |
-| `src/pweh/winserial/` + `pweh-serial-helper.exe` | WSL 에서 Windows COM 포트 사용: stdio 프레임 프로토콜 헬퍼(정수 COM1–COM4096 만, 소켓 없음, sha256 고정) + `HelperSerial(serial.SerialBase)`. `pweh.ports.open_serial` 이 직접 만든다(pyserial URL 처리기 등록 없음) | 없음 — §2 |
+| `src/pweh/winserial/` + `pweh-serial-helper.exe` | WSL 에서 Windows COM 포트 사용: stdio 프레임 프로토콜 헬퍼(정수 COM1–COM4096 만, 소켓 없음, sha256 고정) + `HelperSerial(serial.SerialBase)`. `pweh.ports.open_serial` 이 직접 만든다(pyserial URL 처리기 등록 없음) | P2 구현 — §2, 실기 관문 별도 |
 | `src/pweh/portlock.py` | OS 객체 키의 open 전 lease와 target/bridge 표지. I5 instrument/auxiliary tags와 분리 | P1: 같은 namespace의 abstract 소켓, 미지원 때만 flock. 승인 대기·실제 worker 종료·disconnected close까지 유지. 다른 netns와 비참여 소비자는 범위 밖 |
 | `src/pweh/procutil.py` | 프로세스 신원·생존 확인, pidfd·그룹 종료, 소유자 기록 | 증분 B: 공용 함수 구현, pweh-emu 의 종료·고아 정리에 사용 |
 | `src/pweh/espfmt.py` | ESP 파티션·앱·NVS 해석 | 증분 B: fwtriage 에서 코어로 이동, 기존 경로는 재노출 shim. fwtriage·emu 가 함께 사용 |
@@ -30,16 +30,16 @@
 ## 2. 환경 감지와 물리 연결 라우팅
 
 > 전체 설계(감지 결정 트리, 장치 종류 × 플랫폼 라우팅 표 R1–R18, 현재 코드의 빈틈 G1–G16, 단계·시험·결정 D1–D8)는 [port-routing.md](port-routing.md). 여기에는 다른 문서가 기대는 결론만 둔다.
-> P0 감지와 P1 기존 경로의 통합 라우팅·잠금은 구현됐다. 아래 Windows COM 헬퍼(P2)와 libusb 소비자(P3)는 후속 제안이다. I5의 고정 계측기 거부는 별도 경계다.
+> P0 감지·P1 통합 라우팅과 잠금·P2 Windows COM helper를 구현했다. libusb 소비자(P3)는 후속 제안이다. I5의 고정 계측기 거부는 별도 경계다.
 
-- **검증 기준 환경**: WSL2(interop 켜짐), usbipd 없음. 이런 환경에서 지금 하드웨어에 닿는 경로는 pweh-esp 방법 A(esptool.exe + COMn) 하나다.
+- **검증 기준 환경**: WSL2(interop 켜짐), usbipd 없음. ESP 방법 A(esptool.exe + COMn)와 UART·JTAGulator의 COM helper가 이 경로를 사용한다.
 - **WSL2+interop 의 기본 경로**: 장치는 Windows 에 두고 Windows 쪽 프로세스가 연다.
-  직렬은 `pweh-serial-helper.exe`(stdio 프레임, 소켓 없음), 도구형은 Windows 판 도구(esptool·openocd `tcl port pipe`·sigrok-cli·ffmpeg·rtl_*)다.
+  직렬은 `pweh-serial-helper.exe`(stdio 프레임, 소켓 없음), 도구형은 esptool.exe를 사용한다. Windows OpenOCD·sigrok·ffmpeg·rtl_*는 후속이다.
   usbipd 는 사람이 고르는 대체 경로다(모든 네트워킹 모드에서 세션 동안만 bind, AutoBind 정책 금지, attach 의 `--host-ip` 는 모드별).
 - **감지**(`pweh.hostenv`): 컨테이너를 WSL 보다 먼저 본다. WSL1/2 는 osrelease, 안 되면 `wslinfo --networking-mode`(`wsl1` = WSL1).
   interop 은 WSLInterop 항목 + `/init` + `wslpath` + smoke 로 판정한다(binfmt `status` 는 참고 값). 결과는 `pweh env`·doctor·`pipeline_environment()` 로 보여 준다.
 - **해석**(`pweh.ports`): 에이전트는 OS 이름(`COM3`, `/dev/ttyACM0`)을 넘기고 서버가 `resolve(환경, 참조, 용도)` 로 경로를 고른다.
-  `COM3` 직렬 세션은 WSL1에서 `/dev/ttyS3`(COM1–COM191만), WSL2에서는 P2 helper 전까지 거부한다. ESP는 기존 Windows esptool.exe를 쓴다. COM 문법은 COM1–COM4096(앞자리 0 금지)이다.
+  `COM3` 직렬 세션은 WSL1에서 `/dev/ttyS3`(COM1–COM191만), WSL2와 WSL1 COM192–4096에서는 사용 가능한 interop과 검증된 helper를 사용한다. ESP는 기존 Windows esptool.exe를 쓴다. COM 문법은 COM1–COM4096(앞자리 0 금지)이다.
 - **배타**(`pweh.portlock`, 새 동작): 리눅스는 모든 open 에서 DTR/RTS 를 올리므로 `os.open` 전에 OS 객체 키로 잡는다.
   같은 OS namespace의 참여 서버·작업공간 사이에서 공유하며 승인 대기 동안에도 쥔다. 연 뒤에는 TIOCEXCL을 건다. 다른 netns·Windows 외부 프로세스까지 잠그지는 못한다.
 - **승인 지문**: 열기·연결 동작에 `route{backend, lock_key, device_id}` 를 넣는다. 다른 장치를 같은 이름으로 꽂으면 `approval_mismatch` 다.

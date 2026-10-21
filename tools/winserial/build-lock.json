@@ -1,0 +1,32 @@
+{
+  "artifact": null,
+  "flags": [
+    "-target",
+    "x86_64-windows-gnu",
+    "-std=c11",
+    "-O2",
+    "-fno-builtin",
+    "-fno-stack-protector",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-nostdlib",
+    "-s",
+    "-Wl,--entry,pweh_entry",
+    "-Wl,--dynamicbase",
+    "-Wl,--nxcompat",
+    "-lkernel32"
+  ],
+  "inputs": {
+    "scripts/build_serial_helper.py": "57868045dc36e17960b812d97c7649abf1718b0888e8355e14bde5322fc4a111",
+    "tools/winserial/pweh-serial-helper.c": "c750efb5b93d9df71921bdef471f968050db931830f3ec525b2df1bd97e00446",
+    "tools/winserial/test-native.c": "6bc42c3234d8efd7572a87825f1b8fb7895f5c1246b86210d04cb38941cc9034",
+    "tools/winserial/test-win32.c": "00df4960b2fbe1504092e3832275daec261dec1c5354e8d5684aa54f97711155",
+    "tools/winserial/win32-abi.h": "83705d3697802a1edd95c350736292a33b632ef791a84e92ec7c4bc7ae3c27db"
+  },
+  "schema": "pweh.winserial-build/v1",
+  "zig": {
+    "archive_sha256": "1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026",
+    "version": "0.17.0"
+  }
+}

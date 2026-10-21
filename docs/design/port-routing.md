@@ -1,6 +1,6 @@
 # 설계안: 환경 감지와 물리 연결 라우팅 (COM·USB·libusb·캡처·블록 장치)
 
-> 상태: **P0·P1 구현과 P2–P5 후속 설계**. 현재 동작의 계약은 [architecture.md](../architecture.md)이며, 구현 상태는 §13.2를 따른다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md)(§2 가 이 문서의 요약).
+> 상태: **P0·P1·P2 구현과 P3–P5 후속 설계**. 현재 동작의 계약은 [architecture.md](../architecture.md)이며, 구현 상태는 §13.2를 따른다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md)(§2 가 이 문서의 요약).
 > 이 설계를 쓰는 곳: [game-console-flipper-rf.md](game-console-flipper-rf.md)(Flipper·ChameleonUltra·입력 브리지 COM 포트, SDR·캡처 도구), [sd-forensics.md](sd-forensics.md)(블록 장치는 사람 단계 — §9 R18), [esp32-instrument.md](esp32-instrument.md)(계측기 COM 포트·식별 고정·역할 표지).
 > 범위: COM·USB 직렬, libusb 장치, 영상 캡처, 블록 장치를 WSL2·WSL1·네이티브 Linux·macOS·네이티브 Windows 에서 감지·식별·열기·잠그는 방법.
 > 근거: 개발 환경 의 읽기 전용 probe(2026-10-19), 저장소 코드(`파일:줄`, **2026-10-19 22:52 기준** — 직전에 들어온 uart `validate_port` 변경 반영),
@@ -8,7 +8,7 @@
 > 초안을 두 관점(코드·계약 일관성 27건, 플랫폼 사실 29건)으로 적대적 검증했고, 부분 수정·반박 27건과 누락 6건을 반영했다.
 > 신뢰도: [높음] 출처 원문·실측, [중간] 간접 근거·추론, [미확인] 확인 안 함. 포트·USB 장치·디스크는 하나도 열지 않았다(직접 만든 pty·abstract 소켓만).
 > 도구별 바이너리·라이선스·sha256·설치 구성요소 표는 조사 노트에 있고 저장소에는 아직 없다(§13.4: `docs/references/` 로 옮김).
-> 과거 코드 조사와 이후 설계를 함께 보존한 문서다. 새 `safety.ports.*` 키는 미승인 제안이다. P1은 기존 직렬·esptool 경로에 공용 portlock을 적용했으며, Windows COM 헬퍼는 P2 후속이다. I5의 고정 계측기 거부와 일반 포트 역할 표지는 별개다.
+> 과거 코드 조사와 이후 설계를 함께 보존한 문서다. 새 `safety.ports.*` 키는 미승인 제안이다. P1은 기존 직렬·esptool 경로에 공용 portlock을 적용했으며, Windows COM helper는 P2에 구현했다. 이 문서의 과거 조사·초안보다 §5.2·§13.2의 구현 상태가 우선한다. I5의 고정 계측기 거부와 일반 포트 역할 표지는 별개다.
 
 ## 1. 요약과 원칙
 
@@ -198,7 +198,7 @@ override 규칙:
 [-- ] env:networking          bridged (deprecated) — PWEH 는 리스너를 만들지 않음. 0.0.0.0 리스너: <포트 목록>
 [-- ] env:usbipd              없음 (선택). 쓰려면 attach --host-ip <Windows LAN IP>, 세션 동안만 bind — usbip.exe(usbip-win2)는 무시
 [OK ] serial:backend          pyserial 3.5 posix, 가짜 /dev/ttyS* 8개 숨김, Windows COM 0개
-route:serial    Windows COM(헬퍼) [P2]          대체: PowerShell(설정) / usbipd → /dev/ttyACM*
+route:serial    Windows COM(helper) [현행]      대체: usbipd → /dev/ttyACM*
 route:esptool   esptool.exe COMn (방법 A) [현행]  대체: usbipd → Linux esptool
 route:openocd   usbipd + Linux openocd [현행 유일, 사람 단계]   목표: openocd.exe + tcl port pipe [P3]
 route:sigrok    usbipd + Linux sigrok-cli [현행 유일]          목표: sigrok-cli.exe [P3]
@@ -219,7 +219,7 @@ route:sdr/video 서버 없음 [P4]                    route:block  사람 이미
 
 | 형식 | 예 | 정규화·검사 | 받는 곳 |
 |---|---|---|---|
-| Windows COM | `COM3`, `com12` | 대문자 `COM<n>`. `COM[1-9][0-9]{0,3}` 이고 n ≤ 4096, 앞자리 0 금지(COM 이름 DB 의 최대 크기 `COMDB_MAX_PORTS_ARBITRATED`=4096. `\\.\COMn` 형식은 모든 번호에 통함 — CreateFileW 문서) | WSL2+interop(헬퍼), WSL1(n ≤ 191 만 — lxcore 는 `ttyS1`–`ttyS191` 만 COM 에 대응. 192 이상은 분명한 메시지로 거부) |
+| Windows COM | `COM3`, `com12` | 대문자 `COM<n>`. `COM[1-9][0-9]{0,3}` 이고 n ≤ 4096, 앞자리 0 금지(COM 이름 DB 의 최대 크기 `COMDB_MAX_PORTS_ARBITRATED`=4096. `\\.\COMn` 형식은 모든 번호에 통함 — CreateFileW 문서) | WSL2+interop(헬퍼), WSL1(n ≤ 191은 ttyS, n ≥ 192는 interop helper) |
 | 리눅스 tty | `/dev/ttyUSB0`, `/dev/ttyACM1`, `/dev/serial/by-id/usb-…-if00`, `/dev/serial/by-path/…`, `/dev/ttyS<n>` | 절대 경로의 문자 장치(uart 는 이미 검사 — `uart_mcp/session.py:290-298`)이고 realpath 가 `/dev` 아래(esp 선례 `esp_mcp/ports.py:80-89`) | 리눅스, WSL(usbipd 후), WSL1(ttyS) |
 | pty | `/dev/pts/7` | 그대로 | 시뮬레이터·시험 |
 | macOS | `/dev/cu.usbmodem1101` | `tty.*` 는 `cu.*` 를 쓰라는 안내와 함께 거부한다(아래) | macOS (P5) |
@@ -243,7 +243,7 @@ route:sdr/video 서버 없음 [P4]                    route:block  사람 이미
 
 | 참조 | WSL2_INTEROP | WSL2_NO_INTEROP | WSL1 | NATIVE_LINUX | MACOS |
 |---|---|---|---|---|---|
-| `COMn` + serial-session | `win-helper` (대체 `win-powershell`) | 거부 + usbipd 안내 | `posix-tty` `/dev/ttyS<n>`(n ≤ 191, 대체 `win-helper`) | 거부 | 거부 |
+| `COMn` + serial-session | `win-helper` | 거부 + usbipd 안내 | `posix-tty` `/dev/ttyS<n>`(n ≤ 191); n ≥ 192는 interop helper | 거부 | 거부 |
 | `COMn` + esptool | `win-exe` esptool.exe (현행) | 거부 | `win-exe` | 거부 | 거부 |
 | `COMn` + sigrok-serial | `win-exe` sigrok-cli.exe `conn=COMn` (P3) | 거부 | `win-exe` (P3) | 거부 | 거부 |
 | `/dev/…` (tty·by-id·pty) | `posix-tty` (usbipd 로 붙은 것만 있다) | `posix-tty` | `posix-tty` | `posix-tty` | `posix-tty` (`cu.*`) |
@@ -256,7 +256,7 @@ route:sdr/video 서버 없음 [P4]                    route:block  사람 이미
 ### 4.3 `PortRoute` — 결과·감사·승인 지문에 보인다
 
 ```json
-{"ref": "COM5", "backend": "win-helper", "side": "windows", "device_path": "\\\\.\\COM5", "lock_key": "win:COM5",
+{"ref": "COM5", "backend": "win-helper", "side": "windows", "device_path": "COM5", "lock_key": "win:COM5",
  "device_id": "win-pnp:USB\\VID_0483&PID_5740\\FLIP_ABCD/MI_00",
  "identity": {"vid": "0x0483", "pid": "0x5740", "serial": "flip_Abcd", "strength": "serial", "service": "usbser",
               "instance_id": "USB\\VID_0483&PID_5740&MI_00\\…", "parent_instance_id": "USB\\VID_0483&PID_5740\\FLIP_ABCD",
@@ -264,7 +264,7 @@ route:sdr/video 서버 없음 [P4]                    route:block  사람 이미
  "reset_risk": "possible", "warnings": []}
 ```
 
-- `backend`: `posix-tty` | `win-helper` | `win-powershell` | `win-exe` | `net-url` | `loop` (`win32-native` 는 이식 전까지 쓰지 않는다). `side`: `local` | `windows` | `remote`.
+- `backend`: `posix-tty` | `win-helper` | `win-exe` | `net-url` | `loop` (`win32-native` 는 이식 전까지 쓰지 않는다). `side`: `local` | `windows` | `remote`.
 - `lock_key` 는 **OS 객체**에서만 나온다(§6.2). `device_id` 는 OS 가 보고한 식별(§4.4)의 원문이고, 강도 판정·중복 검사 결과는 넣지 않는다. `strength` 는 표시와 역할 판단에만 쓴다.
 - **결과에 보인다.** `*_list_ports` 는 포트마다, `uart_open`·`jtagulator_connect`·`esp_*` 는 `route` 로, `uart_sessions` 는 세션마다 보여 준다. 감사 이벤트에도 `route` 를 기록한다.
 - **승인 지문에 들어간다(열기·연결 동작만).**
@@ -349,60 +349,64 @@ resolve(ref)                                  # 열지 않음. stat(realpath).st
   - 남는 위험: 서버가 TIOCNXCL 전에 죽고 다른 프로세스가 그 tty 를 쥐고 있으면 플래그가 남는다. 실제 USB 어댑터는 보통 다른 보유자가 없어 마지막 close 에 함께 사라진다. 남았을 때의 오류는 `busy` + "포트를 쥔 프로세스를 끝내거나 장치를 다시 꽂으라"는 안내다.
 - pyserial 은 TIOCEXCL 을 쓰지 않는다. 그래서 PWEH 의 `open_serial` 이 직접 걸고 `close` 가 직접 푼다.
 
-### 5.2 `win-helper` — `pweh-serial-helper.exe`
+### 5.2 `win-helper` — P2 구현 계약
 
-**하는 일:** WSL 서버가 interop 으로 띄우는 Windows 프로세스다. COM 포트 하나를 열어 stdin/stdout 프레임으로 바이트만 나른다.
-소스는 저장소 `tools/winserial/pweh-serial-helper.c`(C 하나)다. `zig cc -target x86_64-windows-gnu -O2` 로 만든다(install.sh 가 이미 zig 를 고정 설치 — `scripts/install.sh:47,554-562`).
+WSL의 UART·JTAGulator는 `pweh.winserial.HelperSerial(serial.SerialBase)`를 통해 Windows COM 하나를 연다.
+WSL2·버전 미확정 WSL은 사용 가능한 interop이 필요하다. WSL1 COM1–191은 기존 `/dev/ttyS<n>`에 고정하고,
+그 tty가 없어도 helper로 대체하지 않는다. WSL1 COM192–4096은 interop이 있으면 helper를 쓴다.
+`route.device_path`는 `COMn`이며 C helper만 정수 번호로 `\\.\COM<n>`을 조립한다.
+네이티브 Windows MCP·Windows sigrok COM·자동 재연결은 이 범위에 없다.
 
-보안 요구 — 모두 시험한다(§14).
+- `tools/winserial/`의 C 소스는 고정 Zig로 빌드한다. 소스 커밋 S를 HELLO에 넣고, 별도 로컬·전역 캐시로 두 번 빌드한
+  최종 PE가 같을 때 산출물 커밋 R의 pin·SHA256SUMS·build-lock을 함께 갱신한다. 유지보수 빌드는 `scripts/build_serial_helper.py`이다.
+- `scripts/install.sh --only winserial`은 사전 빌드를 검증·복사만 한다. 다운로드·컴파일·Windows 실행을 하지 않는다.
+  설치 경로는 `<tools>/winserial/pweh-serial-helper.exe`, 경로 설정은 `tools.serial_helper` 또는 `PWEH_SERIAL_HELPER`이다.
+- 경로 후보는 config→env→관리 위치이며, 명시한 경로가 잘못돼도 다음 후보로 넘어가지 않는다.
+  신뢰값은 Python 모듈 상수뿐이다. 매 실행은 단일 fd로 읽은 bounded bytes의 해시를 확인한 소유 사본을 쓴다.
+  파일 이름·mtime 캐시나 설정의 해시를 신뢰하지 않는다. HELLO의 버전·소스 커밋도 대조한다.
+- `hostenv.disable`의 interop·serial_helper·windows_tools 중 하나라도 있으면 새 helper 실행을 막는다.
+  이미 시작한 프로세스의 종료는 이 설정과 관계없이 확인한다. `pipeline_environment`는 파일 존재만 보고하고
+  `trusted=null, trust_check="pre-execution"`을 반환한다. doctor는 검증된 파일의 포트 없는 version 모드만 실행한다.
+- 포트 lease와 승인·route/계측기 guard는 Python 소비자가 소유한다. helper 실행 직전과 OPEN 직전에 다시 검사한다.
+  게이트가 거부하면 COM OPEN·DATA는 없다. COM은 공유 모드0, overlapped로 열고 첫 DCB에 요청 DTR/RTS·framing을 설정한다.
+  실제 드라이버의 두 번째 open 거부와 최초 DTR/RTS pulse는 실기 관문으로 남긴다.
 
-| 요구 | 구현·검사 |
-|---|---|
-| COMn 만 연다 | Python 과 exe 양쪽에서 `COM[1-9][0-9]{0,3}`, n ≤ 4096 을 검사한다. 경로 문자열을 받지 않고 **정수로 `\\.\COM<n>` 을 만든다**. 그래서 `\\.\PhysicalDrive0`, `\\.\pipe\…`, `\\?\…`, 파일 이름은 표현 자체가 불가능하다. 연 핸들의 `GetFileType` 이 `FILE_TYPE_CHAR` 가 아니거나 `GetCommState` 가 실패하면 닫고 오류를 낸다 |
-| 배타로 연다 | `CreateFileW(…, GENERIC_READ\|GENERIC_WRITE, 0 /*공유 모드 0*/, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL)`. 공유 모드 0 은 통신 자원을 여는 쪽의 **요구 사항**이다([CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)). 두 번째 열기를 막는 것은 **드라이버·장치 스택의 성질**이다. I/O 관리자가 배타를 강제하는 것은 장치 객체에 INF 의 Exclusive 속성이 있을 때뿐이다(MS Learn "Specifying Exclusive Access to Device Objects"). serial.sys 와 주요 VCP 드라이버는 막는다. 개발 환경 의 Ports 클래스 키와 inbox `usbser.inf`·`msports.inf` 에는 Exclusive 값이 없어 usbser 는 [미확인]이다 → 드라이버별 두 번째 열기 시험(§15). 두 번째 열기가 성공하는 드라이버면 Windows 쪽 보유자는 Win32_Process 검사(헬퍼 `--token`, esptool.exe)로만 보인다고 결과에 표시한다 |
-| 네트워크 없음 | winsock 을 링크하지 않는다. 빌드 산출물의 **PE import 표**가 허용 목록(`KERNEL32.dll` + CRT)에만 있어야 하고 `WS2_32`·`WSOCK32`·`WININET`·`WINHTTP`·`ADVAPI32`·`SHELL32` 는 없어야 한다(정적 검사, 하드웨어 불필요) |
-| 명령 모드 없음 | DATA 프레임 내용은 COM 으로만 간다. 제어 프레임은 Python transport 코드만 만든다(세션 API 에 원시 프레임 쓰기가 없음) |
-| 시작할 때 아무것도 보내지 않음 | HELLO 만 stdout 으로 보낸다. COM 에는 OPEN 뒤 DATA 가 올 때까지 한 바이트도 쓰지 않는다 |
-| 스스로 끝남 | stdin EOF 또는 QUIT 이면 핸들을 닫고 종료한다. 단일 프로세스이고 자식이 없다. PyInstaller onefile 고아 문제(`esp_mcp/winproc.py:3-7`)가 생기지 않는다. 서버가 SIGKILL 로 죽어도 파이프가 닫혀 헬퍼가 끝나고 COM 이 풀린다(실기 확인 §15) |
-| 파일·레지스트리·프로세스 생성 없음 | stderr 에는 짧은 ASCII 진단만 쓴다. argv 는 `--port COMn --token <hex>` 다(Windows 프로세스 목록에서 고아를 찾는 표식, esp `windows_tokens` 선례) |
-| 무결성 | Python 이 처음 실행하기 전에 sha256 을 **모듈 상수** `PINNED_SHA256` 과 대조한다((경로, mtime, 크기)로 캐시). 상수는 저장소의 `tools/winserial/SHA256SUMS` 에서 만든다. 다르면 `helper_untrusted` 로 거부한다. 설정 `tools.serial_helper`(`${PWEH_SERIAL_HELPER:-}`)는 **경로만** 바꾸고(basename 은 `pweh-serial-helper.exe` 여야 함) 해시를 더할 수 없다. 설정 키나 환경 변수로 핀을 늘리는 길은 없다. 시험은 프로세스 안에서 monkeypatch 한다(§14) |
-| 재현 빌드 | zig 빌드가 비트 단위로 재현되는지는 [미확인]이다. P2 관문에서 깨끗한 디렉터리에 두 번 빌드해 sha256 을 비교한다. 재현되면 install.sh 가 로컬 빌드도 같은 핀으로 받는다. 재현되지 않으면 배포한 사전 빌드만 믿고, 로컬 빌드는 유지보수자가 커밋으로 핀을 바꿀 때만 쓴다(D3) |
-| 실행 모드 | 셋뿐이다. `--port COMn --token <hex>`(일반), `--version`(HELLO 를 찍고 종료 — 실행 가능 확인), `--echo`(COM 을 열지 않고 DATA 를 되돌림 — 장치 없는 파이프 자체 시험). 그 밖의 인자는 거부한다 |
+고정 실행 모드는 `--port COMn --token <32자리 소문자 hex>`, `--version --token <hex>`, `--echo --token <hex>` 셋이다.
+version·echo는 COM 핸들을 만들지 않는다. 모든 모드에 소유 토큰이 있으며 임의 인자·소켓·명령 실행 모드는 없다.
+PE 검증은 범위를 확인한 import 표에서 허용한 kernel32 함수만 받으며 네트워크·셸·레지스트리·자식 실행·동적 loader를 거부한다.
 
-프레임은 `type(1 B) | len(2 B, LE) | payload(≤16 KiB)` 이다. 바이너리로 안전하다(Win32 `ReadFile`/`WriteFile` 을 표준 핸들에 바로 쓰므로 CRT 텍스트 모드의 CRLF 문제가 없다).
+프레임은 `type:u8 | length:u16LE | payload`이며 payload 상한은 16384바이트다. Python과 C가 방향·정확한 길이·예약값을
+따로 검사한다. 오류 뒤 임의 바이트로 재동기화하지 않는다. 요청 ID는 0보다 크고 단조 증가한다.
+일반 요청은 한 개만 pending이며 QUIT만 그 요청을 중단하기 위해 두 번째로 보낼 수 있다.
 
-| 방향 | type | 내용 |
+| 방향 | 형식·payload 길이 | 의미 |
 |---|---|---|
-| 헬퍼→ | `H` | HELLO: 프로토콜 버전, 헬퍼 버전, 빌드 id. 시작 직후 한 번 |
-| →헬퍼 | `O` | OPEN: baud(u32), 데이터 비트, 패리티, 정지 비트, `dtr`, `rts`. `CreateFileW` → `GetCommState` → DCB 설정(`fBinary=1`, 흐름 제어 전부 끔, `fDtrControl`/`fRtsControl` = 요청값) → `SetCommState` → `SetCommTimeouts` → `PurgeComm` 순서. **DTR/RTS 는 CreateFile 직후 첫 DCB 에서 정한다** |
-| 헬퍼→ | `o` | OPEN 결과: 상태, Win32 오류 코드, 모뎀 선(CTS/DSR/RI/DCD) |
-| 양방향 | `D` | 데이터 |
-| →헬퍼 | `B` / `L` / `K` / `P` | 보드레이트·프레이밍 변경 / DTR·RTS 설정(유지값 0xFF) / BREAK(ms) / 버퍼 비우기 |
-| 헬퍼→ | `A` | `B`/`L`/`K`/`P` 응답 |
-| →헬퍼 | `S` | 상태 요청 |
-| 헬퍼→ | `s` | 상태(모뎀 선, `ClearCommError` 플래그, 큐 크기) |
-| 헬퍼→ | `E` | 오류: `access_denied`(다른 프로그램 점유) / `not_found` / `device_removed` / `io_error` / `bad_frame` / `unsupported` + Win32 코드 |
-| →헬퍼 | `Q` | 종료 |
+| helper→ | H 32 | 프로토콜1.0·helper0.1.0·모드·소스 S 20바이트·payload 상한·예약값 |
+| host→ | O 14 / B 12 | 요청ID·baud·data bits·parity·stop bits; O는 DTR/RTS 추가 |
+| host→ | L 6 / K 9 / P 9 | 요청ID·선로값 / BREAK 상태·시간 / 버퍼 작업·제한시간 |
+| host→ | D 9–16384 | 요청ID:u32·제한시간ms:u32·데이터1–16376바이트 |
+| helper→ | D 5–16384 | RX epoch:u32·데이터1–16380바이트 |
+| host→ | S 4 / Q 4 | 요청ID·상태 요청 / 종료 요청 |
+| helper→ | o 14 / A 22 / s 22 / E 14 | OPEN 결과 / 성공 응답 / 상태 / 실패 |
 
-Python 쪽은 `pweh.winserial.HelperSerial(serial.SerialBase)` 다.
-- uart 세션과 jtagulator 드라이버가 쓰는 부분 집합을 구현한다: `open`·`close`·`read`·`write`·`in_waiting`·`reset_input_buffer`·`flush`·`cancel_read`, `dtr`·`rts`·`break_condition`·`send_break` 속성, `baudrate` 설정.
-- `fileno()` 는 예외를 낸다. 그러면 jtagulator 는 이미 있는 `in_waiting` 폴링으로 내려가고(`jtagulator_mcp/driver.py:164-179`), uart 는 원래 폴링이다.
-- 시간 제한: HELLO 5 s, OPEN 응답 5 s. 넘으면 `helper_unavailable` 이다.
-- 오류는 세션 상태로 바꾼다. `device_removed`·파이프 끊김은 `disconnected` 다. `access_denied` 는 `busy` 이고, 힌트로 PuTTY·Arduino IDE 를 닫으라고 하고 남은 esptool.exe 를 `winproc` 로 확인해 PID 를 보여 준다.
-- 처리량: interop stdout 파이프는 ≈928 MiB/s 로 측정됐다 [중간 — 합성 1회]. 직렬 속도에는 병목이 아니다.
+RX epoch는 1에서 시작하며 입력 버퍼 reset 때 증가한다. reset 완료 응답은 이전 epoch의 데이터를 넘기지 않는 barrier이다.
+DATA 완료 전에는 A를 보내지 않는다. echo도 D→A 순서다. heartbeat·자동 재시도·자동 재연결은 없다.
 
-### 5.3 `win-powershell` — 대체 경로 (기본 꺼짐, D3)
+C의 익명 stdio pipe는 동기 I/O이며 bounded reader/writer와 COM coordinator를 분리한다.
+`CancelIoEx`·`CancelSynchronousIo`의 반환만으로 종료됐다고 보지 않고 실제 completion을 확인한 뒤 버퍼·핸들을 정리한다.
+QUIT는 pending 요청을 한 번 취소하고 COM 작업 완료·BREAK 해제·CloseHandle 뒤 Q 성공 응답과 EOF로 끝난다.
+정상 Python close는 Q 응답·EOF·WSL 자식 종료를 모두 확인한다. 비정상 종료는 사본 경로·토큰·생성 시각이 일치하는
+Windows 프로세스를 확인하고, 같은 OpenProcess 핸들로 생성 시각 검증→TerminateProcess→종료 대기를 한다.
+PID만으로 kill하지 않는다. 정리를 증명하지 못하면 사본·orphan registry·포트 lease를 보존한다.
 
-- 헬퍼가 없을 때, 실기 관문에 실패했을 때, 서명 없는 exe 를 막는 Smart App Control 이 켜진 PC 에서 쓴다. powershell.exe 는 MS 서명이고 헬퍼는 서명이 없다.
-  SAC 정책 예제는 `Disabled:Script Enforcement` 라 .NET `SerialPort` 를 쓰는 데 지장이 없을 것으로 본다 [중간].
-- 실행 방식:
-  - `powershell.exe -NoProfile -NonInteractive -EncodedCommand <고정 스크립트>` 로 띄운다.
-  - 스크립트는 `src/pweh/winserial/relay.ps1` 에 박아 둔다. 정수 인자(COM 번호, baud, 비트)만 검증한 뒤 틀에 넣는다.
-  - 같은 프레임 프로토콜을 쓴다(데이터는 `[Console]::OpenStandardInput()`/`OpenStandardOutput()`).
-- 주의할 점:
-  - .NET `SerialPort.DtrEnable` 의 기본값은 **false** 다 [높음 — MS Learn]. Flipper 는 `DtrEnable=$true` 를 명시한다.
-  - 시작에 0.3–1 s 걸린다.
-  - 프로토콜 구현이 둘이 되어 시험할 범위가 늘어난다. 그래서 기본값은 꺼 둔다.
+`HelperSerial`은 세션이 쓰는 read/write·in_waiting·flush·buffer reset·cancel_read·DTR/RTS·BREAK·baud/framing을 제공한다.
+`fileno()`는 지원하지 않으며 JTAGulator는 기존 폴링으로 동작한다. `is_open=false`만으로 cleanup 성공으로 판정하지 않는다.
+
+### 5.3 PowerShell 직렬 relay — 미구현
+
+초안의 `win-powershell` fallback은 이번 P2에서 제외했다. 별도 설정 키도 없다.
+helper를 쓸 수 없으면 원인을 보고하고 사람이 usbipd/Linux tty 경로를 선택한다.
+고정 PowerShell 프로세스 신원·PnP 조회는 직렬 relay와 별개의 읽기/종료 관리 경로다.
 
 ### 5.4 `win-exe` — Windows 판 도구 (esptool.exe, openocd.exe, sigrok-cli.exe, ffmpeg.exe, rtl_*.exe)
 
@@ -446,7 +450,7 @@ flock 은 open 이 끝난 뒤에야 거절하므로, 남이 쓰는 포트를 열
 |---|---|
 | `posix-tty` (리눅스·WSL usbipd 후·macOS·pty) | `tty:<major>:<minor>` — `os.stat(realpath).st_rdev`. stat 은 장치를 열지 않는다. by-id·by-path·`/dev/ttyACM0` 같은 별명과 다른 마운트 이름 공간이 모두 같은 키가 된다 |
 | WSL1 `/dev/ttyS<n>` | `win:COM<n>` — 헬퍼 경로와 같은 Windows 객체다 |
-| `win-helper`·`win-powershell`·`win-exe`(esptool, sigrok `conn=COMn`) | `win:COM<n>` (정규화한 대문자) |
+| `win-helper`·`win-exe`(esptool, sigrok `conn=COMn`) | `win:COM<n>` (정규화한 대문자) |
 | `net-url` | `url:<scheme>://<소문자 host>:<port>` |
 | `loop` | 잠그지 않는다(프로세스 안 객체) |
 | (P3) libusb 인터페이스 | Windows `winif:<인터페이스 PnP 인스턴스 id>`, 리눅스 `usbif:<bus>-<port path>:<cfg>.<if>` |
@@ -530,7 +534,7 @@ flock 은 open 이 끝난 뒤에야 거절하므로, 남이 쓰는 포트를 열
 | `posix-tty` (리눅스) | 커널이 **모든** open 에서(남이 연 포트를 다시 열 때도) DTR·RTS 를 올린다. pyserial 은 요청값을 DTR → RTS 순서로 적용한다. 그래서 `dtr=rts=False` 여도 짧은 펄스와 "RTS 만 켜진" 순간이 생긴다 | [높음] tty_port.c, `serialposix.py:335-338` |
 | `posix-tty` (macOS) | **첫 open** 에서 DTR·RTS 를 올린다. `IOSerialBSDClient` 의 `initSession` 이 DTR 이 최근에 내려갔으면 `kDTRDownDelay`(2 s)를 기다린 뒤 `RTS\|DTR` 을 켠다. 앱이 내리기 전이다 → 리눅스와 같은 리셋 배선 위험. 활성 세션을 비배타로 다시 여는 것은 선을 다시 올리지 않는다(리눅스와 다름) | [높음 — 소스 `IOSerialBSDClient.cpp` ~2040-2066·~2400-2408 / DriverKit 직렬 드라이버는 중간] |
 | `win-helper` | CreateFile 직후 첫 `SetCommState` 에서 `fDtrControl`/`fRtsControl` 을 정한다. usbser·벤더 VCP 드라이버가 CreateFile 때 스스로 선을 바꾸는지는 모른다 | [미확인] 드라이버 동작 |
-| `win-powershell` | .NET `DtrEnable`·`RtsEnable` 의 기본값은 false 다 | [높음] MS Learn |
+| PowerShell relay (미구현) | .NET `DtrEnable`·`RtsEnable`의 기본값은 false다 | 과거 조사, 현재 경로 아님 |
 | `win-exe` esptool | esptool 의 `--before`/`--after` 가 다룬다(현행) | [높음] |
 
 장치(식별 표 역할)별 정책:
@@ -723,7 +727,7 @@ Windows 쪽 MCP 클라이언트는 사람이 설정한 `wsl.exe -d <배포판> -
 > **I5 1a 추가**: `pweh.portidentity`와 `pweh.instrument_guard`가 고정 계측기 식별·거부 규칙을 기존 4개 서버에 적용한다. `pweh-espprobe` 자체는 `sim://probe-hello`만 지원한다.
 >
 > **P1 구현**: 불변 route·식별·승인 지문, open 전 공용 lease, POSIX TIOCEXCL/TIOCNXCL, one-open baud, target/bridge 표지를 UART·JTAGulator·ESP·sigrok 명시 직렬 conn에 연결했다.
-> 확인된 WSL1 COM1–191/ttyS 대응을 지원하지만 WSL2 COM 세션은 P2, sigrok COM과 일반 libusb 소비자는 P3 후속이다. whole-device reset은 두 번의 bounded PnP/sysfs 형제 관찰이 완전할 때만 실행한다.
+> 확인된 WSL1 COM1–191/ttyS 대응을 지원한다. WSL COM helper는 아래 P2에 추가됐고 sigrok COM과 일반 libusb 소비자는 P3 후속이다. whole-device reset은 두 번의 bounded PnP/sysfs 형제 관찰이 완전할 때만 실행한다.
 > lease는 실제 worker/핸들 종료까지 유지하며 orphan 종료 미확인 시 보존한다. ESP/sigrok CLI는 공용 procutil 신원·WNOWAIT/그룹 부재 확인을 사용하고, 기존 emu/OpenOCD 종료 의미는 바꾸지 않았다.
 > 검증은 합성 identity·sysfs/PnP graph·가짜 CLI·자체 PTY/프로세스다. 실제 USB 재열거·Windows 질의 시간·DTR/RTS 전기 변화·WSL1 동작은 검증하지 않았다.
 
@@ -731,14 +735,14 @@ Windows 쪽 MCP 클라이언트는 사람이 설정한 `wsl.exe -d <배포판> -
 |---|---|---|
 | **P0** 감지·안전 정리 (동작 변화 최소) | `pweh.hostenv` + `pweh env` + doctor 환경 절(가짜 ttyS 숨김 — esp 규칙, WSL1/2 구분, 모드별 usbipd 힌트, esptool.exe 해석 통일, COM 별 `Service`, brltty·AutoBind·UAC 경고). `pipeline_environment()`(pweh-case). socket·rfc2217 루프백 검사(uart·jtagulator, D4 — 스킴 허용 목록은 uart 에 이미 있음). uart `_WIN_COM_RE` 에 상한 4096. win32·cygwin·msys 시작 거부와 코어 `procutil.pid_alive`(Windows 에서는 `os.kill(pid,0)` 금지)(G9). WSL 감지 통일(G6)·`/mnt/c` 제거(G7). 시뮬레이터 `--host`·`--tcp` 루프백 강제(G13) | 기존 시험 통과(§13.3 의 바뀌는 단정 제외). hostenv 주입 시험. URL·COM 문법 시험 |
 | **P1** 식별·portlock·TIOCEXCL (기존 경로 위에) | `pweh.ports`(문법·해석·열거·식별 표 `usb-ids.yaml`)와 `pweh.portlock`(OS 객체 키, abstract 이름, 장치 전체 동작, 역할 표지, 승인 대기 의미)을 uart(open·detect_baud)·jtagulator(connect)·esp(esptool 실행 전)·sigrok(직렬 conn)에 적용한다. 열기 순서 §5.1, TIOCEXCL/TIOCNXCL. `uart_detect_baud` 를 한 번만 열게 바꾼다. 결과에 `route`·`device_id`·`held_by` 를 추가하고, 열기·연결 지문에 `route` 를 넣는다. ESP/sigrok CLI가 공용 `procutil`의 신원·WNOWAIT·그룹 종료 확인을 사용한다. emu/OpenOCD 의미는 유지한다. 받을 수 없는 경로의 COMn 은 jtagulator·sigrok 에서도 명확한 오류로 바꾼다(G5) | 다중 프로세스 잠금 시험. "거부된 열기는 `os.open` 을 부르지 않는다" 시험. 승인 대기 중 busy·거부 뒤 해제 시험. 기본 sibling provider의 합성 graph/sysfs·worker 수명·교차 서버 경합 시험. 실제 하드웨어는 별도 |
-| **P2** Windows COM 헬퍼 (진행/중단 관문 = 게임 문서 1b) | `tools/winserial` 소스·zig 빌드·`SHA256SUMS`·사전 빌드, 재현 빌드 확인(D3), install.sh `winserial` 구성요소(gate: `wsl_interop`). `pweh.winserial.HelperSerial` + 가짜 헬퍼. PowerShell 대체(기본 꺼짐). uart·jtagulator 가 WSL2 에서 COMn → `win-helper`, WSL1 은 ttyS. 목록 도구가 Windows COM 을 합쳐 보인다 | external: 헬퍼 HELLO·echo 256값·EOF 종료·PE import. hardware: USB-UART 루프백, Flipper DTR → `>: `, 드라이버별 두 번째 열기. 실패하면 PowerShell 대체 또는 usbipd 로 |
+| **P2** Windows COM helper | §5.2의 C·Python transport, 불변 pin, source S→artifact R 재현 빌드, `winserial` 사전 빌드 설치, UART·JTAGulator COM 경로. PowerShell 직렬 relay 미구현 | 합성 protocol/소비자·취소/고아 회귀, PE 검사·독립 재현 빌드, COM 없는 Windows version/echo. 실제 USB-UART·DTR/RTS·드라이버 배타는 별도 실기 관문 |
 | **P3** Windows 판 libusb 도구 | (D7 동의 뒤) openocd.exe dummy + `tcl port pipe` 확인 → openocd-mcp pipe transport(재연결 없음, attach 불가, 준비 줄 변경, `-f/-s`·덤프 경로 `wslpath -w`). sigrok-cli.exe 포터블(7z 해제 + 목록 검증). install.sh Windows 구성요소. doctor 가 USB 장치마다 Windows `Service`(WINUSB/FTDIBUS/usbser)를 보여 Zadig 가 필요한지 안내한다. libusb 인터페이스 portlock 키 | 가짜 openocd 의 pipe 모드 시험, 실제 dummy(external·opt-in) |
 | **P4** SDR·영상 (새 서버) | pweh-sdr, pweh-play 캡처를 같은 wininterop 규칙으로(rtl_sdr 은 파일 출력, ffmpeg `q`·`-an`, 리스너 옵션 거부) | 게임 문서 §8 의 가짜 도구 |
 | **P5** macOS 최선 노력 (요청 시) | §12 최소 목록 | macOS fixture 시험만 |
 
 **어떤 도구가 Windows COM 을 얻나:**
 - pweh-uart: 세션 도구 전부, P2. usbipd 없이 Windows COM 의 USB-UART 어댑터를 쓴다.
-- pweh-jtagulator: `jtagulator_connect` COMn, P2. 현재 지원하지 않는 환경에서는 COM 이름을 거부하며 Windows 백엔드는 없다.
+- pweh-jtagulator: `jtagulator_connect` COMn, P2. WSL에서는 검증된 helper를 사용하며 그 밖의 지원하지 않는 환경에서는 COM 이름을 거부한다.
 - 계획된 pweh-flipper·pweh-nfc(CU)·pweh-play 입력 브리지: 처음부터 헬퍼를 쓴다.
 - pweh-sigrok 직렬형 드라이버: 헬퍼가 아니라 sigrok-cli.exe `conn=COMn`(P3). sigrok-cli 가 로컬 tty 를 직접 열기 때문이다.
 - pweh-esp: esptool.exe 직접(헬퍼 아님). portlock·식별만 공유한다.

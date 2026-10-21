@@ -769,7 +769,7 @@
    },
    {
     "name": "uart_open",
-    "description": "UART 세션 열기 (INTERACT, dtr/rts=true 또는 확인된 reset-wired 경로면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL (루프백 호스트만: socket://127.0.0.1:<포트>, rfc2217://[::1]:<포트> / 테스트용 loop:// — LAN 호스트는 validation_failed). DTR/RTS 는 열기 전에 설정하며 기본 False. line_ending 기본 \"\\r\" (U-Boot 문맥은 항상 \\r). profile 은 pipeline_profiles 이름(생략 시 케이스 프로필) — 프롬프트/autoboot 정규식과 인터럽트 키를 정한다. 승인 전에 공통 포트 잠금을 얻고 실제 open 직전에 경로·기기 신원을 다시 확인한다. 끊어진 세션도 uart_close 까지 잠금을 유지하며, 물리 close 를 확인하지 못하면 잠금을 보존한다. 반환: session_id, route, device_id, log_path/raw_path/events_path(케이스 상대), context, cursor. 세션이 열려 있는 동안 수신 스레드가 계속 기록한다.",
+    "description": "UART 세션 열기 (INTERACT, dtr/rts=true 또는 확인된 reset-wired 경로면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로, WSL interop COMn(helper), 또는 pyserial URL (루프백 호스트만: socket://127.0.0.1:<포트>, rfc2217://[::1]:<포트> / 테스트용 loop:// — LAN 호스트는 validation_failed). DTR/RTS 는 열기 전에 설정하며 기본 False. line_ending 기본 \"\\r\" (U-Boot 문맥은 항상 \\r). profile 은 pipeline_profiles 이름(생략 시 케이스 프로필) — 프롬프트/autoboot 정규식과 인터럽트 키를 정한다. 승인 전에 공통 포트 잠금을 얻고 실제 open 직전에 경로·기기 신원을 다시 확인한다. 끊어진 세션도 uart_close 까지 잠금을 유지하며, 물리 close 를 확인하지 못하면 잠금을 보존한다. 반환: session_id, route, device_id, log_path/raw_path/events_path(케이스 상대), context, cursor. 세션이 열려 있는 동안 수신 스레드가 계속 기록한다.",
     "params": [
      {
       "name": "case_id",
@@ -3073,7 +3073,7 @@
   "tools": [
    {
     "name": "jtagulator_connect",
-    "description": "JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 루프백 pyserial URL(socket://127.0.0.1:<포트> — LAN 호스트는 validation_failed). 포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽는다. 영속 모드(OpenOCD/로직 분석기)였다면 빠져나오며 경고한다. 연결할 때마다 서버의 전압 상태는 '미설정'으로 초기화된다. 확인된 reset-wired 경로의 새 open은 MODIFY이며 approval_required면 사람이 승인한 뒤 approval_id로 재시도한다. 공통 포트 잠금과 fresh route 검증을 적용하며 target 으로 표시된 포트는 거부한다. 연결 끊김만으로 잠금을 해제하지 않고 disconnect 에서 물리 close 를 확인한다. 세션 원시 기록은 jtag/jtagulator-<n>.log. 지원 펌웨어 1.10–1.12.",
+    "description": "JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0), WSL interop COMn(helper), 또는 루프백 pyserial URL(socket://127.0.0.1:<포트> — LAN 호스트는 validation_failed). 포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽는다. 영속 모드(OpenOCD/로직 분석기)였다면 빠져나오며 경고한다. 연결할 때마다 서버의 전압 상태는 '미설정'으로 초기화된다. 확인된 reset-wired 경로의 새 open은 MODIFY이며 approval_required면 사람이 승인한 뒤 approval_id로 재시도한다. 공통 포트 잠금과 fresh route 검증을 적용하며 target 으로 표시된 포트는 거부한다. 연결 끊김만으로 잠금을 해제하지 않고 disconnect 에서 물리 close 를 확인한다. 세션 원시 기록은 jtag/jtagulator-<n>.log. 지원 펌웨어 1.10–1.12.",
     "params": [
      {
       "name": "case_id",

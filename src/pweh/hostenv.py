@@ -591,6 +591,31 @@ def resolve_esptool_win(configured: str | None, env_value: str | None, tools_dir
     return {"present": False, "path": None, "source": None, "problem": None}
 
 
+def resolve_serial_helper(configured: str | None, env_value: str | None, tools_root: Path | None,
+                          probe: Any = None) -> dict[str, Any]:
+    """helper의 정적 위치만 보고한다. 신뢰 판정·해시·Windows 실행·경로 변환은 하지 않는다.
+
+    present는 설치 흔적이다. 실행 전에 winserial.binary가 불변 pin과 파일을 다시 대조한다.
+    명시한 잘못된 경로를 관리 위치로 대체하지 않는다.
+    """
+    from .toolsdir import serial_helper_candidates
+    probe = probe or _default_probe()
+    result = {"present": False, "path": None, "source": None, "problem": None,
+              "trusted": None, "trust_check": "pre-execution"}
+    for path, source in serial_helper_candidates(configured, env_value, tools_root):
+        item = {**result, "path": path, "source": source}
+        if not os.path.isabs(path) or not path.lower().endswith(".exe") or any(ord(c) < 32 for c in path):
+            return {**item, "problem": "COM helper는 WSL에서 보이는 절대 .exe 경로여야 함"}
+        if not probe.exists(path):
+            if source != "pweh-tools":
+                return {**item, "problem": "설정된 COM helper 파일이 없음"}
+            continue
+        if not probe.is_executable(path):
+            return {**item, "problem": "COM helper가 실행 가능한 일반 파일이 아님"}
+        return {**item, "present": True}
+    return result
+
+
 # ---------------------------------------------------------------------------
 # 결정 트리 — 정적 부분 (probe 수명 동안 캐시)
 # ---------------------------------------------------------------------------
@@ -947,8 +972,8 @@ def detect(probe: Any = None, *, refresh: bool = False, smoke: bool = True, conf
     - ``refresh``: 모든 캐시를 버리고 다시 감지한다.
     - ``smoke``: False 면 Windows 쪽 프로그램을 실행하지 않는다(powershell smoke·Windows 정보·usbipd 생략). 신선한 smoke 결과가
       캐시에 있으면 그것을 쓰고, 없으면 smoke 를 뺀 조건(등록 enabled + /init + wslpath)으로 interop 을 판정한다(``smoke: "skipped"``).
-    - ``config``: PwehConfig 또는 설정 dict. ``hostenv.disable`` 과 ``tools.esptool_win`` 을 읽는다. None 이면 PWEH 설정을 찾아
-      ``hostenv.disable`` 만 쓴다(esptool.exe 는 환경 변수·도구 디렉터리 후보만).
+    - ``config``: PwehConfig 또는 설정 dict. ``hostenv.disable`` 과 ``tools.esptool_win/serial_helper`` 를 읽는다. None 이면 PWEH 설정을 찾아
+      ``hostenv.disable`` 만 쓴다(실행 파일은 환경 변수·도구 디렉터리 후보만).
     돌려주는 dict 는 매번 새로 만든 사본이다(고쳐도 캐시에 영향이 없다).
     """
     probe = probe or _default_probe()
@@ -1064,7 +1089,7 @@ def _assemble(probe: Any, cache: _Cache, st: dict[str, Any], *, smoke: bool, dis
         "powershell": powershell_path(probe),
         "usbipd": {"present": None, "path": None, "version": None, "autobind_policies": None, "found_elsewhere": None},
         "ignored": _ignored_clients(probe),
-        "serial_helper": {"present": False},  # P2 에서 생김
+        "serial_helper": {},
         "tools": {},
     }
     # smoke=False 면 캐시에 있는 값만 쓴다(실행하지 않음). 실패한 질의는 NEGATIVE_TTL_S 만 기억한다.
@@ -1096,15 +1121,17 @@ def _assemble(probe: Any, cache: _Cache, st: dict[str, Any], *, smoke: bool, dis
             win["usbipd"]["present"] = False  # C: 를 볼 수 있는데 표준 위치에 없다
         win["usbipd"]["found_elsewhere"] = _usbipd_elsewhere(probe)  # $PATH 에서 찾은 것 — 표시만, 실행하지 않는다
     ev.append(_evidence("H7", "usbipd", win["usbipd"]["path"]))
-    configured = None
+    configured = helper_configured = None
     if explicit:
         tools = raw.get("tools") if isinstance(raw.get("tools"), Mapping) else {}
         configured = str(tools.get("esptool_win") or "").strip() or None
+        helper_configured = str(tools.get("serial_helper") or "").strip() or None
     esp = resolve_esptool_win(configured, probe.env("PWEH_ESPTOOL_WIN"), _tools_dir(probe), probe)
     if "windows_tools" in disable:
         esp["disabled"] = True
     win["tools"]["esptool_win"] = esp
-    if "serial_helper" in disable:
+    win["serial_helper"] = resolve_serial_helper(helper_configured, probe.env("PWEH_SERIAL_HELPER"), _tools_dir(probe), probe)
+    if disable & {"interop", "serial_helper", "windows_tools"}:
         win["serial_helper"]["disabled"] = True
     report["windows"] = win
     report["warnings"] = _warnings(report)
@@ -1441,9 +1468,12 @@ def recommend_routes(report: Mapping[str, Any]) -> list[dict[str, Any]]:
     attach = usbipd_attach(mode)
     esp = (win.get("tools") or {}).get("esptool_win") or {}
     esp_ok = bool(esp.get("present")) and not esp.get("disabled")
-    helper_target = {"route": "Windows COM 을 pweh-serial-helper.exe 가 연다 (win-helper)", "phase": "P2"}
-    if (win.get("serial_helper") or {}).get("disabled"):
-        helper_target = {**helper_target, "disabled": True}
+    helper = win.get("serial_helper") or {}
+    helper_route = "Windows COM 을 pweh-serial-helper.exe 가 연다 (win-helper, usbipd 불필요)"
+    helper_enabled = interop and not helper.get("disabled")
+    helper_now = _now(helper_route, "현행 · 실행 전 pin 검증" if helper.get("present") else "현행 · 설치 필요",
+                      None if helper.get("present") else False,
+                      [] if helper.get("present") else ["scripts/install.sh --only winserial"])
 
     if kind == "WSL1":
         esp_now = (_now("Windows esptool.exe --port COMn (방법 A)", "현행 (최선 노력)", esp_ok,
@@ -1452,10 +1482,10 @@ def recommend_routes(report: Mapping[str, Any]) -> list[dict[str, Any]]:
                    _now("Linux esptool --port /dev/ttyS<n> (= COM<n>)", "최선 노력", None))
         no_usb = "WSL1 은 USB 장치·usbipd 를 쓸 수 없다"
         return [
-            _row("serial", "R8", _now("/dev/ttyS<n> (= Windows COM<n>, COM1–COM191) 를 직접 지정", "최선 노력", None),
-                 {"route": "COMn 참조를 /dev/ttyS<n> 로 자동 해석", "phase": "P1"},
-                 [f"{helper_target['route']} [P2]"] if interop else [],
-                 ["시험하지 않은 경로다. COM192 이상은 쓸 수 없다", no_usb]),
+            _row("serial", "R8", _now("COM1–COM191 → /dev/ttyS<n> 자동 해석 (posix-tty)", "최선 노력", None),
+                 alternatives=[f"COM192–COM4096 → {helper_route}"] if helper_enabled else [],
+                 notes=["COM1–191의 tty가 없어도 helper로 자동 전환하지 않는다", no_usb,
+                        "COM192 이상은 설치된 helper와 interop이 필요하다"]),
             _row("esptool", "R8", esp_now, alternatives=["Linux esptool --port /dev/ttyS<n>"] if interop else []),
             _row("openocd", "R9", _now(None, "없음"), {"route": "openocd.exe (win-exe)", "phase": "P3"}, notes=[no_usb]),
             _row("sigrok", "R9", _now(None, "없음"), {"route": "sigrok-cli.exe (win-exe)", "phase": "P3"}, notes=[no_usb]),
@@ -1480,10 +1510,12 @@ def recommend_routes(report: Mapping[str, Any]) -> list[dict[str, Any]]:
             esp_now = _now("Windows esptool.exe --port COMn (방법 A, usbipd 불필요)", "현행 · 설치 필요", False,
                            ["scripts/install.sh --only esptool (Windows esptool.exe)", "자동 리셋이 안 되면 BOOT+RESET (사람)"])
         rows = [
-            _row("serial", "R1", _now("usbipd attach → /dev/ttyACM*·/dev/ttyUSB* (posix-tty)", usb_status, avail, ser_steps), helper_target,
-                 ["win-powershell (설정으로 켬, 기본 꺼짐) [P2]"],
-                 ["P2 전에는 uart·jtagulator 가 이 환경의 COMn 을 쓰지 못한다(uart 는 거부)",
-                  "attach 하는 동안 Windows 에서는 그 COM 포트가 사라진다", *unknown_note]),
+            _row("serial", "R1", helper_now if helper_enabled else
+                 _now("usbipd attach → /dev/ttyACM*·/dev/ttyUSB* (posix-tty)", usb_status, avail, ser_steps),
+                 alternatives=["usbipd attach → /dev/ttyACM*·/dev/ttyUSB* (사람)"] if helper_enabled else [],
+                 notes=["helper 파일 존재만으로 신뢰를 보장하지 않는다. 실행 전 SHA256·프로토콜을 확인한다",
+                        "PowerShell 직렬 relay 대체 경로는 구현하지 않았다",
+                        "attach 하는 동안 Windows 에서는 그 COM 포트가 사라진다", *unknown_note]),
             _row("esptool", "R2", esp_now, alternatives=["usbipd attach → Linux esptool --port /dev/ttyACM*"],
                  notes=(["설정 hostenv.disable 로 Windows 도구를 껐다"] if esp.get("disabled") else []) + unknown_note),
             _row("openocd", "R3", _now("usbipd attach → Linux openocd (xPack) + udev 규칙", "현행 유일 · 사람 단계", avail, lib_steps),

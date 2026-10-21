@@ -36,13 +36,13 @@
 
 | 단계 | 내용 | 사용자 장비 |
 |---|---|---|
-| **0 공통 기반** | **일부 완료(I1·I4·B·I5)**: 증명·출처 원장·마스킹과 소비자 서버, 목표 분기·테스트 기반, 포트 라우팅 P0(환경 감지·doctor·루프백 URL·네이티브 Windows 시작 거부), 공용 ESP·콘솔·프로세스·JTAG·신호 형식. P1 공통 포트 라우팅·잠금·직렬 transport도 구현. 남음: P2 Windows COM 헬퍼와 후속 libusb·실기 검증. common-core §6의 새 `safety.*` 키는 미승인 후속 제안이며 현재 설정에 없다. 호스트 위험 규칙(settings deny·AGENTS.md)은 넣지 않았다(사용자 결정) | 없음 |
+| **0 공통 기반** | **일부 완료(I1·I4·B·I5)**: 증명·출처 원장·마스킹과 소비자 서버, 목표 분기·테스트 기반, 포트 라우팅 P0(환경 감지·doctor·루프백 URL·네이티브 Windows 시작 거부), 공용 ESP·콘솔·프로세스·JTAG·신호 형식. P1 공통 포트 라우팅·잠금·직렬 transport도 구현. P2 Windows COM helper도 구현. 남음: 후속 libusb·실기 검증. common-core §6의 새 `safety.*` 키는 미승인 후속 제안이며 현재 설정에 없다. 호스트 위험 규칙(settings deny·AGENTS.md)은 넣지 않았다(사용자 결정) | 없음 |
 | **1a 오프라인 트랙** | **ESP32 세이브·해금 분석 구현(I2a·I2b)**: ESP 파티션·앱·ELF·NVS, 세이브 비교·체크섬·치트 입력 표·게임 문자열 팩, `game-save-unlock-analysis`, 패치 빌드·쓰기 검증(ESP NVS·사용자 데이터 파티션, 사람이 쓴다). 남음: 가져온 원시 세이브 패치. REA의 Xtensa ELF 한계는 game-console-flipper-rf §3.5.<br>**SD 포렌식 F1 구현(I3a·I3b)**: 펌웨어 SD 표면·부팅 로그, 접수·해시·보관 기록·증명·FAT/exFAT 목록·삭제 파일 추출·증거 목록, `sd-card-forensics`. C에서 정지 이미지 분석, D에서 파일·선택 앱 기록 타임라인과 읽기 전용 외부 증거 참조를 더했다. 남음: F2(CCTV 형식·카빙·녹화 인덱스 타임라인·카드 쪽 비밀·암호화·침해 흔적 스캔), F3(ext4 등), E01, 카드 식별 정보 읽기. 계약·한계는 sd-forensics §4·§5.1과 safety §3.6 | 없음(ESP32 덤프는 기존 pweh-esp) |
 | **B 에뮬레이션** | 구현: `pweh-emu` 도구 6개, `firmware-emulation` Skill·요약 스키마, Espressif QEMU·simavr 선택 설치, 공용 ESP 형식·콘솔 마스킹·프로세스 신원·보호 하위 트리. 계약 architecture §6.9, 한계 safety §3.7 | 없음(이미 확보한 펌웨어 사용) |
 | **C 이미지 힌트** | 구현: 일반 케이스·증거의 정지 이미지 분석, 정규화 미리보기·OCR·QR·메타데이터·구조 지표, 증거 보관 기록 결속, `image-hints-analysis`. 계약 [image-hints.md](image-hints.md) | 없음(이미 확보한 그림 사용) |
 | **D Android** | 구현: Android 형식·raw GPT/LP 분할·AN 정적 점검, TAR/ZIP·SQLite·앱 기록·타임라인과 읽기 전용 외부 증거 참조. 파일 시스템 엔진은 FAT/exFAT이며 ext4/EROFS/F2FS 추출은 미지원. 계약 [android-analysis.md](android-analysis.md) | 없음(사람이 확보한 파일 사용) |
 | **I5 1a 계측기 오프라인** | 구현: 프로토콜·C/HAL 경계·골든 벡터, `probe-hello` 펌웨어, in-process 시뮬레이터 전용 `pweh-espprobe` 도구 6개, 4개 기존 서버의 고정 계측기 거부 규칙, 공용 JTAG·신호 코드. 독립 2회 재현 빌드와 릴리스·설치 검증 완료. 실제 포트·핀·버스 동작은 미지원. 계약 architecture §6.10 | 없음(실기 확인은 다음 관문) |
-| **관문** | 포트 라우팅 P1은 합성 검증, P2 헬퍼·실기 관문은 후속: DTR → Flipper `>: `, 1 MB 왕복, CU 응답, USB-UART 루프백, ESP32 `probe-hello` 확인(MI_00/MI_02·부팅 창·다운로드 모드 핀·303a:1001 iSerial — esp32-instrument §9). 실패하면 즉시 대체(PowerShell 또는 usbipd) | Flipper/CU/ESP32/USB-UART |
+| **관문** | 포트 라우팅 P1·P2는 하드웨어 없는 검증. 다음 실기 관문: DTR → Flipper `>: `, 1 MB 왕복, CU 응답, USB-UART 루프백, ESP32 `probe-hello` 확인(MI_00/MI_02·부팅 창·다운로드 모드 핀·303a:1001 iSerial — esp32-instrument §9). 실패하면 중단하고 usbipd 경로를 검토(PowerShell 직렬 relay 미구현) | Flipper/CU/ESP32/USB-UART |
 | **1b·1c 장치 트랙** | pweh-uart Windows COM, pweh-flipper(CLI), pweh-nfc(오프라인 + CU 읽기), pweh-sdr(RTL-SDR), NFC 읽기·비교 흐름 / pweh-espprobe 1차 역할(전압 조사·핀 활동·로직 캡처·SPI·I2C 읽기) | 장비별 |
 | **2 확장** | 2a NFC 에뮬레이션 캡처, 2b 자동화 MVP, 2c 플레이 job / SD F2(카빙·CCTV 인덱스·타임라인·비밀·암호화 판정) / 포트 P3(Windows 판 openocd·sigrok) / espprobe 2d(핀 스캔·UART 브리지) | 캡처 카드·브리지 보드 등 |
 | **3 선택** | pweh-esp-write(별도 서버), SRAM 패치, 단일 IR 송신, espprobe 라디오 프로필, SD F3(ext4·원시 읽기 헬퍼·내보내기), macOS | opt-in |

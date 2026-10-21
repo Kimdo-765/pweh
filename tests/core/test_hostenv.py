@@ -205,7 +205,8 @@ def test_wsl2_bridged_report_fields():
     assert win["uac_enabled"] is True and win["interop_elevated"] is False and win["smart_app_control"] == "off"
     assert win["powershell"] == "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"
     assert win["usbipd"] == {"present": False, "path": None, "version": None, "autobind_policies": None, "found_elsewhere": None}
-    assert win["serial_helper"] == {"present": False} and win["ignored"] == []
+    assert win["serial_helper"] == {"present": False, "path": None, "source": None, "problem": None,
+                                     "trusted": None, "trust_check": "pre-execution"} and win["ignored"] == []
     assert win["tools"]["esptool_win"] == {"present": True, "path": f"{TOOLS_DIR}/esptool-win/esptool-windows-amd64/esptool.exe",
                                            "source": "pweh-tools", "problem": None}
     assert lin["groups"] == ["dialout", "plugdev", "video"] and lin["root_equivalent_groups"] == []
@@ -257,7 +258,9 @@ def test_networking_none_is_a_mode_and_failure_is_null():
     rep = detect(wsl2(mode="none"))
     assert rep["wsl"]["networking_mode"] == "none"
     serial = next(r for r in hostenv.recommend_routes(rep) if r["device"] == "serial")
-    assert serial["now"]["available"] is False and any("attach 불가" in s for s in serial["now"]["human_steps"])
+    assert serial["now"]["available"] is False and "helper" in serial["now"]["route"]
+    openocd = next(r for r in hostenv.recommend_routes(rep) if r["device"] == "openocd")
+    assert any("attach 불가" in s for s in openocd["now"]["human_steps"])
     rep = detect(wsl2(mode=None, wslinfo_rc=1))
     assert rep["wsl"]["networking_mode"] is None and rep["kind"] == "WSL2_INTEROP"  # osrelease 로 WSL2
     assert any("wslinfo 실패" in w for w in rep["warnings"])
@@ -566,7 +569,39 @@ def test_disable_windows_tools_and_serial_helper():
     assert rep["windows"]["tools"]["esptool_win"]["disabled"] is True and rep["windows"]["serial_helper"]["disabled"] is True
     routes = {r["device"]: r for r in hostenv.recommend_routes(rep)}
     assert "esptool.exe" not in routes["esptool"]["now"]["route"] and "usbipd" in routes["esptool"]["now"]["route"]
-    assert routes["serial"]["target"]["disabled"] is True
+    assert routes["serial"]["target"] is None and "helper" not in routes["serial"]["now"]["route"]
+
+
+def test_serial_helper_presence_is_static_and_never_claims_trust():
+    path = f"{TOOLS_DIR}/winserial/pweh-serial-helper.exe"
+    p = wsl2(env={"PWEH_SERIAL_HELPER": path})
+    p.paths.add(path)
+    rep = detect(p, smoke=False)
+    item = rep["windows"]["serial_helper"]
+    assert item == {"present": True, "path": path, "source": "env", "problem": None,
+                    "trusted": None, "trust_check": "pre-execution"}
+    assert not p.exe_calls()
+    serial = next(r for r in hostenv.recommend_routes(rep) if r["device"] == "serial")
+    assert serial["now"]["available"] is None and "pin" in serial["now"]["status"]
+
+
+@pytest.mark.parametrize("value", ["missing.exe", "C:\\fixture\\helper.exe", "/opt/missing.exe", "/opt/fixture.txt"])
+def test_serial_helper_bad_explicit_path_never_falls_back(value):
+    p = wsl2()
+    p.paths.add(f"{TOOLS_DIR}/winserial/pweh-serial-helper.exe")
+    item = hostenv.resolve_serial_helper(value, None, Path(TOOLS_DIR), p)
+    assert item["problem"] and not item["present"] and item["source"] == "config"
+    assert p.calls == []
+
+
+@pytest.mark.parametrize("key", ["interop", "serial_helper", "windows_tools"])
+def test_each_disable_blocks_helper_path(key):
+    p = wsl2()
+    p.paths.add(f"{TOOLS_DIR}/winserial/pweh-serial-helper.exe")
+    rep = detect(p, config={"hostenv": {"disable": [key]}})
+    assert rep["windows"]["serial_helper"]["disabled"] is True
+    serial = next(r for r in hostenv.recommend_routes(rep) if r["device"] == "serial")
+    assert "helper" not in serial["now"]["route"]
 
 
 @pytest.mark.parametrize("cfg", [
@@ -631,14 +666,13 @@ def test_routes_shape(name):
             assert r["now"]["status"].startswith(("없음", "거부")), r
 
 
-def test_wsl2_interop_routes_never_offer_future_paths_as_now():
+def test_wsl2_interop_routes_offer_helper_with_install_prerequisite():
     routes = {r["device"]: r for r in hostenv.recommend_routes(detect(FIXTURES["wsl2-interop-bridged"]()))}
     ser = routes["serial"]
-    assert "usbipd" in ser["now"]["route"] and "helper" not in ser["now"]["route"] and "헬퍼" not in ser["now"]["route"]
-    assert ser["target"]["phase"] == "P2" and "pweh-serial-helper.exe" in ser["target"]["route"]
-    assert any("--host-ip <Windows LAN IP>" in s for s in ser["now"]["human_steps"])
-    assert any("세션 동안만" in s and "unbind" in s for s in ser["now"]["human_steps"])
-    assert ser["now"]["available"] is False  # usbipd 가 없다
+    assert "pweh-serial-helper.exe" in ser["now"]["route"] and ser["target"] is None
+    assert ser["now"]["human_steps"] == ["scripts/install.sh --only winserial"]
+    assert ser["now"]["available"] is False  # helper가 없다
+    assert any("usbipd attach" in s for s in ser["alternatives"])
     esp = routes["esptool"]
     assert "esptool.exe" in esp["now"]["route"] and esp["now"]["status"] == "현행" and esp["now"]["available"] is True
     assert routes["openocd"]["target"]["phase"] == "P3" and "usbipd" in routes["openocd"]["now"]["route"]
@@ -664,7 +698,7 @@ def test_usbipd_attach_by_mode(mode, possible, needle):
 
 def test_consomme_fixture_routes_use_loopback_host_ip():
     routes = {r["device"]: r for r in hostenv.recommend_routes(detect(FIXTURES["wsl2-consomme"]()))}
-    assert any("--host-ip 127.0.0.1" in s for s in routes["serial"]["now"]["human_steps"])
+    assert any("--host-ip 127.0.0.1" in s for s in routes["openocd"]["now"]["human_steps"])
 
 
 def test_routes_for_other_kinds():

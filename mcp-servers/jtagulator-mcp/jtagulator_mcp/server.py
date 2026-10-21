@@ -347,7 +347,7 @@ def _close_conn(conn: Connection, note: str) -> None:
 
 @server.tool(
     description=(
-        "JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 루프백 pyserial URL"
+        "JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0), WSL interop COMn(helper), 또는 루프백 pyserial URL"
         "(socket://127.0.0.1:<포트> — LAN 호스트는 validation_failed). "
         "포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽는다. "
         "영속 모드(OpenOCD/로직 분석기)였다면 빠져나오며 경고한다. 연결할 때마다 서버의 전압 상태는 '미설정'으로 초기화된다. "

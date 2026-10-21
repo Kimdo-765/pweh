@@ -1,6 +1,6 @@
 ---
 name: uart-shell-acquisition
-description: Acquire a UART serial console (U-Boot prompt or Linux shell) on a CCTV/IP camera/DVR/IoT board and collect basic device facts, for authorized/owned devices only. Finds the USB-UART port (WSL usbipd), guides GND/TX/RX wiring with a voltage check (3.3V vs 1.8V, never VCC), detects the baud rate, captures and parses the boot log, interrupts autoboot into U-Boot (printenv, bdinfo, flash, safe RAM address), logs in only with credentials the user supplies, identifies the Linux shell, and with explicit consent can boot once with a RAM-only init=/bin/sh (never saveenv). Records the uart-recon summary and hands the session to firmware-dump-via-uart. Triggers - UART, serial console, boot log, baud rate, autoboot, U-Boot prompt, printenv, root shell, login prompt, ttyUSB, 시리얼 콘솔, UART 접속, 부팅 로그, 보드레이트, U-Boot 진입, 셸 획득, 루트 셸, 로그인 프롬프트.
+description: Acquire a UART serial console (U-Boot prompt or Linux shell) on a CCTV/IP camera/DVR/IoT board and collect basic device facts, for authorized/owned devices only. Finds the USB-UART port (WSL COM helper or usbipd), guides GND/TX/RX wiring with a voltage check (3.3V vs 1.8V, never VCC), detects the baud rate, captures and parses the boot log, interrupts autoboot into U-Boot (printenv, bdinfo, flash, safe RAM address), logs in only with credentials the user supplies, identifies the Linux shell, and with explicit consent can boot once with a RAM-only init=/bin/sh (never saveenv). Records the uart-recon summary and hands the session to firmware-dump-via-uart. Triggers - UART, serial console, boot log, baud rate, autoboot, U-Boot prompt, printenv, root shell, login prompt, ttyUSB, 시리얼 콘솔, UART 접속, 부팅 로그, 보드레이트, U-Boot 진입, 셸 획득, 루트 셸, 로그인 프롬프트.
 ---
 
 # uart-shell-acquisition: UART 콘솔 획득과 기본 정보 수집
@@ -36,7 +36,7 @@ description: Acquire a UART serial console (U-Boot prompt or Linux shell) on a C
   - `logic-analyzer-protocol-decode`: data.uart_estimate.baudrate(→ 3단계 생략)와 idle_level(0 이면 반전 라인이라 일반 USB-UART 로 못 읽는다 → 사람과 상의), conclusions 의 TX/RX 패드·프레임(8N1/7E1)·측정 전압.
   - 이전 `uart-shell-acquisition`: port, baudrate, session, notes 를 재사용한다.
   - 케이스 profile 의 `pipeline_profile(name=…)`: uart.baud_candidates, interrupt_sequences, autoboot_silent, 프롬프트 정규식.
-- **사람이 준비할 것**: 3.3V(또는 1.8V 지원) USB-UART 어댑터, 점퍼선, 멀티미터, 사람이 직접 껐다 켤 수 있는 기기 전원(PoE 대신 DC 잭 권장). WSL2 면 usbipd attach.
+- **사람이 준비할 것**: 3.3V(또는 1.8V 지원) USB-UART 어댑터, 점퍼선, 멀티미터, 사람이 직접 껐다 켤 수 있는 기기 전원(PoE 대신 DC 잭 권장). WSL2+interop은 검증된 COM helper(`scripts/install.sh --only winserial`)를 쓰며 attach 없이 COM 이름을 준다. Linux tty 경로를 선택했을 때만 routes에 따라 usbipd attach한다.
 - **사용자에게 한 번에 물을 것**(모르는 것만): 아는 콘솔 계정, 전원 재투입 3~4회 가능 여부, 목표(셸만/덤프까지).
 
 ## 안전 규칙
@@ -324,8 +324,8 @@ case_add_note(case_id="20261018-acme-ipc", text="UART J3: GND-J3-1, 기기 TX-J3
 **H1. USB-UART 연결 (WSL2)**
 ```
 [사람 작업 필요] USB-UART 어댑터 연결
-1. 어댑터를 PC 에 꽂아 주세요. WSL2 라면 관리자 PowerShell 에서:
-   usbipd list → usbipd bind --busid <BUSID>(최초 1회) → usbipd attach --wsl --busid <BUSID>
+1. 어댑터를 PC에 꽂아 주세요. WSL2 COM helper 경로라면 Windows에 연결한 그대로 둡니다.
+   Linux tty 경로라면 routes.human_steps에 따라 usbipd bind(최초 1회, 관리자)와 모드별 attach를 진행합니다.
 2. 어댑터 칩(CP2102/CH340/FT232 등)과 전압 설정(3.3V 점퍼)을 알려 주시고 "완료" 라고 해 주세요.
 ```
 

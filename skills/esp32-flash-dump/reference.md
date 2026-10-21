@@ -24,7 +24,7 @@
 
 ## 2. 방법 B — 리눅스 esptool + usbipd
 
-Windows 백엔드를 쓸 수 없을 때(WSL interop 꺼짐, esptool.exe 없음)나 네이티브 리눅스 PC 에서 쓴다. 근거: [docs/hardware-setup.md §2.2](../../docs/hardware-setup.md#22-wsl2-에서-usb-장치-쓰기-usbipd-win), §2.3.
+Windows 백엔드를 쓸 수 없을 때(WSL interop 꺼짐, esptool.exe 없음)나 네이티브 리눅스 PC 에서 쓴다. 근거: [docs/hardware-setup.md §2.2](../../docs/hardware-setup.md#22-wsl2-에서-usb-장치-쓰기), §2.3.
 
 1. 사람이 Windows 에서 장치를 WSL 에 붙인다(아래 템플릿). attach 하는 동안 Windows 에서는 그 COM 포트가 사라지므로 방법 A 와 동시에 쓸 수 없다.
 2. WSL 네트워킹 모드가 bridged 면 `--host-ip` 로 Windows 주소를 직접 준다(nat·mirrored 는 필요 없음).

@@ -194,6 +194,46 @@ def _fake_report(name="wsl2-interop-bridged", **kw):
     return detect(probe)
 
 
+@pytest.mark.parametrize("state", ["absent", "disabled", "no-interop", "bad-path", "native"])
+def test_helper_doctor_does_not_run_without_prerequisites(state):
+    rep = _fake_report()
+    item = {"present": True, "path": "/opt/fixture/pweh-serial-helper.exe"}
+    rep["windows"]["serial_helper"] = item
+    if state == "absent": item["present"] = False
+    if state == "disabled": item["disabled"] = True
+    if state == "no-interop": rep["wsl"]["interop"]["usable"] = False
+    if state == "bad-path": item["problem"] = "합성 경로 오류"
+    if state == "native": rep["windows"] = None
+    def forbidden(*a, **kw): pytest.fail("helper 조회/실행 금지")
+    row = cli.serial_helper_check(rep, resolver=forbidden, version=forbidden)
+    assert row["ok"] is (False if state == "bad-path" else None)
+
+
+def test_helper_doctor_verifies_pin_before_bounded_version():
+    from pweh.errors import DeviceError
+    rep = _fake_report()
+    rep["windows"]["serial_helper"] = {"present": True, "path": "/opt/fixture/pweh-serial-helper.exe"}
+    calls = []
+    def resolve(**kw):
+        calls.append(("resolve", kw["configured"])); return "verified-fixture"
+    def version(helper, *, timeout):
+        calls.append(("version", helper, timeout)); return {"version": [0, 1, 0], "cleanup_verified": True}
+    assert cli.serial_helper_check(rep, resolver=resolve, version=version)["ok"] is True
+    assert calls == [("resolve", rep["windows"]["serial_helper"]["path"]), ("version", "verified-fixture", 5.0)]
+    def changed(**kw): raise DeviceError("synthetic", code="serial_helper_hash_mismatch")
+    calls.clear()
+    row = cli.serial_helper_check(rep, resolver=changed, version=version)
+    assert row["ok"] is False and "serial_helper_hash_mismatch" in row["detail"] and calls == []
+
+
+def test_helper_doctor_does_not_report_unknown_cleanup_as_success():
+    rep = _fake_report()
+    rep["windows"]["serial_helper"] = {"present": True, "path": "/opt/fixture/pweh-serial-helper.exe"}
+    row = cli.serial_helper_check(rep, resolver=lambda **kw: "fixture",
+                                  version=lambda *a, **kw: {"version": [0, 1, 0], "cleanup_verified": False})
+    assert row["ok"] is False and "종료 확인 실패" in row["detail"]
+
+
 def test_env_checks_wsl2_section_hides_ghost_ports_and_uses_mode_hints():
     from pweh import hostenv
 
@@ -213,7 +253,7 @@ def test_env_checks_wsl2_section_hides_ghost_ports_and_uses_mode_hints():
     assert by["serial:ports"]["detail"] == "COM3 (usbser), COM7 (silabser)" and by["serial:ports"]["ok"] is True
     assert not any("/dev/ttyS0" in c["detail"] for c in checks)
     lines = cli.route_lines(hostenv.recommend_routes(rep))
-    assert lines[0].startswith("route:serial") and "목표: Windows COM 을 pweh-serial-helper.exe 가 연다" in lines[0] and "[P2]" in lines[0]
+    assert lines[0].startswith("route:serial") and "Windows COM 을 pweh-serial-helper.exe 가 연다" in lines[0] and "[P2]" not in lines[0]
     assert any(line.startswith("route:esptool") and "esptool.exe" in line and "[현행]" in line for line in lines)
 
 

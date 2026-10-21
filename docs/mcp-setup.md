@@ -40,6 +40,7 @@ MCP 단계가 저장소 밖에 쓰는 것은 Codex 홈의 trust 항목과 그 �
 | `openocd` | xPack OpenOCD 0.12.0-7 + 하드웨어 없는 `openocd-dummy` | 릴리스 tar.gz (sha256 고정) |
 | `squashfs`, `uboot` | mksquashfs/unsquashfs, mkimage/mkenvimage/dumpimage | 배포판 패키지 (개인 경로) |
 | `zig` | Zig 0.17.0 (시뮬레이터 합성 펌웨어) | 공식 tar.xz (sha256 고정) |
+| `winserial` *(선택)* | Windows COM helper 0.1.0 (UART·JTAGulator) | 저장소 사전 빌드의 해시·PE·소스 결속을 검증해 `winserial/`에 복사. 다운로드·컴파일·Windows 실행 없음 |
 | `jdk`, `ghidra` | Temurin JDK 21, Ghidra 12.1.4 (REA 디컴파일 엔진) | 공식 tar.gz / zip (sha256 고정) |
 | `unblob`, `extractors` | unblob 26.6.4 + 7z, lz4, lzop, zstd, sasquatch, unar, simg2img … | 전용 venv(unblob 휠 sha256 고정, libmagic 이 없으면 개인 경로에) + 배포판 패키지, sasquatch .deb (sha256 고정) |
 | `erofs` *(선택)* | erofs-utils 1.9.4 (EROFS 추출) | 태그 소스 빌드 (C 컴파일러·autotools 필요) |
@@ -466,7 +467,7 @@ signals/boot-001.sr 을 REA decode_signal_recording 으로 UART 디코딩해서 
 | `Pending approval` | `claude` 를 대화형으로 실행해 승인한다. 또는 `claude mcp reset-project-choices` 후 다시 승인한다 |
 | Codex 에서 PWEH 도구가 보이지 않음, Codex 가 시작하지 않음 | §3.6 (`pweh mcp-check --client codex`, trust, Codex 홈) |
 | REA 도구가 Ghidra 없다고 함 | env.sh 의 `GHIDRA_INSTALL_DIR`/`JAVA_HOME` 을 확인하고 `rea doctor --provider ghidra` 를 실행한다 |
-| 시리얼 포트 권한 오류 | `pweh doctor`(맨 앞 환경 절)·`pweh env` → `dialout` 그룹, WSL 이면 네트워킹 모드별 `usbipd attach` |
+| 시리얼 포트 권한 오류 | `pweh doctor`·`pweh env` → WSL COM은 `scripts/install.sh --only winserial`·interop·다른 프로그램의 점유 확인, Linux tty는 `dialout` 및 WSL 네트워킹 모드별 `usbipd attach` |
 | Windows(네이티브·Cygwin·MSYS)에서 서버가 바로 끝남 | 지원하지 않는다(안내 문구와 함께 종료 코드 1). 서버는 WSL 안에서 실행하고, Windows 의 MCP 클라이언트는 `wsl.exe -d <배포판> -e <저장소>/.venv/bin/pweh-<서버>-mcp` 형식으로 띄운다(`-u root` 는 넣지 않는다) |
 | REA 의 Ghidra 분석이 `spawn ps ENOENT` 로 실패 | `ps`(procps)가 없는 시스템이다. `scripts/install.sh --only rea` 가 개인 경로에 `ps` 를 둔다 (MCP 서버는 env.sh 의 PATH 로 찾음) |
 | `pweh doctor` 가 도구를 `!!` (종료 코드 …) 로 표시 | 실행 파일은 있지만 깨진 설치다. 표시된 명령을 직접 실행해 보고 `scripts/install.sh --force --only <구성요소>` 로 다시 설치한다. 로그는 `~/pweh-tools/_logs/` |

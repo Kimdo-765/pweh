@@ -60,7 +60,7 @@
 - **`uart_list_ports(include_links?)`** — [읽기전용]  
   시리얼 포트 목록 (OBSERVE, 포트를 열지 않음). 기존 ports 항목에 route/device_id/held_by 를 더하고 env_kind 를 반환한다. include_links=true 면 /dev/serial/by-id/… 링크도 포함. TCP 시리얼(이 호스트의 ser2net, 시뮬레이터)은 목록에 없고 uart_open 에 socket://127.0.0.1:<포트> 로 준다
 - **`uart_open(case_id, port, baudrate?, bytesize?, parity?, stopbits?, line_ending?, dtr?, rts?, profile?, label?, approval_id?)`**  
-  UART 세션 열기 (INTERACT, dtr/rts=true 또는 확인된 reset-wired 경로면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL (루프백 호스트만: socket://127.0.0.1:<포트>, rfc2217://[::1]:<포트> / 테스트용 loop:// — LAN 호스트는 validation_failed). 
+  UART 세션 열기 (INTERACT, dtr/rts=true 또는 확인된 reset-wired 경로면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로, WSL interop COMn(helper), 또는 pyserial URL (루프백 호스트만: socket://127.0.0.1:<포트>, rfc2217://[::1]:<포트> / 테스트용 loop:// — LA
 - **`uart_close(session_id)`**  
   UART 세션 닫기: 실행 중인 job 취소, 수신 스레드 정지, 포트 닫기, 로그(uart-log/uart-raw/uart-events) 아티팩트 등록. 끊어진(disconnected) 세션도 닫을 수 있다. 물리 close 확인 뒤 공통 잠금을 해제하며, 정리 미확인 시 잠금을 보존한다.
 - **`uart_sessions(case_id?)`** — [읽기전용]  
@@ -185,7 +185,7 @@
 ## pweh-jtagulator
 
 - **`jtagulator_connect(case_id, port, baudrate?, timeout_seconds?, allow_untested_firmware?, approval_id?)`**  
-  JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0) 또는 루프백 pyserial URL(socket://127.0.0.1:<포트> — LAN 호스트는 validation_failed). 포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 재동기화로 메뉴 프롬프트를 찾고 펌웨어 버전을 읽
+  JTAGulator 에 연결(USB-시리얼, 기본 115200 8N1). port 는 장치 경로(/dev/ttyUSB0), WSL interop COMn(helper), 또는 루프백 pyserial URL(socket://127.0.0.1:<포트> — LAN 호스트는 validation_failed). 포트를 열면 FT232 DTR 로 JTAGulator 가 리셋될 수 있으므로 Ctrl-X 
 - **`jtagulator_disconnect(case_id)`**  
   JTAGulator 연결 종료. 실행 중인 스캔이 있으면 먼저 중단(LF)하고 끝날 때까지 기다린 뒤 포트를 닫고 세션 기록을 등록한다. 권장 순서: 타깃 전원을 먼저 끈 다음 호출 (포트를 닫으면 DTR 리셋으로 VADJ 가 꺼질 수 있음). 물리 close 를 확인해야 공통 잠금을 해제하며 정리 미확인 시 보존한다.
 - **`jtagulator_version(case_id)`**  

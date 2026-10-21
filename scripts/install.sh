@@ -131,9 +131,9 @@ QEMU_RISCV32_SHA=547f03e04701a92cbb699f7f7d015adc1f5b5ef93cbb94c0dd9b7107e2d84e7
 SIMAVR_GIT="https://github.com/buserror/simavr.git"
 SIMAVR_COMMIT=5b08da60497f7564f50941f74a549fe2851db030
 
-ALL_COMPONENTS="python sigrok openocd squashfs uboot zig jdk ghidra unblob extractors erofs binwalk rea esptool qemu_esp simavr tesseract zbar espprobe-fw"
+ALL_COMPONENTS="python sigrok openocd squashfs uboot zig jdk ghidra unblob extractors erofs binwalk rea esptool qemu_esp simavr tesseract zbar espprobe-fw winserial"
 MINIMAL_COMPONENTS="python sigrok openocd squashfs uboot"
-OPTIONAL_COMPONENTS="erofs binwalk rea esptool qemu_esp simavr tesseract zbar espprobe-fw"   # 실패해도 설치 전체를 실패로 보지 않는다 (경고만)
+OPTIONAL_COMPONENTS="erofs binwalk rea esptool qemu_esp simavr tesseract zbar espprobe-fw winserial"   # 실패해도 설치 전체를 실패로 보지 않는다 (경고만)
 SKIP_RC=99   # install_* 가 이 값으로 끝나면 "건너뜀" (빌드 도구 같은 전제 조건이 없음). 실패로 세지 않는다
 
 declare -A DESC=(
@@ -156,6 +156,7 @@ declare -A DESC=(
   [tesseract]="Tesseract + eng/kor/osd 언어 데이터 (SHA256 고정 .deb, Ubuntu 22.04 x86_64, 선택)"
   [zbar]="ZBar zbarimg (SHA256 고정 .deb, Ubuntu 22.04 x86_64, 정규화 이미지 QR·바코드, 선택)"
   [espprobe-fw]="espprobe 사전 빌드 검증·복사 (선택, 다운로드·빌드·플래시 없음)"
+  [winserial]="Windows COM helper 사전 빌드 검증·복사 (선택, 다운로드·컴파일·Windows 실행 없음)"
 )
 # 구성요소와 env.sh 다음에 이 순서로 도는 단계. 구성요소처럼 --only/--skip 으로 고르고, --minimal 에는 넣지 않는다
 STEPS="mcp skills verify"
@@ -1030,6 +1031,30 @@ install_espprobe-fw() {
   "$PY" -B "$REPO/scripts/firmware/install_release.py" --prefix "$PREFIX" "${flags[@]}"
 }
 
+check_winserial() {
+  [ -n "$PY" ] && [ -x "$PREFIX/winserial/pweh-serial-helper.exe" ] || return 1
+  "$PY" -B "$REPO/scripts/build_serial_helper.py" verify-release --repo-root "$REPO" \
+    --binary "$PREFIX/winserial/pweh-serial-helper.exe"
+}
+version_winserial() { echo "pweh-serial-helper 0.1.0 (고정 SHA256·PE 정적 검증)"; }
+install_winserial() {
+  [ -n "$PY" ] || return "$SKIP_RC"
+  "$PY" -B "$REPO/scripts/build_serial_helper.py" verify-release --repo-root "$REPO" || return 1
+  local dest="$PREFIX/winserial" pending_dir pending
+  mkdir -p "$dest"
+  pending_dir="$(mktemp -d "$dest/.helper.XXXXXXXX")" || return 1
+  pending="$pending_dir/pweh-serial-helper.exe"
+  if cp "$REPO/tools/winserial/release/pweh-serial-helper.exe" "$pending" && chmod 755 "$pending" &&
+     "$PY" -B "$REPO/scripts/build_serial_helper.py" verify-release --repo-root "$REPO" --binary "$pending" &&
+     mv -f "$pending" "$dest/pweh-serial-helper.exe"; then
+    rmdir "$pending_dir"
+  else
+    rm -f "$pending"
+    rmdir "$pending_dir"
+    return 1
+  fi
+}
+
 check_tesseract() {
   image_lock_ok tesseract && [ -x "$B/tesseract" ] && [ -n "$PY" ] || return 1
   local out
@@ -1282,6 +1307,8 @@ write_env() {
     # esp-mcp 서버의 tools.esptool / tools.esptool_win. 두 판을 따로 판정한다 (Windows 판은 WSL interop 에서 실제로 실행될 때만)
     if esptool_linux_ok; then echo "export PWEH_ESPTOOL='$B/esptool'"; fi
     if esptool_win_ok; then echo "export PWEH_ESPTOOL_WIN='$ESPTOOL_WIN_EXE'"; fi
+    # 고정 릴리스 파일만 등록하며 Windows 프로그램은 실행하지 않는다.
+    if check_winserial >/dev/null 2>&1; then echo "export PWEH_SERIAL_HELPER='$PREFIX/winserial/pweh-serial-helper.exe'"; fi
     # emu-mcp 서버의 tools.qemu_xtensa / tools.qemu_riscv32 / tools.avr_run: 확인을 통과한 절대 경로만 (PATH 에는 넣지 않는다)
     if check_qemu_esp; then echo "export PWEH_QEMU_XTENSA='$QEMU_XTENSA_BIN'"; echo "export PWEH_QEMU_RISCV32='$QEMU_RISCV32_BIN'"; fi
     if check_simavr 2>/dev/null; then echo "export PWEH_AVR_RUN='$AVR_RUN'"; fi

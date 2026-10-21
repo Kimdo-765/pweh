@@ -63,6 +63,8 @@ tools:
   # esptool_win 이 비어 있으면 ~/pweh-tools/esptool-win/esptool-windows-amd64/esptool.exe 를 찾아본다.
   esptool: ${PWEH_ESPTOOL:-esptool}
   esptool_win: ${PWEH_ESPTOOL_WIN:-}
+  # UART/JTAGulator Windows COM helper: 비어 있으면 도구 디렉터리의 winserial/pweh-serial-helper.exe. 실행 전에 고정 SHA256 검증.
+  serial_helper: ${PWEH_SERIAL_HELPER:-}
   # emu-mcp (pweh-emu): Espressif QEMU(ESP32·S3 / C3)와 PWEH AVR 실행기의 절대 경로 (scripts/install.sh --only qemu_esp,simavr).
   # 비어 있으면 도구 디렉터리의 고정 위치(qemu-esp/…/qemu/bin/…, simavr/bin/pweh_avr_run)를 찾고, PATH 는 보지 않는다.
   qemu_xtensa: ${PWEH_QEMU_XTENSA:-}

@@ -57,6 +57,23 @@ def espprobe_firmware_dir(root: Path, version: str, profile: str, board: str) ->
 #: 도구 디렉터리 안의 Windows esptool.exe 후보 (scripts/install.sh --only esptool 이 푸는 위치)
 ESPTOOL_WIN_RELPATHS = ("esptool-win/esptool-windows-amd64/esptool.exe", "esptool-win/esptool.exe")
 
+SERIAL_HELPER_RELPATH = "winserial/pweh-serial-helper.exe"
+
+
+def serial_helper_candidates(configured: str | None, env_value: str | None,
+                             tools_root: Path | None) -> list[tuple[str, str]]:
+    """COM helper 후보: 설정 → 환경 변수 → 관리 위치. 조회·실행·경로 변환은 하지 않는다.
+
+    명시한 후보가 잘못되었으면 호출자가 거부한다. 낮은 우선순위의 파일로 대체하지 않는다.
+    """
+    out: list[tuple[str, str]] = []
+    for path, source in ((configured or "", "config"), (env_value or "", "env"),
+                         (str(tools_root / SERIAL_HELPER_RELPATH) if tools_root is not None else "", "pweh-tools")):
+        path = path.strip()
+        if path and all(path != old for old, _ in out):
+            out.append((path, source))
+    return out
+
 
 def esptool_win_candidates(configured: str | None, env_value: str | None, tools_dir: Path | None) -> list[tuple[str, str]]:
     """Windows esptool.exe 후보 (경로, 출처) — 설정 ``tools.esptool_win`` → 환경 변수 ``PWEH_ESPTOOL_WIN`` → 도구 디렉터리.
@@ -133,5 +150,6 @@ def image_tool_candidates(name: str, configured: str | None, env_value: str | No
     return out
 
 
-__all__ = ["EMU_BINARY_RELPATHS", "ESPTOOL_WIN_RELPATHS", "IMAGE_TOOL_RELPATHS", "POINTER", "emu_binary_candidates",
-           "esptool_win_candidates", "image_tool_candidates", "tools_dir", "tools_env"]
+__all__ = ["EMU_BINARY_RELPATHS", "ESPTOOL_WIN_RELPATHS", "IMAGE_TOOL_RELPATHS", "POINTER", "SERIAL_HELPER_RELPATH",
+           "emu_binary_candidates", "esptool_win_candidates", "image_tool_candidates", "serial_helper_candidates",
+           "tools_dir", "tools_env"]

@@ -78,6 +78,7 @@ git clone https://github.com/Kimdo-765/pweh.git ~/pweh && cd ~/pweh
 ./scripts/install.sh              # 처음엔 Ghidra·JDK 등 약 1 GB 를 내려받는다(설치 후 디스크 약 3~4 GB). 다시 실행하면 설치된 것은 건너뛴다
 #   ./scripts/install.sh --minimal   Python + sigrok + OpenOCD + squashfs/u-boot 도구만
 #   ./scripts/install.sh --only esptool   ESP32 용 esptool 5.4.0 만 추가 (선택 구성요소. WSL interop 이면 Windows esptool.exe 도)
+#   ./scripts/install.sh --only winserial   WSL UART·JTAGulator COM helper 추가 (사전 빌드 검증·복사, 포트 열지 않음)
 #   ./scripts/install.sh --only qemu_esp,simavr   MCU 펌웨어 에뮬레이션 백엔드 추가 (선택, --minimal 제외)
 #   ./scripts/install.sh --only mcp,verify   설치 없이 MCP 등록과 점검만 다시
 #   ./scripts/install.sh --only mcp --dry-run   MCP 등록·trust 가 바꿀 파일과 diff 만 보기 (쓰지 않음)

@@ -19,7 +19,7 @@
 
 | 도구 | 위험도 | 설명 |
 |---|---|---|
-| `jtagulator_connect(case_id, port, baudrate=115200, timeout_seconds=12, allow_untested_firmware=false, approval_id=None)` | INTERACT(새 reset 배선 open은 MODIFY) | 공용 OS lease → 역할·외부 보유자 확인 → gate → fresh 경로/guard → open → Ctrl-X 재동기화 → 버전. 문자장치·루프백 socket/RFC2217·loop 및 확인된 WSL1 COM1–191을 받으며 WSL2 COM helper는 P2 후속이다. 다른 PWEH 서버가 같은 tty/URL을 점유하면 open 전에 busy. UART의 target/bridge 표지가 있거나 그 식별을 해소하지 못해도 프로브를 거부한다. POSIX TIOCEXCL을 적용하며 disconnected 연결은 명시 disconnect까지 lease를 유지한다. `connection.route`, `device_id`, `busy_check`, `warnings`를 반환하고 전압은 연결마다 미설정이다 |
+| `jtagulator_connect(case_id, port, baudrate=115200, timeout_seconds=12, allow_untested_firmware=false, approval_id=None)` | INTERACT(새 reset 배선 open은 MODIFY) | 공용 OS lease → 역할·외부 보유자 확인 → gate → fresh 경로/guard → open → Ctrl-X 재동기화 → 버전. 문자장치·루프백 socket/RFC2217·loop 및 확인된 WSL1 COM1–191을 받으며 WSL COM1–COM4096은 검증된 helper를 사용한다(interop 필요, WSL1 COM1–191은 ttyS 고정). 다른 PWEH 서버가 같은 tty/URL을 점유하면 open 전에 busy. UART의 target/bridge 표지가 있거나 그 식별을 해소하지 못해도 프로브를 거부한다. POSIX TIOCEXCL을 적용하며 disconnected 연결은 명시 disconnect까지 lease를 유지한다. `connection.route`, `device_id`, `busy_check`, `warnings`를 반환하고 전압은 연결마다 미설정이다 |
 | `jtagulator_disconnect(case_id)` | – | 실행 중 스캔을 중단(LF)하고 포트를 닫음, 세션 기록 등록 |
 | `jtagulator_version(case_id)` | OBSERVE | 메인 메뉴 `I` — 버전/배너 |
 | `jtagulator_status(case_id=None)` | 장치 I/O 없음 | 연결·펌웨어·메뉴·확인된 전압·실행 중 작업 |

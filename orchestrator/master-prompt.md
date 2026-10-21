@@ -117,7 +117,7 @@ RF·하드웨어 분석은 전용 Skill 이 아직 없는 **준비 중** 목표�
    - 이미 아는 것: UART 패드 위치, 공식 펌웨어 파일 경로, 웹 UI 접속 가능 여부.
    - 범위 (보안 분석): 셸 획득만 / 펌웨어 분석 / 인증 우회 탐색까지 (기본: 전체).
    - 실행 환경: `pipeline_environment()` 를 먼저 부른다(기기 미접촉 — `case_create` 전에 불러도 된다). `report.kind` 와 `routes`(장치별 `now` = 지금 되는 경로와 사람 단계 [관리자]·[root], `target` = 다음 단계)로 계획을 세운다.
-     WSL2+interop 에서 ESP32 는 방법 A(esptool.exe + COMn, attach 없음), UART·JTAG·로직 애널라이저는 지금은 usbipd attach(명령은 네트워킹 모드별 — routes 의 human_steps). `warnings`(High IL·bridged LAN 노출·AutoBind·brltty)는 사용자에게 알린다.
+     WSL2+interop에서 ESP32는 방법 A(esptool.exe + COMn), UART·JTAGulator는 검증된 COM helper를 쓴다(attach 없음). OpenOCD·로직 애널라이저 또는 Linux tty 경로는 usbipd attach를 쓴다(네트워킹 모드별 routes.human_steps). `warnings`(High IL·bridged LAN 노출·AutoBind·brltty)는 사용자에게 알린다.
      Windows 관리자 권한 여부는 사용자에게 묻는다 — 보고서는 이것을 답하지 않는다(`windows.interop_elevated=true` 는 interop 으로 띄운 Windows 프로그램이 이미 관리자 권한으로 돈다는 경고, `false` 는 권한이 없다는 뜻이 아니다).
 2. `pipeline_profiles` 를 보고 가장 가까운 프로필을 고른다. 모르면 `generic-ipcam` 을 쓴다.
    `pipeline_safety_policy` 로 현재 정책을 확인한다 (기본: destructive=deny).
@@ -261,7 +261,7 @@ RF·하드웨어 분석은 전용 Skill 이 아직 없는 **준비 중** 목표�
 1. 기기 전원을 끈다. 멀티미터 연속성 모드로 GND 패드(예: J3-1)를 찾는다.
 2. 전원을 켜고 TX 후보 패드(J3-2)의 전압을 재서 알려 달라. 3.3V 면 진행, 1.8V 면 알려 달라 (1.8V 어댑터·레벨 시프터 필요).
 3. 전원을 끄고 연결한다: 어댑터 GND → 보드 GND(J3-1), 어댑터 RX → 보드 TX(J3-2), 어댑터 TX → 보드 RX(J3-3). VCC 는 연결하지 않는다.
-4. 어댑터를 PC 에 꽂고 (WSL 이면 usbipd attach), 기기 전원은 꺼 둔 채 "완료" 라고 알려 달라.
+4. 어댑터를 PC에 꽂고 기기 전원은 꺼 둔 채 "완료"라고 알려 달라. WSL COM helper 경로는 attach 없이, Linux tty 경로는 routes가 안내한 usbipd attach를 사용한다.
 ```
 
 **전원 투입 타이밍이 필요한 도구**(`uart_detect_baud`, `uart_capture_boot`, `uboot_interrupt`, 부팅 캡처용 `sigrok_capture`)는 다음 순서로 쓴다.
@@ -303,7 +303,7 @@ RF·하드웨어 분석은 전용 Skill 이 아직 없는 **준비 중** 목표�
 
 | 증상 | 조치 |
 |---|---|
-| 포트가 없음 | `pipeline_environment()` 의 routes 를 본다(WSL2+interop: ESP32 는 Windows COMn, 다른 USB 직렬은 모드별 usbipd attach / 네이티브 리눅스: dialout·brltty). 사람은 `pweh doctor`·`pweh env` |
+| 포트가 없음 | `pipeline_environment()`의 routes를 본다(WSL2+interop: ESP32는 esptool.exe, UART·JTAGulator는 COM helper / Linux tty 경로는 모드별 usbipd attach / 네이티브 Linux는 dialout·brltty). 사람은 `pweh doctor`·`pweh env` |
 | 출력이 전혀 없음 | TX/RX 를 바꿔 본다, GND 를 확인한다, 기기 전원을 확인한다, 로직 애널라이저로 TX 를 찾는다 |
 | 깨진 문자 | 보드레이트를 확인한다 (`uart_detect_baud`, `sigrok_estimate_baud`). 1.8V/3.3V 레벨 불일치도 의심한다 |
 | autoboot 인터럽트 실패 | 프로필의 `interrupt_sequences` 를 확인한다. bootdelay=0 이나 키 지정 autoboot 일 수 있다 → 셸 경로나 SPI 경로로 간다. 커널 로그 없이 `Password:` 가 나오면 부트로더 잠금이다(추측하지 않음) |

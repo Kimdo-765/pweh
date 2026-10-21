@@ -56,16 +56,38 @@ def test_loopback_key_and_unknown_continuity():
     assert P.resolve(LINUX, "loop://", "serial-session", probe=unknown).lock_key is None
 
 
-def test_wsl1_com_tty_alias_and_p2_p3_not_enabled():
+def test_wsl1_com_tty_alias_and_helper_selection():
     q = P.PortProbe(stat=lambda _: st(), realpath=lambda x: x, identity=lambda x: I.unknown(x, "synthetic"))
     env = {"kind": "WSL1"}
     a = P.resolve(env, "COM3", "serial-session", probe=q)
     b = P.resolve(env, "/dev/ttyS3", "serial-session", probe=q)
     assert a.lock_key == b.lock_key == "win:COM3" and a.device_path == b.device_path
-    for report, ref, purpose in [(env, "COM192", "serial-session"), (WINDOWS, "COM3", "serial-session"),
+    for report, ref, purpose in [(env, "COM192", "serial-session"),
                                   (WINDOWS, "COM3", "sigrok-serial"), (LINUX, "COM3", "esptool")]:
         with pytest.raises(ValidationFailed):
             P.resolve(report, ref, purpose, probe=q)
+
+
+@pytest.mark.parametrize("kind,ref", [("WSL1", "COM192"), ("WSL1", "COM4096"),
+                                     ("WSL2_INTEROP", "COM1"), ("WSL_UNKNOWN", "COM4096")])
+def test_helper_routes_do_not_stat_com(kind, ref):
+    q = P.PortProbe(stat=lambda _: pytest.fail("COM에 POSIX stat 금지"), identity=lambda x: I.unknown(x, "synthetic"))
+    route = P.resolve({**WINDOWS, "kind": kind}, ref, "serial-session", probe=q, config={})
+    assert route.backend == "win-helper" and route.side == "windows"
+    assert route.device_path == ref and route.lock_key == f"win:{ref}" and route.node_identity is None
+
+
+@pytest.mark.parametrize("disabled", ["interop", "serial_helper", "windows_tools"])
+def test_helper_disabled_before_identity(disabled):
+    with pytest.raises(ValidationFailed, match="disable"):
+        P.resolve(WINDOWS, "COM3", "serial-session", config={"hostenv": {"disable": [disabled]}},
+                  probe=P.PortProbe(identity=lambda _: pytest.fail("거부 뒤 조회 금지")))
+
+
+def test_wsl1_missing_tty_never_falls_back_to_helper():
+    def missing(_): raise FileNotFoundError()
+    with pytest.raises(ValidationFailed, match="문자장치"):
+        P.resolve({**WINDOWS, "kind": "WSL1"}, "COM3", "serial-session", probe=P.PortProbe(stat=missing))
 
 
 def test_fresh_revalidation_rejects_inode_identity_loss_and_keeps_strength_out():
@@ -244,7 +266,7 @@ def test_windows_query_and_parse_share_deadline(monkeypatch):
     assert not result.complete and "pnp_scope_time_limit" in result.reasons
 
 
-def test_list_preserves_rows_and_reports_unavailable_com_route():
+def test_list_preserves_rows_and_reports_helper_com_route():
     local = [{"device": "/dev/ttyACM7", "description": "synthetic", "hwid": "USB", "vid": 0x303a},
              {"device": "/dev/ttyS0", "hwid": "n/a", "vid": None}]
     win = {"available": True, "ports": [{"port": "COM31", "service": "usbser"}], "note": None}
@@ -255,5 +277,5 @@ def test_list_preserves_rows_and_reports_unavailable_com_route():
     assert result["env_kind"] == "WSL2_INTEROP" and result["local"]["hidden_legacy_ports"] == 1
     assert result["local"]["ports"][0]["description"] == "synthetic"
     row = result["windows"]["ports"][0]
-    assert row["service"] == "usbser" and row["route"] is None and row["routing_error"]
+    assert row["service"] == "usbser" and row["route"]["backend"] == "win-helper"
     assert row["device_id"] == windows_route().device_id and row["held_by"]["key"] == "win:COM31"

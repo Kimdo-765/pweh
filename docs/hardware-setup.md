@@ -29,9 +29,15 @@ cd /path/to/pweh
 ```
 설치 스크립트의 구성요소·옵션·검증 범위는 [mcp-setup.md](mcp-setup.md) §1 에 있다.
 
-### 2.2 WSL2 에서 USB 장치 쓰기 (usbipd-win)
-WSL2 는 USB 장치를 직접 보지 못한다. Windows 쪽에서 [usbipd-win](https://github.com/dorssel/usbipd-win) 으로 장치를 WSL 에 붙인다.
-(ESP32 보드는 usbipd 없이 Windows 용 esptool.exe 로 쓸 수 있다 — §8.1 방법 A.)
+### 2.2 WSL2 에서 USB 장치 쓰기
+UART·JTAGulator의 Windows COM 포트는 `pweh-serial-helper.exe`로 쓴다. `scripts/install.sh --only winserial`은
+저장소의 고정 릴리스를 검증해 도구 디렉터리에 복사한다. `. ~/pweh-tools/env.sh` 후 `pweh doctor`로 확인한다.
+`port="COM3"`처럼 Windows 이름을 그대로 주며, WSL interop이 필요하다. COM 경로에서는 usbipd attach를 하지 않는다.
+helper는 실행 전 고정 SHA256·프로토콜을 검증한다. DTR/RTS를 false로 요청해도 최초 open의 전기적 pulse를 보장하지는 않는다.
+Windows COM 드라이버별 루프백·선로 변화 검증은 별도 실기 단계다. ESP32 플래시 읽기는 기존 esptool.exe 방법 A를 쓴다(§8.1).
+
+OpenOCD·sigrok 같은 Linux USB 도구나 helper를 쓸 수 없는 환경에서는
+Windows 쪽 [usbipd-win](https://github.com/dorssel/usbipd-win)으로 장치를 WSL에 붙인다.
 attach 하면 WSL 안의 usbip 클라이언트가 Windows 의 usbipd 서비스(TCP 3240)에 접속해 장치를 가져온다.
 아래 동작은 usbipd-win v5.3.0 소스([Wsl.cs](https://github.com/dorssel/usbipd-win/blob/v5.3.0/Usbipd/Wsl.cs) — 접속 주소·방화벽 확인,
 [Program.cs](https://github.com/dorssel/usbipd-win/blob/v5.3.0/Usbipd/Program.cs) — 옵션,
@@ -145,7 +151,7 @@ lsusb                                # 로직 애널라이저/JTAG 프로브
 - 처음에는 **RX(어댑터 TX) 선을 빼고 TX 만 연결**해서 부팅 로그를 관찰해도 된다. 기기에 아무것도 보내지 않으므로 가장 안전하다.
 
 ### 3.3 첫 연결 절차 (uart-shell-acquisition Skill 이 안내)
-1. 사람: 배선 후 어댑터를 PC 에 연결한다. WSL 이면 `usbipd attach` 를 실행한다.
+1. 사람: 배선 후 어댑터를 PC 에 연결한다. WSL에서 Windows COM helper를 쓸 때는 그대로 두고, Linux tty 경로를 쓸 때만 `usbipd attach`를 실행한다.
 2. 에이전트: `uart_list_ports` 로 포트를 확인하고 `uart_detect_baud` 로 보드레이트를 찾는다.
    부팅 출력이 있어야 하므로 전원 투입 타이밍을 맞춘다(아래 순서).
    Ctrl-C 프로브(`probe="ctrl-c"`)는 MODIFY 이고 맞는 속도로 닿으면 autoboot 를 멈출 수 있으므로, 부팅 중에는 `probe="none"` 으로 듣기만 한다.

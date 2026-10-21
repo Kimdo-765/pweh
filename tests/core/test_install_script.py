@@ -24,7 +24,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "install.sh"
 COMPONENTS = ["python", "sigrok", "openocd", "squashfs", "uboot", "zig", "jdk", "ghidra", "unblob", "extractors", "erofs", "binwalk", "rea", "esptool",
-              "qemu_esp", "simavr", "tesseract", "zbar", "espprobe-fw"]
+              "qemu_esp", "simavr", "tesseract", "zbar", "espprobe-fw", "winserial"]
 STEPS = ["mcp", "skills", "verify"]
 
 
@@ -82,7 +82,7 @@ def test_list_names_every_component_and_creates_nothing(tmp_path):
     assert "[minimal]" in r.stdout and "[선택]" in r.stdout
     esptool = next(line for line in r.stdout.splitlines() if line.split()[:1] == ["esptool"])
     assert "[선택]" in esptool and "[minimal]" not in esptool and "방법 A" in esptool
-    for emu in ("qemu_esp", "simavr", "tesseract", "zbar"):  # 선택 구성요소, --minimal 밖 (DESC 가 없으면 set -u 로 --list 가 멈춘다)
+    for emu in ("qemu_esp", "simavr", "tesseract", "zbar", "winserial"):  # 선택 구성요소, --minimal 밖
         line = next(ln for ln in r.stdout.splitlines() if ln.split()[:1] == [emu])
         assert line.endswith("[선택]") and "[minimal]" not in line, line
     for step in STEPS:
@@ -1016,6 +1016,21 @@ def test_real_repo_claude_registration_is_consistent(tmp_path):
 
 
 # --- pweh.toolsdir ----------------------------------------------------------
+
+def test_serial_helper_candidate_precedence_and_config(monkeypatch):
+    import yaml
+    from pweh.config import DEFAULTS, load_config
+    from pweh.toolsdir import serial_helper_candidates
+    root = Path("/opt/pweh-fixture-tools")
+    assert serial_helper_candidates(" /opt/config.exe ", "/opt/env.exe", root) == [
+        ("/opt/config.exe", "config"), ("/opt/env.exe", "env"),
+        (str(root / "winserial/pweh-serial-helper.exe"), "pweh-tools")]
+    assert serial_helper_candidates("/opt/same.exe", "/opt/same.exe", None) == [("/opt/same.exe", "config")]
+    repo_cfg = yaml.safe_load((REPO / "orchestrator/pipeline-config.yaml").read_text())
+    assert DEFAULTS["tools"]["serial_helper"] == repo_cfg["tools"]["serial_helper"] == "${PWEH_SERIAL_HELPER:-}"
+    assert "serial_helper" not in DEFAULTS["safety"] and "serial_helper" not in repo_cfg["safety"]
+    monkeypatch.setenv("PWEH_SERIAL_HELPER", "/opt/fixture/pweh-serial-helper.exe")
+    assert load_config(REPO / "orchestrator/pipeline-config.yaml").tools["serial_helper"] == "/opt/fixture/pweh-serial-helper.exe"
 
 def test_toolsdir_precedence(tmp_path, monkeypatch):
     from pweh import toolsdir

@@ -75,7 +75,7 @@ REA_ENV_KEYS = (
 PWEH_ENV_KEYS = (
     "PWEH_TOOLS_DIR", "PWEH_SIGROK_CLI", "PWEH_OPENOCD", "PWEH_OPENOCD_SCRIPTS", "PWEH_OPENOCD_DUMMY", "PWEH_BINWALK",
     "PWEH_UNBLOB", "PWEH_MKSQUASHFS", "PWEH_UNSQUASHFS", "PWEH_MKIMAGE", "PWEH_MKENVIMAGE", "PWEH_DUMPIMAGE", "PWEH_ZIG",
-    "PWEH_GHIDRA_HEADLESS", "PWEH_REA", "PWEH_LZ4", "PWEH_ESPTOOL", "PWEH_ESPTOOL_WIN",
+    "PWEH_GHIDRA_HEADLESS", "PWEH_REA", "PWEH_LZ4", "PWEH_ESPTOOL", "PWEH_ESPTOOL_WIN", "PWEH_SERIAL_HELPER",
     "PWEH_QEMU_XTENSA", "PWEH_QEMU_RISCV32", "PWEH_AVR_RUN",
     "PWEH_TESSERACT", "PWEH_TESSDATA_DIR", "PWEH_ZBARIMG",
 )
@@ -1009,6 +1009,39 @@ def esptool_win_check(report: dict[str, Any], version: Any = None) -> dict[str, 
                "" if ok else f"실행 파일은 있지만 버전 확인에 실패했습니다. 필요 기능: {purpose}. scripts/install.sh --force --only esptool 로 다시 설치")
 
 
+def serial_helper_check(report: dict[str, Any], *, resolver: Any = None, version: Any = None) -> dict[str, Any]:
+    """doctor의 COM 없는 고정 version 확인. 정적 존재 정보만으로 실행하지 않는다."""
+    from . import hostenv
+    from .toolsdir import tools_dir
+    from .winserial.binary import resolve_helper
+    from .winserial.process import probe_version
+
+    def row(ok: bool | None, detail: str, hint: str = "") -> dict[str, Any]:
+        return {"check": "tool:serial-helper", "ok": ok, "detail": detail, "hint": hint}
+
+    helper = (report.get("windows") or {}).get("serial_helper")
+    if helper is None:
+        return row(None, "해당 없음 (WSL COM 경로용)")
+    if helper.get("disabled"):
+        return row(None, "hostenv.disable 설정으로 COM helper를 끔")
+    if helper.get("problem"):
+        return row(False, helper["problem"], "tools.serial_helper 또는 PWEH_SERIAL_HELPER 경로 확인")
+    if not helper.get("present"):
+        return row(None, "없음 (선택)", "scripts/install.sh --only winserial")
+    if not hostenv.interop_usable(report):
+        return row(None, "interop을 쓸 수 없어 COM 없는 버전 확인 생략")
+    try:
+        trusted = (resolver or resolve_helper)(configured=helper["path"], tools_root=tools_dir())
+        result = (version or probe_version)(trusted, timeout=5.0)
+        if result.get("cleanup_verified") is not True:
+            return row(False, "helper 종료 확인 실패; 진단 세션 보존", "남은 helper를 확인한 뒤 다시 점검")
+    except Exception as exc:  # noqa: BLE001 - doctor의 나머지 항목은 계속 확인
+        code = getattr(exc, "code", type(exc).__name__)
+        return row(False, f"COM helper 검증 실패: {code}", "scripts/install.sh --only winserial; pin 불일치는 우회하지 않음")
+    ver = ".".join(map(str, result["version"]))
+    return row(True, f"{ver} · SHA256·HELLO·종료 확인 (COM 열지 않음)")
+
+
 def codex_doctor_checks(report: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """doctor 의 Codex 줄. 프로젝트 설정은 파일 머리의 생성 옵션(# pweh-options)으로 다시 만들어 비교한다 (쓰지 않는다)."""
     try:
@@ -1222,6 +1255,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             "" if ok else "실행 파일은 있지만 버전 확인에 실패했습니다. 필요 기능: pweh-esp 의 Linux esptool. scripts/install.sh --force --only esptool 로 다시 설치")
     # Windows esptool.exe (방법 A): esp 와 같은 해석 — 설정 tools.esptool_win → PWEH_ESPTOOL_WIN → 도구 디렉터리 후보 (hostenv 보고서)
     checks.append(esptool_win_check(report))
+    checks.append(serial_helper_check(report))
     checks.extend(emu_doctor_checks(cfg))
     checks.extend(image_doctor_checks(cfg))
     gh = os.environ.get("GHIDRA_INSTALL_DIR")

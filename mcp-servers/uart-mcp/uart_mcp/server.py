@@ -436,7 +436,7 @@ def uart_list_ports(include_links: bool = False) -> dict[str, Any]:
 
 @server.tool(
     description=(
-        "UART 세션 열기 (INTERACT, dtr/rts=true 또는 확인된 reset-wired 경로면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로 또는 pyserial URL "
+        "UART 세션 열기 (INTERACT, dtr/rts=true 또는 확인된 reset-wired 경로면 MODIFY — 보드 리셋/부트모드 핀일 수 있음). port 는 장치 경로, WSL interop COMn(helper), 또는 pyserial URL "
         "(루프백 호스트만: socket://127.0.0.1:<포트>, rfc2217://[::1]:<포트> / 테스트용 loop:// — LAN 호스트는 validation_failed). DTR/RTS 는 열기 전에 설정하며 기본 False. line_ending 기본 \"\\r\" (U-Boot 문맥은 항상 \\r). "
         "profile 은 pipeline_profiles 이름(생략 시 케이스 프로필) — 프롬프트/autoboot 정규식과 인터럽트 키를 정한다. "
         "승인 전에 공통 포트 잠금을 얻고 실제 open 직전에 경로·기기 신원을 다시 확인한다. "
