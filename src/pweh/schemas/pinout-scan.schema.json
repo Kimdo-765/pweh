@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.pinout-scan/v1",
+  "title": "공통 핀아웃 스캔 결과",
+  "description": "채널/핀 후보·완료 상태·근거 아티팩트. 공급자 고유 필드는 추가로 보존한다.",
+  "type": "object",
+  "required": [
+    "schema",
+    "producer",
+    "scan",
+    "case_id",
+    "channels",
+    "permutations",
+    "status",
+    "started_at",
+    "finished_at",
+    "duration_seconds",
+    "summary",
+    "artifacts"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pweh.pinout-scan/v1"
+    },
+    "producer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scan": {
+      "enum": [
+        "idcode",
+        "bypass",
+        "jtag",
+        "uart",
+        "uart_txd",
+        "swd"
+      ]
+    },
+    "case_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "channels": {
+      "type": "object"
+    },
+    "permutations": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "수동 관찰처럼 순열이 없는 스캔은 null"
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "finished_at": {
+      "type": "string"
+    },
+    "duration_seconds": {
+      "type": "number",
+      "minimum": 0
+    },
+    "summary": {
+      "type": "object"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  }
+}

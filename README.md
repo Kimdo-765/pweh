@@ -24,6 +24,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
    ├─ pweh-fwtriage    오프라인 트리아지: 시그니처, 엔트로피, U-Boot env, mtdparts 분할, rootfs 감사, 문자열 휴리스틱
    ├─ pweh-esp         ESP32: esptool 칩·보안 정보, 플래시 덤프(job, 두 번 읽어 sha256 비교). WSL 에서는 Windows esptool.exe + COM 포트 (선택)
    ├─ pweh-forensics   SD 카드 이미지 증거 분석: 접수·해시·보관 기록, 파티션·FAT/exFAT 목록, 삭제 파일 추출(job), 증거 목록 — 기기·카드를 열지 않음 (선택)
+   ├─ pweh-espprobe    HELLO·HB 오프라인 시뮬레이터, 실제 포트·핀 미지원 (I5 1a)
    ├─ pweh-emu         ESP32·S3·C3/Arduino AVR 펌웨어 실행, 출처 확인·마스킹 콘솔·세션 종료 — 기기 미접촉 (선택)
    └─ rea              REA(rea-agents): binwalk/unblob 추출, Ghidra 디컴파일, 참조 추적, 신호 디코딩
             │
@@ -206,3 +207,7 @@ MIT (외부 도구와 REA 는 각자의 라이선스를 따른다).
 ### Android 펌웨어·논리 증거
 
 Android 펌웨어의 형식·raw GPT/LP 배치·AN 정적 점검과, 사람이 만든 TAR/ZIP 또는 FAT/exFAT 증거의 선택 SQLite·SMS·통화·연락처·브라우저·타임라인을 분석한다. WAL/freelist는 근거와 신뢰도를 갖는 후보로 보고한다. [지원 범위](docs/design/android-analysis.md), [android-forensics Skill](skills/android-forensics/SKILL.md)을 참고한다. ext4/EROFS/F2FS 파일 목록 엔진·잠금/암호화 우회·실기기 획득·영상/음성 해독은 제공하지 않는다.
+
+ESP 계측기 I5 1a의 오프라인 프로토콜 시험은 [pweh-espprobe](mcp-servers/espprobe-mcp/README.md)를 쓴다.
+실제 보드 연결·플래시는 포함하지 않으며, 시뮬레이터 결과를 실기 검증으로 취급하지 않는다.
+고정 툴체인으로 펌웨어를 재현 빌드하고 사전 빌드를 설치하는 절차는 [빌드 문서](docs/references/espprobe-build.md)에 있다.

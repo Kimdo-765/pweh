@@ -29,7 +29,8 @@ from typing import Any, Callable, Iterator
 
 import serial
 
-from pweh.errors import DeviceError, SafetyDenied, TimeoutExpired, ValidationFailed
+from pweh.errors import DeviceError, PwehError, SafetyDenied, TimeoutExpired, ValidationFailed
+from pweh.instrument_guard import GUARD_CODES
 from pweh.fsutil import utcnow_iso
 from pweh.safety import Classification, Risk, worst
 
@@ -117,9 +118,13 @@ class SerialLink:
 
     MAX_BUFFER = 4 * 1024 * 1024
 
-    def __init__(self, url: str, baudrate: int = 115200, *, transcript: Transcript | None = None) -> None:
+    def __init__(self, url: str, baudrate: int = 115200, *, transcript: Transcript | None = None,
+                 before_io: Callable[[], Any] | None = None) -> None:
         # 도구에서 이미 검사했어도 여기서 다시 (pyserial URL 처리기는 이름만 정해도 부작용이 있고, LAN 호스트는 열지 않는다)
         url = P.validate_port(url)
+        self.before_io = before_io
+        if before_io is not None:
+            before_io()
         self.url = url
         self.baudrate = baudrate
         self.transcript = transcript
@@ -255,9 +260,20 @@ class SerialLink:
             raise DeviceError("JTAGulator 연결이 이미 닫혔습니다.", code="disconnected")
 
     # -- 송신 ------------------------------------------------------------------
+    def check_target(self) -> None:
+        """계측기로 고정되면 추가 송신 없이 호스트 연결만 닫고 거부를 전파한다."""
+        if self.before_io is not None:
+            try:
+                self.before_io()
+            except PwehError as exc:
+                if exc.code in GUARD_CODES:
+                    self.close()
+                raise
+
     def write(self, data: bytes) -> None:
         self.check()
         with self._write_lock:
+            self.check_target()
             try:
                 self._ser.write(data)
             except Exception as exc:  # noqa: BLE001
@@ -956,6 +972,8 @@ class JTAGulatorDriver:
                     try:
                         self.send(P.KEY_ABORT_SCAN)
                     except Exception as exc:  # noqa: BLE001
+                        if isinstance(exc, PwehError) and exc.code in GUARD_CODES:
+                            raise
                         log.warning("abort key send failed: %r", exc)
                         if self.link.error is not None:
                             reason = "disconnected"
@@ -967,8 +985,9 @@ class JTAGulatorDriver:
                     abort_sent_at = now
                     try:
                         self.send(P.KEY_ABORT_SCAN)
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception as exc:  # noqa: BLE001
+                        if isinstance(exc, PwehError) and exc.code in GUARD_CODES:
+                            raise
                 else:
                     reason = "abort_failed"
                     break

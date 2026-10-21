@@ -978,6 +978,53 @@ SD 카드 이미지의 증거 분석이다(설계 `docs/design/sd-forensics.md` 
 `emu_not_full_image`, `emu_unsupported_chip`, `emu_machine_mismatch`, `emu_flash_encrypted`, `emu_flash_too_large`, `emu_bad_hex`, `emu_elf_refused`,
 `emu_session_limit`, `emu_spawn_failed`, `emu_not_running`. 사람 확인 상태는 `attestation_required`·`approval_required`·`denied` 다.
 
+### 6.10 pweh-espprobe (I5 1a, 오프라인)
+
+서버 내부 `probe-hello` 모델의 HELLO/HB 프로토콜만 시험한다. 실제 포트·소켓·펌웨어 실행·플래시 기능은 없다.
+도구는 6개이며 job 도구와 새 safety 설정은 없다. 프로토콜은 [references/espprobe-protocol.md](references/espprobe-protocol.md),
+사용 흐름은 [서버 README](../mcp-servers/espprobe-mcp/README.md)에 있다.
+
+| 도구(인자) | 반환·동작 |
+|---|---|
+| `espprobe_version()` | `backend="in-process"`, protocol_version=1, profile, ports, limits. 외부 실행 없음 |
+| `espprobe_connect(case_id, port="sim://probe-hello")` | 케이스 소유/허가 확인, 정확한 모델 이름만 허용. 독립 고정 기대값으로 HELLO 검증 후 HB 시작. `hello`, session_id, model, artifact |
+| `espprobe_status(case_id=None)` | 현재 프로세스 sessions[]: state, closed, counters, 해제 사유, 경과, 산출물 |
+| `espprobe_self_test(case_id)` | 소유/허가 재확인, 보존 HELLO 정책과 새 HB 왕복, checks와 model 반환. 실제 USB·핀 검증 아님 |
+| `espprobe_release_all(case_id)` | RELEASE 뒤 HB/모델 종료. 해제 상태를 보존하며 반복 가능 |
+| `espprobe_disconnect(case_id)` | BYE 뒤 모델·HB worker 정리, 최종 JSON. 이미 종료했으면 already_disconnected |
+
+모든 결과에 `simulator_only=true`, `hardware_verified=false`가 있다. 케이스당 한 세션, 프로세스당16개,
+최대600초이며 `hb_ms=1000`의 1/3마다 HB를 보낸다. 요청 전에 실제 monotonic 경과를 모델에 적용하므로
+스케줄 지연 뒤 늦은 HB가 만료된 세션을 살리지 않는다. 시계 역행·protocol 오류·최대수명·lifespan 종료도 정리한다.
+cleanup은 케이스 허가 철회 뒤에도 가능하며, 새 HELLO를 자동 전송하지 않는다.
+
+시뮬레이터의 고정 MAC/hash/commit은 합성 식별이다. 실제 릴리스 manifest의 허용 대상으로 승격하지 않는다.
+연결·자가시험·종료 JSON은 `probe/`에 `kind=other`로 등록하고, 주기 HB는 카운터만 남긴다.
+실기 전송 계층·instrument-pin 생성·배선·flash-plan 도구는 이후 단계다. 현재 여섯 도구만 Claude allow에 명시한다.
+
+**공용 코드와 핀아웃 형식**
+
+`pweh.srzip`의 write_srzip, `pweh.jtag.jep106`의 IDCODE 해석, `pweh.safety.probes`의 UART 프로브 분류를
+기존 서버가 재사용한다. 기존 import 경로와 규칙 ID는 유지한다. `pweh.jtag.pinout_scan`의 lower_bound_seconds
+기본 시간표는 JTAGulator용이며 espprobe의 속도 추정에 적용하지 않는다.
+새 JTAGulator 결과는 `pweh.pinout-scan/v1`, producer=jtagulator, legacy_schema=pweh.jtagulator-scan/v1이며
+기존 공급자 필드를 보존한다. 수동 TXD 관찰의 permutations는 null이다. 기존 저장 결과는 변경하지 않는다.
+
+**기존 대상 도구의 계측기 보호**
+
+`pweh.instrument_guard.guard_target_port`는 모든 케이스의 유효한 전역 instrument-pin을 모아 읽고,
+`pweh.portidentity`의 포트를 열지 않는 Windows PnP/Linux sysfs 관찰로 대상과 계측기를 구분한다.
+pin이 없으면 OS 관찰·역할 태그를 읽지 않는다. pin이 있을 때 식별할 수 없는 포트·자동 선택·중계 경로는
+instrument_identity_unknown, 계측기·부트/ROM·instrument-aux 일치는 instrument_port다.
+ESP는 도구 준비·프로세스 실행·이중 읽기 각각, UART는 open/baud 재시도/송신·신호 변경,
+JTAGulator는 연결·송신, sigrok은 scan/info/capture의 프로세스 실행 전에 검사한다.
+오프라인 파일 처리·버전 조회는 그대로다. 메모리 loop와 sigrok demo는 가상 입력으로 처리한다.
+
+InstrumentTagStore는 uid별 runtime 디렉터리0700·파일0600, nofollow·크기/개수 상한으로 거부 표지를 저장한다.
+instrument-aux도 권위 증명과 현재 관찰이 일치해야 만들 수 있으며 허용 권한이 아니다.
+기존 ESP chip/security 사실의 출처 기록은 그대로 재사용하고, 관찰 MAC도 고정 계측기와 대조한다.
+실제 pin 생성과 포트의 원자적 잠금은 후속 단계다. 현재 구현은 합성 PnP와 가짜 프로세스로 검증한다.
+
 ## 7. REA 연동
 
 - 등록: `.mcp.json` 의 `rea` 서버. `scripts/mcp-launch.sh rea` 가 `~/pweh-tools/env.sh` 를 불러온 뒤 `rea --mcp` 를 실행한다

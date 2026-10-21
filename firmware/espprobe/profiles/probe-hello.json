@@ -1,0 +1,15 @@
+{
+  "fw_name": "PWEH espprobe",
+  "version": "0.1.0",
+  "build_profile": "probe-hello",
+  "board": "esp32s3-devkitc1-hello",
+  "usb": {"vid": 12346, "pid": 16386, "product": "PWEH espprobe", "serial_rule": "upper_hex(base_mac)"},
+  "caps": [],
+  "limits": {"max_payload": 4096, "hb_ms": 1000, "max_credit": 0},
+  "pins_allowed": {"H0": [], "H1": [], "H1a": []},
+  "pclk_pad": null,
+  "pin_drive": null,
+  "spi_read_opcodes": [],
+  "radio": "none",
+  "tx_caps": []
+}

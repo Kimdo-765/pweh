@@ -42,6 +42,7 @@ from pweh.mcpkit import (
     safe_tool,
 )
 from pweh.runtime import Runtime, get_runtime
+from pweh.instrument_guard import guard_target_port
 from pweh.safety import Risk
 
 from . import protocol as P
@@ -209,6 +210,7 @@ def _op(conn: Connection, *, allow_dead: bool = False) -> Iterator[None]:
             raise NotFound("연결이 이미 닫혔습니다.")
         if not allow_dead:
             conn.link.check()
+            conn.link.check_target()
         yield
     finally:
         conn.lock.release()
@@ -302,6 +304,7 @@ async def jtagulator_connect(
     r = rt()
     case = r.case(case_id, hardware=True)
     port = P.validate_port(port)
+    await run_blocking(guard_target_port, r, port, consumer="jtagulator")
     try:
         baudrate = int(baudrate)
     except (TypeError, ValueError):
@@ -369,7 +372,8 @@ async def jtagulator_connect(
         rel = f"jtag/jtagulator-{n:03d}.log"
         transcript = Transcript(case.path(rel), {"case_id": case_id, "port": port, "baudrate": baudrate, "server": SERVER_NAME})
         try:
-            link = SerialLink(port, baudrate, transcript=transcript)
+            link = SerialLink(port, baudrate, transcript=transcript,
+                              before_io=lambda: guard_target_port(r, port, consumer="jtagulator", phase="pre-io"))
         except Exception as exc:
             transcript.note(f"open failed: {exc}")
             transcript.close()
@@ -884,8 +888,10 @@ def _build_scan_result(
         warnings.append("스캔 도중 장치 리셋 흔적 — 전압 설정이 사라졌을 수 있어 서버 전압 상태를 초기화했습니다.")
     if reason in ("stalled", "disconnected", "abort_failed"):
         warnings.append("장치 상태를 확신할 수 없습니다. 연결을 다시 하고 전압을 재설정하세요.")
-    return {
-        "schema": "pweh.jtagulator-scan/v1",
+    result = {
+        "schema": "pweh.pinout-scan/v1",
+        "producer": "jtagulator",
+        "legacy_schema": "pweh.jtagulator-scan/v1",
         "scan": spec.kind,
         "case_id": case_id,
         "port": conn.port,
@@ -910,6 +916,11 @@ def _build_scan_result(
         "tx": run.sent + outcome.sent,
         "artifacts": {"raw_log": raw_rel, "result_json": json_rel, "session_transcript": conn.transcript_rel},
     }
+
+    from pweh.schemas import validate
+
+    validate("pinout-scan", result)
+    return result
 
 
 _SCAN_COMMON_DOC = (

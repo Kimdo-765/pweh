@@ -1,6 +1,6 @@
 # 설계안: ESP32 계측기 MCP (pweh-espprobe)
 
-> 상태: **제안 (구현 전 검토용)**. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md), 증명·출처 원장·마스킹·안전 설정 위치는 [common-core.md](common-core.md),
+> 상태: **1a 오프라인 구현과 이후 단계 설계**. 현재 서버 계약은 [architecture.md](../architecture.md) §6.10을 따른다. 이후 단계 설명은 구현 계약이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md), 증명·출처 원장·마스킹·안전 설정 위치는 [common-core.md](common-core.md),
 > 환경 감지·포트 라우팅(`pweh.hostenv`·`pweh.ports`·`pweh-serial-helper.exe`·`pweh.portlock`·역할 표지)은 [port-routing.md](port-routing.md), 입력 브리지·Flipper 와의 관계는 [game-console-flipper-rf.md](game-console-flipper-rf.md) 에 있다.
 > 요청: "esp32 기반 mcp도 추가해줘"(Flipper·RF 요청 직후). 조사 노트 셋(로컬 `research/esp32-instrument/` — 저장소에는 없음, 부록 B)을 합쳤고, 노트끼리 어긋난 곳은 이 문서에서 하나로 정했다.
 > 초안을 두 관점(안전·구조 23건, 사실·라이선스 31건)으로 적대적 검증했다. 부분 수정 24건, 반박 1건, 확인 불가 1건, 누락 6건(1건은 두 관점 공통)을 반영했다(부록 B.3).
@@ -149,7 +149,7 @@ USB SWD 프로브로는 pweh-openocd 경로(3단계)이고, Marauder 를 올린 
 ### 2.4 와이어 프로토콜 (요약 — 사양은 `docs/references/espprobe-protocol.md` + hex 골든 프레임)
 
 - **프레임**: `COBS(header16 ‖ payload ‖ crc32_le)` + `0x00`.
-  - CRC-32 는 zlib 다항식이다. `esp_rom_crc32_le` 와 같은지는 골든 벡터로 정한다 [미확인].
+  - CRC-32 는 zlib 다항식이다. I5는 portable C CRC와 Python zlib를 고정 골든 벡터로 대조하며 ROM API에 의존하지 않는다.
   - 헤더: `ver, type(REQ/RSP/EVT/DATA/HB), op, seq, flags, session, len(≤4096), credit`.
 - **재시도·오류**: 같은 `seq` 면 장치가 저장한 RSP 를 다시 보낸다(다시 실행하지 않는다). `E_POLICY` 는 핀·opcode·한도 위반이고 **조용히 깎지 않는다.** `E_UNSUPPORTED_OP` 는 컴파일되지 않은 연산, `E_RELEASED` 는 해제 상태다.
 - **HELLO(TLV)**:
@@ -443,7 +443,7 @@ USB SWD 프로브로는 pweh-openocd 경로(3단계)이고, Marauder 를 올린 
 
 ### 5.3 빌드·배포
 
-- **빌드**: 기본은 고정 다이제스트 `espressif/idf:v6.1@sha256:…` Docker 이미지 + `CONFIG_APP_REPRODUCIBLE_BUILD=y` 로컬 빌드(`scripts/build_firmware.sh`)다. 이 호스트에서 Docker 데몬이 응답한다 [높음, 조사 노트].
+- **빌드**: 기본은 고정 다이제스트 `espressif/idf:v6.1@sha256:…` Docker 이미지 + `CONFIG_APP_REPRODUCIBLE_BUILD=y` 로컬 빌드(`scripts/build_firmware.sh`)다. 빌드 전에 Docker 데몬과 로컬 고정 이미지의 사용 가능 여부를 확인한다.
   - 산출물: 병합 이미지(오프셋 0x0 — S3 ROM 부트로더 오프셋 `ESP_ROM_BOOTLOADER_OFFSET_FLASH (0x0)`, `esp_rom_caps.h:41` [높음]), 개별 bin, ELF, map, `SHA256SUMS`, 빌드 검사 결과, 매니페스트.
 - **배포**: sha256 을 고정한 사전 빌드를 저장소에 둔다(헬퍼 무결성 방식, port-routing §5.2). install.sh 구성요소 `espprobe-fw`(선택)가 대조한 뒤 `~/pweh-tools/firmware/espprobe/<ver>/` 에 둔다.
   - 로컬 ESP-IDF 설치(S3 도구 다운로드 약 652 MB [중간])는 개발자 선택이다. EIM 오프라인 모드는 Python ≥3.11 이 필요한 것으로 보여(v6.0 문서, 호스트 3.10.12) 쓰지 않는다 [중간].
@@ -452,7 +452,7 @@ USB SWD 프로브로는 pweh-openocd 경로(3단계)이고, Marauder 를 올린 
   {version, git_commit, idf_version, docker_digest, profile, board, files[{name, offset, sha256, size}], merged{name, sha256},
    image_sha256, usb{vid, pid, product, serial_rule: "upper_hex(base_mac)"}, caps, limits, pins_allowed, pclk_pad, spi_read_opcodes, radio, tx_caps}
   ```
-  - `image_sha256` 은 펌웨어가 HELLO 에서 계산하는 값(앱 파티션의 `esp_partition_get_sha256`)으로 정의하고, 빌드가 같은 알고리즘으로 기록한다. 릴리스 `app.bin` sha256 과 같은지는 [미확인].
+  - `image_sha256` 은 펌웨어가 HELLO 에서 계산하는 값(앱 파티션의 `esp_partition_get_sha256`)으로 정의하고, 빌드가 같은 알고리즘으로 기록한다. appended digest는 digest 자신을 제외한 이미지 바이트의 해시이고, 배포 `app.bin` 전체 SHA256 및 ELF SHA256과 별도 필드다.
 
 ### 5.4 계측기 플래시 = 사람 단계 (pweh-esp 쓰기 거부는 그대로)
 
@@ -507,7 +507,7 @@ USB SWD 프로브로는 pweh-openocd 경로(3단계)이고, Marauder 를 올린 
    - `base_mac` = 고정값, `usb.serial == upper_hex(base_mac)`, `usb{vid, pid, product}` = 매니페스트.
    - `caps`·`limits`·`pins_allowed`·`pclk_pad`·`spi_read_opcodes` 가 매니페스트와 **정확히** 같음(부분 집합이 아님). 유선이면 `radio="none"`·`tx_caps=[]`.
    - nonce 반향.
-   - 미릴리스 빌드는 운영자 opt-in `safety.espprobe.allow_unreleased_firmware` 로만 받는다(보고서 경고).
+   - 미릴리스 실기 빌드를 허용하는 도구·설정은 아직 없다. I5 1a는 내부 시뮬레이터만 받으며 새 safety 키를 만들지 않는다.
 6. **시작**: `probe/espprobe-<n>-hello.json` 을 기록하고 하트비트를 시작한다.
 - **위협 모델(정직하게)**:
   - HELLO 의 해시·MAC 은 자기 보고다. 잘못된·오래된 펌웨어와 다른 보드를 연 실수는 잡지만 위조 펌웨어는 못 막는다(safety.md §3.4 의 "협조적이지만 성급한 에이전트" 수준).
@@ -723,3 +723,10 @@ LCD_CAM 실제 샘플레이트·깊이(PSRAM 유무), 회로 내 SPI 10 MHz 안�
   - §3.5: `fw_patch_build` base 로 "원장 기록이 있는 espprobe 이중 읽기 덤프"를 받는다.
   - §3.4·§8 2b: 입력 브리지가 `firmware/common`·빌드·매니페스트·고정 흐름을 공유한다(전송은 보드 USB-UART, 하트비트 300 ms 그대로).
 - **README.md**(이미 이 문서를 링크하고 1a·관문·1c·2d·3 배치가 같다): §3 "관문" 행에 "ESP32 `probe-hello` 확인(MI_00/MI_02·부팅 창·다운로드 모드 핀·303a:1001 iSerial — esp32-instrument §9)"을, "1a" 행에 "espprobe 거부 규칙(pweh-esp/uart/sigrok/jtagulator)·코어 이동"을 더한다. §5.2 9번은 그대로 맞다(세부는 §10 D1–D7).
+
+### I5 1a 구현 범위
+
+현재 `pweh-espprobe`는 여섯 도구의 in-process 시뮬레이터 전용이다. 위 실기 도구·배선·flash-plan·포트라우팅은
+이후 단계 설계다. 운영 계약은 [architecture.md](../architecture.md) §6.10, wire 규약은
+[espprobe-protocol.md](../references/espprobe-protocol.md)를 따른다. 시뮬레이터와 C 호스트 시험은 실제
+USB 열거·해제 지연·Hi-Z를 증명하지 않는다. 이 항목은 1b에서 사람이 확인한다.

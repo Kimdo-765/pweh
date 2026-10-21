@@ -45,6 +45,7 @@ from pweh.mcpkit import (
     safe_tool,
 )
 from pweh.runtime import Runtime, get_runtime
+from pweh.instrument_guard import guard_target_port
 from pweh.safety import Classification, GateDecision, Risk
 
 from . import baud as baudmod
@@ -418,6 +419,7 @@ async def sigrok_scan(
     r = rt()
     drv = validate_driver(driver) if driver else None
     conn_v = validate_conn(conn)
+    await _offload(guard_target_port, r, conn_v, consumer="sigrok", driver=drv)
     if conn_v and not drv:
         raise ValidationFailed("conn 을 쓰려면 driver 도 지정해야 합니다.", hint="예: sigrok_scan(driver='ols', conn='/dev/ttyACM0', case_id=...)")
     case = _hardware_prelude(case_id, conn_v)
@@ -440,11 +442,13 @@ async def sigrok_scan(
 
     def work(cancel_event: threading.Event) -> CliResult:
         if not drv:
+            guard_target_port(r, conn_v, consumer="sigrok", driver=drv, phase="pre-process")
             return run_process(argv, timeout=timeout, cancel=cancel_event.is_set, env=child_env())
         lock = _device_lock(_device_key(drv, conn_v))
         if not lock.acquire(blocking=False):
             raise Busy(f"장치 {drv} 를 다른 작업(캡처 등)이 사용 중입니다.", hint="sigrok_jobs 로 실행 중인 캡처를 확인하라.")
         try:
+            guard_target_port(r, conn_v, consumer="sigrok", driver=drv, phase="pre-process")
             return run_process(argv, timeout=timeout, cancel=cancel_event.is_set, env=child_env())
         finally:
             lock.release()
@@ -490,6 +494,7 @@ async def sigrok_device_info(
     r = rt()
     drv = validate_driver(driver)
     conn_v = validate_conn(conn)
+    await _offload(guard_target_port, r, conn_v, consumer="sigrok", driver=drv)
     case = _hardware_prelude(case_id, conn_v)
     assert case is not None
     cli = _cli()
@@ -509,6 +514,7 @@ async def sigrok_device_info(
         if not lock.acquire(blocking=False):
             raise Busy(f"장치 {drv} 를 다른 작업(캡처 등)이 사용 중입니다.", hint="sigrok_jobs 로 실행 중인 캡처를 확인하라.")
         try:
+            guard_target_port(r, conn_v, consumer="sigrok", driver=drv, phase="pre-process")
             return run_process(argv, timeout=timeout, cancel=cancel_event.is_set, env=child_env())
         finally:
             lock.release()
@@ -553,6 +559,7 @@ class CapturePlan:
     policy: DriverPolicy
     exclusive_key: str
     warnings: list[str] = field(default_factory=list)
+    runtime: Runtime | None = field(default=None, repr=False, compare=False)
 
     def requested(self) -> dict[str, Any]:
         return {
@@ -576,6 +583,8 @@ def _capture_worker(plan: CapturePlan, cancel: Callable[[], bool], progress: Cal
         raise Busy(f"장치 {plan.driver} 를 다른 캡처가 사용 중입니다.", hint="sigrok_jobs / sigrok_job_status 로 확인하라.")
     t_start = utcnow_iso()
     try:
+        guard_target_port(plan.runtime or rt(), plan.conn, consumer="sigrok", driver=plan.driver, phase="pre-process")
+
         def tick(elapsed: float) -> None:
             if progress is not None:
                 total = plan.expected_s if plan.expected_s > 0 else 1.0
@@ -746,6 +755,7 @@ async def sigrok_capture(
     case = r.case(case_id, hardware=True)
     drv = validate_driver(driver)
     conn_v = validate_conn(conn)
+    await _offload(guard_target_port, r, conn_v, consumer="sigrok", driver=drv)
     rate = parse_samplerate(samplerate)
     dur = validate_duration_ms(duration_ms)
     ns = validate_samples(samples)
@@ -808,7 +818,7 @@ async def sigrok_capture(
         plan = CapturePlan(case_id=case.id, case_dir=case.dir, sig_dir=sig_dir, driver=drv, conn=conn_v, samplerate=rate,
                            duration_ms=dur, samples=ns, channels=chans, triggers=trig, capture_ratio=ratio, final_path=final,
                            part_path=part, argv=argv, expected_s=expected, timeout_s=timeout, policy=pol,
-                           exclusive_key=exclusive_key, warnings=warnings)
+                           exclusive_key=exclusive_key, warnings=warnings, runtime=r)
         bg = background if background is not None else (trig is not None or expected > SYNC_CAPTURE_LIMIT_S)
         if bg:
             def job_fn(jctx: Any) -> dict[str, Any]:

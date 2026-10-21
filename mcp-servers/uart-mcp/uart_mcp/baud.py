@@ -11,6 +11,9 @@ import re
 import time
 from typing import Any, Callable
 
+from pweh.errors import PwehError
+from pweh.instrument_guard import GUARD_CODES
+
 from .session import PortSettings, open_serial
 from .textutil import printable_ratio
 
@@ -54,7 +57,8 @@ def _sample_text(data: bytes, limit: int = 160) -> str:
 
 def detect(port: str, candidates: list[int], listen_seconds: float, probe: str, *,
            bytesize: int = 8, parity: str = "N", stopbits: float = 1,
-           cancel: Callable[[], bool] | None = None, early_stop: bool = True) -> dict[str, Any]:
+           cancel: Callable[[], bool] | None = None, early_stop: bool = True,
+           before_io: Callable[[], Any] | None = None) -> dict[str, Any]:
     results: list[dict[str, Any]] = []
     t0 = time.monotonic()
     truncated = False
@@ -66,9 +70,13 @@ def detect(port: str, candidates: list[int], listen_seconds: float, probe: str, 
             truncated = True
             break
         settings = PortSettings(port=port, baudrate=int(baud), bytesize=bytesize, parity=parity, stopbits=stopbits, dtr=False, rts=False)
+        if before_io is not None:
+            before_io()  # 탐지 재시도의 except 밖: 계측기 거부를 후보 실패로 삼키지 않는다.
         try:
             ser = open_serial(settings, timeout=0.05)
         except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, PwehError) and exc.code in GUARD_CODES:
+                raise
             errors.append(f"{baud}: {exc}")
             if not results:
                 raise
@@ -80,6 +88,8 @@ def detect(port: str, candidates: list[int], listen_seconds: float, probe: str, 
             except Exception:  # noqa: BLE001
                 pass
             if probe == "ctrl-c":
+                if before_io is not None:
+                    before_io()
                 ser.write(b"\x03")
                 try:
                     ser.flush()
@@ -95,6 +105,8 @@ def detect(port: str, candidates: list[int], listen_seconds: float, probe: str, 
                     if len(data) > 256 * 1024:
                         break
         except Exception as exc:  # noqa: BLE001
+            if isinstance(exc, PwehError) and exc.code in GUARD_CODES:
+                raise
             errors.append(f"{baud}: {exc}")
         finally:
             try:

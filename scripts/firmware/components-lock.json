@@ -1,0 +1,196 @@
+{
+  "components": [
+    {
+      "component_hash": "cfb066b239957ebfba5f7a7764e534b3000d3b400fd42d11bedb6ee5e6eaf3c9",
+      "files": [
+        {
+          "path": "components/espressif/esp_tinyusb/2.4.0/espressif__esp_tinyusb-v2.4.0.zip",
+          "sha256": "db34584e55305f2248ec3a07b3f15bcc02c63cd1035338de340a635ff31e069e",
+          "size": 257875,
+          "url": "https://components-file.espressif.com/components/espressif/esp_tinyusb/2.4.0/espressif__esp_tinyusb-v2.4.0.zip"
+        },
+        {
+          "path": "components/espressif/esp_tinyusb/2.4.0/CHECKSUMS.json",
+          "sha256": "0a1b77c5708b3ca94153bffba3a62b669c20ff3ce4a18aee3b0f67df7c49fe09",
+          "size": 25464,
+          "url": "https://components-file.espressif.com/components/espressif/esp_tinyusb/2.4.0/CHECKSUMS.json"
+        }
+      ],
+      "metadata": {
+        "name": "esp_tinyusb",
+        "namespace": "espressif",
+        "versions": [
+          {
+            "build_metadata_keys": [
+              "dependencies-*-public-type:boolean",
+              "dependencies-*-type:string",
+              "dependencies-*-version-type:string",
+              "files-exclude-type:array-type:string",
+              "targets-type:array-type:string",
+              "version-type:string"
+            ],
+            "checksums": "components/espressif/esp_tinyusb/2.4.0/CHECKSUMS.json",
+            "component_hash": "cfb066b239957ebfba5f7a7764e534b3000d3b400fd42d11bedb6ee5e6eaf3c9",
+            "created_at": "2026-10-05T08:29:44.940171+00:00",
+            "dependencies": [
+              {
+                "is_public": false,
+                "matches": [],
+                "name": null,
+                "namespace": null,
+                "registry_url": null,
+                "require": true,
+                "rules": [],
+                "source": "idf",
+                "spec": ">=5.0"
+              },
+              {
+                "is_public": true,
+                "matches": [],
+                "name": "tinyusb",
+                "namespace": "espressif",
+                "registry_url": "https://components.espressif.com",
+                "require": true,
+                "rules": [],
+                "source": "service",
+                "spec": ">=0.17.0~2"
+              }
+            ],
+            "description": "Espressif's additions to TinyUSB",
+            "discussion": null,
+            "docs": {
+              "changelog": "components/espressif/esp_tinyusb/2.4.0/changelog.md",
+              "readme": "components/espressif/esp_tinyusb/2.4.0/readme.md"
+            },
+            "documentation": "https://docs.espressif.com/projects/esp-usb/en/latest/esp32p4/usb_device.html",
+            "downloads_total": 20377,
+            "examples": [],
+            "homepage": "https://github.com/espressif/esp-usb/tree/master/device/esp_tinyusb",
+            "id": "bbb98fe1-d9cc-4a22-a4ed-70bdc151a6fe",
+            "info_metadata_keys": [
+              "description-type:string",
+              "documentation-type:string",
+              "repository-type:string",
+              "repository_info-commit_sha-type:string",
+              "repository_info-path-type:string",
+              "url-type:string"
+            ],
+            "issues": null,
+            "license": {
+              "name": "Custom",
+              "url": "components/espressif/esp_tinyusb/2.4.0/license.txt"
+            },
+            "maintainers": [],
+            "repository": "git://github.com/espressif/esp-usb.git",
+            "tags": [],
+            "targets": [
+              "esp32s2",
+              "esp32s3",
+              "esp32p4",
+              "esp32h4",
+              "esp32s31"
+            ],
+            "url": "components/espressif/esp_tinyusb/2.4.0/espressif__esp_tinyusb-v2.4.0.zip",
+            "version": "2.4.0",
+            "yanked_at": null,
+            "yanked_message": null
+          }
+        ]
+      },
+      "name": "espressif/esp_tinyusb",
+      "version": "2.4.0"
+    },
+    {
+      "component_hash": "16c8d774dab1f484d3e0c0f61105624d2424bbae864efd19818baf7b451b41e7",
+      "files": [
+        {
+          "path": "components/espressif/tinyusb/0.21.0~2/espressif__tinyusb-v0.21.0_2.zip",
+          "sha256": "89f3c290ae08c2789ff5fe008d45ff1b00c297e27bdbdf4a9a6931254e0242b3",
+          "size": 4201506,
+          "url": "https://components-file.espressif.com/components/espressif/tinyusb/0.21.0~2/espressif__tinyusb-v0.21.0_2.zip"
+        },
+        {
+          "path": "components/espressif/tinyusb/0.21.0~2/CHECKSUMS.json",
+          "sha256": "396787727b31da1ddc0d1a01c6a2259f0487fa4f339d10b59027d7a2694f2267",
+          "size": 329191,
+          "url": "https://components-file.espressif.com/components/espressif/tinyusb/0.21.0~2/CHECKSUMS.json"
+        }
+      ],
+      "metadata": {
+        "name": "tinyusb",
+        "namespace": "espressif",
+        "versions": [
+          {
+            "build_metadata_keys": [
+              "dependencies-*-type:string",
+              "files-exclude-type:array-type:string",
+              "targets-type:array-type:string",
+              "version-type:string"
+            ],
+            "checksums": "components/espressif/tinyusb/0.21.0~2/CHECKSUMS.json",
+            "component_hash": "16c8d774dab1f484d3e0c0f61105624d2424bbae864efd19818baf7b451b41e7",
+            "created_at": "2026-09-16T07:23:03.205329+00:00",
+            "dependencies": [
+              {
+                "is_public": false,
+                "matches": [],
+                "name": null,
+                "namespace": null,
+                "registry_url": null,
+                "require": true,
+                "rules": [],
+                "source": "idf",
+                "spec": ">=5.0"
+              }
+            ],
+            "description": "TinyUSB as esp-idf component",
+            "discussion": null,
+            "docs": {
+              "readme": "components/espressif/tinyusb/0.21.0~2/readme.md"
+            },
+            "documentation": "https://docs.tinyusb.org/en/latest/",
+            "downloads_total": 0,
+            "examples": [],
+            "homepage": "https://docs.tinyusb.org/en/latest/",
+            "id": "0f89a469-1d00-4dca-9927-e1e4ece6ff51",
+            "info_metadata_keys": [
+              "description-type:string",
+              "documentation-type:string",
+              "issues-type:string",
+              "repository-type:string",
+              "repository_info-commit_sha-type:string",
+              "repository_info-path-type:string",
+              "tags-type:array-type:string",
+              "url-type:string"
+            ],
+            "issues": "https://github.com/hathach/tinyusb/issues",
+            "license": {
+              "name": "Custom",
+              "url": "components/espressif/tinyusb/0.21.0~2/license.txt"
+            },
+            "maintainers": [],
+            "repository": "git://github.com/espressif/tinyusb.git",
+            "tags": [
+              "usb",
+              "usb_device"
+            ],
+            "targets": [
+              "esp32s2",
+              "esp32s3",
+              "esp32p4",
+              "esp32h4",
+              "esp32s31"
+            ],
+            "url": "components/espressif/tinyusb/0.21.0~2/espressif__tinyusb-v0.21.0_2.zip",
+            "version": "0.21.0~2",
+            "yanked_at": null,
+            "yanked_message": null
+          }
+        ]
+      },
+      "name": "espressif/tinyusb",
+      "version": "0.21.0~2"
+    }
+  ],
+  "schema": "pweh.firmware-component-downloads/v1"
+}

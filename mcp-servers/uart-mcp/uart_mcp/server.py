@@ -44,6 +44,7 @@ from pweh.mcpkit import (
     safe_tool,
 )
 from pweh.runtime import Runtime, get_runtime
+from pweh.instrument_guard import guard_target_port
 from pweh.safety import Classification, GateDecision, Risk, worst
 
 from . import baud as baudmod
@@ -239,6 +240,7 @@ async def _op(s: UartSession, what: str, wait: float = 15.0):
         # 잠금을 기다리는 동안 덤프 job 이 시작됐을 수 있다 → 다시 확인
         s.ensure_open()
         s.ensure_idle()
+        await run_blocking(s.check_target)
         yield
     finally:
         s.op_lock.release()
@@ -400,6 +402,7 @@ async def uart_open(
     r = rt()
     case = r.case(case_id, hardware=True)
     port = validate_port(port)
+    await run_blocking(guard_target_port, r, port, consumer="uart")
     if not (50 <= int(baudrate) <= 20_000_000):
         raise ValidationFailed(f"잘못된 baudrate: {baudrate}")
     if bytesize not in (5, 6, 7, 8):
@@ -439,7 +442,8 @@ async def uart_open(
         s = UartSession(session_id=sid, case=case, settings=settings, profile=prof, label=label,
                         buffer_bytes=int(r.config.uart.get("read_buffer_bytes", 4 * 1024 * 1024)),
                         persistent_paths=list(r.config.safety.persistent_paths), unknown_risk=r.config.safety.unknown_command_risk,
-                        audit=lambda ev, _cid=case_id: rt().audit(ev, _cid))
+                        audit=lambda ev, _cid=case_id: r.audit(ev, _cid),
+                        before_io=lambda: guard_target_port(r, port, consumer="uart", phase="pre-io"))
         s.job_lookup = _job_active
         with _LOCK:
             inherited = _PORT_MEMORY.get((case_id, key))
@@ -824,6 +828,7 @@ async def uart_detect_baud(case_id: str, port: str, ctx: Context, candidates: li
     r = rt()
     case = r.case(case_id, hardware=True)
     port = validate_port(port)
+    await run_blocking(guard_target_port, r, port, consumer="uart")
     if probe not in ("ctrl-c", "none"):
         raise ValidationFailed(f"잘못된 probe: {probe!r}", hint="ctrl-c 또는 none")
     cands = [int(b) for b in (candidates or r.config.baud_candidates(case.meta.get("profile")))]
@@ -852,7 +857,8 @@ async def uart_detect_baud(case_id: str, port: str, ctx: Context, candidates: li
         _RESERVED[key] = "uart_detect_baud"
     try:
         ev = threading.Event()
-        res = await run_blocking_cancellable(baudmod.detect, port, cands, listen, probe, cancel=ev.is_set, on_cancel=ev.set)
+        res = await run_blocking_cancellable(baudmod.detect, port, cands, listen, probe, cancel=ev.is_set, on_cancel=ev.set,
+                                             before_io=lambda: guard_target_port(r, port, consumer="uart", phase="baud-open"))
     finally:
         with _LOCK:
             _RESERVED.pop(key, None)

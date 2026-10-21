@@ -85,7 +85,13 @@
       "mcp__pweh-forensics__forensics_image_hints",
       "mcp__pweh-forensics__forensics_sqlite_inventory",
       "mcp__pweh-forensics__forensics_android_artifacts",
-      "mcp__pweh-forensics__forensics_timeline"
+      "mcp__pweh-forensics__forensics_timeline",
+      "mcp__pweh-espprobe__espprobe_version",
+      "mcp__pweh-espprobe__espprobe_status",
+      "mcp__pweh-espprobe__espprobe_connect",
+      "mcp__pweh-espprobe__espprobe_self_test",
+      "mcp__pweh-espprobe__espprobe_release_all",
+      "mcp__pweh-espprobe__espprobe_disconnect"
     ],
     "ask": [
       "mcp__pweh-uart__uart_write",
@@ -152,6 +158,7 @@
     "pweh-esp",
     "pweh-forensics",
     "pweh-emu",
-    "rea"
+    "rea",
+    "pweh-espprobe"
   ]
 }

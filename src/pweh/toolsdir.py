@@ -44,6 +44,16 @@ def tools_dir() -> Path:
     return tools_env().parent
 
 
+def espprobe_firmware_dir(root: Path, version: str, profile: str, board: str) -> Path:
+    """검증한 release 식별자에 대한 사전 빌드 설치 경로. 파일·설정은 읽지 않는다."""
+    import re
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+        raise ValueError("espprobe firmware version 형식 오류")
+    if profile != "probe-hello" or board != "esp32s3-devkitc1-hello":
+        raise ValueError("지원하지 않는 espprobe firmware profile/board")
+    return root / "firmware" / "espprobe" / version / profile / board
+
+
 #: 도구 디렉터리 안의 Windows esptool.exe 후보 (scripts/install.sh --only esptool 이 푸는 위치)
 ESPTOOL_WIN_RELPATHS = ("esptool-win/esptool-windows-amd64/esptool.exe", "esptool-win/esptool.exe")
 

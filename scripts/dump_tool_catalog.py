@@ -30,6 +30,7 @@ SERVERS = {
     "pweh-esp": "esp_mcp.server",
     "pweh-forensics": "forensics_mcp.server",
     "pweh-emu": "emu_mcp.server",
+    "pweh-espprobe": "espprobe_mcp.server",
 }
 
 
@@ -122,7 +123,7 @@ def check(cat: dict[str, Any]) -> int:
     # Skill/문서 안의 도구 이름 검사 (pweh 접두어를 가진 이름만).
     # - `name(` 형태는 도구 호출로 보고 반드시 실제 도구여야 한다.
     # - 백틱 단독 `name` 은 실제 인자/필드 이름이나 상태 값일 수 있으므로, 알려진 인자 이름·허용 단어는 건너뛴다.
-    prefixes = ("uart_", "uboot_", "shell_", "openocd_", "sigrok_", "jtagulator_", "fw_", "case_", "report_", "pipeline_", "approval", "schema_get", "esp_", "forensics_", "emu_")
+    prefixes = ("uart_", "uboot_", "shell_", "openocd_", "sigrok_", "jtagulator_", "fw_", "case_", "report_", "pipeline_", "approval", "schema_get", "esp_", "forensics_", "emu_", "espprobe_")
     all_pweh = set().union(*[v for k, v in known.items() if k != "rea"])
     param_names: set[str] = set()
     for info in cat.values():

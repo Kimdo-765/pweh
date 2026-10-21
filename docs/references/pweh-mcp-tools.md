@@ -53,7 +53,7 @@
 - **`approvals_pending()`** — [읽기전용]  
   대기 중인 승인 요청 목록 (확인 코드는 제외).
 - **`schema_get(name)`** — [읽기전용]  
-  PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt, save-analysis, sd-forensics, emulation, image-hints.
+  PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt, save-analysis, sd-forensics, emulation, image-hints, android-forensics, pinout-scan.
 
 ## pweh-uart
 
@@ -336,4 +336,19 @@
   에뮬레이터 세션 정지 (정리 도구 — 게이트 없음, 늘 동작). 이유를 먼저 기록하고 SIGTERM → 3초 → SIGKILL(프로세스 그룹), 감독 스레드 합류, 기록 마감, 아티팩트 등록(kind other + extra.type: emu-console-raw·emu-transcript·emu-events·emu-session·emu-stderr). 이미 끝난 세션도 부른다(already
 - **`emu_sessions(case_id?)`** — [읽기전용]  
   에뮬레이터 세션 목록 (OBSERVE). 이 서버 프로세스의 세션(끝난 것 포함): sessions[{session_id, case_id, backend, target, state, stopped_by, started_at, uptime_s, timeout_in_s, idle_timeout_in_s, raw_bytes, cursor_end, firmware{path, sha256}, dir}
+
+## pweh-espprobe
+
+- **`espprobe_version()`** — [읽기전용]  
+  시뮬레이터 백엔드·프로토콜 버전과 한도 조회. 장치 열거·외부 프로세스 실행 없음.
+- **`espprobe_connect(case_id, port?)`**  
+  케이스의 합성 HELLO/HB 시뮬레이터 연결. port는 정확히 sim://probe-hello만 허용하며 실제 포트는 열지 않는다. nonce·세션·USB 식별·빈 핀/버스/무선 정책을 고정 합성 기대값과 대조하고 HB를 시작한다. 케이스당 한 세션, 전체 16개, 최대 600초. 반환 hello의 hash/MAC은 실제 기기 증거가 아니다.
+- **`espprobe_status(case_id?)`** — [읽기전용]  
+  현재 프로세스의 시뮬레이터 세션 상태·해제 사유·카운터 조회. case_id 생략 시 전체(최대16개).
+- **`espprobe_self_test(case_id)`**  
+  연결된 모델의 HELLO 정책과 새 HB 왕복을 확인하고 결과를 케이스에 기록한다. 실제 USB·핀·전압·펌웨어 부팅을 시험한 결과가 아니다. 해제된 세션을 자동으로 다시 연결하지 않는다.
+- **`espprobe_release_all(case_id)`**  
+  시뮬레이터에 RELEASE를 보내고 HB를 끝낸다. 반복 호출해도 해제 상태를 유지한다. 실제 핀 제어 없음.
+- **`espprobe_disconnect(case_id)`**  
+  모델에 BYE를 보내고 시뮬레이터·HB worker를 종료한다. 최종 JSON을 아티팩트로 기록하며 반복 호출 가능.
 

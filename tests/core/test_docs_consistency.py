@@ -48,6 +48,9 @@ FULL_ALLOW_SERVERS = ("pweh-case", "pweh-fwtriage")
 #: 사용자가 정지 그림·OCR 반환을 별도 승인 없이 허용한 도구. 로컬 산출물을 쓰므로 readOnlyHint 는 false 다.
 LOCAL_WRITE_ALLOW = {f"mcp__pweh-forensics__{name}" for name in (
     "forensics_image_hints", "forensics_sqlite_inventory", "forensics_android_artifacts", "forensics_timeline")}
+# I5 1a는 서버 내부 모델과 로컬 JSON만 다루며 실제 전송 계층이 없다.
+LOCAL_WRITE_ALLOW |= {f"mcp__pweh-espprobe__{name}" for name in (
+    "espprobe_connect", "espprobe_self_test", "espprobe_release_all", "espprobe_disconnect")}
 #: architecture §6 에 시그니처(모든 인자)까지 적어야 하는 서버. 다른 서버는 도구 이름만 있으면 된다.
 FULL_SIGNATURE_SERVERS = ("pweh-uart", "pweh-case")
 #: 서버 이름 → mcp-servers/ 아래 디렉터리. 기본 규칙('pweh-esp' → 'esp-mcp')을 벗어나는 서버만 적는다.

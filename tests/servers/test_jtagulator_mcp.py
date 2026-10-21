@@ -298,7 +298,8 @@ async def test_idcode_scan_job_and_artifacts(workspace, auth, sim_env):
     raw_text = (case.dir / raw).read_bytes().decode("latin-1")
     assert "Enter starting channel" in raw_text and "IDCODE scan complete." in raw_text
     saved = json.loads((case.dir / js).read_text(encoding="utf-8"))
-    assert saved["summary"]["best"]["tdo"] == 2 and saved["schema"] == "pweh.jtagulator-scan/v1"
+    assert saved["summary"]["best"]["tdo"] == 2 and saved["schema"] == "pweh.pinout-scan/v1"
+    assert saved["producer"] == "jtagulator" and saved["legacy_schema"] == "pweh.jtagulator-scan/v1"
 
 
 async def test_jtag_bypass_and_known_pin_tools(workspace, auth, sim_env):
@@ -348,7 +349,7 @@ async def test_uart_scans_and_dangerous_probe(workspace, auth, sim_env):
         await set_voltage_approved(c, cid)
         r = await call(c, "jtagulator_uart_txd_scan", case_id=cid, start_channel=0, end_channel=7, duration_seconds=1.0)
         st = await wait_job(c, r["job_id"])
-        assert st["status"] == "succeeded" and st["result"]["status"] == "completed"
+        assert st["status"] == "succeeded" and st["result"]["status"] == "completed", st
         assert st["result"]["summary"]["best"]["txd"] == 6 and st["result"]["summary"]["best"]["baud"] == 115200
         r = await call(c, "jtagulator_uart_scan", case_id=cid, start_channel=4, end_channel=7, text="\\r")
         assert r["permutations"] == 12 and r["text_hex"] == "0D"  # 이중 이스케이프된 '\r' 도 CR 로 해석

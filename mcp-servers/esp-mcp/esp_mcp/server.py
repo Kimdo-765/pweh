@@ -72,6 +72,7 @@ from pweh.mcpkit import (
 from pweh import hostenv
 from pweh.procutil import pid_alive
 from pweh.runtime import Runtime, get_runtime
+from pweh.instrument_guard import guard_target_port, guard_observed_mac
 from pweh.safety import Classification, GateDecision, Risk
 from pweh.toolsdir import tools_dir
 
@@ -779,6 +780,7 @@ async def _run_info_command(
     r = rt()
     case = r.case(case_id, hardware=True)
     spec, chip_v, baud_v, before_v, no_stub_v = _common_args(port, chip, baud, before, no_stub, INFO_BAUD_DEFAULT)
+    await _offload(guard_target_port, r, spec.port, consumer="esp")
     timeout = _clamp_timeout(timeout_s, INFO_TIMEOUT_S)
     located = await _offload(_locate_exe, spec)
     await _offload(_check_port_free, spec, located[0])  # 사용 중 확인이 먼저 — 버전 확인(실행)이 실패해도 busy 를 가리지 않는다
@@ -805,6 +807,7 @@ async def _run_info_command(
         if not lock.acquire(blocking=False):
             raise Busy(f"포트 {spec.port} 를 다른 esp 작업이 사용 중입니다.", hint="esp_jobs 로 확인하라.")
         try:
+            guard_target_port(r, spec.port, consumer="esp", phase="pre-process")
             again = classify_esptool_argv(argv, port=spec.port, esptool_major=backend.major, esptool_minor=backend.minor)
             if again.risk != Risk.MODIFY or again.rule_id != cls.rule_id:
                 raise SafetyDenied(f"실행 직전 재분류에서 거부됨: {again.reason}", data={"classification": again.to_dict()})
@@ -971,6 +974,7 @@ def _record_fact(fact_kind: str, tool: str, run: dict[str, Any], conn: dict[str,
 
     기록 실패는 기기 결과를 막지 않는다. 원장에 없는 사실은 확인하는 쪽에서 '없음'으로 다뤄진다(fail closed).
     """
+    guard_observed_mac(rt(), conn.get("base_mac") or conn.get("mac"), consumer="esp")
     spec: ports.PortSpec = run["spec"]
     backend: Backend = run["backend"]
     source = {"server": SERVER_NAME, "tool": tool, "port": spec.port, "backend": backend.name, "esptool_version": backend.version,
@@ -1175,6 +1179,7 @@ class DumpPlan:
     steps: list[ReadStep]
     exclusive_key: str
     plan_notes: list[str] = field(default_factory=list)
+    runtime: Runtime | None = field(default=None, repr=False, compare=False)
 
     @property
     def n_reads(self) -> int:
@@ -1540,7 +1545,7 @@ def _read_flash_worker(plan: DumpPlan, jctx: Any) -> dict[str, Any]:
     그 읽기의 예약 파일은 지운다. 1차 읽기가 끝난 뒤 2차 읽기가 취소·실패하면 1차 결과를 검증 없음(verification.method='none')으로 보존한다.
     최종 파일은 끝날 때 O_EXCL 로 만든다. Windows esptool.exe 가 끝까지 남으면(orphans) 예약 파일을 남기고 PID 를 담은 오류로 끝난다.
     """
-    r = rt()
+    r = plan.runtime or rt()
     case = r.cases.get(plan.case_id)
     lock = _port_lock(plan.exclusive_key)
     if not lock.acquire(blocking=False):
@@ -1562,6 +1567,7 @@ def _read_flash_worker(plan: DumpPlan, jctx: Any) -> dict[str, Any]:
                 cancelled_at = step.index
                 break
             r.case(plan.case_id, hardware=True)  # 도중에 소유/허가 증명이 철회되면 멈춘다
+            guard_target_port(r, plan.port.port, consumer="esp", phase=f"read-{step.index}")
             _recheck_dump_paths(plan, step)
             cls = classify_esptool_argv(step.argv, port=plan.port.port, allowed_output_dir=plan.dumps_real,
                                         output_map=step.output_map, esptool_major=plan.backend.major,
@@ -1612,6 +1618,7 @@ def _read_flash_worker(plan: DumpPlan, jctx: Any) -> dict[str, Any]:
                 raise EsptoolFailed(f"두 읽기의 크기가 다름: {reads[0]['size']} != {size} (로그: {log_rel})", code="esp_output_size_mismatch")
             sha = sha256_file(step.partial)
             conn = parse_connect(text)
+            guard_observed_mac(r, conn.get("base_mac") or conn.get("mac"), consumer="esp")
             reads.append({"index": step.index, "partial": step.partial, "sha256": sha, "size": size, "after": step.after,
                           "baud": step.baud, "seconds": rf.get("seconds"), "kbit_s": rf.get("kbit_s"), "log_path": log_rel,
                           "started_at": t_step, "argv": display_argv(step.argv), "connect": conn, "read": rf})
@@ -1707,6 +1714,7 @@ async def esp_read_flash_start(
     r = rt()
     case = r.case(case_id, hardware=True)
     spec, chip_v, baud_v, before_v, no_stub_v = _common_args(port, chip, baud, before, no_stub, READ_BAUD_DEFAULT)
+    await _offload(guard_target_port, r, spec.port, consumer="esp")
     off = validate_offset(offset)
     size_v = validate_size(size)
     if size_v == "all" and off != 0:
@@ -1802,7 +1810,7 @@ async def esp_read_flash_start(
         plan = DumpPlan(case_id=case.id, case_dir=case.dir, case_real=case_real, dumps_dir=dumps_dir, dumps_real=dumps_real, stem=stem,
                         owner_path=owner, port=spec, backend=backend, chip=chip_v, baud=baud_v, before=before_v, after=after_v,
                         after_requested=after_req, no_stub=no_stub_v, offset=off, size=size_v, verify=verify_v, steps=steps,
-                        exclusive_key=exclusive_key, plan_notes=plan_notes)
+                        exclusive_key=exclusive_key, plan_notes=plan_notes, runtime=r)
         the_plan = plan
 
         def job_fn(jctx: Any) -> dict[str, Any]:

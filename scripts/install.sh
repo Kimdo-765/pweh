@@ -131,9 +131,9 @@ QEMU_RISCV32_SHA=547f03e04701a92cbb699f7f7d015adc1f5b5ef93cbb94c0dd9b7107e2d84e7
 SIMAVR_GIT="https://github.com/buserror/simavr.git"
 SIMAVR_COMMIT=5b08da60497f7564f50941f74a549fe2851db030
 
-ALL_COMPONENTS="python sigrok openocd squashfs uboot zig jdk ghidra unblob extractors erofs binwalk rea esptool qemu_esp simavr tesseract zbar"
+ALL_COMPONENTS="python sigrok openocd squashfs uboot zig jdk ghidra unblob extractors erofs binwalk rea esptool qemu_esp simavr tesseract zbar espprobe-fw"
 MINIMAL_COMPONENTS="python sigrok openocd squashfs uboot"
-OPTIONAL_COMPONENTS="erofs binwalk rea esptool qemu_esp simavr tesseract zbar"   # 실패해도 설치 전체를 실패로 보지 않는다 (경고만)
+OPTIONAL_COMPONENTS="erofs binwalk rea esptool qemu_esp simavr tesseract zbar espprobe-fw"   # 실패해도 설치 전체를 실패로 보지 않는다 (경고만)
 SKIP_RC=99   # install_* 가 이 값으로 끝나면 "건너뜀" (빌드 도구 같은 전제 조건이 없음). 실패로 세지 않는다
 
 declare -A DESC=(
@@ -155,6 +155,7 @@ declare -A DESC=(
   [simavr]="simavr(커밋 ${SIMAVR_COMMIT:0:12}) + PWEH AVR 실행기 pweh_avr_run 소스 빌드 (Arduino AVR 에뮬레이션, C 컴파일러 또는 PWEH zig, 선택)"
   [tesseract]="Tesseract + eng/kor/osd 언어 데이터 (SHA256 고정 .deb, Ubuntu 22.04 x86_64, 선택)"
   [zbar]="ZBar zbarimg (SHA256 고정 .deb, Ubuntu 22.04 x86_64, 정규화 이미지 QR·바코드, 선택)"
+  [espprobe-fw]="espprobe 사전 빌드 검증·복사 (선택, 다운로드·빌드·플래시 없음)"
 )
 # 구성요소와 env.sh 다음에 이 순서로 도는 단계. 구성요소처럼 --only/--skip 으로 고르고, --minimal 에는 넣지 않는다
 STEPS="mcp skills verify"
@@ -1021,6 +1022,14 @@ image_lock_ok() {
   [ "$(cat "$PREFIX/$1/lock.sha256")" = "$(sha256sum "$IMAGE_TOOLS_LOCK" | cut -d' ' -f1)" ] || return 1
   "$PY" "$REPO/scripts/image_tools_lock.py" version "$1" --lock "$IMAGE_TOOLS_LOCK" >/dev/null
 }
+check_espprobe-fw() { "$PY" -B "$REPO/scripts/firmware/install_release.py" --prefix "$PREFIX" --check; }
+version_espprobe-fw() { echo "probe-hello 0.1.0 (ESP32-S3, 오프라인 검증 사전 빌드)"; }
+install_espprobe-fw() {
+  local flags=()
+  [ "$FORCE" = 0 ] || flags+=(--force)
+  "$PY" -B "$REPO/scripts/firmware/install_release.py" --prefix "$PREFIX" "${flags[@]}"
+}
+
 check_tesseract() {
   image_lock_ok tesseract && [ -x "$B/tesseract" ] && [ -n "$PY" ] || return 1
   local out

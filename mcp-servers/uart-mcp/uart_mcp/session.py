@@ -324,10 +324,12 @@ def port_key(port: str) -> str:
     return endpoint_key(port)
 
 
-def open_serial(settings: PortSettings, *, timeout: float = 0.05) -> serial.SerialBase:
+def open_serial(settings: PortSettings, *, timeout: float = 0.05, before_io: Callable[[], Any] | None = None) -> serial.SerialBase:
     """DTR/RTS 를 열기 전에 설정하고 포트를 연다. 실패는 DeviceError(+힌트)."""
     # 도구에서 이미 검사했어도 여기서 다시 (pyserial URL 처리기는 포트 이름만 정해도 부작용이 있다) — 검사한 정규형으로 연다
     port = validate_port(settings.port)
+    if before_io is not None:
+        before_io()
     kwargs: dict[str, Any] = dict(baudrate=settings.baudrate, bytesize=settings.bytesize, parity=settings.parity,
                                   stopbits=settings.stopbits, timeout=timeout, write_timeout=5)
     if not is_url(port):
@@ -381,8 +383,10 @@ class UartSession:
         persistent_paths: list[str],
         unknown_risk: str,
         audit: Callable[[dict[str, Any]], None] | None = None,
+        before_io: Callable[[], Any] | None = None,
     ) -> None:
         self.id = session_id
+        self.before_io = before_io
         self.case = case
         self.case_id = case.id
         self.settings = settings
@@ -435,11 +439,16 @@ class UartSession:
     # ------------------------------------------------------------------
     # 열기/닫기
     # ------------------------------------------------------------------
+    def check_target(self) -> None:
+        """서버가 결속한 계측기 guard를 실행한다. 수신·닫기에는 호출하지 않는다."""
+        if self.before_io is not None:
+            self.before_io()
+
     def open(self) -> None:
         self.logs.header(f"pweh uart session {self.id} port={self.port} baud={self.settings.baudrate} framing={self.settings.framing} "
                          f"dtr={self.settings.dtr} rts={self.settings.rts} profile={self.profile.name} opened={self.opened_at}")
         try:
-            self.ser = open_serial(self.settings)
+            self.ser = open_serial(self.settings, before_io=self.before_io)
         except Exception:
             self.state = "closed"
             self.logs.close()
@@ -763,6 +772,7 @@ class UartSession:
     def commit(self, plan: Plan, authorized: Risk, *, note: str = "", source: str = "tool") -> int:
         """계획을 기기에 쓴다. 쓰기 직전 현재 상태로 다시 계획해 달라졌으면 StateChanged. 반환: 쓰기 직전 수신 커서."""
         with self.write_lock:
+            self.check_target()
             with self.cond:
                 self.ensure_open()
                 kinds = getattr(plan, "require_prompt_kinds", None)
@@ -824,6 +834,7 @@ class UartSession:
     def raw_signal(self, fn: Callable[[serial.SerialBase], Any], what: str) -> Any:
         """BREAK/DTR/RTS 같은 신호 조작 (게이트는 호출자). 미지원이면 그대로 예외."""
         with self.write_lock:
+            self.check_target()
             self.ensure_open()
             assert self.ser is not None
             res = fn(self.ser)

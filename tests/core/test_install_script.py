@@ -24,7 +24,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "install.sh"
 COMPONENTS = ["python", "sigrok", "openocd", "squashfs", "uboot", "zig", "jdk", "ghidra", "unblob", "extractors", "erofs", "binwalk", "rea", "esptool",
-              "qemu_esp", "simavr", "tesseract", "zbar"]
+              "qemu_esp", "simavr", "tesseract", "zbar", "espprobe-fw"]
 STEPS = ["mcp", "skills", "verify"]
 
 

@@ -88,6 +88,7 @@ RF·하드웨어 분석은 전용 Skill 이 아직 없는 **준비 중** 목표�
 | `pweh-fwtriage` | `fw_identify`, `fw_entropy`, `fw_uboot_env`, `fw_carve`, `fw_uimage_info`, `fw_extract_squashfs`, `fw_rootfs_audit`, `fw_sd_surface`, `fw_android_surface`, `fw_strings_hunt`, `fw_hunt_patterns`, `fw_elf_info`, `fw_crack_hashes`, `fw_esp_partitions`, `fw_esp_image_info`, `fw_esp_to_elf`, `fw_esp_nvs`, `fw_save_diff`, `fw_checksum_find`, `fw_find_seq_tables`, `fw_patch_build`, `fw_verify_writeback`, `fwtriage_job_status` | 외부 도구 없이 빠른 1차 분석, ESP 형식·세이브 오프라인 분석, 세이브 패치(사람이 쓰고 확인) |
 | `pweh-forensics` | `forensics_intake_start`, `forensics_job_status`, `forensics_verify_start`, `forensics_acquisition_attest`(사람 증명 — 쓰기 방지 장치), `forensics_partitions`, `forensics_image_check`(호스트 오염 흔적), `forensics_fs_list`(삭제 항목 포함), `forensics_extract`, `forensics_image_hints`, `forensics_sqlite_inventory`, `forensics_android_artifacts`, `forensics_timeline`, `forensics_evidence_list`, `forensics_job_cancel`, `forensics_jobs` | SD 카드·Android 논리 증거. 사람이 만든 카드 이미지·TAR/ZIP·SQLite **파일**을 받는다(원시 디스크·장치·E01 거부). 영상·음성 내용은 돌려주지 않는다(§1 규칙 10). 정지 그림은 `forensics_image_hints`로 미리보기·OCR을 반환한다. 조회 전용 도구·정지 이미지·선택한 앱 기록 분석은 자동 허용이고 나머지는 매번 사람이 확인한다 |
 | `pweh-emu` | `emu_status`, `emu_start`, `emu_read`, `emu_write`, `emu_stop`, `emu_sessions` | 확보한 ESP32·S3·C3 전체 플래시 또는 Arduino AVR HEX/raw 를 PC 에서 실행하는 선택 단계. 출처 원장과 가져온 파일의 사람 증명을 확인하고 마스킹한 콘솔만 반환한다. job 없이 세션으로 동작(§1 규칙 12) |
+| `pweh-espprobe` | `espprobe_version`, `espprobe_connect`, `espprobe_status`, `espprobe_self_test`, `espprobe_release_all`, `espprobe_disconnect` | 내부 HELLO/HB 시뮬레이터(I5 1a). 실제 포트·핀 미지원, simulator_only=true / hardware_verified=false |
 | `rea` | `inspect_firmware_regions`, `extract_firmware`, `open_binary`(provider_id="ghidra"), `binary_overview`, `search_strings`, `search_procedures`, `trace_feature`, `find_xrefs_to_name`, `xrefs`, `procedure_callers`, `procedure_pseudo_code`, `batch_decompile`, `analyze_function`, `trace_call_path`, `search_bytes`, `get_evidence_bundle`, `export_evidence_bundle`, `close_binary`, `inspect_with_objdump`, `execute_rizin_command`(읽기 전용 명령만) | 정밀 추출·디컴파일·참조 추적 |
 
 도구 응답의 공통 필드: `ok`, 그리고 게이트가 막았을 때 `status`/`approval_id`/`message`.
@@ -353,3 +354,9 @@ RF·하드웨어 분석은 전용 Skill 이 아직 없는 **준비 중** 목표�
 `android-forensics` Skill은 사람이 만든 TAR/ZIP·SQLite 또는 FAT/exFAT 증거에서 선택한 SMS·통화·연락처·브라우저 내용을 분석한다. 접수·입수 해시·보관 기록을 유지하고 `forensics_sqlite_inventory` → `forensics_android_artifacts` → `forensics_timeline` → `forensics_evidence_list`로 진행한다. WAL·freelist 후보를 삭제 확정으로, 미지원 스키마를 기록 없음으로 보고하지 않는다. 참조 EV의 증거 목록은 전체 재해시 job 완료를 확인한다. `android-forensics` summary에 도구 결과 해시·미검사 범위·후보와 시간 기준을 남긴다.
 
 Android 펌웨어는 별도 벤더 이미지·덤프에서 `firmware-static-analysis`의 `fw_android_surface`를 사용한다. 증거를 fwtriage로 옮기는 연결, 새 ext4/EROFS/F2FS 엔진, 잠금·암호화 우회·실기기 쓰기는 제공하지 않는다.
+
+### PWEH 계측기 오프라인 프로토콜 시험 (I5 1a)
+
+`pweh-espprobe`는 서버 내부 `sim://probe-hello`만 지원한다. 기존 소유/허가 케이스에서
+`espprobe_connect` → `espprobe_self_test` → `espprobe_disconnect`로 끝내고 `probe/` 결과를 기록한다.
+합성 식별과 `hardware_verified=false`를 유지한다. 이 단계에서 실제 포트·플래시·핀 검증을 수행하지 않는다.
