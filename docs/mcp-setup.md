@@ -1,6 +1,6 @@
 # MCP 설정 가이드 (Claude Code · Codex · Cursor)
 
-PWEH 는 MCP 서버 8개를 쓴다. 7개는 이 저장소에 있고, 1개는 외부 REA 다.
+PWEH 는 MCP 서버 9개를 쓴다. 8개는 이 저장소에 있고, 1개는 외부 REA 다.
 
 | 서버 이름 | 실행 파일 | 역할 |
 |---|---|---|
@@ -11,6 +11,7 @@ PWEH 는 MCP 서버 8개를 쓴다. 7개는 이 저장소에 있고, 1개는 외
 | `pweh-jtagulator` | `.venv/bin/pweh-jtagulator-mcp` | JTAGulator 핀아웃 스캔 (선택) |
 | `pweh-fwtriage` | `.venv/bin/pweh-fwtriage-mcp` | 오프라인 펌웨어 트리아지 |
 | `pweh-esp` | `.venv/bin/pweh-esp-mcp` | ESP32 계열 esptool 읽기 전용: 칩·보안 정보, 플래시 덤프 job. WSL 에서는 Windows `esptool.exe` + COM 포트(방법 A, §6) (선택) |
+| `pweh-forensics` | `.venv/bin/pweh-forensics-mcp` | SD 카드 이미지 증거 분석: 사람이 쓰기 방지 장치로 만든 이미지 파일의 접수·해시·보관 기록, FAT/exFAT 목록, 삭제 파일 추출 job, 증거 목록. 기기·카드를 열지 않고 외부 도구가 필요 없다 (선택) |
 | `rea` | `rea --mcp` (rea-agents 6.5.x) | binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩 |
 
 도구 목록과 인자는 [architecture.md](architecture.md) §6 과 각 서버의 `mcp-servers/<name>/README.md` 에 있다.
@@ -73,8 +74,8 @@ MCP 서버는 `scripts/mcp-launch.sh` 를 거쳐 실행된다. 이 런처가 위
 ## 2. Claude Code
 
 ### 2.1 서버 등록
-저장소 루트의 `.mcp.json` 이 프로젝트 범위로 8개 서버(`pweh-case`, `pweh-uart`, `pweh-openocd`, `pweh-sigrok`, `pweh-jtagulator`, `pweh-fwtriage`, `pweh-esp`, `rea`)를 등록한다.
-`.claude/settings.json` 의 `enabledMcpjsonServers` 도 같은 8개다. 다시 만들려면 다음을 실행한다.
+저장소 루트의 `.mcp.json` 이 프로젝트 범위로 9개 서버(`pweh-case`, `pweh-uart`, `pweh-openocd`, `pweh-sigrok`, `pweh-jtagulator`, `pweh-fwtriage`, `pweh-esp`, `pweh-forensics`, `rea`)를 등록한다.
+`.claude/settings.json` 의 `enabledMcpjsonServers` 도 같은 9개다. 다시 만들려면 다음을 실행한다.
 ```bash
 .venv/bin/pweh mcp-config --client claude --write --force
 ```
@@ -94,7 +95,7 @@ MCP 서버는 `scripts/mcp-launch.sh` 를 거쳐 실행된다. 이 런처가 위
   `CLAUDE_PROJECT_DIR` 는 Claude Code 가 서버 프로세스에만 넣어 주는 변수다.
 - 처음 `claude` 를 실행하면 프로젝트 MCP 서버 승인 다이얼로그가 뜬다. 승인한 뒤 `/mcp` 로 상태를 확인한다.
   `claude -p` 같은 비대화형 실행은 이 승인 없이 서버를 로드한다.
-  저장소를 업데이트해 `.mcp.json` 에 서버가 새로 생기면(예: `pweh-esp`) Claude Code 를 다시 시작한다. 새 서버의 승인 다이얼로그가 뜨면 승인하고, `/mcp` 에서 연결됐는지 확인한다.
+  저장소를 업데이트해 `.mcp.json` 에 서버가 새로 생기면(예: `pweh-esp`, `pweh-forensics`) Claude Code 를 다시 시작한다. 새 서버의 승인 다이얼로그가 뜨면 승인하고, `/mcp` 에서 연결됐는지 확인한다.
 - 절대 경로 형태를 원하면 `--style absolute` 를 쓴다. 이 형태는 env.sh 값을 `env` 에 직접 박아 넣는다.
 
 ### 2.2 Skill
@@ -110,13 +111,17 @@ MCP 서버는 `scripts/mcp-launch.sh` 를 거쳐 실행된다. 이 런처가 위
   - `ask`: 원시 쓰기(`uart_write`), DTR/RTS·BREAK(`uart_set_signals`, `uart_send_break`), 원시 TCL(`openocd_command`),
     플래시·메모리 쓰기(`openocd_flash_write`, `openocd_write_memory`), JTAGulator 전압 설정(`jtagulator_set_voltage`),
     REA 의 런타임·기기 도구(프로세스·디버거·Frida·Cutter·앱·브라우저 세션을 시작·조작·종료하거나 adb 기기에 쓰기·설치·실행·파일 가져오기),
-    임의 Rizin 명령을 실행하는 `execute_rizin_command`(셸 탈출 `!` 로 호스트 명령 실행 가능).
+    임의 Rizin 명령을 실행하는 `execute_rizin_command`(셸 탈출 `!` 로 호스트 명령 실행 가능),
+    pweh-forensics 의 쓰는 도구 7개(`forensics_intake_start`, `forensics_verify_start`, `forensics_acquisition_attest`, `forensics_fs_list`, `forensics_extract`,
+    `forensics_evidence_list`, `forensics_job_cancel` — 카드 이미지는 제3자의 개인정보라 접수·검증·증명·목록·추출·증거 목록을 매번 사람이 확인한다).
     **bypassPermissions 모드에서도 묻는다.**
   - `allow`: pweh 서버의 조회 전용 도구(`readOnlyHint`), `pweh-case`·`pweh-fwtriage` 전체(`mcp__pweh-case__*`, `mcp__pweh-fwtriage__*`),
     REA 정적 분석 도구. 기본 모드에서 묻지 않는다(bypass 모드에서는 원래 묻지 않으므로 의미가 없다).
     프로젝트 `allow` 는 workspace trust 를 수락한 뒤에만 적용되고, `ask`/`deny` 는 trust 와 무관하게 적용된다.
   - 둘 다 아닌 도구(예: `uart_send_command`, `uboot_dump_start`, `sigrok_capture`, `openocd_halt`, `esp_chip_info`, `esp_read_flash_start`)는 기본 모드에서 처음 쓸 때 묻는다.
     pweh-esp 는 `esp_version`, `esp_list_ports`, `esp_job_status`, `esp_jobs` 가 `allow` 에 있다.
+    pweh-forensics 는 조회 전용 `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs` 만 `allow` 에 있고 나머지는 모두 위의 `ask` 다.
+    이 서버는 기기에 아무것도 보내지 않아 서버 측 게이트가 없다. 증거는 보관 기록·무결성 확인·사람 증명으로 지킨다([safety.md](safety.md) §3.5·§7.1, 알려진 한계는 §3.6, [architecture.md](architecture.md) §6.8).
 - `anthropic/requiresUserInteraction` 메타는 항상 파괴적인 세 도구(`openocd_flash_write`, `openocd_write_memory`,
   `jtagulator_set_voltage`)에만 붙어 있어, 이 도구들은 allow 규칙과 무관하게 bypassPermissions 모드에서도 매번 확인을 띄운다.
   사람에게 물을 수 없는 경로(`dontAsk` 모드, `--permission-prompt-tool`)에서는 묻는 대신 거부된다.
@@ -125,7 +130,7 @@ MCP 서버는 `scripts/mcp-launch.sh` 를 거쳐 실행된다. 이 런처가 위
   - **elicitation 확인 폼**: Claude Code v2.1.76+ 에서 다이얼로그가 뜬다. 확인 코드를 입력하고 Accept 한다.
   - **CLI**: 별도 터미널에서 `.venv/bin/pweh approve <approval_id>` 를 실행한다.
 - 승인과 별도로, 에이전트가 확인할 수 없는 사실(콘솔 오프라인, 잰 전압, 가져온 파일의 출처 등)이 필요한 도구는 **사람 증명**을 요구할 수 있다
-  (`status: attestation_required` + `attestation_id`. 지금은 그런 도구가 없다 — [safety.md](safety.md) §3.5).
+  (`status: attestation_required` + `attestation_id`. 지금은 세이브 쓰기 명령을 보여 주기 전의 `fw_patch_build` 와 SD 카드 이미징의 쓰기 방지 장치를 묻는 `forensics_acquisition_attest` 다 — [safety.md](safety.md) §3.5).
   같은 두 경로(`safety.approval_methods`)를 쓴다: elicitation 확인 폼(항목마다 답 + 확인 코드) 또는 별도 터미널의 `.venv/bin/pweh attest <attestation_id>`(대화형 터미널 전용).
   증명은 소비되지 않고 재사용되며, 에이전트는 같은 인자로 다시 호출한다(`attestation_id` 를 넘기지 않는다).
 
@@ -139,8 +144,11 @@ MCP 서버는 `scripts/mcp-launch.sh` 를 거쳐 실행된다. 이 런처가 위
 | `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS` | 2 min | 2분이 넘는 호출은 백그라운드 태스크로 옮겨진다 |
 | `MAX_MCP_OUTPUT_TOKENS` | 25000 | 큰 출력은 파일로 빠진다. PWEH 도구는 요약과 파일 경로를 돌려준다 |
 
-장시간 작업(UART 덤프, ESP32 플래시 덤프, 긴 캡처, 핀아웃 스캔)은 PWEH 가 job 으로 실행한다.
+장시간 작업(UART 덤프, ESP32 플래시 덤프, 긴 캡처, 핀아웃 스캔, SD 카드 이미지 접수·재해시·추출)은 PWEH 가 job 으로 실행한다.
 `*_job_status(job_id, wait_seconds≤50)` 로 폴링하므로 어떤 클라이언트 타임아웃에도 걸리지 않는다.
+예외로 pweh-forensics 의 `forensics_partitions`·`forensics_image_check`·`forensics_fs_list` 는 job 이 아닌 동기 도구다(호출 예산 60초·120초·`max_seconds` — 기본 180초, 최대 600초, 목록 파일 쓰기 시간은 따로.
+`max_seconds` 를 600 으로 주면 아래 Codex 의 `tool_timeout_sec` 600초를 넘을 수 있다).
+클라이언트가 그 전에 시간 초과·취소로 끊어도 서버의 작업은 예산까지 돌고 `forensics_fs_list` 는 목록 파일과 보관 기록을 남긴다([safety.md](safety.md) §3.6).
 
 ## 3. Codex CLI
 

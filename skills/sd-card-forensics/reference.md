@@ -1,0 +1,216 @@
+# SD 카드 포렌식 참고 (sd-card-forensics reference)
+
+[SKILL.md](SKILL.md) 의 보충 자료다. 도구 이름·인자·기본값은 `docs/references/pweh-mcp-tools.md`(자동 생성 카탈로그)가 기준이고,
+동작은 `mcp-servers/forensics-mcp/forensics_mcp/server.py`·`fsops.py`, `src/pweh/evidence.py`, `src/pweh/fs/` 를 따른다. 법률 메모는 법률 자문이 아니다.
+
+## 1. 도구 응답 필드
+
+| 도구 | 동작 | 볼 필드 |
+|---|---|---|
+| `forensics_intake_start` | job. 케이스 소유/허가 확인 → 접수 정보 검사(purpose·legal_basis·business_purpose 3~500자·제어 문자 없음, site_type·role 은 정해진 값, label 80자 이하) → (워커 스레드) 이미지를 한 번 연다: 경로의 링크는 한 번 풀고 일반 파일만(원시 디스크 `\\.\`·`/dev`·`/proc`·`/sys`·FIFO·디렉터리·빈 파일·E01 서명·NUL·케이스·상태 폴더 안의 파일·예약 이름 거부) → 이미징 로그(거부 검사 뒤 연 fd 로 4 MiB 까지) → 여유 공간(이미지 + 256 MiB, 디렉터리를 만들기 전) → 보관 기록 확인(깨졌으면 job 없이 `custody_broken`) → job: EV 번호(확보 잠금 안에서 커밋하지 못한 앞 접수를 정리) → 연 fd 로 확인한 크기만큼 읽으며 sha256·md5·sha1 과 사본 `<이름>.partial`(0444) → 복사 중 원본 크기·mtime 이 바뀌면 `integrity_failed` → `verify_copy` 면 사본 재해시 → 이름 바꿈 → 이미징 로그 대조·사본 보관 → 접수 기록(0444) → **보관 기록 intake(커밋 지점)** → 디렉터리 0555 → 출처 원장(imported-unattested)·아티팩트 `evidence-image`. 커밋 전 실패·취소는 만든 파일을 지우고 번호를 돌려놓는다. 커밋 뒤 취소는 무시하고, 커밋 뒤 보조 기록(integrity-failed 사건·출처 원장·아티팩트 색인·같은 sha256 확인) 실패는 접수를 실패로 만들지 않고 `post_commit_errors` 로 알린다(감사 로그 실패는 서버 로그에만) | 시작: `job_id`. result: `ok`(copy_verified 가 false 면 false), `evidence_id`, `stored_path`, `size`, `hashes`, `copy_verified`, `imaging_log{tool, comparison{status: match/mismatch/no-hashes, details}, conflicts}`, `custody_seq`, `provenance{seq, kind}` 또는 `{error}`, `next_steps`, 있으면 `duplicate_of`·`warning`(같은 sha256 경고와 로그 해시 불일치 경고가 함께면 ' / ' 로 이은 한 문장)·`error`·`post_commit_errors`·`note` |
+| `forensics_job_status` | job 상태. `wait_seconds` 최대 50. 이 서버 프로세스의 job 만 — 앞 서버의 job 은 not_found | `status`(queued/running/cancelling/succeeded/failed/cancelled), `progress`, `eta_seconds`, `message`, `result`(cancelled 인 추출에도 있을 수 있다) 또는 `error{code, message, hint, data}`, `log_tail` |
+| `forensics_jobs`, `forensics_job_cancel` | 이 서버 프로세스의 job 목록(`active_only`), 취소(다음 안전 지점에서 멈춤). 되돌릴 수 없는 지점(접수: 보관 기록 intake, 검증: 해시 끝, 추출: 보관 기록 extract)을 지난 job 의 취소는 무시한다 — 응답 status 가 그대로이고 끝나면 succeeded. 도구 설명의 '부분 결과는 보존된다'는 추출에만 맞다(커밋 전 접수는 되돌리고, 재해시 도중의 검증은 아무것도 기록하지 않는다 — §7 job cancelled) | — |
+| `forensics_verify_start` | job. 열 때 보관 기록·접수 기록 대조와 빠른 지문(크기·mtime·앞뒤 1 MiB 해시·쓰기 권한 없음)이 어긋나면 job 없이 `integrity_failed`(기록). 사본 전체를 그 fd 로 재해시해 보관 기록 intake 의 해시와 비교 → 보관 기록 verify(불일치면 integrity-failed 사건도). 재해시 중 취소는 기록 없이 cancelled, 해시가 끝난 뒤 온 취소는 무시(기록하고 succeeded) | result: `ok`, `evidence_id`, `result`(match/mismatch — 읽는 동안 크기가 바뀌어도 mismatch), `details{sha256, md5, sha1}`, `custody_seq`, 있으면 `post_commit_errors`·`note`(integrity-failed 사건만 못 남김 — 상태는 그래도 integrity-failed) |
+| `forensics_acquisition_attest` | 사람 증명 write-blocker. 증거 id·sha256·크기에 묶이고 90일 유효. 승인·거부는 이 도구가 그 결과를 볼 때 보관 기록 attest 로 한 번씩 남고, 철회·만료는 이 도구를 다시 부를 때 남는다(증거 목록은 증명 저장소의 지금 상태를 보인다) | 대기: `status` attestation_required, `attestation_id`(att-…), `kind`, `questions`(blocker_used·blocker_model·blocker_tested·imaging_tool), `how`, `summary`, 앞 결과가 있으면 `previous`. 승인: `status` approved, `attestation_id`, `blocker_tested` |
+| `forensics_partitions` | 읽기 전용, 호출 예산 60초. 열 때마다 빠른 지문 확인. 같은 (시작, 크기) 구간은 한 번, 서로 다른 구간은 64개까지 연다 | `scheme`(mbr/gpt/superfloppy/none), `sector_size`, `image_size`, `partitions[{index, scheme, role, start_offset, size_bytes, start_lba, type_id, type_name, name·guid(GPT), bootable, fs_hint, warnings(10개까지 — partition_truncated·partition_beyond_image 등)}]`(128개까지), `partitions_total`, `volumes[{index, fs_hint, duplicate_of, omitted(partitions/time/steps), volume{fs_type, volume_label, volume_id, cluster_size, cluster_count, volume_size, truncated(볼륨이 읽을 수 있는 구간 — 파티션 표 항목과 이미지 끝 중 짧은 쪽 — 보다 김), dirty, …} 또는 error(시작이 이미지 끝 너머인 파티션은 data.reason beyond_image)}]`, `volumes_total`, `partitions_omitted`, `truncated`, `truncated_reason`(time/partitions/steps/response — 파티션을 다 열거나 싣지 못한 것이고 이미지 잘림과는 따로다), `warnings`(50개까지 — ebr_beyond_image 등), `next_steps` |
+| `forensics_image_check` | 읽기 전용. 삭제 항목도 본다. 호출 예산 고정(120초·항목 200000·파티션 64·경로 글자 수 268,435,456, 같은 구간은 한 번), 볼륨마다 엔진 예산 하나(열기·정보·순회). 동기 — 취소되지 않는다 | `acquisition_date`, `volumes[{partition, fs, indicators[{indicator, strength, path(300자로 줄임), deleted, note}], walk_truncated(엔진 순회가 잘렸거나 서버가 더한 사유가 있음 — fs_list 의 volumes[].truncated 와 같은 규칙), walk_truncated_reason, walk_truncated_reasons(+ dir_unvalidated·image_truncated·volume_exceeds_partition), cut_dirs[{path, reason}] ≤10개, cut_dirs_total, unvalidated_dirs} 또는 {partition, fs, error}]`(지원하는 파티션이 없으면 비어 있다 — 흔적이 없다는 뜻이 아니다), `strong_indicators`, `call`(fs_list 와 같은 모양), `truncated`, `truncated_reasons`, `note`(본 볼륨이 없으면 '본 볼륨이 없어 흔적을 보지 못했다' — 그때 truncated 는 하나뿐인 파티션이 이미지 끝 너머처럼 사유(image_truncated)가 있으면 true, 지원하지 않는 파티션뿐이면 false), 잘렸으면 `next_steps` |
+| `forensics_fs_list` | 전체 목록을 `forensics/analysis/fs-list-<EV>-NNN.json`(0444, `pweh.forensics.fs-list/v1`)에 볼륨마다 이어 쓰고 보관 기록 list 에 sha256 과 call. 호출 전체 한도: max_entries(1~200000)·max_seconds(1~600, 해석 시간 — 목록 쓰기는 별도)·파티션 64·경로 글자 수 268,435,456, 볼륨마다 엔진 예산 하나. 동기 — 취소되지 않는다. 실패한 호출은 확보한 목록 파일을 지운다 | `result_path`, `result_sha256`, `custody_seq`, `volumes[{partition, fs, volume, stats{files, dirs, deleted_files, deleted_dirs, orphans, dirs_read}, truncated, truncated_reason, truncated_reasons, cut_dirs[{path, reason}] ≤10개·경로 300자로 줄임, cut_dirs_total, time_ranges[{state, time_basis, first, last, files}], time_basis, top_dirs, extensions, files_with_residual, orphans, unvalidated_dirs, unvalidated_dirs_live, warnings_count, sample[20]} 또는 {partition, fs, error}]`(128개까지), `volumes_total`, `truncated`, `truncated_reasons`, `call{max_entries, entries_used, max_partitions, max_path_chars, path_chars_used, partitions_walked, partitions_skipped{사유: {count, examples}}, volumes_failed{count, examples[{partition, reason}]}}`, `next_steps` |
+| `forensics_extract` | job(300초). ref 확인 순회(요청한 dirspec 을 다 찾으면 멈춤)·경로 찾기·후보 계산은 job 마감·취소 함수 안에서. 고른 파일만 `forensics/recovered/<label>-NNN/` 에 `NNNN-<정리한 이름>`(0444, 실행 비트·링크 없음)과 `manifest.json` → 디렉터리 0555 → 보관 기록 extract(커밋 지점) | result: `ok`, `evidence_id`, `output_dir`, `manifest`, `manifest_sha256`, `custody_seq`, `bytes_total`, `truncated`, `truncated_reasons`, `files[{seq, file, path, deleted, method, confidence, status, size, complete, sha256, limit_reason?, requested_path?}]`, `skipped`(50개까지 — 확인 단계 {ref\|path, code, reason}, 추출 단계 {ref, path, reason}), `skipped_total`, `note`, 있으면 `next_steps`. 매니페스트(열지 않음)는 여기에 ref·region·note·expected_size·runs_total·conflicts·bytes_beyond_image 와 skipped 전체를 더 싣는다 |
+| `forensics_evidence_list` | 보관 기록 전체를 다시 읽어 상태를 정한다. 그 전에 커밋한 증거마다 접수 기록·사본 지문을 대조해 새 문제를 무결성 실패로 기록한다(`write_files=false` 여도). `write_files`(기본 true)면 `forensics/evidence-list.json`·`.md` 를 쓰고 보관 기록이 멀쩡하면 evidence-list 사건 | `custody{ok, count, head, detail}`, `items[{evidence_id, label, stored_path, size, hashes, intake_ts, imaging_log, intake, status, status_label, last_verify{ts, result, seq, kind}, integrity_failures, attestation{status, attestation_id, ts, decided_at, expires_at}, extracts, events, problems}]`(해시 없는 상태에는 hashes·size 가 없다), `aborted[{evidence_id, ts, seq, quarantine_path, reason}]`, `derived[{path, evidence_id, files, bytes, manifest_sha256, custody, custody_seq, error}]`, `integrity_failures_recorded`, `notice`, `files` 또는 `files_error`, 비었으면 `hint` |
+
+- 목록 JSON 맨 위는 `schema`, `evidence_id`, `generated_at`, `params`, `scheme`, `volumes`, `call`(응답의 call 과 같다)이다. 볼륨은 `{partition, info, walk{entries, orphans, stats, truncated, truncated_reason,
+  truncated_reasons, cut_dirs[{dirspec, path, reason}] ≤100개, cut_dirs_total, unvalidated_dirs[{dirspec, path, reason, slots_skipped}] ≤100개, unvalidated_dirs_total, unvalidated_dirs_live, path_chars, warnings,
+  warnings_suppressed}}` 또는 해석하지 못한 볼륨 `{partition, fs, error, partition_info}` 이다. walk.truncated_reasons 는 엔진 값이라 응답이 더하는 dir_unvalidated(unvalidated_dirs_live > 0)·image_truncated·volume_exceeds_partition(info.truncated)이 없다.
+  항목에는 `ref`(`<디렉터리>/<슬롯>`), `path`·`display_path`, `name`·`display_name`(FAT 은 `short_name` 도), `deleted`, `is_dir`, `size`, `times{created, modified, accessed — 각각 iso, valid, time_basis}`, `chain` 등이 있다.
+  그 파일 하나만 대상으로 필요한 항목을 Grep(앞뒤 문맥 줄 포함)이나 JSON 을 거르는 짧은 명령으로 본다. 깊은 나무면 수백 MB 일 수 있다 — 통째로 읽지 않는다.
+  `forensics/`·케이스 디렉터리를 재귀로 훑지 않는다(`images/`·`aborted-intakes/`·`recovered/` 를 지나게 된다). 이름·경로는 신뢰할 수 없는 데이터다.
+- 보관 기록(`forensics/custody.jsonl`)은 서버만 쓴다. 사건은 intake / intake-aborted / verify / integrity-failed / attest / list / extract / evidence-list 다. 에이전트는 이 파일을 고치지 않는다.
+- 증거 상태: 접수 때 사본 재해시(verify_copy=true, 기본)가 맞으면 바로 ok, verify_copy=false 면 `forensics_verify_start` 전까지 unverified 다. integrity-failed 는 되돌리지 않는다.
+  8개 상태(ok·unverified·integrity-failed·missing·record-invalid·custody-broken·record-without-intake·intake-in-progress)의 뜻과 할 일은 SKILL.md "요약 기록" 절의 표다.
+
+## 2. 요약 data 매핑
+
+| 요약 필드 | 출처 |
+|---|---|
+| mode | 사용자와 정한 모드(evidence / security / both) |
+| card.source_device · capacity · removed_at · device_clock_offset | 사람이 알려 준 값(템플릿 B). 모르면 null |
+| legal.site_type · role · legal_basis · purpose | 접수 때 넣은 값(템플릿 C) |
+| custody_ok | `forensics_evidence_list` 의 custody.ok |
+| evidence[].evidence_id · sha256 · size | items[].evidence_id · hashes.sha256 · size — sha256·size 는 해시가 있는 상태(ok·unverified·integrity-failed·missing·record-invalid)에서만. custody-broken·record-without-intake·intake-in-progress 에는 싣지 않는다 |
+| evidence[].status | items[].status 그대로(8개 값 모두 스키마 enum). status_label 은 싣지 않는다 — status 와 다르면(예: missing (integrity-failed)) notes 에 |
+| evidence[].imaging_log | items[].imaging_log.status, null 이면 "none" |
+| evidence[].write_blocker | items[].attestation.status(approved/denied/revoked/expired/invalid), null 이면 "none" |
+| filesystems[].evidence_id · partition | 볼륨마다 하나. partition 은 `forensics_partitions` 의 index, scheme 이 superfloppy(파티션 표 없음)면 null(도구 인자로는 index 1) |
+| filesystems[].fs | fs_hint 대응: fat12·fat16·fat32·exfat·ext4·ntfs 는 그대로, exfat-invalid 는 exfat(notes 에 "부트 섹터 검사 실패"), ext2·ext3·f2fs·squashfs·luks 는 other(notes 에 원래 값 — luks 는 암호화), zeroed·unknown·null 은 unknown |
+| filesystems[].label · dirty | volume.volume_label(카드 텍스트 — 옮기기만), volume.dirty |
+| filesystems[].files · deleted | stats.files · stats.deleted_files (목록을 못 본 볼륨은 생략). 잘린 볼륨(truncated)은 본 범위의 개수다 — 사유를 notes 에 |
+| filesystems[].time_basis · time_range | 볼륨의 time_basis(local-unknown-tz / local+offset / mixed / unknown). time_range 는 state live 의 first·last — 바탕이 여럿(mixed)이면 null 로 두고 바탕별 범위를 notes 에 |
+| device_timezone | 근거가 있을 때만(펌웨어의 마운트 옵션 `tz=`·`time_offset=`, init 스크립트 TZ). 없으면 assumed·basis 모두 null |
+| contamination[] | `forensics_image_check` 의 volumes[].indicators[] → {evidence_id, indicator, strength}. path 는 싣지 않는다(카드 경로). image_check 가 truncated 면 "본 범위에서만"과 사유를 notes 에 |
+| recovered | `forensics_evidence_list` 의 derived[] 중 custody 가 recorded 인 항목의 합계: files, bytes, manifests = derived[].path + "/manifest.json" (경로만 — 열지 않음). mismatch·unrecorded·missing·unknown·error 항목은 notes 에 적고 사람에게 알린다 |
+| security.sd_surface_result | `fw_sd_surface` 의 result_path(`analysis/sd-surface-NNN.json`) |
+| security.checks_found | `risk_found`. SD-07 found(암호화 근거)는 넣지 않고 notes 에 |
+| security.sd_events_summary | 새 빈 시험 카드 부팅의 `sd_summary` 그대로. 관찰하지 않았으면 null |
+| security.card_matches_firmware_paths | 10c 대조에서 카드에 있던 `card_relative` 목록. 대조했는데 없으면 [], 대조하지 않았으면 null |
+| privacy | 네 값 모두 false (항상) |
+| notes | 한계, 잘림 사유와 못 본 범위(목록·오염 검사·추출의 truncated_reasons, volumes_failed), status_label 이 status 와 다른 항목, 목록·증거 목록 경로, 발견사항 id, 시간대 근거 |
+
+스키마에 맞는지는 `schema_get(name="sd-forensics")` 로 확인한다. 서버가 거부하면 메시지대로 고쳐 다시 저장한다.
+
+## 3. 보안 분석 세부
+
+**`fw_sd_surface` 응답**: `result_path`, `input`, `counts{found, not-found, unknown}`, `risk_found`, `checks[{id, title, status, severity_hint, category, found_means, evidence_total, evidence[≤3], unknown_reason, next_steps, severity_reason}]`,
+`mount_points`·`mount_points_total`, `sd_paths_referenced[{path, card_relative, actions, checks}]`·`sd_paths_total`·`sd_paths_truncated`, `truncated`, `limitations`, `uboot`, `next_steps`.
+결과 파일에만 근거 전체, 마운트 명령의 옵션, 핫플러그 처리기, `phases`(complete/truncated)가 있다. 오래 걸리면 `background=true` 와 `fwtriage_job_status`.
+
+| 점검 | 내용 | category |
+|---|---|---|
+| SD-01 | 부팅·핫플러그 때 카드 내용 실행(rcS·init.d·mdev.conf·udev RUN+=·hotplug, 복사·복호화 뒤 실행 포함) | backdoor |
+| SD-02 | 카드에서 서명 없는 펌웨어 업데이트(U-Boot 업데이트 명령, 사용자 공간 카드→플래시) | insecure-update |
+| SD-03 | U-Boot 의 mmc 부팅·카드의 boot.scr/uEnv/env import, verify 꺼짐, 환경 쓰기 가능 | insecure-default |
+| SD-04 | 카드 삽입 처리기 | other |
+| SD-05 | 카드에서 설정 가져오기(값이 system()/popen 으로 가는지 — AH-04 와 교차) | insecure-default |
+| SD-06 | 카드에 민감 정보 기록(로그·코어 덤프) | info-leak |
+| SD-07 | 녹화 암호화 — found 가 보호 근거(found_means protection) | weak-crypto |
+| SD-08 | 약한 마운트 옵션(noexec/nosuid/nodev 없음, umask=000), `discard`·fstrim(삭제 데이터 복구 가능성에 영향) | insecure-default |
+| SD-09 | 카드 내용의 네트워크 노출(웹 루트·FTP·Samba) | info-leak |
+
+- `fw_rootfs_audit(case_id="<id>", rootfs_dir="extract/rootfs-001", sd_surface=true)`: rootfs 쪽만 본다. U-Boot 쪽 근거가 없으므로 SD-02·SD-03 은 unknown 이다 — U-Boot 쪽은 `fw_sd_surface` 의 image_path 로 본다.
+- `fw_uboot_env(case_id="<id>", path="dumps/flash-full.bin")` 의 env 마다 `sd_boot`: fatload/ext4load/load mmc, mmc 에서 읽는 boot.scr·uEnv.txt·env import, distro boot, mmc 를 플래시보다 먼저 시도하는지, verify 꺼짐, SD 업데이트, CRC 유효 env 의 saveenv 쓰기 가능성. mmc 장치 번호로는 SD 와 eMMC 를 구분하지 못한다.
+- `discard`·fstrim 이 있으면 지운 데이터가 카드에서 사라졌을 수 있다 → evidence 의 삭제 파일 복구는 "복구 가능성 조건부" 로 notes 에 적는다.
+- 펌웨어의 `tz=`·`time_offset=` 마운트 옵션이나 init 스크립트 TZ 는 device_timezone 의 근거가 된다(가정으로만 — 사용자가 장치 설정을 바꿨을 수 있다).
+- **부팅 로그**: `uart_capture_boot` 의 `sd_events[{line, kind, also, text}]` kind 는 card-detected·card-removed·card-absent·block-device·partition·fs-mount·fs-error·uboot-mmc·uboot-script(boot.scr·uEnv.txt 읽기)·update·script·card-other 다.
+  `sd_summary{card_detected, card_absent, counts, devices, filesystems, events_total, truncated, long_lines_skipped}` — eMMC·SDIO 줄은 counts 의 emmc·sdio 로만 센다. update·script·uboot-script 줄이 있으면 `sd_note` 가 붙는다.
+  카드 없음과 시험 카드의 두 로그를 비교해 카드가 감지·마운트되는지, 카드에서 무엇을 찾는지(업데이트 파일 이름·스크립트)를 본다. 그 이름의 파일을 만들어 넣어 보지 않는다.
+- **카드와 펌웨어 대조(10c)**: `sd_paths_referenced` 가 잘렸으면(`sd_paths_truncated`) 결과 파일의 전체 목록을 쓴다. 찾는 곳은 목록 JSON 파일 하나뿐이고, FAT·exFAT 은 대소문자를 구분하지 않으므로 대소문자를 무시하고 찾는다.
+  삭제 항목도 센다(지운 흔적도 침해 흔적 후보다). 일치한 항목은 크기·시각·삭제 여부만 적고 내용은 열지 않는다. 목록이 잘렸으면(truncated) 일치 없음은 본 범위에서만이다.
+
+## 4. security 만 한 요약 예시
+
+카드 없이 펌웨어만 본 경우다. mode 가 security 면 legal·evidence·custody_ok 가 필요 없다. 아래는 모양을 보이는 합성 값이며 sd-forensics 스키마 검증을 통과한다.
+
+```json
+{
+  "mode": "security",
+  "device_timezone": {"assumed": "UTC+09:00", "basis": "rootfs 의 init 스크립트 TZ=KST-9 (펌웨어 기본값 — 사용자가 바꿨을 수 있음)"},
+  "security": {
+    "sd_surface_result": "analysis/sd-surface-001.json",
+    "checks_found": ["SD-01", "SD-02", "SD-08"],
+    "sd_events_summary": null,
+    "card_matches_firmware_paths": null
+  },
+  "privacy": {"audio_decoded": false, "face_plate_processing": false, "uploads": false, "recording_content_viewed": false},
+  "notes": [
+    "입력: firmware-static-analysis 요약의 dumps/flash-full.bin, extract/rootfs-001",
+    "SD-03 unknown — CRC 가 맞는 U-Boot env 를 찾지 못함",
+    "SD-07 unknown — 녹화 암호화 근거를 찾지 못함(암호화가 없다는 증명은 아님)",
+    "부팅 로그는 관찰하지 않음 — 새 빈 시험 카드가 없음"
+  ]
+}
+```
+
+## 5. 법률·개인정보 메모 (법률 자문 아님)
+
+설계 `docs/design/sd-forensics.md` §7 의 요약이다(2026-10-19 원문 기준). 사용자에게 법적 판단을 하지 않고, 아래는 접수 정보를 묻는 이유와 행동 규칙의 근거로만 쓴다.
+
+| site_type | 뜻 | role | 뜻 |
+|---|---|---|---|
+| home | 개인 가정용(업무 목적 아님) | owner | 기기·카드 소유자 본인 |
+| public | 공개된 장소에 설치(개인정보 보호법 제25조①) | processor | 소유자의 위탁을 받은 수탁자(위탁 문서 필요) |
+| business | 업무용 비공개 장소 | investigator | 적법한 권한으로 의뢰받은 조사자 |
+| vehicle | 차량(블랙박스) | other | 기타(notes 에 설명) |
+| mobile-business | 업무 목적의 이동형 기기(제25조의2) | | |
+| unknown | 모름 | | |
+
+- 개인정보 보호법 제25조④~⑧(안내판·녹음 금지 등)과 표준지침의 영상 장은 공개된 장소의 운영자와 업무 목적 이동형에 적용된다. 개인 가정용 카메라는 대부분 밖이지만 통신비밀보호법 제3조·제14조·제16조는 그대로 적용된다. 복구도 개인정보 "처리"다(제2조2호).
+- 오디오는 메타데이터(있음·코덱·길이)만 다룬다. 재생·전사·내보내기를 하지 않는다. 얼굴·번호판 처리, 업로드, 제3자 제공·열람용 사본도 만들지 않는다(PWEH 에는 마스킹 기능이 없다).
+- 복구한 Wi-Fi 키·클라우드 토큰·계정으로 어디에도 로그인하지 않는다(정보통신망법 제48조①).
+- 모든 보고에 고지를 싣는다: PWEH 는 인증·검증된 포렌식 도구가 아니다. 법적 용도라면 원본 카드를 보존하고 원본·이미지·보관 기록을 자격 있는 전문가에게 넘긴다. 해시값 확인서(`forensics/evidence-list.md`)의 서명은 사람이 한다.
+
+## 6. 발견사항 예시 (both — 카드와 펌웨어 경로 일치)
+
+펌웨어가 부팅 때 실행하는 카드 경로(SD-01)와 같은 파일이 증거 카드에 있을 때다. 카드 경로는 펌웨어의 `card_relative` 값이므로 적어도 된다. 파일 내용은 열지 않는다.
+```
+case_add_finding(case_id="<id>", finding={
+  "title": "증거 카드에 펌웨어가 부팅 때 실행하는 파일이 있음 (SD-01 경로 /autorun.sh) — 침해 흔적 후보",
+  "category": "backdoor", "severity": "high", "confidence": "possible", "status": "unverified",
+  "summary": "rcS 가 카드의 autorun.sh 를 부팅 때 실행한다(SD-01 found). 증거 카드 EV-0001 의 목록에 같은 경로의 파일이 있다(삭제 아님, 812 바이트). 파일 내용은 열지 않았다.",
+  "location": {"firmware": "dumps/flash-full.bin", "file": "/etc/init.d/rcS", "line": 42, "evidence_id": "EV-0001", "card_path": "/autorun.sh"},
+  "evidence": [
+    {"type": "triage", "ref": "analysis/sd-surface-001.json", "excerpt": "SD-01 found: sh /mnt/sd/autorun.sh (card_relative /autorun.sh)"},
+    {"type": "file", "ref": "forensics/analysis/fs-list-EV-0001-001.json", "excerpt": "card_relative /autorun.sh 와 같은 경로 1건, deleted=false, size=812"}
+  ],
+  "reasoning": "펌웨어가 카드의 파일을 검증 없이 실행하고, 증거 카드에 그 이름의 파일이 있다. 사용자가 둔 파일일 수도 있어 침해로 단정하지 않는다.",
+  "verification_plan": "사람이 forensics_extract 로 추출한 파일을 PWEH 밖의 격리 환경에서 텍스트로만 검토한다(실행하지 않음). 펌웨어의 실행 경로는 REA 로 확인한다."
+})
+```
+
+## 7. 실패 처리 전체
+
+동기 도구의 오류는 `[code] 메시지` + `힌트:` 텍스트로(세부 data 는 오지 않는다), job 의 오류는 `forensics_job_status` 의 error{code, message, hint, data} 로 온다. 해석 엔진의 오류는 code 가 validation_failed 이고 사유는 data.reason 이다.
+
+| 오류 / 상태 | 뜻 | 조치 |
+|---|---|---|
+| `authorization_required` | 케이스에 소유/허가 증명이 없다 | 멈추고 master-prompt §1-1. 증명이 생기면 같은 인자로 다시 |
+| `validation_failed` (접수) | 원시 디스크·장치·커널 경로, 디렉터리·FIFO 등 일반 파일 아님, 빈 파일, E01(raw 로 내보내야 함), NUL 이 든 경로, 케이스·상태 폴더 안의 파일, 예약 이름(EV-NNNN.json·imaging-log.txt·*.partial), 접수 정보 길이·제어 문자·허용 값, label, 여유 공간, 이미징 로그(4 MiB 이하 일반 파일, 읽는 동안 커지면 거부), 확인하는 동안 바뀐 원본 | 메시지를 사람에게 전하고 고친 값으로 다시. 케이스 안 이미지는 사람이 밖으로 옮긴다 |
+| `validation_failed` (해석, 동기) | partition 값·범위(1~4096)·없는 index, acquisition_date 형식(YYYY-MM-DD), refs·paths 없음·합쳐 1000개 초과, region 값, method 형식, max_bytes 형식, 추출 여유 공간(max_bytes + 256 MiB), FAT/exFAT 파티션 없음(fs_list — 파티션이 이미지 끝 너머라 볼 수 없으면 메시지가 잘린 이미지라고 알린다), 고른 partition 의 시작이 이미지 끝 너머(잘린 이미지), 지원하지 않는 파일 시스템 | 인자를 고친다. 지원하지 않는 파일 시스템은 filesystems[] 와 notes 에 적고 멈춘다. 잘린 이미지면 사람에게 알리고 이미징이 끝까지 됐는지 확인하게 한다 |
+| `validation_failed` (추출 job — error.data.reason) | bad_argument(FAT/exFAT 파티션이 여럿인데 partition 없음), not_found(없는 partition), unsupported_fs(지원 파티션 없음·지원하지 않는 파일 시스템), beyond_image(고른 partition 의 시작이 이미지 끝 너머, 또는 파티션이 이미지 끝 너머라 볼 수 있는 FAT/exFAT 파티션이 없음 — 잘린 이미지), refs_unverifiable(확인 순회가 잘려 검증된 ref 가 없고 paths 도 없음 — ref 가 모두 bad_ref 인 것은 실패가 아니다) | partition 을 고치거나 paths= 로 다시. beyond_image 는 사람에게 알리고 이미징을 확인하게 한다. refs_unverifiable 이 계속되면 사람에게 알린다 |
+| `not_found` | 증거 id 가 없다 / job 이 이 서버 프로세스에 없다(서버가 다시 시작됨) | `forensics_evidence_list` 로 확인. job 기록(`jobs/<id>.json`)이 running 이어도 믿지 않는다 |
+| `integrity_failed` (기록함) | 빠른 지문 불일치, 사본 없음·일반 파일 아님·읽을 수 없음, 접수 기록 없음·읽을 수 없음·보관 기록 intake 와 다름, 증거 디렉터리 경로 이상(EV 디렉터리가 링크·파일 — unsafe-path. 증거 목록에는 missing 으로 보인다) | SKILL.md 규칙 7·템플릿 F. 원본에서 다시 접수(새 EV). 사본을 고치지 않는다 |
+| `integrity_failed` (기록 없이 거부) | 이미 무결성 실패인 증거, EV 디렉터리가 지워짐(missing — '지워짐'), 보관 기록에 접수가 없는 EV 디렉터리(record-without-intake·intake-in-progress), 같은 번호의 접수 사건이 둘 이상. 접수 job 에서는 복사 중 원본 크기·mtime 변화(번호 반환) | 위와 같다. 상태별 할 일은 SKILL.md 요약 기록 절의 표 |
+| 재해시 result mismatch, 접수 결과 copy_verified false(ok false·error) | 사본 전체가 접수 때(접수 사본 재해시면 원본 해시)와 다르다 — 오류 코드가 아니라 job 결과다(job 은 succeeded). 서버가 integrity-failed 를 기록한다(접수는 intake 사건의 copy_verified=false 만으로도 상태 integrity-failed). 그 뒤 내용 도구는 `integrity_failed` 로 거부한다 | 위와 같다 |
+| `custody_broken` | 보관 기록 체인이나 보호 위치 고정점과 어긋난다, forensics/ 자체가 링크다 — 내용 도구와 기록 쓰기가 모두 거부된다 | 멈춤, 템플릿 G. 요약은 custody_ok false, status failed. 기록 파일을 고치지 않는다 |
+| `path_outside_base` | 서버가 쓰려는 forensics/ 아래 디렉터리(images/·analysis/·recovered/·aborted-intakes/)가 심볼릭 링크·파일이거나, 새 추출 디렉터리에 서버가 만들지 않은 항목(링크 등)이 생겼다 — 따라가 쓰지 않았고 실패한 추출은 출력 디렉터리를 지웠다. 내용 도구가 여는 EV 디렉터리가 링크·파일이면 이 코드가 아니라 `integrity_failed`(unsafe-path, 기록함)다 | 멈추고 사람에게 알린다(누가 forensics/ 를 바꾸는지 확인). 에이전트는 링크를 지우거나 forensics/ 를 고치지 않는다 |
+| `busy` | 같은 원본의 접수, 같은 증거의 검증·추출이 이미 돌고 있다 | `forensics_jobs(active_only=true)` 로 확인하고 기다린다 |
+| `lock_timeout`, `unsafe_file` | 보관 기록·EV 번호 확보 잠금을 30초 안에 얻지 못했다 / 번호 확보 잠금 파일(`images/.claim.lock`) 자리에 일반 파일이 아닌 것(링크·FIFO)이 있거나, 보관 기록 잠금 파일이 읽은 뒤 덧붙이기 전에 바뀌었거나, 접수 중 사본이 확인한 뒤 바뀌었다(접수는 되돌린다). 보관 기록 잠금 파일(`.custody.lock`)이 처음부터 일반 파일이 아니면 읽을 때 `custody_broken` 이다 | 다시 시도하고, 계속되면 멈추고 사람에게 알린다(다른 프로세스·forensics/ 확인). 에이전트는 잠금 파일을 고치지 않는다 |
+| job cancelled | 사람이 중지 | 접수: 커밋 전이면 만든 파일을 지우고 번호를 돌려놓았다(커밋 뒤 취소는 무시 — succeeded). 검증: 재해시 중이면 기록 없음(해시 뒤 취소는 무시). 추출: result 가 없으면 ref 확인·경로 찾기 중 멈춰 출력·보관 기록이 없고, result 가 있으면 그때까지 쓴 파일·매니페스트·보관 기록 extract 가 남았다(시도하지 않은 항목 '취소됨', truncated_reasons cancelled) |
+| 추출 job failed | 출력 디렉터리를 지웠다. 보관 기록 extract 를 남긴 뒤의 실패면 출력이 남는다 | 증거 목록 derived 에서 recorded 인지 확인하고 사람에게 알린다 |
+| volumes_failed (volumes[].error) | 볼륨을 열거나 해석하지 못했다(손상 이미지일 수 있다, reason internal_error 포함). truncated=true, image_check 는 '흔적 없음'이라 하지 않는다. error.data.reason 이 budget_exceeded 면 실패가 아니라 한도(call.partitions_skipped 의 time·steps) | 사람에게 알리고 partition 을 지정해 다시 보거나 보고서 한계에 적는다 |
+| budget_exceeded | 엔진 예산(시간·단계·취소, data.limit)이 다 됐다 — 목록·오염 검사에서는 그 볼륨의 error, 추출에서는 그 파일이 skipped 이고 truncated_reasons 에 time·steps | time 은 범위를 줄이거나(partition) max_seconds 를 늘린다(fs_list). steps 는 사람에게 알린다 |
+| 증명 denied / previous denied | 사람이 쓰기 방지 장치를 쓰지 않았다고(또는 폼을 거절) 답했다 | 다시 묻지 않는다. write_blocker denied, notes. 계속할지는 사용자가 정한다 |
+| 증명 revoked / expired / invalid | 사람이 철회했거나 90일이 지났거나 증명 레코드를 믿을 수 없다 | 그 상태를 요약에 적는다. 다시 증명할지는 사람이 정한다 |
+| 목록·오염 검사 truncated | 한도·예산, 끝까지 읽지 못한 디렉터리, 잘린 이미지 | [§8](#8-잘림불완전-사유와-사람에게-알릴-것) 의 사유별 할 일. 못 본 범위는 notes·blockers |
+| 추출 skipped (확인 단계 code) | bad_ref(모양이 틀린 ref, 순회를 끝까지 돌았는데 없는 디렉터리, 검증하지 못한 영역 — ref 가 모두 bad_ref 이고 paths 가 없어도 job 은 성공하고 파일 0개 추출이 보관 기록에 남는다), refs_unverifiable(그 ref 의 디렉터리를 확인하지 못함), ambiguous_path(이름에 맞는 항목이 둘 이상), not_found(검증된 디렉터리를 끝까지 읽었는데 없음 — 삭제 파일은 refs 로), max_depth·max_dir_slots·beyond_image·dir_chain_broken·dir_unvalidated(§8 — 그런 디렉터리에서는 정확히 같은 이름만 받으므로 대소문자·8.3 별칭으로만 맞아도 이 code), dir_unreadable(읽지 못한 살아 있는 디렉터리를 지나는 paths·그 디렉터리를 가리키는 ref), time·steps·cancelled | bad_ref·not_found 는 목록 JSON 의 ref 로 다시 고른다. ambiguous_path 와 대소문자만 맞아 거부된 경로는 대소문자까지 정확한 이름이나 ref 로. dir_unreadable 은 '없음'으로 보고하지 않고 사람에게 알린다. 나머지는 §8 |
+| 추출 skipped (추출 단계, 사유 문장) | 디렉터리(파일 ref 를 달라), 파일 수·바이트 상한, 작업 시간 한도, 후보 예산, 그 파일에 없는 method(가능한 방법 목록), '취소됨' | 사유대로 다시 고르거나 notes 에 적는다 |
+| 증거 목록 status missing·record-invalid·record-without-intake·intake-in-progress | SKILL.md 요약 기록 절의 표 | 사람에게 알린다 |
+| `pweh-fwtriage` 가 `forensics/` 경로를 거부, `case_import_file`·`case_hash_file`·`case_register_artifact` 가 거부 | 펌웨어 도구·케이스 도구는 증거 폴더를 읽지 않는다 | 정상이다. 다른 도구로 우회하지 않는다 |
+| `uart_capture_boot` 에 sd_events 없음, card_detected false | 감지 줄을 못 봤다(카드가 없다는 뜻은 아님) | 콘솔 로그 수준·관찰 시간(`duration`)을 확인하고, 결과는 그대로 적는다 |
+
+**아직 없는 것**(F2·F3 단계): 녹화 컨테이너·프레임 해석과 CCTV 인덱스(Hikvision·Dahua 등), 타임라인, 카드 쪽 녹화 암호화 판정·비밀 탐색·침해 흔적 자동 대조, 파일 시스템 메타데이터 밖의 카빙,
+E01 입력과 외부 도구(TSK·PhotoRec·ewf·ffprobe), ext4·NTFS 목록, 장치에서 카드 식별 정보 읽기, Windows 원시 읽기 헬퍼, 영상 내보내기.
+이것들은 셸이나 외부 프로그램으로 대신하지 않는다. 필요했던 일은 요약 notes 와 `case_record_step` 의 blockers·next_actions 에 "아직 없음" 으로 적는다.
+
+## 8. 잘림·불완전 사유와 사람에게 알릴 것
+
+`forensics_fs_list`(volumes[].truncated_reasons, 맨 위 truncated_reasons)·`forensics_image_check`(volumes[].walk_truncated_reasons, truncated_reasons)·`forensics_extract`(truncated_reasons, skipped 의 code)의 사유다.
+응답의 next_steps 에도 사유별 안내가 온다. 다시 부를 수 있는 사유(time·max_entries·max_partitions)만 인자를 늘리거나 partition 으로 나눠 다시 부른다(image_check 의 120초와 두 도구의 파티션 64개는 고정이라 나누기만 한다).
+고정 한도와 이미지·카드 상태는 max_seconds 를 늘려 답하지 않는다 — 사람에게 알리고 요약 notes·blockers 와
+보고서 한계에 적는다(요약 status partial). 한계의 배경은 `docs/safety.md` §3.6 이다.
+
+| 사유 | 나오는 곳 | 뜻 | 할 일 |
+|---|---|---|---|
+| time | 셋 다 | 시간 한도 — 목록은 max_seconds(호출 전체), 오염 검사는 120초(고정), 추출은 job 300초. exFAT 루트가 아주 크면 열 때와 순회에서 두 번 읽어(루트 슬롯 100만 개에 약 9초씩) 작은 max_seconds 로는 0 항목일 수 있다 | 목록: max_seconds 를 늘리거나(최대 600) `partition=<index>` 로 나눠 다시. 오염 검사: partition 으로 나눠서만. 추출: 남은 ref·paths 로 다시 |
+| steps | 셋 다 | 볼륨의 작업 단계 상한 — 정상적으로 꽉 찬 볼륨은 닿지 않는다(같은 긴 체인을 여러 항목이 가리키는 조작·손상 이미지일 수 있다) | 사람에게 알리고 보고서 한계에 적는다 |
+| cancelled | 추출 | 취소로 끝까지 하지 못함 | 필요하면 다시 부른다 |
+| max_entries | 목록·오염 검사 | 항목 수 상한(호출 전체 합계, 최대 200000) | 목록: max_entries 를 늘리거나 partition 으로 나눠 다시. 오염 검사: partition 으로 나눠 다시 |
+| max_partitions | 목록·오염 검사(맨 위) | 서로 다른 파티션 64개까지만 봤다(call.partitions_skipped.partitions) | 나머지는 `partition=<index>` 로 따로 본다 |
+| max_total_slots | 목록·오염 검사 | 디렉터리 슬롯 합계 상한(8,388,608) — 디렉터리가 아주 많거나 크다(조작 의심) | 사람에게 알리고 보고서 한계에 적는다 |
+| max_path_chars | 목록·오염 검사 | 경로 글자 수 상한(호출 전체 268,435,456) — 깊고 긴 경로가 아주 많다(조작 의심). 한 볼륨이 이 사유로 멈추면 뒤 파티션은 건너뛴다 | 여러 파티션이면 partition 으로 나눠 보고, 사람에게 알린다 |
+| max_depth | 셋 다(추출은 paths 의 code) | 고정 한도 — 깊이 64 의 디렉터리 항목은 싣지만 안으로 내려가지 않는다(cut_dirs). 그 아래 항목은 목록·ref 가 없어 추출할 수 없고, 64단계보다 깊은 paths 는 code max_depth | 사람에게 알리고 보고서 한계에 적는다 |
+| max_dir_slots | 셋 다(추출은 code) | 고정 한도 — 디렉터리가 슬롯 한도(FAT 65,536, exFAT 1,048,576)보다 길고 그 안에 끝 표시가 없어 앞부분만 읽었다(cut_dirs, 경고 dir_slot_limit). 뒤쪽 항목은 목록에 없고, 뒤쪽을 가리키는 ref·뒤쪽에 있을 수 있는 paths 는 code max_dir_slots | 사람에게 알리고 보고서 한계에 적는다 |
+| beyond_image | 셋 다(추출은 code) | 살아 있는 디렉터리의 데이터가 읽을 수 있는 범위(파티션 표 항목과 이미지 끝 중 짧은 쪽) 끝 너머라 끝까지 읽지 못했다(cut_dirs — 읽은 앞부분 항목은 목록에 있다). 원인은 같은 볼륨의 image_truncated(잘린 이미지)·volume_exceeds_partition(파티션 표보다 큰 파일 시스템)으로 본다. 고른 파티션의 시작이 이미지 끝 너머면 추출 job 이 이 사유(error.data.reason)로 실패한다(§7) | 사람에게 알리고 보고서 한계에 적는다. 원인이 image_truncated 면 이미징이 끝까지 됐는지 확인하게 한다(필요하면 다시 이미징) |
+| image_truncated | 목록·오염 검사 | 이미지가 카드보다 짧다 — 볼륨 끝(파티션 시작 + 볼륨 크기)이 이미지 끝 너머이거나(volume.truncated — 그 볼륨의 사유), partition 을 고르지 않았을 때 파티션이 통째로 이미지 끝 너머다(forensics_partitions 의 partition_beyond_image·ebr_beyond_image — 호출의 truncated_reasons 에만). 대개 이미징 중단·용량을 속인 카드. 끝 너머의 파티션·디렉터리·파일 내용·삭제 흔적은 보이지 않는다. partition_truncated(파티션 항목의 끝만 이미지 밖)만으로는 이 사유가 아니다 | 사람에게 알리고 이미징이 끝까지 됐는지 확인하게 한다(필요하면 다시 이미징). 보고서 한계에 적는다 |
+| volume_exceeds_partition | 목록·오염 검사 | 이미지는 이어지는데 파일 시스템이 파티션 표 항목보다 크다(volume.truncated) — 파티션 표가 줄었거나 손상됐을 수 있다. 항목 밖으로 이어지는 부분의 디렉터리·파일 내용은 이 파티션으로 읽지 않는다(다른 파티션의 데이터를 이 볼륨 것으로 읽지 않게) | 사람에게 알리고 보고서 한계에 적는다 |
+| dir_chain_broken | 셋 다(추출은 code) | 살아 있는 디렉터리의 클러스터 체인이 끝 표시 전에 비정상으로 끝나 뒤쪽 항목을 읽지 못했다(cut_dirs — 읽은 앞부분 항목은 목록에 있다. exFAT 은 DataLength 보다 짧은 체인 포함 — 체인이 읽을 길이(DataLength, 슬롯 한도보다 길면 한도까지)를 다 모았으면 마지막 FAT 항목이 망가져도 잘림이 아니고 경고 dir_chain_* 만. DataLength 가 슬롯 한도보다 길면 그래도 max_dir_slots) — 카드 손상일 수 있다 | 사람에게 알리고 보고서 한계에 적는다 |
+| dir_unreadable | 셋 다(추출은 code) | 살아 있는 디렉터리를 읽지 못했다(cut_dirs, 경고 dir_unreadable — 그 디렉터리의 내용은 하나도 목록에 없다) — 카드 손상일 수 있다. 추출에서는 그런 디렉터리를 지나는 paths·그 디렉터리를 가리키는 ref 의 code 다(그 아래를 가리키는 ref 는 refs_unverifiable) | 사람에게 알리고 보고서 한계에 적는다 |
+| dir_unvalidated | 셋 다(추출은 paths 의 code) | 살아 있는 디렉터리 일부가 디렉터리 데이터로 검증되지 않아 그 뒤쪽 항목은 목록에 없다(unvalidated_dirs_live, 경고 dir_unvalidated) — 손상·교차 연결이거나 엔진이 일부러 엄격하게 거르는 형식 | 사람에게 알리고 보고서 한계에 적는다 |
+| refs_unverifiable | 추출 | 확인 순회가 위 사유로 끝까지 가지 못해 그 ref 의 디렉터리를 확인하지 못했다(찾은 ref 는 추출했다) | 살아 있는 파일은 paths= 로 고르거나 partition 을 지정해 다시. 계속되면 사람에게 알린다 |
+| max_files, max_bytes | 추출 | 파일 수(최대 1000)·바이트 상한(최대 4 GiB)이 실제로 잘랐다 | 남은 ref 로 다시 하거나 max_bytes 를 늘려(나눠) 다시 |
+
+- 잘림이 아닌 것: 삭제된 디렉터리만 검증하지 못한 것(unvalidated_dirs 에만 세고 unvalidated_dirs_live 는 0 — 클러스터 재사용으로 흔하다. 삭제 흔적이 중요하면 사람에게 알린다), 같은 구간을 가리키는
+  파티션(call.partitions_skipped.duplicate), 지어낸 ref(bad_ref). 삭제된 디렉터리와 그 아래는 최선 노력이라 손상·이미지 끝을 잘림으로 세지 않는다(경고만).
+- 해석하지 못한 볼륨(call.volumes_failed)은 사유 목록에 없지만 truncated=true 다 — §7 표.
+- 오염 검사는 truncated 가 false 이고 본 볼륨(error 가 아닌 volumes[] 항목)이 하나 이상일 때만 "흔적을 찾지 못했다(없음을 증명하지 않음)"로 보고한다. 잘렸으면 "본 범위에서만 없음"과 사유를 적고,
+  volumes 가 비었으면 truncated 와 상관없이 '보지 못함'으로 적는다(note 도 '본 볼륨이 없어 흔적을 보지 못했다' — 지원하는 FAT/exFAT 파티션이 없으면 truncated false, 파티션이 이미지 끝 너머면 image_truncated 로 true).
+- 추출 파일의 complete=false 는 상한·취소·짧은 후보·읽을 수 있는 범위(파티션 표 항목과 이미지 끝 중 짧은 쪽)의 끝 중 하나다. 끝 너머 바이트 수(bytes_beyond_image)는 매니페스트에만 있다 — 매니페스트는 열지 않으므로, max_bytes·cancelled 사유가 없는데
+  그 볼륨이 image_truncated·volume_exceeds_partition·beyond_image 였으면 그 탓(잘린 이미지, 파티션 표보다 큰 파일 시스템)으로 보고 사람에게 알린다.

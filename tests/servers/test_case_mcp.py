@@ -150,6 +150,27 @@ async def test_case_import_file(workspace, auth, tmp_path):
         assert "_error" in missing
 
 
+async def test_case_import_file_refuses_case_forensics_folders(workspace, auth):
+    """카드 이미지·복구 녹화(cases/<id>/forensics/)를 dumps/ 로 복사해 자동 허용 도구가 읽게 하는 우회를 막는다(링크도 풀어서 판단)."""
+    from case_mcp.server import server
+
+    async with Client(server) as c:
+        cid = (await call(c, "case_create", title="sd", authorization=auth))["case"]["id"]
+        other = (await call(c, "case_create", title="sd2", authorization=auth))["case"]["id"]
+        rec = workspace["cases_dir"] / other / "forensics" / "recovered" / "clip-001"
+        rec.mkdir(parents=True)
+        (rec / "000001.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42")
+        r = await call(c, "case_import_file", case_id=cid, source_path=str(rec / "000001.mp4"))
+        assert "validation_failed" in r["_error"] and "forensics" in r["_error"]
+        own = workspace["cases_dir"] / cid / "forensics" / "images" / "EV-0001"
+        own.mkdir(parents=True)
+        (own / "card.img").write_bytes(b"\x00" * 512)
+        link = workspace["root"] / "innocent.img"
+        link.symlink_to(own / "card.img")
+        r = await call(c, "case_import_file", case_id=cid, source_path=str(link))
+        assert "validation_failed" in r["_error"]
+
+
 async def test_step_results_survive_server_restart(workspace, auth):
     """세션·서버가 끊겨도 케이스 파일만으로 이전 Skill 결과(hand-off)를 이어 읽는다."""
     from case_mcp.server import server
@@ -326,3 +347,82 @@ async def test_pipeline_environment_reports_env_and_routes(workspace, monkeypatc
         assert again["report"]["kind"] == "WSL2_INTEROP" and len(probe.calls) == n  # 캐시
         fresh = await call(c, "pipeline_environment", refresh=True)
         assert fresh["ok"] and len(probe.calls) > n
+
+
+async def test_case_hash_and_register_refuse_forensics_and_fifo(workspace, auth):
+    """case_hash_file·case_register_artifact(자동 허용)는 증거 폴더를 읽지 않는다 — 짧은 구간의 crc32 로 녹화 바이트를 되살리는 우회를 막는다.
+    링크로 가리켜도(dumps/ 의 심볼릭 링크) 막고, FIFO 앞에서 멈추지 않는다."""
+    import time
+
+    from case_mcp.server import server
+
+    async with Client(server) as c:
+        cid = (await call(c, "case_create", title="sd", authorization=auth))["case"]["id"]
+        cdir = workspace["cases_dir"] / cid
+        rec = cdir / "forensics" / "recovered" / "clip-001"
+        rec.mkdir(parents=True)
+        (rec / "0001-clip.mp4").write_bytes(b"SYNTH-REC-FRAME-7731" * 10)
+        for path in ("forensics/recovered/clip-001/0001-clip.mp4", str(rec / "0001-clip.mp4")):
+            r = await call(c, "case_hash_file", case_id=cid, path=path, offset=0, length=4)
+            assert "validation_failed" in r["_error"] and "forensics" in r["_error"], r
+            r = await call(c, "case_register_artifact", case_id=cid, path=path, kind="other")
+            assert "validation_failed" in r["_error"], r
+        (cdir / "dumps").mkdir(exist_ok=True)
+        (cdir / "dumps" / "innocent.bin").symlink_to(rec / "0001-clip.mp4")
+        r = await call(c, "case_hash_file", case_id=cid, path="dumps/innocent.bin", offset=0, length=1)
+        assert "validation_failed" in r["_error"], r
+        os.mkfifo(cdir / "dumps" / "pipe.bin")
+        t0 = time.monotonic()
+        r = await call(c, "case_hash_file", case_id=cid, path="dumps/pipe.bin")
+        assert "validation_failed" in r["_error"] and time.monotonic() - t0 < 5, r
+        t0 = time.monotonic()
+        r = await call(c, "case_register_artifact", case_id=cid, path="dumps/pipe.bin", kind="other")
+        assert "validation_failed" in r["_error"] and time.monotonic() - t0 < 5, r
+        (cdir / "dumps" / "ok.bin").write_bytes(b"hello world")
+        r = await call(c, "case_hash_file", case_id=cid, path="dumps/ok.bin", offset=6, length=5)
+        assert r["ok"] and r["length"] == 5 and r["sha256"] == __import__("hashlib").sha256(b"world").hexdigest(), r
+        r = await call(c, "case_register_artifact", case_id=cid, path="dumps/ok.bin", kind="other")
+        assert r["ok"] and r["artifact"]["sha256"] == __import__("hashlib").sha256(b"hello world").hexdigest(), r
+        r = await call(c, "case_register_artifact", case_id=cid, path="dumps", kind="extracted-tree")
+        assert r["ok"] and r["artifact"]["is_dir"] is True and "sha256" not in r["artifact"], r
+
+
+async def test_case_import_file_refuses_the_case_path_when_forensics_is_a_link(workspace, auth):
+    """forensics/ 를 케이스 밖으로 옮기고 링크로 되돌려도, 케이스의 forensics/ 아래 경로로 부르면 가져오지 않는다
+    (링크를 푼 경로만 보면 케이스 밖이라 통과하던 우회)."""
+    from case_mcp.server import server
+
+    async with Client(server) as c:
+        cid = (await call(c, "case_create", title="sd", authorization=auth))["case"]["id"]
+        cdir = workspace["cases_dir"] / cid
+        rec = cdir / "forensics" / "recovered" / "clip-001"
+        rec.mkdir(parents=True)
+        (rec / "0001-clip.mp4").write_bytes(b"SYNTH-REC-FRAME-7731" * 10)
+        moved = workspace["root"] / "moved-forensics"
+        os.rename(cdir / "forensics", moved)
+        (cdir / "forensics").symlink_to(moved)
+        r = await call(c, "case_import_file", case_id=cid, source_path=str(cdir / "forensics" / "recovered" / "clip-001" / "0001-clip.mp4"))
+        assert "validation_failed" in r["_error"] and "forensics" in r["_error"], r
+        assert not (cdir / "dumps" / "0001-clip.mp4").exists()
+
+
+def test_pweh_report_compares_custody_with_the_anchor(workspace, auth, monkeypatch):
+    """`pweh report` 도 SD 카드 보관 기록을 보호 위치의 고정점과 대조한다 (report_generate 와 같게)."""
+    import argparse
+    from pathlib import Path
+
+    from pweh import cli, report
+    from pweh.runtime import get_runtime
+
+    rt = get_runtime("test")
+    case = rt.cases.create(title="sd", authorization=auth)
+    seen = {}
+
+    def fake_write_report(c, anchor_dir=None):
+        seen["anchor"] = anchor_dir
+        return {"ok": True}
+
+    monkeypatch.setattr(report, "write_report", fake_write_report)
+    monkeypatch.setattr(cli, "_runtime", lambda: rt)
+    assert cli.cmd_report(argparse.Namespace(case_id=case.id)) == 0
+    assert seen["anchor"] == Path(rt.config.state_dir) / "custody"

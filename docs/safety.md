@@ -268,6 +268,8 @@ pweh-esp 도 같다. esptool 의 쓰기·삭제·eFuse·RAM 실행 같은 DESTRU
   - 에이전트 규칙(§4)과 감사 로그로 이런 행동을 금지하고 사후에 드러낸다.
   - 강한 격리가 필요하면 MCP 서버를 **별도 OS 계정**으로 실행하고, 시리얼 장치 권한(`dialout`)과
     `.pweh/state`·설정 파일 쓰기 권한을 그 계정에만 준다. 에이전트 계정에는 주지 않는다.
+- 경로를 확인하는 가드는 같은 계정 프로세스의 이름 바꿔치기·하드 링크를 막지 못한다. SD 카드 증거(pweh-forensics)와 다른 서버의 증거 가드에 남은 창,
+  해석 엔진의 한계는 §3.6 에 모았다.
 - 정적 분류에는 오탐도 있다. 예를 들어 `which flash_erase` 는 허용되지만, 함수 정의 안에 위험 명령이 있으면 막힌다.
   OpenOCD Tcl 에서 중괄호 조건이 변수로 시작하면(`if {$x} {halt}`) 명령 위치의 변수로 보고 DESTRUCTIVE 로 거부한다.
   막혔다면 우회하지 말고 더 단순한 읽기 전용 명령으로 바꾸거나(변수 대신 실제 값) 사용자에게 설명한다.
@@ -315,13 +317,15 @@ pweh-esp 도 같다. esptool 의 쓰기·삭제·eFuse·RAM 실행 같은 DESTRU
     (`uart_set_signals`, `uart_send_break`), 원시 TCL(`openocd_command`), 위 세 파괴적 도구, 그리고 REA 의 런타임·기기 도구
     (프로세스·디버거·Frida·Cutter·앱·브라우저 세션을 시작·조작·종료하는 도구, adb 기기에 쓰기·설치·실행하거나 파일·화면을 가져오는 도구,
     Rizin 셸 탈출(`!`)로 호스트 명령까지 실행할 수 있는 `execute_rizin_command`)다.
+    pweh-forensics 의 쓰는 도구 전부(카드 이미지 접수·재해시·쓰기 방지 장치 증명·파일 목록·추출·증거 목록·job 취소)도 `ask` 다 — 카드 이미지는 제3자의 개인정보라 사람이 매번 확인한다(§7).
   - `allow` 규칙은 기본 모드에서 묻지 않을 도구다(bypass 모드에서는 의미가 없다): pweh 서버의 `readOnlyHint` 도구,
     `pweh-case`·`pweh-fwtriage` 전체, REA 정적 분석 도구.
 
-### 3.5 사람 증명(attestation)과 출처 원장(provenance), 보호 상태
+### 3.5 사람 증명(attestation)과 출처 원장(provenance), SD 카드 보관 기록, 보호 상태
 
 - **사람 증명**은 에이전트가 확인할 수 없는 사실을 사람이 직접 답한 기록이다(콘솔 오프라인, 결제 수단 제거, 배선과 멀티미터로 잰 전압, 태그의 목적·소유,
-  쓰기 방지 장치 사용, 가져온 파일의 출처 …). 증명을 요구하는 도구는 지금 `fw_patch_build` 하나다(세이브 쓰기 명령을 보여 주기 전 — 네트워크 차단·재부팅 없음·변경 의사·판매 토큰 콘텐츠 아님). 요약·질문의 제어 문자는 이스케이프해 보여 준다.
+  쓰기 방지 장치 사용, 가져온 파일의 출처 …). 증명을 요구하는 도구는 지금 둘이다: `fw_patch_build`(세이브 쓰기 명령을 보여 주기 전 — 네트워크 차단·재부팅 없음·변경 의사·판매 토큰 콘텐츠 아님)와
+  `forensics_acquisition_attest`(SD 카드 이미지를 쓰기 방지 장치로 만들었는지 — 아래). 요약·질문의 제어 문자는 이스케이프해 보여 준다.
   서버가 `status: "attestation_required"` 와 `attestation_id` 를 돌려주면, 사람이 **별도 터미널**에서 `pweh attest <id>` 를 실행해
   종류·대상·바인딩을 확인하고 항목마다 y/n 또는 직접 잰 값을 입력한다. 승인이 되는 답이면 화면의 4자리 확인 코드도 입력한다(대화형 터미널 전용).
   클라이언트가 elicitation 을 지원하면 같은 항목이 확인 폼으로 뜬다(4자리 확인 코드. 폼을 거절·취소하면 거부로 기록된다).
@@ -335,11 +339,52 @@ pweh-esp 도 같다. esptool 의 쓰기·삭제·eFuse·RAM 실행 같은 DESTRU
   출처가 중요한 작업(에뮬레이션·올리기·패치 base·계측기 플래시 절차)을 하는 서버는 가져온 파일을 사람의 `provenance-import` 증명이 있을 때만 쓴다(`fw_patch_build` 는 가져온 파일을 base 로 쓰지 않는다 — 기기에서 이중으로 읽은 덤프만).
   체인이 하나라도 깨지면 그 케이스의 출처 확인은 모두 실패한다(fail closed). 기록한 뒤 바뀐 파일도 신뢰하지 않는다. 출처 확인은 `case.json` 의 `producer` 를 보지 않는다.
   device-read 는 출처(기기에서 읽음)이지 무결성이 아니다 — 이중 읽기가 어긋난 덤프(`source.match=false`)는 기록하지만 출처 확인에서 신뢰하지 않는다(`device-read-mismatch`).
-- **보호 상태**: `.pweh/state/` 의 `approvals/`, `attestations/`, `provenance/`, `salts/`, `audit.jsonl` 은 에이전트가 만들거나 고치거나 지우지 않는다.
+  pweh-forensics 는 접수한 카드 이미지의 접수 기록 파일을 `imported-unattested` 로 남긴다(이미지 sha256·크기는 그 항목의 extra. 이 기록은 접수 기록 파일을 경로로 다시 읽는다 — §3.6).
+- **쓰기 방지 장치 증명**(`write-blocker`, pweh-forensics): `forensics_acquisition_attest` 가 접수한 증거마다 사람에게 묻는다.
+  - 질문: 카드 리더 일체형 하드웨어 쓰기 방지 장치를 거쳐 이미지를 만들었고 카드를 그 장치에만 넣었다(예여야 승인), 장치의 제조사·모델(값),
+    희생용 카드로 장치를 먼저 시험했다 — 쓰기 방지 상태에서 폴더 만들기가 실패함을 확인(정보 항목이라 '아니오'여도 승인되고 그 답이 남는다), 이미징 도구와 버전(값).
+  - 대상은 증거 id·접수 때 sha256·크기이고 바인딩은 케이스다. 새 증명은 90일 유효하다(같은 대상의 기존 증명은 그 만료를 따른다). 다른 증거나 다시 접수한 사본에는 쓰이지 않는다.
+  - 증명은 획득 방법의 기록이지 게이트가 아니다. 증명이 없거나 거부돼도 분석 도구는 동작하고, 증거 목록·보고서에 '증명 없음'이나 그 상태가 남는다.
+    쓰기 방지 장치를 쓰지 않았으면 사람은 증명하지 않는다 — 그 사실이 그대로 기록에 남는 것이 맞다.
+  - 승인·거부는 보관 기록에 한 번씩 남는다. 증거 목록과 보고서는 보관 기록의 attest 사건이 가리키는 증명 레코드를 증명 저장소에서 찾아 지금 상태(approved·denied·revoked·expired,
+    저장소가 그 증명을 믿지 않으면 invalid)로 보여 주고, 레코드의 대상(증거 id·sha256·크기)과 케이스가 그 항목과 같을 때만 보여 준다.
+    철회(`pweh attest --revoke <id>`)·만료를 보관 기록에 사건으로 남기는 것은 `forensics_acquisition_attest` 를 다시 부를 때다.
+- **SD 카드 보관 기록**(custody, `cases/<id>/forensics/custody.jsonl`): pweh-forensics 가 접수·중단된 접수(`intake-aborted`)·검증·무결성 실패·증명·파일 목록·추출·증거 목록을 해시 체인으로 남긴다(같은 사건을 감사 로그에도).
+  해시 체인만으로는 마지막 줄을 고치거나 끝을 잘라 내는 것을 알 수 없으므로, 서버는 줄마다 seq·해시를 보호 위치의 고정점 `.pweh/state/custody/<case_id>.jsonl` 에도 남기고 읽을 때 둘을 대조한다.
+  - 덧붙이기는 세 단계다: 고정점에 '기록 중'(pending) 줄 → 보관 기록(이 쓰기가 커밋 지점) → 고정점 확정. 도중에 끊기면(디스크 가득·강제 종료) 읽을 때 '기록 중' 줄을 보관 기록의 마지막 줄과 맞춰 본다 —
+    같으면 확정으로 보고, 보관 기록에 그 줄이 없으면 쓰기 전 중단으로 보며, 다음 덧붙이기가 고정점을 다시 쓴다. 확정 쓰기의 실패는 로그만 남긴다.
+    그래서 고정점 쓰기 실패가 케이스의 보관 기록을 영구히 깨뜨리지 않는다(남는 창은 §3.6).
+  - 읽기는 공유 잠금, 덧붙이기는 배타 잠금 안에서 한다. `forensics/`·보관 기록·고정점은 링크를 따르지 않고 일반 파일로만 연다.
+  - 줄 수정·잘라 내기·서버 밖에서 덧붙인 줄·다른 케이스에서 옮겨 온 기록, 링크로 바뀐 `forensics/`, 일반 파일이 아닌 보관 기록·고정점은 모두 '깨짐'이다.
+    깨지면 그 케이스의 내용 도구와 기록 쓰기가 모두 `custody_broken` 으로 멈춘다(fail closed — 접수는 job 을 만들기 전에 바로 거부한다). 서버는 기록을 고치지 않는다 — 사람이 원인을 확인한다.
+- **접수의 커밋과 정리**(pweh-forensics): 접수 job 은 `forensics/images/EV-NNNN/` 를 확보하고, 커밋할 때까지 그 안의 접수 잠금 파일 `.intake.lock` 을 잡는다. 사본은 `<이름>.partial` 로 쓰고 다 쓰면 이름을 바꾼다.
+  커밋 지점은 보관 기록의 `intake` 사건(해시·크기·저장 경로·빠른 지문·접수 기록 파일의 sha256)이다. 그 전에 실패·취소하면 만든 파일을 지우고 번호를 돌려놓는다.
+  그 뒤에 온 취소는 무시하고, 커밋 뒤 보조 단계(사본 재해시가 다를 때의 `integrity-failed` 사건·출처 원장·아티팩트 색인·같은 sha256 확인)의 실패는 접수를 되돌리지 않고 결과의 `post_commit_errors` 로 알린다
+  (감사 로그 실패는 서버 로그에만 남고 결과에는 나오지 않는다).
+  서버가 정상으로 끝나면(클라이언트 종료·SIGTERM) 실행 중인 job 을 취소하고 job 마다 최대 10초 기다린다(SIGTERM 이면 모두 합쳐 최대 약 15초) — 커밋 전 접수는 되돌린다. 강제 종료(SIGKILL)로 남은 디렉터리는 다음 접수와 서버 시작 때 정리한다.
+  - 중단된 접수의 흔적이 있을 때만 `forensics/aborted-intakes/EV-NNNN-<UTC 시각>/` 으로 옮기고(파일 0444·디렉터리 0555, 지우지 않는다) `intake-aborted` 사건으로 번호를 소비한다.
+    흔적: 잡은 쪽이 없는 접수 잠금 파일, 잠금 파일 없이 빈 디렉터리, 복사 중 이름(`*.partial`), 앞서 기록한 옮기기의 재시도.
+  - 흔적이 없는 디렉터리(커밋한 증거인데 보관 기록과 고정점을 함께 잃음, 사람이 만든 디렉터리 등)는 커밋 여부를 알 수 없으므로 옮기지 않고 증거 목록에 `record-without-intake` 로 남긴다(사람이 판단한다).
+    다른 쪽이 잡은 잠금이 있는 디렉터리(진행 중 — 증거 목록의 `intake-in-progress`)는 건드리지 않고, 일반 파일이 아닌 잠금 자리는 열지 않고 판단하지 않는다.
+    보관 기록에 `intake` 가 있는데 잠금 파일이 남은 디렉터리(커밋 직후 죽음)는 커밋을 마저 한다(잠금 파일을 지우고 0555).
+  - EV 번호는 디렉터리·옮긴 디렉터리·보관 기록에 나온 번호 중 가장 큰 것 + 1 이다 — 지운 증거와 중단된 접수의 번호를 다시 쓰지 않는다(되돌린 접수의 번호만 돌아간다).
+- **무결성 확인 순서**: 내용 도구·검증·증명·증거 목록은 증거를 열 때마다 (1) 보관 기록을 검증하고(깨짐이면 `custody_broken`), (2) 접수 기록 `EV-NNNN.json` 을 보관 기록의 `intake` 사건(고정점으로 보호됨)과
+  대조하고(파일 sha256·해시·크기·저장 경로·빠른 지문), (3) 사본을 디렉터리 fd 기준으로 한 번 안전하게 열어, (4) 그 fd 로 빠른 지문(크기·mtime·앞/뒤 1 MiB 해시, 쓰기 권한이 생기지 않았는지)을 대조한다.
+  해석과 재해시는 지문을 본 바로 그 fd 로 한다(경로를 다시 열지 않는다). 다르면 무결성 실패를 보관 기록에 남기고 거부한다(되돌리지 않는다 — 원본 이미지에서 다시 접수, 새 EV 번호.
+  EV 디렉터리가 지워졌으면 기록 없이 거부하고 증거 목록에 missing. 링크·파일로 바뀌었으면 무결성 실패(`unsafe-path`)로 기록하고 거부하며, 증거 목록에는 역시 missing 이다 — 실제 디렉터리만 세므로).
+  접수 기록 파일만 고쳐서는 통과하지 못한다.
+  가운데만 바꾸고 mtime·권한을 되돌린 변조는 빠른 지문으로는 보이지 않고 전체 재해시(`forensics_verify_start`)만 찾는다(§3.6).
+- **증거 목록**(`forensics_evidence_list`): 목록을 만들 때마다(해시값 확인서를 쓰기 전에) 커밋한 증거(이미 무결성 실패인 것은 빼고)를 위 순서로 다시 확인하고 새 문제는 무결성 실패로 남긴다. 상태는 보관 기록에서 다시 정한다 —
+  커밋한 접수는 ok·unverified·integrity-failed·missing·record-invalid, 커밋하지 못한 디렉터리는 record-without-intake·intake-in-progress, 보관 기록이 깨지면 custody-broken(해시를 싣지 않는다).
+  해시는 보관 기록 `intake` 사건의 값만 싣는다. 사람이 읽는 출력(증거 목록 md·보고서)은 `status_label` 을 쓴다 — EV 디렉터리가 없는 증거에 무결성 실패 기록이 있으면(지우기 전의 실패, 또는 링크·파일로 바뀐 것의 `unsafe-path`) `missing (integrity-failed)`.
+- **보호 상태**: `.pweh/state/` 의 `approvals/`, `attestations/`, `provenance/`, `salts/`, `custody/`, `audit.jsonl` 은 에이전트가 만들거나 고치거나 지우지 않는다.
   고치면 증명이 사라지거나(파일 삭제·체인 손상 → 불신) 위조가 된다. `case_import_file` 은 state_dir 안의 파일을 가져오지 않는다(케이스로 복사해 읽어 내지 못하게).
 - **한계**: 해시 체인과 레코드 재확인은 실수와 단순 변조를 드러낼 뿐이다. 비밀 키가 없으므로 같은 OS 계정의 적대적 프로세스는 레코드를 처음부터 위조하거나,
   원장 전체를 일관되게 다시 쓰거나, 올바른 `prev` 를 계산해 끝에 줄을 덧붙이거나, 끝 줄을 잘라 낼 수 있다(잘라 내기는 신뢰를 줄일 뿐 만들지 못한다).
   강한 격리가 필요하면 §3.4 처럼 MCP 서버를 별도 OS 계정으로 실행하고 `.pweh/state` 쓰기 권한을 그 계정에만 준다.
+  - SD 카드 보관 기록도 같다: 같은 계정은 보관 기록과 고정점을 함께 일관되게 다시 쓸 수 있다. 증거 파일의 0444·0555 권한은 실수를 막을 뿐 같은 계정은 되돌릴 수 있다.
+    고정점은 케이스 id 로만 묶이므로, 사람이 `cases/<id>` 를 지운 뒤 같은 id 로 케이스를 다시 만들면 남은 고정점과 맞지 않아 처음부터 깨짐이다(새 케이스는 새 id 로 만든다).
+    그 밖의 SD 카드 증거 한계는 §3.6 에 있다.
   - 자동 허용(allow)된 REA 도구 중 `export_evidence_bundle(path, overwrite)`·`close_binary(snapshot_path, overwrite)` 는 임의 경로를 덮어쓸 수 있어
     `.pweh/state` 의 원장·증명·솔트·`audit.jsonl` 을 지울 수 있다. 내용은 REA 형식이라 위조는 되지 않고, 출처·증명 확인은 실패 쪽으로 닫힌다.
     덮어쓰기 전에 사람이 확인하게 하려면 이 둘을 `.claude/settings.json` 의 allow 에서 빼고 묻기(ask)로 둔다.
@@ -352,13 +397,128 @@ pweh-esp 도 같다. esptool 의 쓰기·삭제·eFuse·RAM 실행 같은 DESTRU
     가리지는 못한다(솔트를 알면 전수 대입으로 되돌릴 수 있다). 그런 값은 게이트에 넣지 말고(`<given>`) 비대상 정보는 개수만 남긴다.
     에이전트에게서도 가리려면 §3.4 처럼 MCP 서버와 `.pweh/state` 를 별도 OS 계정으로 분리한다.
 
+### 3.6 SD 카드 증거의 알려진 한계 (pweh-forensics)
+
+pweh-forensics 와 그 코어(`pweh.fs`·`pweh.evidence`·`pweh.safeio`)가 지금 막지 못하거나 일부러 그렇게 둔 것이다. 다른 문서는 이 목록을 가리킨다.
+대부분은 같은 OS 계정의 적대적 프로세스(§3.4)나 조작·손상된 이미지가 있어야 생긴다. 그 분석에 해당하는 한계와 도구가 알린 잘림 사유는 summary 의 notes 와 보고서 한계에 적는다(§7.1).
+
+**보관 기록·무결성·작업 기록**
+- **빠른 지문의 범위**: 사본을 열 때마다 보는 빠른 지문은 크기·`mtime_ns`·앞/뒤 1 MiB 의 sha256·쓰기 권한이 없는지뿐이다(inode·ctime 은 보지 않는다).
+  가운데만 바꾸고 mtime·권한을 되돌린 변조와, 앞뒤·크기·mtime 이 같은 다른 파일로 바꿔치기한 것은 `forensics_verify_start` 의 전체 재해시만 찾는다.
+  그 전까지 내용 도구의 결과·추출 매니페스트(`evidence_sha256` 은 접수 때 값)·증거 목록의 상태는 실제로 읽은 바이트가 아니라 접수 해시를 따른다.
+  verify 는 그 시점에 디스크에 있는 바이트만 증명한다 — 같은 계정이 verify 하는 동안만 원래 바이트를 되돌려 두면 match 로 남는다.
+- **고정점 '기록 중' 창**: 덧붙이기의 둘째 단계(보관 기록 쓰기)와 셋째 단계(고정점 확정) 사이에 서버가 죽거나 확정 쓰기가 실패하면 고정점의 마지막 줄은 '기록 중'으로 남는다.
+  다음 덧붙이기 전에 같은 계정이 보관 기록의 마지막 줄을 지우면, 읽는 쪽은 그것을 보관 기록을 쓰기 전의 중단과 구별하지 못해 깨짐으로 보지 않는다(그 줄을 다른 내용으로 바꾸면 깨짐이다).
+  첫째 단계 뒤에 끊긴 경우(보관 기록에 그 줄이 없음)는 사건이 남지 않은 것이다 — 접수였다면 다음 정리가 그 디렉터리를 `aborted-intakes/` 로 옮긴다(§3.5).
+  다음 덧붙이기가 '기록 중' 줄을 확정하거나 덮어쓰면 이 창은 닫힌다.
+- **정리의 두 겹 사고**: (1) 접수가 보관 기록 `intake` 를 쓴 직후, 마무리(잠금 파일 지우기·0555) 전에 죽으면 잠금 파일이 남는다. 보관 기록이 있으면 다음 정리가 커밋을 마저 하지만,
+  그 뒤 보관 기록과 고정점을 둘 다 잃으면 중단된 접수와 구별되지 않아 `aborted-intakes/` 로 옮겨진다.
+  (2) 되돌리는 접수는 확보 잠금 밖에서 파일을 지운다. 잠금 파일은 지워졌고 디렉터리는 아직 남은 사이(비었거나 `*.partial`)에 다른 서버 프로세스의 정리가 그 디렉터리를 `aborted-intakes/` 로 옮길 수 있다 —
+  커밋하지 않은 데이터뿐이고, 번호는 소비되며 `intake-aborted` 사건과 파일이 없는 격리 디렉터리가 남을 수 있다.
+- **보관 기록과 고정점을 둘 다 잃음**: `custody.jsonl` 과 고정점을 둘 다 지우면 보관 기록은 빈 정상 기록으로 읽힌다(하나만 지우면 깨짐).
+  증거 목록·해시값 확인서는 '보관 기록: 정상 (항목 0개)' 옆에 커밋했던 EV 디렉터리를 `record-without-intake` 행으로 보여 줄 뿐이다(그 디렉터리는 옮기지 않는다) — 사람이 그 행을 보고 알아채야 한다.
+- **커밋한 EV 디렉터리에 심은 잠금**: 커밋한 EV 디렉터리(0555 — 같은 계정은 권한을 되돌릴 수 있다)에 같은 계정이 일반 파일이 아닌 `.intake.lock`(심볼릭 링크·FIFO 등)을 심어도
+  정리는 그것을 열지 않고 넘어가므로 다음 접수는 실패하지 않는다. 그 디렉터리는 쓰기 가능한 권한(0755 등) 그대로 남고(0555 로 마무리하지 않는다), 증거 목록의 상태는 그대로다(ok·unverified 등 — 경고 없음).
+- **`images/` 를 링크로 바꿈**: 같은 계정이 `forensics/images/` 를 링크(또는 파일)로 바꾸면 `forensics_evidence_list` 는(`write_files=false` 여도) 확인서 전 다시 대조에서
+  커밋한 EV 마다(이미 무결성 실패인 것 빼고) `integrity-failed`(`unsafe-path`)를 남기고, 목록은 보관 기록 깨짐(`custody.ok=false`, 항목 없음)으로 나온다.
+  fail closed 이고 그 EV 들에는 영구적이다 — 무결성 실패는 되돌리지 않으므로 사람이 `images/` 를 바로잡아도 그 EV 의 내용 도구는 계속 거부되고, 원본 이미지에서 다시 접수해야 한다(새 EV 번호).
+- **일반 파일이 아닌 보관 기록 잠금**: `forensics/.custody.lock` 자리에 일반 파일이 아닌 것(링크·FIFO 등)이 있으면 보관 기록 읽기는 깨짐(`custody_broken`, 증거 목록 `custody.ok=false`)으로 보고하고
+  덧붙이기는 `unsafe_file` 로 실패한다(사건을 남기지 않는다). 서버는 잠금 파일을 고치지 않는다 — 사람이 원인을 확인한다.
+- **보관 기록 읽기의 잠금 대기**: 읽기는 공유 잠금, 덧붙이기는 배타 잠금이고 잠금은 차례를 보장하지 않는다. 같은 계정 프로세스가 `pweh.evidence` 로 쉬지 않고 덧붙이면
+  읽는 쪽(내용 도구의 입구·증거 목록)이 잠금을 오래 기다릴 수 있다(실측 최대 약 16초. 대기 상한 30초를 넘으면 `lock_timeout`). 서버는 사건마다 한 번씩만 덧붙이므로
+  인위적으로 덧붙이는 프로세스가 있어야 생긴다(기록의 정확성은 그대로다).
+- **강제 종료 뒤 job 기록**: 서버가 SIGKILL 등으로 정리 없이 죽으면 그 job 의 기록(`cases/<id>/jobs/<job_id>.json`)은 `running`(끝난 시각 없음)으로 남고,
+  새 서버 프로세스의 `forensics_jobs`·`forensics_job_status` 는 그 job 을 모른다(job 은 그 서버 프로세스 안에만 있다). 커밋 전에 끊긴 접수 디렉터리는 §3.5 의 정리가 맡는다.
+- **`forensics_job_cancel` 의 설명**: 공통 job 도구의 설명은 '부분 결과는 보존된다'이지만 forensics job 은 도구마다 다르다 — 접수는 커밋(보관 기록 `intake`) 전이면 되돌려 아무것도 남기지 않고,
+  검증은 재해시 도중이면 아무것도 기록하지 않는다. 부분 결과가 남는 것은 출력 디렉터리를 만든 뒤 취소를 받아들인 추출뿐이다(도구별 규칙은 docs/architecture.md §6.8 'job 과 취소').
+- **ref 가 모두 `bad_ref` 인 추출**: `forensics_extract` 의 ref 가 모두 모양이 틀리거나 없는 디렉터리·빈 슬롯·검증되지 않은 영역을 가리키고(`bad_ref`) `paths` 가 없어도 job 은 실패하지 않는다 —
+  파일 0개 매니페스트와 보관 기록 `extract` 를 남기고 `truncated=false` 다(`bad_ref` 는 잘림 사유가 아니라 `skipped` 에만 있다). job 이 실패하는 것은 확인 순회가 잘려 검증된 ref 가 하나도 없고 `paths` 도 없을 때(`refs_unverifiable`)뿐이다.
+
+**같은 계정 프로세스의 경합 창** (모두 같은 계정의 프로세스가 호출 도중 이름을 바꾸거나 링크를 만들어야 생긴다. 케이스 밖에 쓰는 경로는 없다)
+- **경로로 확인하고 경로로 다시 여는 곳**: 확인과 열기 사이에 같은 계정 프로세스가 이름(파일이나 중간 디렉터리)을 바꿔치기하면 막지 못한다.
+  - `case_import_file` 은 원본 경로를 링크를 풀기 전과 푼 뒤 둘 다 보고 어느 케이스의 `forensics/` 아래면 거부하지만(상태 폴더는 푼 경로로 본다), 복사(`case.import_file`)는 경로를 다시 풀어 경로로 연다 —
+    그 사이 바꿔치기하면 증거·상태 파일이 케이스로 복사되거나, FIFO 를 열어 호출이 멈출 수 있다.
+  - pweh-fwtriage·pweh-sigrok 은 입력 경로를 검사한 뒤 경로로 다시 연다(파이썬으로 읽거나 `unsquashfs`·`sigrok-cli` 같은 외부 도구에 경로를 넘긴다).
+  - 사용자가 준 경로(`forensics_intake_start` 의 `image_path`·`imaging_log_path`)와 `case_hash_file`·`case_register_artifact` 의 파일은 `pweh.safeio` 로 일반 파일만 열지만 경로(여러 구성요소)로 연다:
+    lstat 과 open 사이에 중간 디렉터리를 바꿔치기하면 open() 이 FIFO·장치에 닿을 수 있다. fstat 대조로 거부하고 읽지 않지만 장치를 여는 부수효과(직렬 장치의 DTR 등)는 되돌리지 못한다.
+    마지막 구성요소에 바꿔 넣은 FIFO 는 비차단으로 열린 뒤 거부된다(멈추지 않는다). `case_register_artifact` 는 연 fd 로 해시한 뒤 아티팩트 색인에 넣을 때 경로를 다시 풀어 크기를 읽는다
+    (그 사이 바꿔치기하면 색인의 경로·크기가 해시한 파일과 다를 수 있다).
+  - `forensics/` 아래 파일(사본·접수 기록·보관 기록·출력)과 고정점은 디렉터리 fd 로 한 구성요소씩 열어 이 창이 없다(예외: 아래 출처 원장과 접수의 아티팩트 색인).
+- **하드 링크**: 링크 수를 보지 않으므로 하드 링크는 알아보지 못한다. 같은 계정이 증거 사본·추출물에 하드 링크를 만들어 케이스의 다른 폴더(`dumps/` 등)에 두면
+  pweh-fwtriage·`case_hash_file`·`case_register_artifact`·pweh-sigrok 의 가드를 통과하고, 케이스 밖에 두면 `case_import_file` 로 가져오거나 `forensics_intake_start` 로 다시 접수할 수 있다
+  (케이스·상태 폴더 안의 다른 파일에 대한 하드 링크도 같다). 증거를 케이스 밖으로 옮기거나 복사한 것도 경로 가드는 증거로 알아보지 못한다.
+  PWEH 도구는 링크를 만들지 않는다 — 셸이나 같은 계정 프로세스가 있어야 한다.
+- **만든 출력 이름의 바꿔치기**: `forensics_extract` 는 파일을 디렉터리 fd 로 만들어 쓰지만, 다 쓴 뒤 출력 디렉터리를 0555 로 바꾸고 보관 기록 `extract` 사건을 남기기 전에 만든 이름의 dev·ino 를 다시 확인하지 않는다.
+  그 사이 같은 계정이 만든 파일의 이름을 바꾸고 그 자리에 링크를 두면 매니페스트·보관 기록은 그 이름(이제 링크)을 기록한다 — 데이터는 fd 로 쓴 원래 파일(다른 이름)에 있고 케이스 밖에 쓰지는 않는다.
+  `forensics_fs_list` 의 목록 파일도 보관 기록 `list` 전까지 같다. `forensics_evidence_list` 의 파생 산출물 대조는 `recovered/*/manifest.json` 의 해시만 보관 기록과 맞춰 본다
+  (추출 파일 자체와 `analysis/` 의 목록 파일은 다시 확인하지 않는다).
+- **출처 원장의 접수 기록 읽기**: 출처 원장(`imported-unattested`)은 접수 기록 `EV-NNNN.json` 을 경로로 다시 열어 해시한다(`pweh.safeio` 를 거치지 않는다).
+  먼저 `is_file()` 로 확인하므로 미리 바꿔 둔 FIFO 는 거부된다(출처 원장 실패 → `post_commit_errors`, 멈추지 않음). 그 확인과 열기 사이의 짧은 창에 같은 계정이 그 자리를 FIFO 로 바꾸는 데 성공하면
+  커밋한 접수 job 의 스레드가 쓰는 쪽이 연결될 때까지 멈춘다(커밋 뒤라 취소되지 않는다. 서버의 다른 도구는 응답하고, 같은 원본의 다시 접수는 `busy`).
+  연결된 뒤 쓰는 쪽이 보낸 바이트가 원래 접수 기록과 다르면 출처 기록은 `provenance_sha256_mismatch` 로 실패하고, 접수는 커밋된 채 그 실패가 결과의 `post_commit_errors` 에 남는다.
+  접수의 아티팩트 색인(`evidence-image`)도 사본 경로를 다시 풀어 크기만 읽는다 — 파일을 열지 않으므로 멈추지는 않지만, 그 사이 바꿔치기하면 색인의 경로·크기가 사본과 다를 수 있다(해시는 복사하며 계산한 값을 쓴다).
+
+**해석 엔진·예산**
+- **동기 도구의 취소**: `forensics_partitions`·`forensics_image_check`·`forensics_fs_list` 는 job 이 아닌 동기 도구다. 클라이언트가 호출을 취소하거나 시간 초과로 끊어도
+  서버의 작업 스레드는 멈추지 않고 자기 예산(각각 60초, 120초, `max_seconds` — 기본 180초·최대 600초 — 와 작업 단계 상한)까지 돈 뒤 끝난다.
+  `forensics_fs_list` 는 그때도 목록 파일과 보관 기록 `list` 사건을 남긴다(응답은 받지 못한다). `forensics_job_cancel` 로 멈추는 것은 job 인 접수·재해시·추출뿐이다(각 job 의 커밋 지점 전까지).
+- **`max_seconds` 의 범위**: `forensics_fs_list` 의 `max_seconds` 는 해석(볼륨 열기·정보·순회)의 예산이다. 순회한 볼륨의 목록을 직렬화해 파일에 쓰고 요약하는 일은 그 뒤에 하므로
+  응답 시간이 `max_seconds` 를 넘을 수 있다(실측 예: 항목 약 10만 개마다 1초 안팎).
+- **일부러 엄격한 디렉터리 검증**: 녹화 데이터(무작위 바이트)를 디렉터리로 잘못 읽지 않으려고, 검사 단위(클러스터 — FAT12/16 고정 루트는 섹터)의 모든 슬롯이 엄격한 검사를 통과해야 해석한다.
+  fsck 가 받아도 PWEH 가 거부하는 값: FAT 속성 예약 비트 0x40·0x80, 하위 디렉터리의 볼륨 레이블, LFN 의 이상(ordinal 의 0x20·0x80 비트, 제어 문자, 종결자 뒤의 채움이 아닌 글자),
+  exFAT 필드(FileAttributes 예약 비트, 10 ms 필드 199 초과, 스트림 플래그 비트 2–7, NameLength 0, FileName 플래그, AllocationPossible=0 인데 클러스터·길이가 있음, 하위 디렉터리의 레이블).
+  exFAT 항목 집합의 체크섬이 맞지 않으면(쓰는 도중 전원이 끊겨 찢긴 집합 포함) 역시 실패다. 처음 실패한 단위부터 그 디렉터리 끝까지는 해석하지 않지만 조용히 버리지도 않는다 —
+  `unvalidated_dirs`(사유 코드)로 알리고, 살아 있는 디렉터리면 잘림 사유 `dir_unvalidated` 다. 그 뒤쪽 항목은 목록·ref 가 없고, 루트의 첫 검사 단위가 실패하면 볼륨 목록 전체(exFAT 은 비트맵·up-case 도)가 빠진다.
+  알려진 기록기(Windows, Linux vfat·exfat, FatFs, mtools)는 이런 값을 쓰지 않는다 — 실제 카메라 카드로는 아직 확인하지 않았다.
+- **FAT 교차 연결 검사의 빈틈**: FAT12/16 디렉터리의 이어지는 클러스터는 다른 FAT 항목도 그 클러스터를 가리키면 교차 연결(`cross_linked`)로 거른다.
+  그러나 디렉터리 체인이 어떤 파일의 **첫** 클러스터로 이어지면 그 클러스터를 가리키는 FAT 항목은 하나뿐이라 이 규칙이 보지 못하고, 크기 검사(`size_range`·`size_without_cluster`)만 남는다
+  (무작위 녹화 데이터가 통과하는 비율 실측 약 5×10⁻⁷). FAT32 에는 `cross_linked` 검사가 없다(역방향 FAT 을 만들지 않는다).
+- **exFAT 의 큰 루트**: exFAT 디렉터리 검증(항목 집합)은 슬롯 수에 비례하고, 루트는 볼륨을 열 때(비트맵·up-case·레이블) 한 번, 순회에서 또 한 번 해석한다(실측 루트 슬롯 100만 개에 한 번 약 9초).
+  그래서 루트가 아주 큰 카드에서는 몇 초의 `max_seconds` 가 볼륨 열기에서 다 쓰여 `forensics_fs_list` 가 항목 0개로 끝날 수 있다 — 잘림 사유 `time` 으로 알린다('비었다'고 하지 않는다).
+- **skip-allocated 탐색 상한**: 삭제 파일의 `skip-allocated` 후보가 빈 클러스터를 찾는 탐색은 고정 상한(`Limits.max_scan_clusters` = 2^26 클러스터, 파일 클러스터 수의 4배 + 65536, 볼륨 끝 중 가장 작은 것)에서 멈춘다.
+  이때 계획은 status `incomplete` 일 뿐 그 상한 때문인지 빈 공간이 없어서인지 가르는 사유(`limit_reason`)가 없어 추출의 잘림 사유(`truncated_reasons`)에 들어가지 않는다 —
+  파일 기록의 `complete=false`·status 로만 보인다(FAT 은 일반 경고 `incomplete` 가 붙고, exFAT 은 경고도 없다).
+- **경로 글자 수 상한과 목록 파일 크기**: `forensics_fs_list`·`forensics_image_check` 의 경로 글자 수 상한(호출 전체 268,435,456 = 2^28 글자)은 항목의 path 와 display_path 가 같은 문자열이면 한 번만 센다.
+  목록 파일의 크기는 이 상한으로만 묶인다 — 파일에는 두 경로를 다 쓰고 UTF-8 이라, 깊고 이름이 긴 나무의 최악 실측은 약 577 MB 였고 한글처럼 여러 바이트로 쓰는 글자의 이름이면 더 커질 수 있다(1 GB 를 넘을 수 있다).
+- **exFAT DataLength**: exFAT 스트림 항목의 DataLength 가 클러스터 영역보다 커도 검증에서 거부하지 않는다(무작위 데이터는 항목 집합 체크섬이 거른다). 그런 항목의 체인 요약·내용 계획은 예산과 상한으로만 묶인다.
+- **라이브러리 호출의 시간 예산**: `pweh.fs` 를 직접 부르면서 `max_seconds` 를 주지 않으면(기본은 시간 제한 없음) 조작한 이미지의 해석이 작업 단계 상한까지 간다.
+  단계 상한은 볼륨의 FAT 크기에 비례하므로(정상 볼륨이 닿지 않게 하려는 것) 큰 FAT 을 가진 조작 이미지는 오래 걸린다(가득 찬 1 GiB FAT32 표 기준 약 5.4억 단계). 서버는 늘 `max_seconds`·job 마감을 넘긴다.
+
+**잘린 이미지·손상된 카드**
+- **잘린 이미지**(이미징이 끝까지 되지 않았거나 용량을 속인 카드): 볼륨 끝(파티션 시작 + 볼륨 크기)이 이미지 끝 너머까지 이어지면 잘림 사유 `image_truncated` 다(끝 너머의 디렉터리·파일 내용·삭제 흔적은 볼 수 없다).
+  볼륨이 이미지 안에서 끝나는데 파티션 표 항목보다 크면 `image_truncated` 가 아니라 `volume_exceeds_partition` 이다(아래 '파티션 표보다 큰 파일 시스템').
+  파티션이 통째로 이미지 끝 너머면(`forensics_partitions` 의 경고 `partition_beyond_image`, 이미지 끝 너머에서 끊긴 EBR 사슬은 `ebr_beyond_image`) 그 파티션은 볼 수 없다 — `partition` 을 고르지 않은 목록·오염 검사는 호출 사유 `image_truncated` 로 알리고,
+  그 파티션을 `partition` 으로 고르면 오류이고(사유 `beyond_image` — `unsupported_fs` 가 아니다, 메시지가 잘린 이미지라고 알린다), 볼 수 있는 파티션이 하나도 없으면 목록·추출은 오류다
+  (`validation_failed` — 메시지·힌트가 ext4·NTFS 안내 대신 잘린 이미지라고 알리고, 추출 job 은 `data.reason` `beyond_image`. 오염 검사는 오류가 아니라 본 볼륨이 없다는 note 와 `image_truncated`, `truncated=true`).
+  `forensics_partitions` 에서는 그 파티션의 볼륨 오류(`data.reason` `beyond_image`)다.
+  파티션 항목의 끝만 이미지 밖이고 파일 시스템은 이미지 안에서 끝나면 잘림으로 보고하지 않는다 — `forensics_partitions` 의 파티션 경고 `partition_truncated` 로만 보이고 목록·오염 검사의 사유는 없다.
+- **파티션 표보다 큰 파일 시스템**: 이미지는 이어지는데 파일 시스템이 파티션 표 항목보다 크면 잘림 사유 `volume_exceeds_partition` 이다(파티션 표가 줄었거나 손상됐을 수 있다).
+  항목 밖으로 이어지는 부분은 이 파티션 범위로 읽지 않는다 — 다른 파티션의 데이터를 이 볼륨 것으로 잘못 읽지 않게 하려는 것이고, 그 부분의 디렉터리·파일 내용은 볼 수 없다.
+- 엔진이 읽는 범위는 파티션 표 항목을 이미지 끝에서 자른 구간이다. 데이터가 그 범위 끝 너머에 있는 살아 있는 디렉터리는 사유 `beyond_image`(`cut_dirs` — 읽은 앞부분 항목은 목록에 있다)이고 나머지 나무는 계속 본다(원인은 볼륨의 `image_truncated`·`volume_exceeds_partition` 으로 본다).
+  내용이 그 범위 끝을 넘는 살아 있는 파일은 읽을 수 있는 만큼만 추출되고 파일 기록에 `complete=false`·`bytes_beyond_image` 가 남는다(그것만으로는 매니페스트의 잘림 사유가 아니다).
+  `bytes_beyond_image` 는 `manifest.json` 에만 있고 추출 응답의 `files[]` 에는 `complete=false` 만 보인다 — 에이전트는 매니페스트를 열지 않으므로 원인은 그 볼륨의 사유(`image_truncated`·`volume_exceeds_partition`·`beyond_image`)로 판단한다.
+- **`forensics_partitions` 의 `truncated`**: 맨 위 `truncated`·`truncated_reason`(`time`·`partitions`·`steps`·`response`)은 예산·열 파티션 수 상한·응답 상한(파티션·볼륨 128개) 때문에 파티션을 다 열거나 싣지 못했다는 뜻뿐이다.
+  이미지 잘림은 여기에 나오지 않고 파티션 경고(`partition_beyond_image`·`partition_truncated`)·`warnings` 의 `ebr_beyond_image`·`volume.truncated`·`beyond_image` 볼륨 오류로만 보인다 — `truncated=false` 를 이미지가 온전하다는 뜻으로 읽지 않는다.
+- **손상된 살아 있는 디렉터리**: 끝 표시 전에 체인이 비정상으로 끝나면 `dir_chain_broken`(exFAT 은 DataLength 보다 짧은 체인 포함 — 체인이 읽을 길이(DataLength, 슬롯 한도보다 길면 한도까지)를 다 모았으면
+  마지막 FAT 항목이 망가져도 `dir_chain_broken` 이 아니고 경고 `dir_chain_*` 만 남는다. DataLength 가 슬롯 한도보다 길면 그래도 `max_dir_slots` 잘림이다),
+  읽을 수 없으면 `dir_unreadable`(그 디렉터리의 내용이 하나도 없다), 검증하지 못한 단위에서 멈추면 `dir_unvalidated` 다. 이 사유들도 `truncated=true` 로 알리고 나머지 나무는 계속 본다.
+  추출의 `paths` 는 끝까지 읽지 못한 디렉터리(예산·슬롯 한도·`beyond_image`·`dir_chain_broken`·검증 실패)에서 정확히 같은 이름(대소문자 포함)만 받는다 — 대소문자·8.3 별칭으로만 맞는 항목은 고르지 않는다.
+  그런 디렉터리에서 이름을 찾지 못하면 `not_found` 가 아니라 그 사유(`beyond_image`·`dir_chain_broken`·`dir_unvalidated`, 슬롯 한도면 `max_dir_slots`)가 code 이고(대소문자만 맞는 항목이 있으면 메시지가 그렇게 알린다),
+  읽지 못한 살아 있는 디렉터리를 지나는 `paths` 와 그런 디렉터리를 가리키는 ref 는 code `dir_unreadable` 이다. 이 code 들은 매니페스트의 `truncated_reasons` 에 들어 추출을 `truncated=true` 로 만든다.
+  확인 순회가 끝까지 읽지 못한 살아 있는 디렉터리(`beyond_image`·`dir_chain_broken`·`dir_unreadable`) 때문에 잘려 디렉터리를 찾지 못한 ref 는 `refs_unverifiable` 이다.
+- **삭제된 디렉터리**(와 그 아래)는 원래 최선 노력이라 손상·이미지 끝을 잘림으로 세지 않는다(경고만 — 검증하지 못한 삭제 디렉터리는 `unvalidated_dirs` 개수에만 든다).
+  그래서 목록이 완전해도 삭제 흔적이 '없다'는 것을 증명하지 않는다.
+- 이 사유들과 고정 한도(`max_depth`·`max_dir_slots`)는 `max_seconds` 를 늘려도 바뀌지 않는다. 결과가 불완전하면(`truncated=true`, `truncated_reasons`, `call.volumes_failed`) '흔적 없음'·'파일 없음'으로 보고하지 않는다 —
+  `forensics_image_check` 의 note 도 그때는 본 범위에서만 찾지 못했다는 것과 보지 못한 부분(사유, 해석하지 못한 볼륨)을 알린다(§7.1).
+  본 볼륨이 하나도 없을 때도 '흔적 없음'이 아니다 — note 는 흔적을 '보지 못했다'고 하고, `truncated` 는 파티션이 이미지 끝 너머면(`image_truncated`) true, 지원하는 FAT/exFAT 파티션이 없을 뿐이면 false 다.
+
 ## 4. 에이전트 운영 규칙 (master-prompt 와 모든 Skill 에 반영)
 
 1. 시작 전에 소유/허가를 확인한다. 확인되지 않으면 하드웨어 도구를 호출하지 않는다.
 2. 물리 작업(배선, 전원, 클립)은 사람에게 **구체적으로** 요청하고, 사람이 완료를 확인한 뒤 진행한다.
 3. `approval_required` 를 받으면 사용자에게 작업 내용, 위험, 되돌릴 방법을 설명한다. 승인은 사람이 한다.
    - 에이전트가 `pweh approve`·`pweh attest` 를 실행하지 않는다.
-   - 에이전트가 `.pweh/state/` 의 승인(`approvals/`)·증명(`attestations/`)·출처 원장(`provenance/`)·솔트(`salts/`) 기록을 만들거나 고치거나 지우지 않는다.
+   - 에이전트가 `.pweh/state/` 의 승인(`approvals/`)·증명(`attestations/`)·출처 원장(`provenance/`)·솔트(`salts/`)·SD 카드 보관 기록 고정점(`custody/`) 기록을 만들거나 고치거나 지우지 않는다.
 4. `denied` 를 받으면 우회하지 않는다. 예를 들어 같은 동작을 다른 문법으로 다시 보내거나, 셸에서 직접 포트를 열거나,
    설정을 바꾸지 않는다. 사용자에게 보고한다.
 5. U-Boot 프롬프트를 다시 얻을 때 **빈 Enter 대신 Ctrl-C** 를 쓴다 (빈 Enter 는 직전 명령을 반복한다).
@@ -380,6 +540,10 @@ pweh-esp 도 같다. esptool 의 쓰기·삭제·eFuse·RAM 실행 같은 DESTRU
    백업 뒤에 그 기기에 다시 연결하면(esp 도구는 연결마다 칩을 리셋한다) 서버가 백업을 낡은 것으로 보고 명령을 주지 않는다. 원장에 남지 않는 연결(같은 포트의 uart-mcp 등)은 서버가 알 수 없으므로 하지 않는다.
 12. `attestation_required` 를 받으면 사용자에게 무엇을 직접 확인해야 하는지(물리 작업이면 그 작업도) 설명하고, 사람이 별도 터미널에서 `pweh attest <id>` 로 답하게 한다.
     에이전트가 사실을 대신 답하거나 `attested_*` 인자·케이스 파일로 증명을 대신하지 않는다. 거부(`denied`)면 우회하지 않고 보고한다.
+13. SD 카드 이미지는 pweh-forensics 도구로만 다룬다. 케이스의 `forensics/images/`·`forensics/aborted-intakes/`·`forensics/recovered/` 는 어떤 도구로도 열거나 복사하지 않는다(§7.1).
+    결과가 불완전하면(`truncated=true`, `truncated_reasons`, `call.volumes_failed`) '흔적 없음'·'파일 없음'으로 보고하지 않고 사유와 함께 불완전하다고 알린다.
+    `next_steps` 를 따르되 `max_seconds` 는 사유가 `time` 일 때만 늘린다 — 고정 한도(`max_depth`·`max_dir_slots`)와 이미지·카드 상태(`beyond_image`·`dir_chain_broken`·`dir_unreadable`·`dir_unvalidated`·`image_truncated`·`volume_exceeds_partition`)는
+    늘려도 바뀌지 않으니 사람에게 알리고 보고서 한계에 적는다. `forensics_partitions`·`forensics_image_check`·`forensics_fs_list` 는 취소해도 서버에서 멈추지 않는다(§3.6).
 
 ## 5. 백업과 롤백
 
@@ -400,7 +564,7 @@ pweh-esp 도 같다. esptool 의 쓰기·삭제·eFuse·RAM 실행 같은 DESTRU
 
 | 상황 | 조치 |
 |---|---|
-| 에이전트가 잘못된 방향으로 진행 | 에이전트에게 중지를 지시. 진행 중 job 은 `uart_job_cancel` / `openocd_job_cancel` / `sigrok_job_cancel` / `jtagulator_job_cancel` / `esp_job_cancel` |
+| 에이전트가 잘못된 방향으로 진행 | 에이전트에게 중지를 지시. 진행 중 job 은 `uart_job_cancel` / `openocd_job_cancel` / `sigrok_job_cancel` / `jtagulator_job_cancel` / `esp_job_cancel` / `forensics_job_cancel` |
 | 즉시 기기 조작을 끊어야 함 | **기기 전원을 뽑는다**. 또는 USB 어댑터를 뽑는다 (세션은 `disconnected` 로 표시됨) |
 | ESP32 덤프를 멈췄는데 Windows 에 esptool.exe 가 남음(`esp_orphan_process`) | 작업 관리자나 Windows 터미널의 `taskkill /F /PID <PID>`(오류의 `data.pids`)로 끝내거나 보드 USB 를 뽑는다 |
 | MCP 서버 정지 | 에이전트 클라이언트를 종료하거나 `/mcp` 에서 서버를 끈다. 서버 종료 시 세션과 job 이 정리된다 |
@@ -416,3 +580,28 @@ pweh-esp 도 같다. esptool 의 쓰기·삭제·eFuse·RAM 실행 같은 DESTRU
 - 기기 로그인 비밀번호는 이벤트 로그(`uart/*.events.jsonl`)에서 마스킹된다. 단 원시 수신 로그(`*.raw`, `*.log`)에는
   기기가 에코한 내용이 그대로 남을 수 있다.
 - 제조사 펌웨어의 저작권을 존중한다. 덤프나 추출본을 재배포하지 않는다.
+
+### 7.1 SD 카드 이미지 (pweh-forensics)
+
+- **카드 이미지는 증거이자 개인정보다.** 카메라·블랙박스 카드에는 제3자의 영상·음성이 들어 있다. 적용 법률은 설치 장소(가정용·공개 장소·업무용·차량)와 PWEH 사용자의 역할에 따라 다르므로
+  접수(`forensics_intake_start`) 때 목적·법적 근거·설치 장소 유형·업무 목적·역할을 기록한다(법률 자문이 아니다 — `docs/design/sd-forensics.md` §7).
+  이미지는 사람이 하드웨어 쓰기 방지 장치를 거쳐 만들고 `forensics_intake_start` 로만 케이스에 넣는다. `case_import_file` 로 가져오지 않는다(케이스 폴더 안의 사본은 펌웨어 도구가 읽을 수 있고, 접수도 받지 않는다).
+- **녹화 내용은 보지 않는다.** 에이전트는 이미지 사본(`forensics/images/`, 중단된 접수의 사본이 남는 `forensics/aborted-intakes/` 포함)과 추출물(`forensics/recovered/`)을 파일 도구나 REA 로 열지 않는다.
+  도구 응답은 개수·범위·이름·해시뿐이다.
+  전체 파일 목록(`forensics/analysis/` JSON)은 메타데이터라 추출할 `ref` 를 고를 때 읽어도 되지만, 요약·보고서에는 개수·범위·해시만 옮긴다.
+  추출은 목적에 필요한 파일만 하고(최소화) 결과는 사람이 자기 플레이어로 확인한다. 오디오는 재생·전사·내보내기 하지 않고, 얼굴·번호판 처리를 하지 않으며, 복구한 자격증명·Wi-Fi 키·토큰으로 어디에도 로그인하지 않는다.
+  서버가 막는 경로(링크를 풀어 판단): pweh-fwtriage 는 케이스의 `forensics/` 아래 파일과 `forensics/` 를 품은 디렉터리(케이스 루트 등)를 읽지 않는다.
+  pweh-case 의 `case_import_file` 은 원본 경로를 링크를 풀기 전·후 둘 다 보고 어느 케이스의 `forensics/` 아래면 가져오지 않는다. `case_register_artifact`·`case_hash_file` 은 `forensics/` 아래면 거부하고,
+  파일은 `pweh.safeio` 로 일반 파일만 열어(FIFO·장치는 거부) 연 fd 의 실제 경로로 다시 확인한다. pweh-sigrok 도 `forensics/` 아래 입력을 읽지 않는다.
+  파일 도구(Read·Bash)·REA 는 막지 않는다 — 이 규칙으로 지킨다. 같은 계정 프로세스의 바꿔치기·하드 링크·옮기기는 이 가드를 피할 수 있다(§3.6).
+- **불완전한 결과를 '없음'으로 보고하지 않는다.** `forensics_fs_list`·`forensics_image_check`·`forensics_extract` 의 결과가 `truncated=true` 이거나 `truncated_reasons`·`call.volumes_failed`(해석하지 못한 볼륨)가 있으면
+  본 범위만 본 것이다. '흔적 없음'·'파일 없음'으로 보고하지 않고 사유와 함께 불완전하다고 적는다 — `forensics_image_check` 의 note 도 그때는 본 범위에서만 찾지 못했다는 것과 보지 못한 부분을 알린다.
+  본 볼륨이 하나도 없으면(지원하는 FAT/exFAT 파티션이 없거나 파티션이 이미지 끝 너머) `truncated` 와 상관없이 '흔적 없음'이 아니라 '보지 못함'이다.
+  `max_seconds` 를 늘려 다시 보는 것은 사유가 `time` 일 때뿐이다. 고정 한도(`max_depth`·`max_dir_slots`)와 이미지·카드 상태(`beyond_image`·`dir_chain_broken`·`dir_unreadable`·`dir_unvalidated`·`image_truncated`·`volume_exceeds_partition`)는
+  사람에게 알리고 보고서 한계에 적는다. 목록이 완전해도 삭제 흔적이 없다는 것을 증명하지는 않는다(삭제된 디렉터리는 최선 노력 — §3.6).
+- **산출물은 `forensics/` 안에만 둔다.** 이미지 사본·중단된 접수의 사본·파일 목록·추출물·매니페스트·증거 목록은 `cases/<id>/forensics/` 아래에만 있다. 케이스의 다른 폴더나 케이스 밖으로 옮기거나 복사하지 않는다.
+- **업로드하지 않는다.** 이미지·추출물·파일 목록을 클라우드·이슈 트래커·채팅 같은 외부 서비스에 올리지 않는다. PWEH 는 마스킹 기능이 없으므로 제3자 제공·열람용 사본을 만들지 않는다.
+  보고서와 증거 목록은 개수·범위·해시와 고지만 싣는다.
+- **보존과 파기는 사람이 정한다.** 법적 용도라면 원본 카드를 보존하고 원본·이미지·보관 기록을 자격 있는 전문가에게 넘긴다(PWEH 는 인증·검증된 포렌식 도구가 아니다).
+  목적이 끝나면 사람이 보존 기간을 정하고 파기한다 — `forensics/` 한 폴더에 모은 것은 이를 단순하게 하려는 것이다(파일 0444·디렉터리 0555 라 사람이 권한을 바꿔야 지워진다).
+  파기한 케이스의 id 는 다시 쓰지 않는다(§3.5 — 남은 고정점과 맞지 않아 새 보관 기록이 처음부터 깨진다).

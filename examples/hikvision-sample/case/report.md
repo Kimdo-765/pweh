@@ -515,8 +515,8 @@ telnetd 기동 줄을 제거하거나 개발 빌드 전용 플래그로 감싼�
 
 ## 10. 한계 및 미확인 사항
 
-- {'region': 'boot/env/uImage', 'kind': 'non-filesystem', 'note': '부트로더·env·커널은 파일시스템이 아님 (예상된 gap)'}
-- {'region': 'extract/rea-001', 'kind': 'unpublished-entry', 'count': 125, 'note': 'REA 교차 추출의 심볼릭 링크 (메타데이터로만 보존)'}
+- `boot/env/uImage` — non-filesystem: 부트로더·env·커널은 파일시스템이 아님 (예상된 gap)
+- `extract/rea-001` — unpublished-entry ×125: REA 교차 추출의 심볼릭 링크 (메타데이터로만 보존)
 - AH-03: 설정 export/파일 제공 경로 미확인
 - AH-06: fn-path-ops-unnormalized 후보만 있음 — 파일 서빙 경로의 정규화 여부 미확인
 - AH-09: 세션 생성 함수 미분석

@@ -598,7 +598,7 @@ PWEH 처리:
 | R15 | macOS | 영상 | ffmpeg `-f avfoundation` [P5] | — | TCC 카메라 권한(책임 GUI 앱) | 헤드리스(SSH·launchd)는 거부된다 [중간] |
 | R16 | 네이티브 Windows | 모든 클래스 | 서버가 시작을 거부한다(P0). 서버는 WSL 에서 돌고, Windows 쪽 MCP 클라이언트가 `wsl.exe -d <배포판> -e <venv>/bin/pweh-…` 로 띄운다(사람이 클라이언트 설정) → R1–R7 적용 | (미래 이식: pyserial win32 COMn, exe 직접) | 클라이언트 설정(사람) | 이식 전에는 실행 금지(G9): 생존 검사가 `GenerateConsoleCtrlEvent` 경로로 모든 pid 를 살아 있다고 보거나 OSError, `killpg`·`SIGKILL` 은 AttributeError, 점유 검사는 fail-open |
 | R17 | Cygwin·MSYS·컨테이너 | 모든 클래스 | 거부(안내) | 컨테이너: 통과된 `/dev` 노드만, 최선 노력 | — | WSL 커널 위 컨테이너를 WSL 로 오판하지 않는다(H1). 컨테이너는 portlock 을 공유하지 않는다(§6.3) |
-| R18 | 모든 플랫폼 | 블록 장치 (SD 리더) | 사람이 자기 도구로 이미징 → `case_import_file` + sha256 [현행] | — | Linux root 또는 `disk` 그룹(root 와 같음), Windows 관리자(`\\.\PhysicalDriveN`), macOS root + TCC [미확인] | 에이전트 백엔드는 없다. `/dev/sd*`·`PhysicalDrive`·`wsl --mount`·usbipd usb-storage 를 거부한다. `wsl --mount` 는 SD 리더를 아예 지원하지 않으므로 WSL 로 가는 길은 usbipd usb-storage 뿐이다(거부). 헬퍼는 `\\.\COM<n>` 만 만든다(원시 읽기 헬퍼는 §11 규칙 7) |
+| R18 | 모든 플랫폼 | 블록 장치 (SD 리더) | 사람이 하드웨어 쓰기 방지 장치를 거쳐 자기 도구로 이미징 → `forensics_intake_start`(이미지 파일 접수·sha256·md5·sha1·보관 기록 — `case_import_file` 로 가져오지 않는다, sd-forensics §4) [현행] | — | Linux root 또는 `disk` 그룹(root 와 같음), Windows 관리자(`\\.\PhysicalDriveN`), macOS root + TCC [미확인] | 에이전트 백엔드는 없다. `/dev/sd*`·`PhysicalDrive`·`wsl --mount`·usbipd usb-storage 를 거부한다. `wsl --mount` 는 SD 리더를 아예 지원하지 않으므로 WSL 로 가는 길은 usbipd usb-storage 뿐이다(거부). 헬퍼는 `\\.\COM<n>` 만 만든다(원시 읽기 헬퍼는 §11 규칙 7) |
 
 **복합 장치 규칙:**
 - Windows 드라이버는 인터페이스 단위로 붙는다(usbccgp `MI_xx`).

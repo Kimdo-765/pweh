@@ -105,14 +105,15 @@ CHECKS: dict[str, dict[str, Any]] = {
         "title": "카드에 민감 정보 기록", "category": "info-leak", "baseline": "medium", "found_means": "risk", "needs": ("rootfs",),
         "references": ["CVE-2025-30124", "CVE-2025-64305"], "examples": ["Wyze 카드 로그의 UID·enr(0x90 XOR) (설계 표 SD-06/07 공통 행)"],
         "rationale": "시스템 로그(syslogd -O)·코어 덤프(core_pattern)·패킷 캡처·디버그 출력·설정 사본을 카드에 쓰면 카드를 뽑는 것만으로 자격증명·토큰·장치 식별자가 샌다.",
-        "next_steps": ["카드에 남는 로그·덤프의 내용(자격증명·토큰·식별자)은 카드 쪽 분석(pweh-forensics, 예정)에서 확인"],
+        "next_steps": ["카드 이미지가 있으면 pweh-forensics 의 forensics_fs_list 목록(결과 JSON 의 경로)에서 이 로그·덤프 경로의 파일이 카드에 있는지(크기·시각) 확인 — "
+                       "내용(자격증명·토큰·식별자)의 자동 검사는 아직 없고 추출물은 에이전트가 열지 않는다(필요하면 사람이 확인)"],
     },
     "SD-07": {
         "title": "녹화 암호화", "category": "weak-crypto", "baseline": "info", "found_means": "protection", "needs": (),
         "references": ["CVE-2025-30124", "CVE-2025-64305"], "examples": ["Wyze 카드 로그의 UID·enr(0x90 XOR) (설계 표 SD-06/07 공통 행)"],
         "rationale": "녹화 경로에 암호화 API·플래그 근거가 있는지 본다. 이 점검만 found 가 '보호 근거 있음'이다(found_means=protection). 정적으로 평문 녹화를 단정하지 않으므로 "
                      "근거가 없으면 unknown 이다. 키가 고정값이거나 장치 식별자에서 나오면 보호가 약하다.",
-        "next_steps": ["녹화 모듈의 암호화 API 호출과 키 출처를 REA 로 확인하고, 카드 쪽 암호화 판정(pweh-forensics 의 forensics_encryption_assess, 예정)으로 확인"],
+        "next_steps": ["녹화 모듈의 암호화 API 호출과 키 출처를 REA 로 확인 — 카드 쪽 녹화 암호화 판정은 아직 없다(pweh-forensics 는 녹화 내용을 읽지 않는다)"],
     },
     "SD-08": {
         "title": "약한 마운트 옵션", "category": "insecure-default", "baseline": "low", "found_means": "risk", "needs": ("rootfs",),

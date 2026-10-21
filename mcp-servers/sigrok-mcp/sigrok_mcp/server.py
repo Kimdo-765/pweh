@@ -191,6 +191,11 @@ def _resolve_input(case: Case, input_path: str) -> Path:
             f"입력 파일이 없습니다: {input_path}",
             hint="케이스 상대 경로(예: signals/capture-fx2lafw-001.sr)를 사용하라. case_get(include_artifacts=true) 로 확인.",
         )
+    from pweh.evidence import under_any_case_forensics
+
+    if under_any_case_forensics(p, rt().config.cases_dir):  # 카드 이미지·복구한 녹화는 pweh-forensics 로만 (자동 허용 도구가 읽지 않게)
+        raise ValidationFailed("케이스의 증거 폴더(forensics/)에 있는 파일은 읽지 않습니다.",
+                               hint="sigrok 입력은 signals/ 의 캡처 파일이다. 카드 이미지는 pweh-forensics 도구로만 다룬다.")
     return p
 
 

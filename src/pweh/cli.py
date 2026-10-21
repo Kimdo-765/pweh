@@ -42,6 +42,7 @@ SKILL_NAMES = (
     "firmware-static-analysis",
     "logic-analyzer-protocol-decode",
     "cctv-auth-bypass-hunt",
+    "sd-card-forensics",
 )
 SERVERS = {
     # MCP 서버 이름 → (콘솔 스크립트, 설명)
@@ -52,6 +53,7 @@ SERVERS = {
     "pweh-jtagulator": ("pweh-jtagulator-mcp", "JTAGulator 핀아웃 스캔"),
     "pweh-fwtriage": ("pweh-fwtriage-mcp", "오프라인 펌웨어 트리아지"),
     "pweh-esp": ("pweh-esp-mcp", "ESP32 esptool 읽기 전용 덤프 (WSL 에서 Windows esptool.exe·COM 포트 또는 Linux esptool)"),
+    "pweh-forensics": ("pweh-forensics-mcp", "SD 카드 이미지 증거 분석 (사람이 만든 이미지 파일만 — 접수·보관 기록·무결성·파일 목록·삭제 파일 추출)"),
 }
 REA_ENV_KEYS = (
     "GHIDRA_INSTALL_DIR", "JAVA_HOME", "REA_SIGROK_COMMAND", "REA_BINWALK_COMMAND", "REA_UNBLOB_COMMAND",
@@ -422,8 +424,10 @@ def cmd_case_show(args: argparse.Namespace) -> int:
 def cmd_report(args: argparse.Namespace) -> int:
     from .report import write_report
 
-    case = _runtime().cases.get(args.case_id)
-    _print(write_report(case), True)
+    rt = _runtime()
+    case = rt.cases.get(args.case_id)
+    # SD 카드 보관 기록은 보호 위치의 고정점과 대조한다 (report_generate 와 같게)
+    _print(write_report(case, Path(rt.config.state_dir) / "custody"), True)
     return 0
 
 

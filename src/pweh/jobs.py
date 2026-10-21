@@ -46,6 +46,7 @@ class Job:
     meta: dict[str, Any] = field(default_factory=dict)
     log: list[str] = field(default_factory=list)
     _cancel: threading.Event = field(default_factory=threading.Event, repr=False)
+    _committed: bool = field(default=False, repr=False)  # 되돌릴 수 없는 지점을 지남 → 이후 취소는 무시
     _thread: threading.Thread | None = field(default=None, repr=False)
     _t0: float = field(default_factory=time.monotonic, repr=False)
 
@@ -116,6 +117,15 @@ class JobContext:
     def update_meta(self, **kwargs: Any) -> None:
         self.job.meta.update(kwargs)
 
+    def mark_committed(self) -> None:
+        """되돌릴 수 없는 지점(예: 보관 기록에 커밋)을 지났다고 표시한다. 이 뒤에 온 취소 요청은 무시하고, 작업은 끝나면 succeeded 로 남는다
+        (늦은 취소 = 이미 커밋된 결과). 커밋 직전에 온 취소도 지운다 — 작업은 그 앞의 check_cancelled() 에서 멈췄어야 했다."""
+        with self._mgr._lock:
+            self.job._committed = True
+            self.job._cancel.clear()
+            if self.job.status == "cancelling":
+                self.job.status = "running"
+
     def set_partial(self, result: dict[str, Any]) -> None:
         """작업이 취소/실패로 끝나도 남길 부분 결과 (예: 지금까지 받은 청크 수, 찾은 핀아웃)."""
         self.job.meta["partial_result"] = result
@@ -171,7 +181,7 @@ class JobManager:
             self._persist(job)
             try:
                 result = fn(ctx)
-                if job._cancel.is_set():
+                if job._cancel.is_set() and not job._committed:
                     job.status = "cancelled"
                     job.result = result if isinstance(result, dict) else None
                 else:
@@ -212,11 +222,14 @@ class JobManager:
         return [j.to_dict(include_log=0) for j in jobs if not active_only or j.status in ACTIVE_STATES]
 
     def cancel(self, job_id: str) -> Job:
+        """취소 요청. 이미 끝났거나 되돌릴 수 없는 지점을 지난(mark_committed) 작업은 그대로 둔다."""
         job = self.get(job_id)
-        if job.status in ACTIVE_STATES:
+        with self._lock:
+            if job.status not in ACTIVE_STATES or job._committed:
+                return job
             job._cancel.set()
             job.status = "cancelling"
-            self._persist(job)
+        self._persist(job)
         return job
 
     def wait(self, job_id: str, timeout: float | None = None) -> Job:

@@ -25,6 +25,7 @@ SKILL_DATA_SCHEMAS: dict[str, str] = {
     "logic-analyzer-protocol-decode": "signal-capture",
     "cctv-auth-bypass-hunt": "auth-hunt",
     "game-save-unlock-analysis": "save-analysis",
+    "sd-card-forensics": "sd-forensics",
 }
 
 

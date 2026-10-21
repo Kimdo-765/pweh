@@ -82,6 +82,38 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 - **산출**: `forensics/recovered|carved/<label>-NNN/`(파일 0444, 이름 정리, 원래 이름은 manifest, 실행 비트·심볼릭 링크·장치 노드 없음, 바이트·파일 수 상한), 타임라인(`forensics_timeline`, 출처별 시간 의미와 충돌 표시),
   **증거 목록**(`forensics_evidence_list`: EV 항목·해시·마지막 검증·보관 사슬 상태·파생 산출물 sha256·해시값 확인서 서식). 녹화 내용(프레임·썸네일·오디오)은 에이전트 문맥으로 돌려주지 않는다 — 개수·범위·해시만.
 
+> **구현 상태 (I3b, 2026-10-21)**: 서버 `pweh-forensics` — 동작의 계약은 architecture §6.8, 안전 규칙과 알려진 한계는 safety.md §3.5·§3.6·§7.1 이다.
+> - `forensics_intake_start`(job): 이미지 파일만 받는다 — 장치·FIFO·`/dev`·`\\.\` 경로, 케이스·상태 폴더 안의 파일, NUL 이 든 경로, 증거 디렉터리 예약 이름, E01 서명 거부. 목적·법적 근거·설치 장소 유형·업무 목적·역할 기록.
+>   원본을 한 번 연 fd(`pweh.safeio`)로 확인한 크기만큼 읽으며 sha256·md5·sha1, 이미징 로그(FTK Imager·dc3dd·ewfacquire·ewfinfo·Guymager, 4 MiB 상한) 해시 대조, `forensics/images/EV-NNNN/<이름>.partial` 로 복사·재해시(`verify_copy`, 기본 켬)한 뒤
+>   이름을 바꾼다(파일 0444, 디렉터리는 커밋 뒤 0555). 보관 기록이 깨졌으면 복사 전에 바로 `custody_broken`. 커밋 지점은 보관 기록의 `intake` 사건(빠른 지문·접수 기록 sha256 포함)이다 — 그 전의 실패·취소는 되돌리고,
+>   그 뒤의 취소는 무시하며, 보조 기록(`integrity-failed` 사건·출처 원장·아티팩트 색인·같은 sha256 확인) 실패는 `post_commit_errors` 로 알린다(감사 로그 실패는 서버 로그에만). 서버가 커밋 전에 죽어 남은 디렉터리는 다음 접수·서버 시작 때 중단된 접수의 흔적(잡은 쪽이 없는 접수 잠금·빈 디렉터리·`*.partial`)이
+>   있을 때만 `forensics/aborted-intakes/` 로 옮기고 `intake-aborted` 사건으로 번호를 소비한다(흔적이 없으면 `record-without-intake` 로 남긴다). EV 번호는 다시 쓰지 않는다.
+> - `forensics_verify_start`(job — 지문을 본 같은 fd 를 재해시, 해시가 끝난 뒤의 취소는 무시), `forensics_acquisition_attest`(사람 증명 `write-blocker` — 장치 모델·희생용 카드 시험 여부·이미징 도구, 증거 id·sha256·크기에 묶임, 90일.
+>   증거 목록은 증명 저장소의 지금 상태를 보인다).
+> - 내용 도구의 입구: 보관 기록 → 접수 기록을 `intake` 사건과 대조 → 사본을 디렉터리 fd 로 한 번 열기 → 그 fd 로 빠른 지문. 해석도 같은 fd 로 한다(`ImageReader.from_fd`).
+> - `forensics_partitions`(MBR/EBR·GPT·superfloppy, 60초, 같은 구간은 한 번·서로 다른 구간 64개까지), `forensics_image_check`(호스트 오염 흔적 strong/weak/ambiguous, 120초 고정), `forensics_fs_list`(FAT12/16/32·exFAT, 삭제 항목,
+>   시각마다 `time_basis` — 전체 목록은 `forensics/analysis/` 의 JSON 에만). 앞의 셋은 job 이 아닌 동기 도구다. 오염 검사와 목록은 호출 하나의 한도(항목 200000·시간·파티션 64·경로 글자 수 2^28)와 볼륨마다 엔진 예산 하나를 쓰고,
+>   불완전하면(한도, 끝까지 읽지 못한 디렉터리, 잘린 이미지 `image_truncated`, 파티션 표보다 큰 파일 시스템 `volume_exceeds_partition`) `truncated`·`truncated_reasons`·`call.volumes_failed` 로 알린다
+>   (오염 검사는 그때와 본 볼륨이 없을 때 '흔적 없음'이라 하지 않는다).
+> - `forensics_extract`(job 300초, 취소는 엔진 계산 중에도 받는다): ref 는 루트에서 검증한 디렉터리만 따라가는 확인 순회가 찾은 것만(못 찾으면 `bad_ref`, 순회가 잘렸으면 `refs_unverifiable`),
+>   paths 는 이름이 정확히 같은 항목 먼저·없으면 글자 수를 바꾸지 않는 대소문자 무시(여럿이면 `ambiguous_path`. 끝까지 읽지 못한 디렉터리에서는 대소문자까지 정확히 같은 이름만). 삭제 파일 후보·신뢰도, exFAT ValidDataLength 뒤 잔여 영역,
+>   `forensics/recovered/` 0444 + manifest(잘림 사유·`limit_reason`·`bytes_beyond_image`). 실패한 추출은 출력을 지우고, 보관 기록 `extract` 를 남긴 뒤에는 지우지 않는다.
+> - `forensics_evidence_list`: 확인서 전에 사본 재확인, `status_label`, 중단된 접수(`aborted[]`), 파생 산출물 매니페스트를 보관 기록 `extract` 사건과 대조, 해시값 확인서 서식·고지.
+>
+> 코어: `src/pweh/fs/`(순수 파이썬, 공개 사양으로 새로 작성 — 이미지에 쓰지 않고 마운트·외부 도구 없음. 반복은 `Limits` 와 호출 예산 `Budget`(시간·볼륨 크기에 비례하는 단계 상한·취소)으로 묶는다.
+> 디렉터리는 엄격한 검증을 통과한 단위만 해석하고(`unvalidated_dirs`), 깊이·슬롯 한도와 끝까지 읽지 못한 살아 있는 디렉터리는 잘림 사유와 `cut_dirs` 로 남긴다),
+> `src/pweh/evidence.py`(보관 기록 해시 체인 `pweh.custody/v1` + 보호 위치 고정점 `<state_dir>/custody/` — 덧붙이기는 '기록 중' → 보관 기록 → 확정. 무결성 실패는 되돌리지 않는다),
+> `src/pweh/safeio.py`(링크·장치·FIFO 를 열지 않는 읽기, 디렉터리 fd 기준 쓰기). 요약 스키마 `sd-forensics`, Skill `sd-card-forensics`, 보고서 §8.1(증거 목록·보관 기록 상태·고지).
+> 다른 서버의 가드: `pweh-fwtriage` 는 케이스의 `forensics/` 와 그것을 품은 디렉터리를 읽지 않는다. `case_import_file` 은 어느 케이스의 `forensics/` 에서도 가져오지 않는다(링크를 풀기 전·후 경로 둘 다).
+> `case_register_artifact`·`case_hash_file` 은 `forensics/` 를 거부하고 일반 파일만 연다(연 fd 의 실제 경로를 다시 확인). pweh-sigrok 입력도 `forensics/` 를 거부한다. 조회 전용 도구만 자동 허용이다.
+> 설계와 다른 점: 안전 게이트와 `safety.forensics.*` 설정이 없다(기기에 보내는 것이 없다 — Claude Code 권한과 사람 증명으로 확인한다). 늘 케이스로 복사한다(외부 폴더 제자리 참조 없음 — §10 결정 2).
+> `case.json` 의 `evidence[]` 색인 대신 보관 기록(`intake` 사건이 해시·크기·지문의 권위 값)을 다시 읽어 상태를 정하고 접수 기록 파일은 그것과 대조한다.
+> 아티팩트 kind 는 `evidence-image` 만이고(추출물은 매니페스트로 센다) 발견사항 카테고리 `insecure-storage`·`privacy` 는 아직 없다. `pweh-fwtriage` 는 아직 `pweh.fs` 를 쓰지 않는다(§2).
+> 남음: F2 — CCTV 형식(프레임 카버·인덱스·이름 규칙), 카빙, 타임라인, §5.2 의 카드 쪽 비밀 스캔·암호화 판정·침해 흔적 대조(지금은 `fw_sd_surface` 의 `sd_paths_referenced` 를 `forensics_fs_list` 목록과 대조한다), E01·외부 도구(TSK·PhotoRec·ewf·ffprobe).
+> F3 — ext4(NTFS 목록도 없음), Windows 원시 읽기 헬퍼, 영상 내보내기. 장치에서 카드 식별 정보 읽기(sysfs cid/csd)도 아직 없다.
+> 검토에서 남긴 보강(지금은 safety.md §3.6 의 알려진 한계): 만든 출력 이름의 dev·ino 재확인, `pweh.safeio` 의 중간 디렉터리 고정, 출처 원장이 접수 기록을 `pweh.safeio` 로 읽기, 강제 종료 뒤 job 기록 정리,
+> 동기 도구의 취소, 하드 링크 감지, FAT32 디렉터리의 교차 연결 검사.
+
 ## 5. 보안 분석
 
 ### 5.1 펌웨어 쪽 (pweh-fwtriage, 카드 불필요)

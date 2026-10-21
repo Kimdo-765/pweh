@@ -193,6 +193,46 @@ def test_job_partial_result_on_cancel(workspace):
     assert j.status == "cancelled" and j.result and j.result["chunks_done"] >= 1
 
 
+def test_job_cancel_after_mark_committed_is_ignored(workspace):
+    """되돌릴 수 없는 지점(mark_committed)을 지난 작업: 이후의 취소는 무시되고 succeeded 로 끝난다. 그 전의 취소는 그대로 cancelled."""
+    import threading
+
+    rt = get_runtime("test")
+    committed, go = threading.Event(), threading.Event()
+
+    def work(ctx):
+        ctx.check_cancelled()
+        ctx.mark_committed()
+        committed.set()
+        go.wait(5)
+        ctx.check_cancelled()  # 커밋 뒤에는 취소로 멈추지 않는다
+        return {"ok": True}
+
+    job = rt.jobs.start("commit", work, description="commit")
+    assert committed.wait(5)
+    assert rt.jobs.cancel(job.id).status == "running"  # 상태를 cancelling 으로 바꾸지 않는다
+    go.set()
+    rt.jobs.wait(job.id, 5)
+    j = rt.jobs.get(job.id)
+    assert j.status == "succeeded" and j.result == {"ok": True}
+
+    started, release = threading.Event(), threading.Event()
+
+    def before(ctx):
+        started.set()
+        release.wait(5)
+        ctx.check_cancelled()
+        ctx.mark_committed()
+        return {"ok": True}
+
+    j2 = rt.jobs.start("commit2", before, description="commit2")
+    assert started.wait(5)
+    rt.jobs.cancel(j2.id)
+    release.set()
+    rt.jobs.wait(j2.id, 5)
+    assert rt.jobs.get(j2.id).status == "cancelled"
+
+
 def test_case_id_cannot_end_with_dot(workspace):
     """케이스 id 는 '.' 으로 끝날 수 없다: Windows 경로 정규화가 요소 끝의 '.' 을 지워 다른 케이스(esp-lab.→esp-lab)를 가리키게 된다."""
     from pweh.case import CASE_ID_RE
@@ -230,6 +270,11 @@ def test_optional_phase_registry_is_disjoint_and_labelled():
     assert not tracks_phase("esp32-flash-dump"), "요약을 firmware-dump-via-uart 로 남기는 Skill 은 자기 단계가 없다"
 
 
+#: sd-card-forensics 요약의 최소 data (sd-forensics 스키마 — mode=security 면 privacy·security 만 필수)
+_SD_SECURITY_DATA = {"mode": "security", "security": {"sd_surface_result": None, "checks_found": []},
+                     "privacy": {"audio_decoded": False, "face_plate_processing": False, "uploads": False, "recording_content_viewed": False}}
+
+
 def test_optional_phase_status_appears_only_once_recorded(workspace, auth):
     from pweh import schemas
     from pweh.case import PIPELINE_PHASES
@@ -243,12 +288,12 @@ def test_optional_phase_status_appears_only_once_recorded(workspace, auth):
     case.record_step(skill="sd-card-forensics", step="intake", status="success", summary="접수")
     case.record_step(skill="not-a-registered-skill", step="summary", status="success", summary="x")
     assert set(case.load()["phases"]) == set(PIPELINE_PHASES)
-    case.record_step(skill="sd-card-forensics", step="summary", status="partial", summary="이미지 해시 일치")
+    case.record_step(skill="sd-card-forensics", step="summary", status="partial", summary="이미지 해시 일치", data=_SD_SECURITY_DATA)
     phases = case.load()["phases"]
     assert phases["sd-card-forensics"]["status"] == "partial" and phases["sd-card-forensics"]["updated_at"]
     assert set(phases) == set(PIPELINE_PHASES) | {"sd-card-forensics"}, "다른 선택 단계는 여전히 없다"
     # 상태 대응은 파이프라인 단계와 같다 (success → done, in-progress → in-progress), 파이프라인 단계는 그대로
-    case.record_step(skill="sd-card-forensics", step="summary", status="success", summary="완료")
+    case.record_step(skill="sd-card-forensics", step="summary", status="success", summary="완료", data=_SD_SECURITY_DATA)
     case.record_step(skill="flipper-rf-analysis", step="summary", status="in-progress", summary="진행 중")
     case.record_step(skill="uart-shell-acquisition", step="summary", status="blocked", summary="포트 없음", data=_UART_DATA)
     phases = case.load()["phases"]
@@ -268,15 +313,15 @@ def test_report_renders_optional_phases_after_pipeline(workspace, auth):
     assert "선택 단계" not in render_report(case), "선택 단계가 없으면 아무것도 쓰지 않는다"
     case.record_step(skill="uart-shell-acquisition", step="summary", status="success", summary="U-Boot 획득", data=_UART_DATA)
     case.record_step(skill="other-skill", step="summary", status="success", summary="등록 안 된 Skill 요약")
-    case.record_step(skill="sd-card-forensics", step="summary", status="partial", summary="이미지 해시 일치",
-                     blockers=["FAT 해석 도구 없음"], artifacts=[])
+    case.record_step(skill="sd-card-forensics", step="summary", status="partial", summary="SD 표면 점검만",
+                     data=_SD_SECURITY_DATA, blockers=["FAT 해석 도구 없음"], artifacts=[])
     case.set_phase("flipper-rf-analysis", "in-progress")
     text = render_report(case)
     sec4 = text[text.index("## 4. 파이프라인 단계"): text.index("## 5.")]
     pipeline_table = sec4[: sec4.index("\n### ")]
     assert "| UART 셸/U-Boot 획득 | done |" in pipeline_table and "SD 카드 포렌식" not in pipeline_table
     marks = ("### UART 셸/U-Boot 획득 — success", "### 선택 단계", "| Flipper·RF 분석 | in-progress |", "| SD 카드 포렌식 | partial |",
-             "#### SD 카드 포렌식 — partial", "이미지 해시 일치", "#### other-skill — success")
+             "#### SD 카드 포렌식 — partial", "SD 표면 점검만", "#### other-skill — success")
     pos = [sec4.index(m) for m in marks]
     assert pos == sorted(pos), "파이프라인 요약 → 선택 단계 표(레지스트리 순서) → 선택 단계 요약 → 그 밖의 Skill"
     assert "- 차단 요인: FAT 해석 도구 없음" in sec4

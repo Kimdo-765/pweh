@@ -157,6 +157,8 @@ def _guess_schema(obj: Any) -> str | None:
         return "finding"
     if {"device", "saves", "unlock_conditions"} <= keys:
         return "save-analysis"
+    if {"mode", "privacy"} <= keys:  # sd-forensics 의 필수 키 둘 (privacy 는 다른 스키마에 없다)
+        return "sd-forensics"
     return None
 
 
@@ -377,8 +379,8 @@ GOALS = ("보안 분석", "게임 콘솔 분석", "RF·하드웨어 분석", "SD
 
 
 def test_master_prompt_goal_fork():
-    """Phase 0 목표 분기: 목표 표(보안 분석만 지원, 나머지는 준비 중 → §3.1), 목표별 장비 체크리스트, 준비 중 항목,
-    목표별 완료 기준(펌웨어 확보는 보안 분석만 요구 — RF·SD 케이스도 끝낼 수 있게), pweh-start 안내."""
+    """Phase 0 목표 분기: 목표 표(보안 분석은 지원, 게임 콘솔·SD 카드 포렌식은 일부 지원, RF 는 준비 중 → §3.1), 목표별 장비 체크리스트,
+    일부 지원·준비 중 항목, 목표별 완료 기준(펌웨어 확보는 보안 분석만 요구 — RF·SD 케이스도 끝낼 수 있게), pweh-start 안내."""
     master = _read(MASTER)
     s3 = _section(master, "## 3.")
     rows: dict[str, list[str]] = {}
@@ -391,12 +393,13 @@ def test_master_prompt_goal_fork():
     assert set(rows) == set(GOALS), f"목표 표의 목표: {sorted(rows)}"
     assert rows["보안 분석"][2] == "지원" and "§4" in rows["보안 분석"][3]
     prep = s3[s3.index("### 3.1"):]
-    # 게임 콘솔은 세이브·해금 오프라인 분석(game-save-unlock-analysis)만 일부 지원, RF·SD 는 준비 중
-    status = {"게임 콘솔 분석": "일부 지원", "RF·하드웨어 분석": "준비 중", "SD 카드 포렌식": "준비 중"}
+    # 게임 콘솔은 세이브·해금 오프라인 분석(game-save-unlock-analysis), SD 는 증거 분석·SD 공격 표면(sd-card-forensics)만 일부 지원, RF 는 준비 중
+    status = {"게임 콘솔 분석": "일부 지원", "RF·하드웨어 분석": "준비 중", "SD 카드 포렌식": "일부 지원"}
     for goal in GOALS[1:]:
         assert rows[goal][2] == status[goal] and "§3.1" in rows[goal][3], goal
         assert f"**{goal}**" in prep, f"§3.1 에 {goal} 항목 없음"
     assert "game-save-unlock-analysis" in rows["게임 콘솔 분석"][3]
+    assert "sd-card-forensics" in rows["SD 카드 포렌식"][3]
     for item in ("Flipper Zero", "ChameleonUltra", "RTL-SDR", "캡처 카드", "브리지 보드", "쓰기 방지 장치", "Windows 관리자 권한"):
         assert item in s3, f"Phase 0 장비 체크리스트에 {item} 없음"
     assert re.search(r"case_create\([^)]*notes", s3), "고른 목표를 케이스에 남긴다(case_create 의 notes)"

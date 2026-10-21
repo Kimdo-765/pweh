@@ -551,3 +551,15 @@ async def test_decode_output_cap_keeps_truncated_output(fake, monkeypatch):
         assert 0 < len(data) <= 300 and data.endswith(b"\n")
         assert r["lines_total"] == data.count(b"\n") and r["artifact"]["extra"]["truncated"] is True
         assert all(" uart-1: " in ln for ln in r["lines"])
+
+
+async def test_file_info_refuses_case_forensics(fake):
+    """자동 허용 sigrok 도구는 케이스의 증거 폴더(forensics/ — 카드 이미지·복구한 녹화)를 읽지 않는다."""
+    from sigrok_mcp.server import server
+
+    cid = make_case()
+    cdir = case_dir(cid)
+    write_uart_sr(cdir / "forensics" / "recovered" / "x-001" / "cap.sr", BOOT_BANNER[:30], baud=115200, samplerate=1_000_000)
+    async with Client(server) as c:
+        r = await call(c, "sigrok_file_info", case_id=cid, input_path="forensics/recovered/x-001/cap.sr")
+        assert "validation_failed" in r["_error"] and "forensics" in r["_error"], r

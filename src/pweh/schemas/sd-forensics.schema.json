@@ -1,0 +1,435 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/sd-forensics.schema.json",
+  "title": "sd-card-forensics 요약 data",
+  "description": "카메라·블랙박스 SD 카드 이미지의 증거 분석(접수·해시·보관 기록·파일 시스템·삭제 파일)과 보안 분석(펌웨어의 SD 공격 표면·부팅 로그의 SD 이벤트) 요약. 녹화 내용은 열지 않는다 — 개수·범위·해시만. privacy 의 네 값은 항상 false 다. 잘림·불완전(forensics_fs_list·forensics_image_check·forensics_extract 의 truncated·truncated_reasons, 해석하지 못한 볼륨 call.volumes_failed, 검증하지 못한 디렉터리 unvalidated_dirs)과 사람이 읽는 상태 표시(status_label)는 이 스키마에 필드가 없다 — notes 에 적는다(그때 filesystems·contamination·recovered 는 본 범위만의 값이다).",
+  "type": "object",
+  "required": [
+    "mode",
+    "privacy"
+  ],
+  "properties": {
+    "mode": {
+      "enum": [
+        "evidence",
+        "security",
+        "both"
+      ],
+      "description": "evidence = 카드 이미지 증거 분석, security = 펌웨어가 SD 카드를 다루는 방식(카드 불필요), both = 둘 다"
+    },
+    "card": {
+      "type": "object",
+      "description": "카드와 카드를 꺼낸 기기 (사람이 알려 준 값)",
+      "properties": {
+        "source_device": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "카드를 꺼낸 기기의 제조사·모델"
+        },
+        "capacity": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "예: 64 GB microSDXC"
+        },
+        "removed_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "분리 시각(호스트 시계 기준, 시간대 포함)"
+        },
+        "device_clock_offset": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "장치 시계 - 호스트 시계 (예: '+00:03:12', 모르면 null)"
+        }
+      }
+    },
+    "legal": {
+      "type": "object",
+      "description": "접수 때 기록한 값 (forensics_intake_start). 적용 법률이 설치 장소 유형·역할에 따라 다르다 — 법률 자문이 아니다",
+      "required": [
+        "site_type",
+        "role",
+        "legal_basis"
+      ],
+      "properties": {
+        "site_type": {
+          "enum": [
+            "home",
+            "public",
+            "business",
+            "vehicle",
+            "mobile-business",
+            "unknown"
+          ]
+        },
+        "role": {
+          "enum": [
+            "owner",
+            "processor",
+            "investigator",
+            "other"
+          ]
+        },
+        "legal_basis": {
+          "type": "string",
+          "minLength": 3
+        },
+        "purpose": {
+          "type": "string"
+        }
+      }
+    },
+    "custody_ok": {
+      "type": "boolean",
+      "description": "보관 기록 체인과 보호 위치 고정점 대조 결과 (forensics_evidence_list 의 custody.ok). true 여도 record-without-intake 항목이 있으면(특히 custody.count 가 0 일 때 — 보관 기록과 고정점을 함께 잃었을 수 있다) notes 에 적고 사람에게 알린다"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "evidence_id",
+          "status"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^EV-\\d{4,6}$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "unverified",
+              "integrity-failed",
+              "missing",
+              "record-invalid",
+              "custody-broken",
+              "record-without-intake",
+              "intake-in-progress"
+            ],
+            "description": "forensics_evidence_list 의 items[].status 값 그대로다(사람이 읽는 status_label 이 아니다 — 'missing (integrity-failed)' 는 status 'missing' 으로 적고 무결성 실패 기록은 notes 에). ok = 마지막 검증(접수 때 사본 재해시 또는 전체 재해시)이 일치, unverified = 접수만(사본 재해시·전체 재해시 없음), integrity-failed = 무결성 실패(빠른 지문·접수 기록 대조·재해시 불일치 — 되돌리지 않는다), missing = 보관 기록에는 접수가 있는데 실제 EV 디렉터리가 없음(지워졌거나 링크·파일로 바뀜 — 링크·파일이면 무결성 실패 unsafe-path 도 기록돼 status_label 이 'missing (integrity-failed)'), record-invalid = 접수 기록 파일이 없거나 읽을 수 없음, custody-broken = 보관 기록 체인·고정점이 깨짐(해시 없음), record-without-intake = 보관 기록에 intake 사건이 없는 EV 디렉터리(해시 없음 — 중단된 접수의 흔적(잡은 쪽이 없는 접수 잠금·*.partial·빈 디렉터리)이 있으면 다음 접수·서버 시작 때 aborted-intakes/ 로 옮겨지고, 흔적이 없으면(보관 기록과 고정점을 함께 잃은 증거, 사람이 만든 디렉터리 등) 사람이 판단할 때까지 그대로 남는다), intake-in-progress = 접수 job 이 그 디렉터리의 접수 잠금을 잡고 있음(해시 없음)"
+          },
+          "imaging_log": {
+            "enum": [
+              "match",
+              "mismatch",
+              "no-hashes",
+              "none"
+            ],
+            "description": "이미징 도구 로그의 해시 대조 (items[].imaging_log.status, none = 로그를 받지 않음)"
+          },
+          "write_blocker": {
+            "enum": [
+              "approved",
+              "denied",
+              "revoked",
+              "expired",
+              "invalid",
+              "none"
+            ],
+            "description": "사람 증명(write-blocker)의 지금 상태 (items[].attestation.status — 증명 저장소에서 읽은 지금 상태라 철회·만료가 바로 보인다) — 증명 레코드의 대상(증거 id·sha256·크기)이 이 항목과 같을 때만. invalid = 레코드를 믿을 수 없음, none = 증명 없음(attestation 이 null)"
+          }
+        },
+        "description": "forensics_evidence_list 의 items 한 줄. sha256·size 는 보관 기록의 intake 사건(고정점으로 보호됨) 값이다 — 보관 기록에 커밋한 접수가 있는 상태(ok·unverified·integrity-failed·missing·record-invalid)에서만 있다.",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "enum": [
+                    "ok",
+                    "unverified",
+                    "integrity-failed",
+                    "missing",
+                    "record-invalid"
+                  ]
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "sha256"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "filesystems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "evidence_id",
+          "fs"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^EV-\\d{4,6}$"
+          },
+          "partition": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "forensics_partitions 의 index (파티션 표가 없으면 null)"
+          },
+          "fs": {
+            "enum": [
+              "fat12",
+              "fat16",
+              "fat32",
+              "exfat",
+              "ext4",
+              "ntfs",
+              "other",
+              "unknown"
+            ]
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dirty": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "깨끗하지 않게 분리된 흔적(FAT 상태 비트·exFAT VolumeDirty). 카메라가 남기기도 하므로 단독 증거가 아니다"
+          },
+          "files": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "deleted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "time_basis": {
+            "enum": [
+              "local-unknown-tz",
+              "local+offset",
+              "utc",
+              "mixed",
+              "unknown"
+            ]
+          },
+          "time_range": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "first": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "last": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "device_timezone": {
+      "type": "object",
+      "description": "장치 시간대는 기본값이 없다 — 근거가 있을 때만 가정으로 적는다",
+      "properties": {
+        "assumed": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "예: 'UTC+09:00' (근거 없으면 null)"
+        },
+        "basis": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "예: 'fstab tz=', 'init 스크립트 TZ', 'DHAV 프레임 시각 비교'"
+        }
+      }
+    },
+    "contamination": {
+      "type": "array",
+      "description": "forensics_image_check 의 호스트 오염 흔적 (volumes[].indicators — path 는 싣지 않는다). 비어 있어도 그 호출이 truncated 면(truncated_reasons·해석하지 못한 볼륨) '흔적 없음'이 아니다 — 본 범위만이라는 것과 사유를 notes 에. 본 볼륨(error 가 아닌 volumes[] 항목)이 하나도 없으면(지원하는 FAT/exFAT 파티션이 없거나 파티션이 이미지 끝 너머) truncated 와 상관없이 '보지 못함'이다",
+      "items": {
+        "type": "object",
+        "required": [
+          "indicator",
+          "strength"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string"
+          },
+          "indicator": {
+            "type": "string"
+          },
+          "strength": {
+            "enum": [
+              "strong",
+              "weak",
+              "ambiguous"
+            ]
+          }
+        }
+      }
+    },
+    "recovered": {
+      "type": "object",
+      "description": "forensics_extract 산출물 요약 (forensics/recovered/ — 내용은 열지 않는다). forensics_evidence_list 의 derived[] 중 보관 기록과 맞는(custody recorded) 매니페스트의 합계다. 추출이 truncated 였거나(truncated_reasons·skipped) derived 가 recorded 가 아니면 notes 에",
+      "properties": {
+        "files": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manifests": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "properties": {
+        "sd_surface_result": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "fw_sd_surface 결과 JSON (케이스 상대 경로)"
+        },
+        "checks_found": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^SD-0[1-9]$"
+          }
+        },
+        "sd_events_summary": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "uart_capture_boot 의 sd_summary (새 빈 시험 카드로 관찰했을 때)"
+        },
+        "card_matches_firmware_paths": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "description": "카드에서 찾은, 펌웨어가 실행·플래시하는 경로(sd_paths_referenced)와 같은 파일 — 강한 침해 흔적 후보",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "required": [
+        "audio_decoded",
+        "face_plate_processing",
+        "uploads",
+        "recording_content_viewed"
+      ],
+      "properties": {
+        "audio_decoded": {
+          "const": false
+        },
+        "face_plate_processing": {
+          "const": false
+        },
+        "uploads": {
+          "const": false
+        },
+        "recording_content_viewed": {
+          "const": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "enum": [
+              "evidence",
+              "both"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "legal",
+          "evidence",
+          "custody_ok"
+        ],
+        "properties": {
+          "evidence": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "enum": [
+              "security",
+              "both"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "security"
+        ]
+      }
+    }
+  ]
+}

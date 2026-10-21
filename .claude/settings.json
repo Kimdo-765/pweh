@@ -33,6 +33,10 @@
       "mcp__pweh-esp__esp_list_ports",
       "mcp__pweh-esp__esp_job_status",
       "mcp__pweh-esp__esp_jobs",
+      "mcp__pweh-forensics__forensics_partitions",
+      "mcp__pweh-forensics__forensics_image_check",
+      "mcp__pweh-forensics__forensics_job_status",
+      "mcp__pweh-forensics__forensics_jobs",
       "mcp__rea__inspect_firmware_regions",
       "mcp__rea__extract_firmware",
       "mcp__rea__open_binary",
@@ -84,6 +88,13 @@
       "mcp__pweh-openocd__openocd_flash_write",
       "mcp__pweh-openocd__openocd_write_memory",
       "mcp__pweh-jtagulator__jtagulator_set_voltage",
+      "mcp__pweh-forensics__forensics_intake_start",
+      "mcp__pweh-forensics__forensics_verify_start",
+      "mcp__pweh-forensics__forensics_acquisition_attest",
+      "mcp__pweh-forensics__forensics_evidence_list",
+      "mcp__pweh-forensics__forensics_fs_list",
+      "mcp__pweh-forensics__forensics_extract",
+      "mcp__pweh-forensics__forensics_job_cancel",
       "mcp__rea__observe_native_ui",
       "mcp__rea__capture_native_ui_scenario",
       "mcp__rea__observe_native_calls",
@@ -129,6 +140,7 @@
     "pweh-jtagulator",
     "pweh-fwtriage",
     "pweh-esp",
+    "pweh-forensics",
     "rea"
   ]
 }

@@ -285,3 +285,28 @@
 - **`esp_jobs(active_only?)`** — [읽기전용]  
   이 서버 프로세스의 백그라운드 작업 목록.
 
+## pweh-forensics
+
+- **`forensics_job_status(job_id, wait_seconds?)`** — [읽기전용]  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`forensics_job_cancel(job_id)`**  
+  실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
+- **`forensics_jobs(active_only?)`** — [읽기전용]  
+  이 서버 프로세스의 백그라운드 작업 목록.
+- **`forensics_intake_start(case_id, image_path, purpose, legal_basis, site_type, business_purpose, role, imaging_log_path?, label?, verify_copy?)`**  
+  증거 이미지 접수 (job). 이미지 파일만 받는다 — 원시 디스크·장치·FIFO·빈 파일·E01, 케이스·상태 폴더 안의 파일, NUL 이 든 경로, 증거 디렉터리 예약 이름(EV-NNNN.json·imaging-log.txt·*.partial)은 거부. 케이스 소유/허가와 purpose·legal_basis·site_type(home/public/business/vehicle/mobile
+- **`forensics_verify_start(case_id, evidence_id)`**  
+  증거 사본 전체 재해시 (job). 접수 때의 sha256·md5·sha1(보관 기록 intake 사건의 값)과 비교해 match/mismatch 를 보관 기록 verify 사건으로 남긴다. 다르면 integrity-failed 로 표시되고 그 증거의 내용 도구는 모두 거부된다(되돌리지 않는다 — 원본에서 다시 접수). 빠른 지문(크기·mtime·앞뒤 1 MiB 해시·쓰기 권한 없음)이 이미
+- **`forensics_acquisition_attest(case_id, evidence_id)`**  
+  획득 방법의 사람 증명 (write-blocker). 사람이 별도 터미널에서 `pweh attest <id>` 로 '하드웨어 쓰기 방지 장치를 거쳐 이미징했다'와 장치 모델·희생용 카드 시험 여부·이미징 도구를 답한다(증거 id·sha256 에 묶임, 90일). 에이전트는 답하거나 증명을 대신 만들지 않는다. 결과(승인·거부, 앞 증명의 철회·만료)는 보관 기록 attest 사건으로 남고 증
+- **`forensics_evidence_list(case_id, write_files?)`**  
+  증거 목록과 해시값 확인서. 항목마다 크기·해시·status(ok/unverified/integrity-failed/missing/record-invalid/custody-broken/record-without-intake/intake-in-progress)·status_label(사람이 읽는 표시, 예: 'missing (integrity-failed)')·마지막 검증·쓰기 방지 장치 증명
+- **`forensics_partitions(case_id, evidence_id)`** — [읽기전용]  
+  증거 이미지의 파티션 구조 (읽기 전용, 호출 예산 60초): MBR/EBR·GPT(헤더·항목 CRC 검사, 512/4096 바이트 섹터)·파티션 표 없음(superfloppy) → partitions[{index, scheme, start_offset, size_bytes, type_name, name·guid(GPT), fs_hint(fat12/fat16/fat32/exfat/ntfs/e
+- **`forensics_image_check(case_id, evidence_id, partition?, acquisition_date?)`** — [읽기전용]  
+  호스트 오염 흔적 검사 (읽기 전용): 보관 기간에 분석 PC 가 카드에 남겼을 흔적 — strong: $RECYCLE.BIN, System Volume Information 의 IndexerVolumeGuid·WPSettings.dat, .DS_Store·._*(AppleDouble)·.Spotlight-V100·.fseventsd·.Trashes, Thumbs.db·desktop.ini,
+- **`forensics_fs_list(case_id, evidence_id, partition?, include_deleted?, max_entries?, max_seconds?)`**  
+  파일 시스템 목록 (FAT12/16/32·exFAT, 삭제 항목 포함). 전체 목록(경로·이름·크기·시각·삭제 여부·ref·체인·exFAT ValidDataLength 잔여)은 forensics/analysis/fs-list-<EV>-NNN.json(0444)에만 쓰고 보관 기록 list 사건에 sha256 을 남긴다. 응답은 볼륨마다 요약: stats, time_ranges(바탕별 — FA
+- **`forensics_extract(case_id, evidence_id, refs?, paths?, partition?, method?, region?, label?, max_files?, max_bytes?)`**  
+  파일·삭제 파일 추출 (job). refs(forensics_fs_list 결과 JSON 의 ref) 또는 paths(살아 있는 파일 경로)로 고른 파일만 forensics/recovered/<label>-NNN/ 에 0444 파일로 쓴다(이름 정리·번호, 원래 경로는 manifest.json, 실행 비트·링크 없음). refs·paths 는 중복을 없앤다(같은 항목을 가리키면 하나). re
+

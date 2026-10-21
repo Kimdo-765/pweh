@@ -37,6 +37,19 @@ _PHASE_LABEL = {
 }
 
 
+def _gap_text(g: Any) -> str:
+    """추출 gap 한 줄. 문자열은 그대로, 객체({region, kind, count, note} — Skill 예시 형식)는 '영역 — 종류 ×개수: 메모'."""
+    if not isinstance(g, dict):
+        return str(g)
+    head = " — ".join(f"`{g[k]}`" if k == "region" else str(g[k]) for k in ("region", "kind") if g.get(k))
+    if g.get("count") not in (None, "", 1):
+        head += f" ×{g['count']}"
+    note = g.get("note")
+    if head and note:
+        return f"{head}: {note}"
+    return head or str(note or "") or json.dumps(g, ensure_ascii=False)
+
+
 def _md_escape(text: Any) -> str:
     s = "" if text is None else str(text)
     return s.replace("|", "\\|").replace("\n", " ")
@@ -85,7 +98,42 @@ def _audit_stats(case: Case) -> dict[str, Any]:
     return {"counts": dict(stats), "risky": risky}
 
 
-def render_report(case: Case) -> str:
+def _evidence_section(case: Case, anchor_dir: Path | None) -> list[str]:
+    """SD 카드 증거 목록·보관 기록 상태·고지 (pweh.evidence). 녹화 내용은 넣지 않는다 — 개수·크기·해시만.
+
+    상태 칸은 사람이 읽는 status_label(없으면 status)이다 — 지워진 증거에 앞선 무결성 실패가 있으면 'missing (integrity-failed)'."""
+    from . import evidence
+
+    if not evidence.forensics_dir(case).is_dir():
+        return []
+    items = evidence.evidence_items(case, anchor_dir)
+    chain = items["custody"]
+    out = ["## 8.1 SD 카드 증거", ""]
+    state = "정상" if chain["ok"] else f"깨짐 — {_md_escape(chain.get('detail'))}"
+    anchored = "보호 위치의 고정점과 대조함" if anchor_dir is not None else "고정점 대조 안 함"
+    out.append(f"보관 기록(forensics/custody.jsonl): {state} (항목 {chain['count']}개, {anchored})")
+    out.append("")
+    if items["items"]:
+        out.append("| 증거 | 라벨 | 크기 | sha256 | 상태 | 마지막 검증 | 쓰기 방지 장치 증명 |")
+        out.append("|---|---|---|---|---|---|---|")
+        for it in items["items"]:
+            lv = it.get("last_verify") or {}
+            att = it.get("attestation") or {}
+            out.append(f"| {it['evidence_id']} | {_md_escape(it.get('label') or '')} | {it.get('size', '')} | "
+                       f"`{((it.get('hashes') or {}).get('sha256') or '')[:16]}` | {_md_escape(it.get('status_label') or it.get('status'))} | "
+                       f"{_md_escape(lv.get('result') or '없음')} | {_md_escape(att.get('status') or '증명 없음')} |")
+    else:
+        out.append("접수한 증거가 없다.")
+    out.append("")
+    out.append("전체 해시·해시값 확인서는 forensics/evidence-list.md (forensics_evidence_list) 에 있다.")
+    out.append("")
+    out.append(f"> {evidence.FORENSICS_NOTICE}")
+    out.append("")
+    return out
+
+
+def render_report(case: Case, anchor_dir: Path | None = None) -> str:
+    """보고서 Markdown. anchor_dir: SD 카드 보관 기록의 고정점 위치(<state_dir>/custody — 주면 대조한다)."""
     meta = case.load()
     findings = case.findings()
     sev_counts = Counter(f.get("severity", "info") for f in findings)
@@ -317,6 +365,9 @@ def render_report(case: Case) -> str:
         add("등록된 아티팩트가 없다.")
     add("")
 
+    # 8.1 SD 카드 증거 (forensics/ 가 있을 때만)
+    lines.extend(_evidence_section(case, anchor_dir))
+
     # 9. 안전/감사
     stats = _audit_stats(case)
     add("## 9. 안전 게이트 및 감사 요약")
@@ -343,7 +394,7 @@ def render_report(case: Case) -> str:
         gaps.extend(data.get("coverage_gaps") or [])
         ex = data.get("extraction") or {}
         for g in ex.get("gaps") or []:
-            gaps.append(str(g))
+            gaps.append(_gap_text(g))
     gaps = list(dict.fromkeys(gaps))  # 순서를 유지하며 중복 제거
     unverified = [f["id"] for f in findings if f.get("status") == "unverified"]
     if unverified:
@@ -357,9 +408,9 @@ def render_report(case: Case) -> str:
     return "\n".join(lines)
 
 
-def write_report(case: Case) -> dict[str, Any]:
+def write_report(case: Case, anchor_dir: Path | None = None) -> dict[str, Any]:
     case.set_phase("report", "done")  # 보고서 안의 단계 표에 반영되도록 렌더링 전에 갱신
-    text = render_report(case)
+    text = render_report(case, anchor_dir)
     path = case.dir / "report.md"
     atomic_write_text(path, text)
     art = case.register_artifact(path, kind="report", producer="case-mcp", description="최종 보고서")

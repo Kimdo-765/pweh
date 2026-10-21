@@ -47,7 +47,7 @@
 
 > **구현 상태 (I1, 2026-10-20)**: 코어 구현 — `src/pweh/safety/attestations.py`(`AttestationStore`·`Attestor`), `rt().attest(...)` → `AttestationDecision`
 > (충족이 아니면 `attestation_response(...)`), 사람 명령 `pweh attest <id>`·`pweh attest --list`(`--all`)·`pweh attest --revoke <id>`(모두 TTY 전용),
-> 케이스 사본 `attestations.json`(0400, 증거 아님). 계약은 architecture.md §4, safety.md §3.5·§4 규칙 12. **증명을 요구하는 도구는 I2b 의 `fw_patch_build` 하나다**(세이브 쓰기 명령을 보여 주기 전 `console-offline`).
+> 케이스 사본 `attestations.json`(0400, 증거 아님). 계약은 architecture.md §4, safety.md §3.5·§4 규칙 12. **증명을 요구하는 도구는 I2b 의 `fw_patch_build`(세이브 쓰기 명령을 보여 주기 전 `console-offline`)와 I3b 의 `forensics_acquisition_attest`(SD 카드 이미지를 쓰기 방지 장치로 만들었는지 — `write-blocker`) 둘이다**.
 > 설계와 다른 점: 사람 쪽은 `pweh approve` 의 증명 화면이 아니라 별도 명령 `pweh attest` 다. `require` 에 서버가 지금 묻는 질문을 넘겨 질문이 늘면 예전 증명을 쓰지 않는다.
 > 유효 기간은 범위별 코드 기본값(case 7일·connection 12시간·job 24시간·instrument 는 철회까지, 서버가 `valid_seconds` 60초~90일), pending 은 `approval_ttl_seconds`,
 > 확인 경로는 `safety.approval_methods`(새 설정 키 없음)다. 연결 해제·재연결·장치 시리얼 변화에 따른 무효화는 바인딩·subject 지문으로만 된다(연결 토큰을 쓰는 서버가 아직 없다).
@@ -70,8 +70,9 @@
 ## 4. 출처 원장 (provenance)
 
 > **구현 상태 (I1)**: 코어 구현 — `src/pweh/provenance.py`(`ProvenanceLedger`: 정규화 JSON 줄의 해시 체인, 파일 잠금, 깨지면 모두 불신, `verify`).
-> 기록하는 곳은 지금 둘이다: pweh-esp(`esp_read_flash_start` 의 끝까지 성공한 덤프 = `device-read`, `esp_chip_info`·`esp_security_info` = `device-fact`)와
-> `case_import_file`(`imported-unattested`). 나머지 기록 지점(Flipper·CU·수신 job·espprobe·SD 이미지 검증)과 확인 지점(에뮬레이션·SD 올리기·패치 base·
+> 기록하는 곳은 지금 셋이다: pweh-esp(`esp_read_flash_start` 의 끝까지 성공한 덤프 = `device-read`, `esp_chip_info`·`esp_security_info` = `device-fact`),
+> `case_import_file`(`imported-unattested`), I3b 의 `forensics_intake_start`(SD 카드 이미지의 접수 기록 파일 = `imported-unattested`, 이미지 sha256·크기는 extra — PWEH 는 카드를 읽지 않으므로
+> 기기 읽기가 아니다. 사본 검증·추출은 SD 카드 보관 기록에 남는다 — safety.md §3.5). 나머지 기록 지점(Flipper·CU·수신 job·espprobe)과 확인 지점(에뮬레이션·SD 올리기·패치 base·
 > `espprobe_flash_plan`)은 그 서버를 만들 때 붙인다 — `verify` 를 부르는 도구는 I2b 의 `fw_patch_build`·`fw_verify_writeback` 이고, 원장에 `patch-plan` kind(쓰기 확인의 권위 기록)가 더해졌다. `provenance-import` 증명의 대상은 `provenance_import_target(case_id, sha256)`·
 > `PROVENANCE_IMPORT_QUESTIONS` 하나로 정했다. 기록 실패는 도구 결과를 막지 않고 응답의 `provenance.recorded=false` 로 알린다.
 > 반박 검증 뒤 보강: 이중 읽기가 어긋난 덤프(`source.match=false`)는 기록하되 `verify` 가 불신한다(`device-read-mismatch` — 출처 ≠ 무결성). `case_import_file` 은 state_dir 의 파일을 거부하고,
@@ -119,6 +120,7 @@
 > 고른 목표를 `case_create` 의 `notes` 에 기록, §3.1 준비 중 목표에서 지금 할 수 있는 일, §9 목표별 완료 기준(펌웨어 확보는 보안 분석만), pweh-start 설명을 더했다.
 > 설계와 다른 점: `PIPELINE_PHASES` 는 그대로 두고 선택 단계 레지스트리 `OPTIONAL_PHASES`(기록될 때만 생김)와 보고서 §4 의 '선택 단계' 블록·라벨을 더했다.
 > 목표별 Skill·서버는 아직 없다.
+> I3b: SD 카드 포렌식 목표는 `sd-card-forensics` Skill 과 `pweh-forensics` 서버로 '일부 지원'이 됐다(master-prompt §3·§3.1, sd-forensics §4 구현 상태).
 
 - Phase 0 접수에서 목표를 먼저 고른다: **보안 분석**(기존 CCTV/IoT 흐름) / **게임 콘솔 분석** / **RF·하드웨어 분석** / **SD 카드 포렌식**.
 - 목표마다 결정 트리, 장비 체크리스트(Flipper 펌웨어·지역·SD 플러그인, CU 모델, SDR, 캡처 카드, 브리지 보드, 카드 리더·쓰기 방지 장치, **Windows 관리자 권한 여부**), 완료 기준이 다르다

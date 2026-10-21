@@ -2244,14 +2244,19 @@ def test_uboot_device_variable_is_read_from_the_same_env(env, mmc):
 
 
 def test_assignment_prefix_cost_is_linear_in_window():
-    """대입이 빽빽한 앞 문맥('x=!x=!…'): '!' 가 값 안에 들어가지 않아 시작마다 값을 다시 훑지 않는다 (문맥 길이에 선형)."""
-    for unit in ("x=!", "x=!/mnt/sd/x!", "a=$(", "a=${b}!"):
-        small = unit * (512 // len(unit))
-        big = unit * (8192 // len(unit))
+    """대입이 빽빽한 앞 문맥('x=!x=!…')도 같은 길이의 평범한 경로 문맥과 비슷한 비용이다 — '!' 가 값 안에 들어가지 않아 시작마다 값을 다시
+    훑지 않는다 (예전에는 512자 문맥에서 토큰마다 약 0.36 ms, 평범한 문맥의 7~40배). 부하에 덜 흔들리게 같은 횟수를 번갈아 재고 가장 빠른 값을 쓴다."""
+    n = 512
+    base = ("a/b " * (n // 4 + 1))[:n]
+
+    def best(rx, s):
+        return min(_timed(lambda: [rx.search(s) for _ in range(300)])[1] for _ in range(3))
+
+    for unit in ("x=!", "x=!/mnt/sd/x!", "a=${b}!"):
+        dense = (unit * (n // len(unit) + 1))[-n:]
         for rx in (sdsurface._PRE_CMD, sdsurface._PRE_SH):
-            _, t_small = _timed(lambda: [rx.search(small) for _ in range(50)])
-            _, t_big = _timed(lambda: [rx.search(big) for _ in range(50)])
-            assert t_big < max(0.25, 40 * t_small), (unit, rx.pattern[:30], t_small, t_big)
+            t_base, t_dense = best(rx, base), best(rx, dense)
+            assert t_dense < max(0.01, 4 * t_base), (unit, rx.pattern[:30], t_base, t_dense)
 
 
 def test_strings_hunt_single_file_budget_acts_between_chunks(tmp_path, monkeypatch):

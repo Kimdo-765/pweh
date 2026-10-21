@@ -9,10 +9,11 @@ Skill 사이의 데이터 전달은 이 서버가 관리하는 케이스 디렉�
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
-from pweh import hostenv, schemas
+from pweh import hostenv, safeio, schemas
 from pweh.case import PIPELINE_PHASES, PHASE_STATUSES
 from pweh.errors import NotFound, ValidationFailed
 from pweh.fsutil import is_within
@@ -32,6 +33,50 @@ server = create_server(
         "case_paths 는 REA 같은 외부 도구에 넘길 절대 경로(새 출력 디렉터리 포함)를 알려준다."
     ),
 )
+
+
+_FORENSICS_HINT = "카드 이미지·복구 파일은 pweh-forensics 도구(forensics_*)로만 다룬다(해시는 forensics_evidence_list·forensics_extract 결과에 있다)."
+
+
+def _refuse_case_forensics(path: str | Path, what: str) -> None:
+    """어느 케이스든 증거 폴더(forensics/ — 카드 이미지·복구한 녹화) 아래면 거부한다 (자동 허용 도구가 증거를 읽지 않게, 링크를 풀어 판단)."""
+    from pweh.evidence import under_any_case_forensics
+
+    if under_any_case_forensics(path, rt().config.cases_dir):
+        raise ValidationFailed(f"케이스의 증거 폴더(forensics/)에 있는 파일은 {what}.", hint=_FORENSICS_HINT)
+
+
+def _open_case_regular(case, p: Path, refuse_what: str, verb: str) -> tuple[int, os.stat_result]:
+    """케이스 안의 일반 파일만 연다(FIFO·장치에서 멈추지 않음) → (fd, stat). 호출자가 fd 를 닫는다.
+
+    증거 폴더 여부는 실제로 연 객체의 경로로 다시 본다(확인한 뒤 바꿔치기한 링크 대비)."""
+    try:
+        fd, st = safeio.open_regular(p, what="파일")
+    except FileNotFoundError:
+        raise NotFound(f"파일이 없습니다: {case.rel(p)}") from None
+    except safeio.UnsafeFile as exc:
+        raise ValidationFailed(f"일반 파일만 {verb}: {case.rel(p)} ({exc.message})") from exc
+    try:
+        real = safeio.fd_real_path(fd)
+        if real is not None:
+            _refuse_case_forensics(real, refuse_what)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd, st
+
+
+def _sha256_fd(fd: int) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    pos = 0
+    while True:
+        block = os.pread(fd, 1 << 20, pos)
+        if not block:
+            return h.hexdigest()
+        h.update(block)
+        pos += len(block)
 
 
 def rt() -> Runtime:
@@ -228,7 +273,17 @@ def case_get_step_results(case_id: str, skill: str | None = None, summaries_only
 @safe_tool
 def case_register_artifact(case_id: str, path: str, kind: str, description: str | None = None, producer: str = "agent") -> dict[str, Any]:
     case = rt().cases.get(case_id)
-    return {"ok": True, "artifact": case.register_artifact(path, kind=kind, producer=producer, description=description)}
+    p = case.resolve_path(path)
+    _refuse_case_forensics(p, "아티팩트로 등록하지 않습니다")
+    sha256 = None
+    if not p.is_dir():  # 디렉터리(추출 트리 등)는 해시하지 않는다
+        # 일반 파일만 연다(FIFO·장치에서 멈추지 않음). 해시는 연 fd 에서 계산해 넘긴다(경로로 다시 읽지 않음)
+        fd, _st = _open_case_regular(case, p, "아티팩트로 등록하지 않습니다", "등록합니다")
+        try:
+            sha256 = _sha256_fd(fd)
+        finally:
+            os.close(fd)
+    return {"ok": True, "artifact": case.register_artifact(path, kind=kind, producer=producer, description=description, sha256=sha256)}
 
 
 @server.tool(
@@ -243,12 +298,25 @@ def case_import_file(case_id: str, source_path: str, kind: str = "firmware-image
     case = rt().cases.get(case_id)
     if dest_subdir not in ("dumps", "extract", "analysis", "signals", "jtag", "notes", "uart"):
         raise ValidationFailed(f"허용되지 않은 dest_subdir: {dest_subdir}")
-    # 보호 상태(승인·증명·출처 원장·솔트·감사 로그)를 케이스로 복사해 읽어 내지 못하게 한다. 확인한 경로를 그대로 복사한다(다시 해석하지 않음).
-    src = Path(source_path).expanduser().resolve()
+    # 보호 상태(승인·증명·출처 원장·솔트·감사 로그)와 케이스 증거 폴더를 케이스로 복사해 읽어 내지 못하게 한다.
+    # 링크를 푼 경로(src)와 풀기 전 경로(raw)를 모두 본다 — forensics/ 자체가 다른 곳을 가리키는 링크여도 그 아래 경로로 부르면 막는다.
+    # 한계: case.import_file 은 확인한 뒤 경로로 다시 열어 복사한다. 확인과 복사 사이에 같은 계정의 다른 프로세스가 이름을 바꾸면
+    # 막지 못한다(docs/safety.md — 같은 계정의 프로세스는 경로 확인을 우회할 수 있다).
+    raw = Path(os.path.abspath(Path(source_path).expanduser()))
+    src = raw.resolve()
     if is_within(rt().config.state_dir, src):
         raise ValidationFailed(
             "보호 상태 디렉터리(state_dir — 승인·증명·출처 원장·솔트·감사 로그)의 파일은 가져올 수 없습니다.",
             hint="케이스 밖의 원본 파일(벤더 펌웨어, 클립으로 읽은 덤프, 사람이 만든 이미지)만 가져온다.",
+        )
+    # 케이스의 증거 폴더(forensics/ — 카드 이미지·복구한 녹화)는 pweh-forensics 로만 다룬다. 자동 허용 도구(pweh-fwtriage 등)가 읽는
+    # dumps/ 로 복사하는 우회를 막는다(docs/safety.md — SD 카드 포렌식).
+    from pweh.evidence import under_any_case_forensics
+
+    if under_any_case_forensics(raw, rt().config.cases_dir) or under_any_case_forensics(src, rt().config.cases_dir):
+        raise ValidationFailed(
+            "케이스의 증거 폴더(forensics/)에 있는 파일은 가져올 수 없습니다.",
+            hint="카드 이미지·복구 파일은 pweh-forensics 도구(forensics_*)로만 다룬다. 원본 이미지를 새로 접수하려면 forensics_intake_start 를 쓴다.",
         )
     art = case.import_file(src, dest_subdir, kind=kind, producer="case-mcp", description=description)
     return {"ok": True, "artifact": art, "absolute_path": str(case.dir / art["path"]), "provenance": _record_import(case, art, kind)}
@@ -294,27 +362,29 @@ def case_hash_file(case_id: str, path: str, offset: int | str = 0, length: int |
 
     case = rt().cases.get(case_id)
     p = case.resolve_path(path)
-    if not p.is_file():
-        raise NotFound(f"파일이 없습니다: {case.rel(p)}")
-    size = p.stat().st_size
-    off = parse_size(offset)
-    if off < 0 or off > size:
-        raise ValidationFailed(f"offset 이 파일 범위를 벗어났습니다: {off} (파일 크기 {size})")
-    remaining = size - off if length is None else parse_size(length)
-    if remaining < 0 or off + remaining > size:
-        raise ValidationFailed(f"구간이 파일 끝을 넘습니다: offset={off}, length={remaining}, 파일 크기={size}")
-    sha, md5, crc = hashlib.sha256(), hashlib.md5(), 0
-    with p.open("rb") as fh:
-        fh.seek(off)
-        left = remaining
+    _refuse_case_forensics(p, "해시하지 않습니다")
+    fd, st = _open_case_regular(case, p, "해시하지 않습니다", "해시합니다")
+    try:
+        size = st.st_size
+        off = parse_size(offset)
+        if off < 0 or off > size:
+            raise ValidationFailed(f"offset 이 파일 범위를 벗어났습니다: {off} (파일 크기 {size})")
+        remaining = size - off if length is None else parse_size(length)
+        if remaining < 0 or off + remaining > size:
+            raise ValidationFailed(f"구간이 파일 끝을 넘습니다: offset={off}, length={remaining}, 파일 크기={size}")
+        sha, md5, crc = hashlib.sha256(), hashlib.md5(), 0
+        pos, left = off, remaining
         while left > 0:
-            block = fh.read(min(1 << 20, left))
+            block = os.pread(fd, min(1 << 20, left), pos)
             if not block:
                 break
             sha.update(block)
             md5.update(block)
             crc = zlib.crc32(block, crc)
+            pos += len(block)
             left -= len(block)
+    finally:
+        os.close(fd)
     return {
         "ok": True,
         "path": case.rel(p),
@@ -372,7 +442,7 @@ def case_list_findings(case_id: str, min_severity: str | None = None) -> dict[st
 def report_generate(case_id: str) -> dict[str, Any]:
     r = rt()
     case = r.cases.get(case_id)
-    res = write_report(case)
+    res = write_report(case, Path(r.config.state_dir) / "custody")  # SD 카드 보관 기록은 보호 위치의 고정점과 대조한다
     r.audit({"event": "report_generated", **res}, case_id)
     return {"ok": True, **res}
 
