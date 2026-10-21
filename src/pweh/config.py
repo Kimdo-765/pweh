@@ -83,6 +83,10 @@ DEFAULTS: dict[str, Any] = {
         "qemu_xtensa": "${PWEH_QEMU_XTENSA:-}",
         "qemu_riscv32": "${PWEH_QEMU_RISCV32:-}",
         "avr_run": "${PWEH_AVR_RUN:-}",
+        # 이미지 힌트: 비면 관리 도구 위치만 찾는다 (암묵 PATH 탐색 없음).
+        "tesseract": "${PWEH_TESSERACT:-}",
+        "tessdata_dir": "${PWEH_TESSDATA_DIR:-}",
+        "zbarimg": "${PWEH_ZBARIMG:-}",
     },
     "uart": {
         "default_baud_candidates": [115200, 57600, 38400, 19200, 9600, 230400, 460800, 921600, 1500000],

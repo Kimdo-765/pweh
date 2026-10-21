@@ -64,6 +64,10 @@ tools:
   qemu_xtensa: ${PWEH_QEMU_XTENSA:-}
   qemu_riscv32: ${PWEH_QEMU_RISCV32:-}
   avr_run: ${PWEH_AVR_RUN:-}
+  # 이미지 힌트: 설치 스크립트의 관리 경로. 명시 설정 외에는 PATH 를 찾지 않는다.
+  tesseract: ${PWEH_TESSERACT:-}
+  tessdata_dir: ${PWEH_TESSDATA_DIR:-}
+  zbarimg: ${PWEH_ZBARIMG:-}
 
 # sigrok-mcp 캡처 드라이버 정책 (읽기 전용으로 참조됨).
 # 내장 규칙: 로직 애널라이저/오실로스코프 허용 목록만 캡처 가능, 출력 제어 장치(전원공급기·전자부하·신호발생기·릴레이)는

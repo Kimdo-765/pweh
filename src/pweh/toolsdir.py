@@ -99,5 +99,29 @@ def emu_binary_candidates(name: str, configured: str | None, env_value: str | No
     return out
 
 
-__all__ = ["EMU_BINARY_RELPATHS", "ESPTOOL_WIN_RELPATHS", "POINTER", "emu_binary_candidates", "esptool_win_candidates",
-           "tools_dir", "tools_env"]
+IMAGE_TOOL_RELPATHS: dict[str, str] = {
+    "tesseract": "bin/tesseract",
+    "zbarimg": "bin/zbarimg",
+    "tessdata_dir": "tesseract/tessdata",
+}
+
+
+def image_tool_candidates(name: str, configured: str | None, env_value: str | None,
+                          tools_dir: Path | None) -> list[tuple[str, str]]:
+    """이미지 도구·모델 후보: config → env → 관리 위치. 파일 조회·암묵 PATH 탐색은 하지 않는다.
+
+    명시한 실행 파일 이름의 PATH 해석과 존재 여부는 호출자가 확인한다. tessdata_dir 는 디렉터리다.
+    """
+    if name not in IMAGE_TOOL_RELPATHS:
+        raise ValueError(f"알 수 없는 이미지 도구 이름: {name!r}")
+    out: list[tuple[str, str]] = []
+    for path, source in ((configured or "", "config"), (env_value or "", "env"),
+                         (str(tools_dir / IMAGE_TOOL_RELPATHS[name]) if tools_dir is not None else "", "pweh-tools")):
+        path = path.strip()
+        if path and all(path != old for old, _ in out):
+            out.append((path, source))
+    return out
+
+
+__all__ = ["EMU_BINARY_RELPATHS", "ESPTOOL_WIN_RELPATHS", "IMAGE_TOOL_RELPATHS", "POINTER", "emu_binary_candidates",
+           "esptool_win_candidates", "image_tool_candidates", "tools_dir", "tools_env"]

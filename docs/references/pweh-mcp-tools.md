@@ -4,6 +4,8 @@
 
 ## pweh-case
 
+- **`case_image_hints(case_id, path, ocr?, ocr_lang?, qr?, preview?, crop?, max_seconds?)`**  
+  케이스의 정지이미지 파일 1개를 오프라인 분석한다(소유/허가 확인 필수, 최대 64 MiB). 메타데이터·구조·OCR(kor+eng 기본)·QR/바코드·스테가노그래피 단서를 JSON 으로, 정규화 PNG 를 MCP 이미지 콘텐츠로 반환한다. OCR·코드는 마스킹하지 않으며 URL 을 열지 않는다. crop=[x,y,width,height] 는 EXIF 방향을 적용한 좌표; 원본 전체 메타데이
 - **`case_create(title, authorization, target?, profile?, case_id?, notes?)`**  
   새 분석 케이스 생성. authorization 은 필수: {basis: 'owned'|'written-authorization', owner, statement(사용자가 소유/허가를 확인한 말을 그대로 인용), scope?, document_ref?(서면 허가 시 필수)}. target 예: {vendor, model, serial, hardware_rev, firmware_version,
 - **`case_set_authorization(case_id, authorization)`**  
@@ -51,7 +53,7 @@
 - **`approvals_pending()`** — [읽기전용]  
   대기 중인 승인 요청 목록 (확인 코드는 제외).
 - **`schema_get(name)`** — [읽기전용]  
-  PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt, save-analysis, sd-forensics, emulation.
+  PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt, save-analysis, sd-forensics, emulation, image-hints.
 
 ## pweh-uart
 
@@ -293,6 +295,8 @@
   실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
 - **`forensics_jobs(active_only?)`** — [읽기전용]  
   이 서버 프로세스의 백그라운드 작업 목록.
+- **`forensics_image_hints(case_id, evidence_id, partition?, ref?, path?, method?, ocr?, ocr_lang?, qr?, preview?, crop?, max_seconds?)`**  
+  증거의 정지이미지 1개를 오프라인 분석한다(소유/허가·보관 기록·open_checked 무결성 검사 필수). ref 또는 path 로 FAT/exFAT 파일 1개를 선택한다(동시 지정 금지); 둘 다 없으면 EV 자체를 정지이미지로 읽는다. 삭제 파일은 ref 와 복구 method(auto 기본)로 선택하며 방법·신뢰도·완전성을 출처에 기록한다. 불완전한 파일은 거부한다. 최대 64 MiB,
 - **`forensics_intake_start(case_id, image_path, purpose, legal_basis, site_type, business_purpose, role, imaging_log_path?, label?, verify_copy?)`**  
   증거 이미지 접수 (job). 이미지 파일만 받는다 — 원시 디스크·장치·FIFO·빈 파일·E01, 케이스·상태 폴더 안의 파일, NUL 이 든 경로, 증거 디렉터리 예약 이름(EV-NNNN.json·imaging-log.txt·*.partial)은 거부. 케이스 소유/허가와 purpose·legal_basis·site_type(home/public/business/vehicle/mobile
 - **`forensics_verify_start(case_id, evidence_id)`**  

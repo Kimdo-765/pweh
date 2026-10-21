@@ -11,7 +11,7 @@ PWEH 는 MCP 서버 10개를 쓴다. 9개는 이 저장소에 있고, 1개는 �
 | `pweh-jtagulator` | `.venv/bin/pweh-jtagulator-mcp` | JTAGulator 핀아웃 스캔 (선택) |
 | `pweh-fwtriage` | `.venv/bin/pweh-fwtriage-mcp` | 오프라인 펌웨어 트리아지 |
 | `pweh-esp` | `.venv/bin/pweh-esp-mcp` | ESP32 계열 esptool 읽기 전용: 칩·보안 정보, 플래시 덤프 job. WSL 에서는 Windows `esptool.exe` + COM 포트(방법 A, §6) (선택) |
-| `pweh-forensics` | `.venv/bin/pweh-forensics-mcp` | SD 카드 이미지 증거 분석: 사람이 쓰기 방지 장치로 만든 이미지 파일의 접수·해시·보관 기록, FAT/exFAT 목록, 삭제 파일 추출 job, 증거 목록. 기기·카드를 열지 않고 외부 도구가 필요 없다 (선택) |
+| `pweh-forensics` | `.venv/bin/pweh-forensics-mcp` | SD 카드 이미지 증거 분석: 사람이 쓰기 방지 장치로 만든 이미지 파일의 접수·해시·보관 기록, FAT/exFAT 목록, 삭제 파일 추출 job, 증거 목록. 기기·카드를 열지 않는다. 정지 그림 분석은 Pillow·선택 OCR/ZBar를 사용한다 (선택) |
 | `pweh-emu` | `.venv/bin/pweh-emu-mcp` | ESP32·S3·C3(Espressif QEMU), Arduino AVR(simavr) 펌웨어 실행·마스킹 콘솔. 출처를 확인한 케이스 파일만 사용, 기기 미접촉 (선택) |
 | `rea` | `rea --mcp` (rea-agents 6.5.x) | binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩 |
 
@@ -167,7 +167,7 @@ REA 는 Codex 에서도 런처로 실행돼 env.sh 를 실행할 때 불러온�
     `forensics_evidence_list`, `forensics_job_cancel` — 카드 이미지는 제3자의 개인정보라 접수·검증·증명·목록·추출·증거 목록을 매번 사람이 확인한다).
     pweh-emu 의 `emu_start`, `emu_write`, `emu_stop` 도 `ask` 다(서버의 `emu_stop` 은 승인 게이트 없이 정리하나 클라이언트 확인은 별개).
     **bypassPermissions 모드에서도 묻는다.**
-  - `allow`: pweh 서버의 조회 전용 도구(`readOnlyHint`), `pweh-case`·`pweh-fwtriage` 전체(`mcp__pweh-case__*`, `mcp__pweh-fwtriage__*`),
+  - `allow`: pweh 서버의 조회 전용 도구(`readOnlyHint`), `pweh-case`·`pweh-fwtriage` 전체(`mcp__pweh-case__*`, `mcp__pweh-fwtriage__*`), 정지 이미지 내용 반환을 허용한 `forensics_image_hints`(로컬 파일을 쓰므로 readOnlyHint=false),
     REA 정적 분석 도구. 기본 모드에서 묻지 않는다(bypass 모드에서는 원래 묻지 않으므로 의미가 없다).
     프로젝트 `allow` 는 workspace trust 를 수락한 뒤에만 적용되고, `ask`/`deny` 는 trust 와 무관하게 적용된다.
   - 둘 다 아닌 도구(예: `uart_send_command`, `uboot_dump_start`, `sigrok_capture`, `openocd_halt`, `esp_chip_info`, `esp_read_flash_start`)는 기본 모드에서 처음 쓸 때 묻는다.
@@ -477,3 +477,7 @@ signals/boot-001.sr 을 REA decode_signal_recording 으로 UART 디코딩해서 
 | esptool `esp_secure_download_mode`, `read_flash_possible=false` | 칩이 Secure Download Mode 라 esptool 로 플래시를 읽을 수 없다. 우회하지 않고 사용자에게 보고한다 |
 | `esp_version` 의 `backends.windows.interop=false`, Windows 백엔드 `tool_missing`(interop) | WSL interop 이 꺼져 있다. 사람이 `/etc/wsl.conf` 의 `[interop]` 을 확인하고 `wsl --shutdown` 후 WSL 을 다시 연다(§6). 그동안은 usbipd attach 와 리눅스 포트를 쓴다 |
 | `Windows 용 esptool.exe 를 찾을 수 없습니다` (`tool_missing`) | `./scripts/install.sh --only esptool` 로 설치하거나(WSL interop 이 켜져 있어야 Windows 판을 받는다) `PWEH_ESPTOOL_WIN` 을 지정한 뒤 MCP 서버를 다시 시작한다. 리눅스 파일시스템에 직접 푼 exe 는 실행 권한이 필요하다(`chmod +x`) |
+
+## 정지 이미지 분석 설치
+
+`./scripts/install.sh --only tesseract,zbar`로 고정된 OCR 엔진·kor/eng 모델·바코드 도구를 개인 도구 디렉터리에 설치한다. Pillow는 Python 의존성에 포함된다. `pweh doctor`에서 준비 상태를 확인한다. 지원하는 배포판과 설치 해시는 설치 잠금 자료를 기준으로 하며 미지원 조합은 검증되지 않은 패키지로 대체하지 않는다. 기존 MCP 서버를 재시작해야 새 도구와 custody 사건을 읽는다. `case_image_hints`·`forensics_image_hints`는 JSON과 실제 ImageContent를 함께 반환하며 클라이언트가 이미지를 표시하지 못하면 OCR·메타데이터를 텍스트로 활용한다.

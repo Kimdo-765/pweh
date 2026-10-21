@@ -81,7 +81,8 @@
       "mcp__rea__trace_native_values",
       "mcp__rea__inspect_address_context",
       "mcp__rea__address_name",
-      "mcp__rea__inspect_native_load_image"
+      "mcp__rea__inspect_native_load_image",
+      "mcp__pweh-forensics__forensics_image_hints"
     ],
     "ask": [
       "mcp__pweh-uart__uart_write",

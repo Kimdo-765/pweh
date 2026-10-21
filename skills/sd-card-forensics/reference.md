@@ -47,12 +47,12 @@
 | filesystems[].time_basis · time_range | 볼륨의 time_basis(local-unknown-tz / local+offset / mixed / unknown). time_range 는 state live 의 first·last — 바탕이 여럿(mixed)이면 null 로 두고 바탕별 범위를 notes 에 |
 | device_timezone | 근거가 있을 때만(펌웨어의 마운트 옵션 `tz=`·`time_offset=`, init 스크립트 TZ). 없으면 assumed·basis 모두 null |
 | contamination[] | `forensics_image_check` 의 volumes[].indicators[] → {evidence_id, indicator, strength}. path 는 싣지 않는다(카드 경로). image_check 가 truncated 면 "본 범위에서만"과 사유를 notes 에 |
-| recovered | `forensics_evidence_list` 의 derived[] 중 custody 가 recorded 인 항목의 합계: files, bytes, manifests = derived[].path + "/manifest.json" (경로만 — 열지 않음). mismatch·unrecorded·missing·unknown·error 항목은 notes 에 적고 사람에게 알린다 |
+| recovered | `forensics_evidence_list` 의 derived[] 중 kind가 image-hints가 아닌 추출 항목에서 custody 가 recorded 인 항목의 합계: files, bytes, manifests = derived[].path + "/manifest.json" (경로만 — 열지 않음). mismatch·unrecorded·missing·unknown·error 항목은 notes 에 적고 사람에게 알린다 |
 | security.sd_surface_result | `fw_sd_surface` 의 result_path(`analysis/sd-surface-NNN.json`) |
 | security.checks_found | `risk_found`. SD-07 found(암호화 근거)는 넣지 않고 notes 에 |
 | security.sd_events_summary | 새 빈 시험 카드 부팅의 `sd_summary` 그대로. 관찰하지 않았으면 null |
 | security.card_matches_firmware_paths | 10c 대조에서 카드에 있던 `card_relative` 목록. 대조했는데 없으면 [], 대조하지 않았으면 null |
-| privacy | 네 값 모두 false (항상) |
+| privacy | 기존 네 값은 false(영상·음성·별도 신원 식별·외부 제공). `still_image_content_viewed`·`still_image_ocr_returned`는 정지 이미지 도구의 실제 반환·관찰 여부 |
 | notes | 한계, 잘림 사유와 못 본 범위(목록·오염 검사·추출의 truncated_reasons, volumes_failed), status_label 이 status 와 다른 항목, 목록·증거 목록 경로, 발견사항 id, 시간대 근거 |
 
 스키마에 맞는지는 `schema_get(name="sd-forensics")` 로 확인한다. 서버가 거부하면 메시지대로 고쳐 다시 저장한다.

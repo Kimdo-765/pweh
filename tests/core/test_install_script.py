@@ -24,7 +24,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "install.sh"
 COMPONENTS = ["python", "sigrok", "openocd", "squashfs", "uboot", "zig", "jdk", "ghidra", "unblob", "extractors", "erofs", "binwalk", "rea", "esptool",
-              "qemu_esp", "simavr"]
+              "qemu_esp", "simavr", "tesseract", "zbar"]
 STEPS = ["mcp", "skills", "verify"]
 
 
@@ -82,7 +82,7 @@ def test_list_names_every_component_and_creates_nothing(tmp_path):
     assert "[minimal]" in r.stdout and "[선택]" in r.stdout
     esptool = next(line for line in r.stdout.splitlines() if line.split()[:1] == ["esptool"])
     assert "[선택]" in esptool and "[minimal]" not in esptool and "방법 A" in esptool
-    for emu in ("qemu_esp", "simavr"):  # 펌웨어 에뮬레이션 구성요소: 선택, --minimal 밖 (DESC 가 없으면 set -u 로 --list 가 멈춘다)
+    for emu in ("qemu_esp", "simavr", "tesseract", "zbar"):  # 선택 구성요소, --minimal 밖 (DESC 가 없으면 set -u 로 --list 가 멈춘다)
         line = next(ln for ln in r.stdout.splitlines() if ln.split()[:1] == [emu])
         assert line.endswith("[선택]") and "[minimal]" not in line, line
     for step in STEPS:
@@ -220,7 +220,7 @@ def _avr_run_source_version() -> str:
 
 def test_emulation_components_are_optional_and_pinned():
     text = SCRIPT.read_text(encoding="utf-8")
-    assert _shell_value(text, "ALL_COMPONENTS").split()[-3:] == ["esptool", "qemu_esp", "simavr"]  # 맨 끝에 더한다
+    assert _shell_value(text, "ALL_COMPONENTS").split()[13:16] == ["esptool", "qemu_esp", "simavr"]
     assert {"qemu_esp", "simavr"} <= set(_shell_value(text, "OPTIONAL_COMPONENTS").split())
     assert not {"qemu_esp", "simavr"} & set(_shell_value(text, "MINIMAL_COMPONENTS").split())
     assert re.search(r"^\s*\[qemu_esp\]=", text, re.M) and re.search(r"^\s*\[simavr\]=", text, re.M)   # set -u: DESC 가 꼭 있어야 한다

@@ -6,6 +6,7 @@
 #   ./scripts/install.sh --minimal        # Python + sigrok + OpenOCD + squashfs/u-boot 도구만 (아래 단계는 하지 않음)
 #   ./scripts/install.sh --only ghidra,jdk
 #   ./scripts/install.sh --only qemu_esp,simavr   # 펌웨어 에뮬레이션(pweh-emu)의 선택 구성요소만: Espressif QEMU + simavr/pweh_avr_run
+#   ./scripts/install.sh --only tesseract,zbar   # 정지 이미지 OCR(eng/kor)·QR, 검증된 배포판 잠금 자료만 사용
 #   ./scripts/install.sh --skip rea,binwalk
 #   ./scripts/install.sh --only mcp,skills,verify   # 도구는 다시 설치하지 않고 MCP 등록·Skill 링크·점검만
 #   ./scripts/install.sh --dry-run        # 아무것도 바꾸지 않고 MCP 등록·Codex 신뢰가 바꿀 내용(diff)만 보여 줌
@@ -53,7 +54,9 @@
 #   해시는 고정하지 않으며 (npm 패키지의 설치 스크립트가 실행되고, esptool 소스 배포판을 빌드하는 setuptools 도 PyPI 에서 받음),
 #   binwalk 의존성은 Cargo.lock(--locked) 의 체크섬으로 검증된다.
 # - 압축 해제 전에 절대 경로, '..', 밖을 가리키는 링크, 장치 파일을 거부한다. 배포판 패키지의 설치 스크립트는 실행하지 않는다.
-# - 이미 설치된 구성요소는 건너뛴다. 선택 구성요소(erofs, binwalk, rea, esptool, qemu_esp, simavr)가 실패해도 나머지는 계속한다.
+# - 이미 설치된 구성요소는 건너뛴다. 선택 구성요소(erofs, binwalk, rea, esptool, qemu_esp, simavr, tesseract, zbar)가 실패해도 나머지는 계속한다.
+# - 이미지 OCR·QR의 .deb와 언어 모델은 scripts/image-tools-lock.json의 SHA256으로 고정한다.
+#   지원 잠금 자료는 Ubuntu 22.04 x86_64이며 다른 환경을 임의 apt 버전으로 대체하지 않는다.
 # - 펌웨어 에뮬레이션(pweh-emu) 구성요소는 선택이고 --minimal 에 없다:
 #   qemu_esp  Espressif QEMU 릴리스 tar.xz 두 개(sha256 고정)를 <prefix>/qemu-esp/{xtensa,riscv32} 에 푼다 (bin/·share/qemu 함께).
 #             공유 라이브러리가 없으면 개인 경로에 받지 않고, 빠진 라이브러리와 관리자용 배포판 패키지 목록을 알린다.
@@ -128,9 +131,9 @@ QEMU_RISCV32_SHA=547f03e04701a92cbb699f7f7d015adc1f5b5ef93cbb94c0dd9b7107e2d84e7
 SIMAVR_GIT="https://github.com/buserror/simavr.git"
 SIMAVR_COMMIT=5b08da60497f7564f50941f74a549fe2851db030
 
-ALL_COMPONENTS="python sigrok openocd squashfs uboot zig jdk ghidra unblob extractors erofs binwalk rea esptool qemu_esp simavr"
+ALL_COMPONENTS="python sigrok openocd squashfs uboot zig jdk ghidra unblob extractors erofs binwalk rea esptool qemu_esp simavr tesseract zbar"
 MINIMAL_COMPONENTS="python sigrok openocd squashfs uboot"
-OPTIONAL_COMPONENTS="erofs binwalk rea esptool qemu_esp simavr"   # 실패해도 설치 전체를 실패로 보지 않는다 (경고만)
+OPTIONAL_COMPONENTS="erofs binwalk rea esptool qemu_esp simavr tesseract zbar"   # 실패해도 설치 전체를 실패로 보지 않는다 (경고만)
 SKIP_RC=99   # install_* 가 이 값으로 끝나면 "건너뜀" (빌드 도구 같은 전제 조건이 없음). 실패로 세지 않는다
 
 declare -A DESC=(
@@ -150,6 +153,8 @@ declare -A DESC=(
   [esptool]="esptool ${ESPTOOL_VER} (ESP32 계열 칩·보안 정보, 플래시 읽기) + WSL 이면 Windows esptool.exe (방법 A: interop 으로 COM 포트, 선택)"
   [qemu_esp]="Espressif QEMU 9.2.2 (${QEMU_ESP_VER}) — qemu-system-xtensa(ESP32·S3)·qemu-system-riscv32(C3), 펌웨어 에뮬레이션 (선택)"
   [simavr]="simavr(커밋 ${SIMAVR_COMMIT:0:12}) + PWEH AVR 실행기 pweh_avr_run 소스 빌드 (Arduino AVR 에뮬레이션, C 컴파일러 또는 PWEH zig, 선택)"
+  [tesseract]="Tesseract + eng/kor/osd 언어 데이터 (SHA256 고정 .deb, Ubuntu 22.04 x86_64, 선택)"
+  [zbar]="ZBar zbarimg (SHA256 고정 .deb, Ubuntu 22.04 x86_64, 정규화 이미지 QR·바코드, 선택)"
 )
 # 구성요소와 env.sh 다음에 이 순서로 도는 단계. 구성요소처럼 --only/--skip 으로 고르고, --minimal 에는 넣지 않는다
 STEPS="mcp skills verify"
@@ -466,6 +471,19 @@ deb_fetch_extract() {  # deb_fetch_extract <cache-subdir> <root> <패키지...>
   local sub=$1 root=$2; shift 2
   local dir="$CACHE/$sub" pkgs uris line url file hash algo hex n=0 p
   mkdir -p "$dir" "$root"
+  if [ "${1:-}" = --locked ]; then  # 이미지 도구: apt 후보 대신 저장소에 검증·고정한 계획만 쓴다
+    local lock=$2 component=$3 plan version
+    plan="$("$PY" "$REPO/scripts/image_tools_lock.py" plan "$component" --lock "$lock" --record "$root/install.json")" || return 1
+    while IFS=$'\t' read -r p version url hex; do
+      [ -n "$p" ] || continue
+      file=${url##*/}
+      fetch "$url" "$dir/$file" "$hex" sha256
+      dpkg-deb -x "$dir/$file" "$root"
+      n=$((n + 1))
+    done <<<"$plan"
+    info "고정한 배포판 패키지 ${n}개를 $root 에 풀었음 (시스템 런타임 재사용은 install.json 에 구분)"
+    return 0
+  fi
   for p in "$@"; do  # 색인이 비었거나 오래되면 닫힘이 비어 "모두 설치됨" 으로 잘못 보인다
     [ "$(dpkg-query -W -f='${db:Status-Abbrev}' "$p" 2>/dev/null | cut -c1-2)" = ii ] || deb_has_candidate "$p" \
       || { echo "apt 색인에 받을 수 있는 '$p' 가 없습니다 (가상 패키지이거나 색인이 오래됨). 관리자가 'sudo apt-get update' 를 한 번 실행해야 할 수 있습니다." >&2; return 1; }
@@ -996,6 +1014,81 @@ version_esptool() {
   printf '%s\n' "$s"
 }
 
+# 이미지 힌트 (Pillow 정규화 이미지 → Tesseract / zbarimg)
+IMAGE_TOOLS_LOCK="$REPO/scripts/image-tools-lock.json"
+image_lock_ok() {
+  [ -n "$PY" ] && [ -f "$PREFIX/$1/lock.sha256" ] && [ -f "$IMAGE_TOOLS_LOCK" ] || return 1
+  [ "$(cat "$PREFIX/$1/lock.sha256")" = "$(sha256sum "$IMAGE_TOOLS_LOCK" | cut -d' ' -f1)" ] || return 1
+  "$PY" "$REPO/scripts/image_tools_lock.py" version "$1" --lock "$IMAGE_TOOLS_LOCK" >/dev/null
+}
+check_tesseract() {
+  image_lock_ok tesseract && [ -x "$B/tesseract" ] && [ -n "$PY" ] || return 1
+  local out
+  out="$(timeout 10 "$B/tesseract" --version 2>/dev/null)" || return 1
+  [ "${out%%$'\n'*}" = 'tesseract 4.1.1' ] || return 1
+  "$PY" "$REPO/scripts/image_tools_lock.py" verify-models tesseract --lock "$IMAGE_TOOLS_LOCK" --models "$PREFIX/tesseract/tessdata" || return 1
+  out="$(timeout 10 "$B/tesseract" --tessdata-dir "$PREFIX/tesseract/tessdata" --list-langs 2>/dev/null)" || return 1
+  [[ $'\n'"$out"$'\n' == *$'\neng\n'* && $'\n'"$out"$'\n' == *$'\nkor\n'* ]]
+}
+install_tesseract() {
+  [ -n "$PY" ] && [ "$HAVE_APT" = 1 ] || { echo "Python 3.10+ 와 dpkg-deb 가 필요합니다" >&2; return "$SKIP_RC"; }
+  local root="$PREFIX/tesseract/root" data="$PREFIX/tesseract/tessdata" lang
+  mkdir -p "$data"
+  rm -f "$PREFIX/tesseract/lock.sha256"
+  deb_fetch_extract debs-image-tools "$root" --locked "$IMAGE_TOOLS_LOCK" tesseract
+  for lang in eng kor osd; do
+    cp "$root/usr/share/tesseract-ocr/4.00/tessdata/$lang.traineddata" "$data/$lang.traineddata"
+  done
+  mkdir -p "$data/configs"
+  printf 'tessedit_create_tsv 1\n' >"$data/configs/tsv"
+  make_wrapper "$B/tesseract" "$root/usr/bin/tesseract" "$root" \
+    "export TESSDATA_PREFIX='$data'" 'export OMP_THREAD_LIMIT=1'
+  sha256sum "$IMAGE_TOOLS_LOCK" | cut -d' ' -f1 >"$PREFIX/tesseract/lock.sha256"
+  check_tesseract
+}
+version_tesseract() { timeout 10 "$B/tesseract" --version 2>/dev/null | head -1; }
+check_zbar() {
+  image_lock_ok zbar && [ -x "$B/zbarimg" ] || return 1
+  local out rc=0
+  out="$(timeout 10 "$B/zbarimg" --version 2>/dev/null)" || return 1
+  [ "$out" = 0.23.92 ] || return 1
+  # 버전 조회만으로는 재배치한 ImageMagick 모듈을 검사하지 못한다. 합성 2×2 PGM 의 '코드 없음'(4)을 확인한다.
+  printf 'P5\n2 2\n255\n\377\377\377\377' | timeout 10 "$B/zbarimg" --quiet --xml --nodbus --nodisplay PGM:- >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 4 ]
+}
+install_zbar() {
+  [ -n "$PY" ] && [ "$HAVE_APT" = 1 ] || { echo "Python 3.10+ 와 dpkg-deb 가 필요합니다" >&2; return "$SKIP_RC"; }
+  local root="$PREFIX/zbar/root" policy="$PREFIX/zbar/policy" coder
+  mkdir -p "$policy"
+  rm -f "$PREFIX/zbar/lock.sha256"
+  deb_fetch_extract debs-image-tools "$root" --locked "$IMAGE_TOOLS_LOCK" zbar
+  coder="$root/usr/lib/$LIBDIR/ImageMagick-6.9.11/modules-Q16/coders"
+  [ -f "$coder/pnm.so" ] || { echo "고정 ImageMagick PNM 모듈이 없습니다: $coder" >&2; return 1; }
+  # worker 가 만든 PNG/PGM 만 읽는다. 외부 delegate·필터는 필요하지 않다.
+  cat >"$policy/policy.xml" <<'XML'
+<policymap>
+  <policy domain="delegate" rights="none" pattern="*"/>
+  <policy domain="filter" rights="none" pattern="*"/>
+  <policy domain="coder" rights="none" pattern="*"/>
+  <policy domain="coder" rights="read" pattern="{PNG,PNM,PGM,PPM}"/>
+  <policy domain="path" rights="none" pattern="@*"/>
+  <policy domain="resource" name="memory" value="256MiB"/>
+  <policy domain="resource" name="map" value="0"/>
+  <policy domain="resource" name="disk" value="0"/>
+  <policy domain="resource" name="width" value="16384"/>
+  <policy domain="resource" name="height" value="16384"/>
+  <policy domain="resource" name="thread" value="1"/>
+</policymap>
+XML
+  make_wrapper "$B/zbarimg" "$root/usr/bin/zbarimg" "$root" \
+    "export MAGICK_CODER_MODULE_PATH='$coder'" "export MAGICK_CONFIGURE_PATH='$policy'" \
+    'unset MAGICK_HOME MAGICK_FILTER_MODULE_PATH DISPLAY DBUS_SESSION_BUS_ADDRESS' \
+    'export OMP_THREAD_LIMIT=1'
+  sha256sum "$IMAGE_TOOLS_LOCK" | cut -d' ' -f1 >"$PREFIX/zbar/lock.sha256"
+  check_zbar
+}
+version_zbar() { timeout 10 "$B/zbarimg" --version 2>/dev/null; }
+
 # 펌웨어 에뮬레이션 (pweh-emu, mcp-servers/emu-mcp). 실행 파일은 <prefix>/bin 에 링크하지 않는다 — 서버는 env.sh 의 절대 경로만 쓴다
 # (배포판 QEMU 등 다른 실행 파일과 섞이지 않게). 위치 규칙은 src/pweh/toolsdir.py 의 emu_binary_candidates 와 같다.
 QEMU_XTENSA_BIN="$PREFIX/qemu-esp/xtensa/qemu/bin/qemu-system-xtensa"
@@ -1183,6 +1276,11 @@ write_env() {
     # emu-mcp 서버의 tools.qemu_xtensa / tools.qemu_riscv32 / tools.avr_run: 확인을 통과한 절대 경로만 (PATH 에는 넣지 않는다)
     if check_qemu_esp; then echo "export PWEH_QEMU_XTENSA='$QEMU_XTENSA_BIN'"; echo "export PWEH_QEMU_RISCV32='$QEMU_RISCV32_BIN'"; fi
     if check_simavr 2>/dev/null; then echo "export PWEH_AVR_RUN='$AVR_RUN'"; fi
+    if check_tesseract 2>/dev/null; then
+      echo "export PWEH_TESSERACT='$B/tesseract'"
+      echo "export PWEH_TESSDATA_DIR='$PREFIX/tesseract/tessdata'"
+    fi
+    if check_zbar 2>/dev/null; then echo "export PWEH_ZBARIMG='$B/zbarimg'"; fi
     if [ -x "$B/rea" ]; then echo "export PWEH_REA='$B/rea'"; fi
     if [ -x "$PREFIX/extractors/bin/lz4" ]; then echo "export PWEH_LZ4='$PREFIX/extractors/bin/lz4'"; fi
   } >"$f.tmp"

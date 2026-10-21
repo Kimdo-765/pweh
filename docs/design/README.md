@@ -12,6 +12,7 @@
 | [port-routing.md](port-routing.md) | 실행 환경 감지(WSL2/WSL1/리눅스/macOS/Windows)와 물리 연결 라우팅(COM·USB·libusb·캡처·블록 장치), 포트 잠금, Windows COM 헬퍼 |
 | [game-console-flipper-rf.md](game-console-flipper-rf.md) | 게임 콘솔 분석(NFC 동작, 해금 조건, 하이 스코어 — 저장값 수정·플레이 자동화)과 Flipper Zero·RTL-SDR 하드웨어·주파수 분석 |
 | [sd-forensics.md](sd-forensics.md) | SD 카드 포렌식: 증거 분석(이미지·해시·보관 기록·복구·카빙·CCTV 인덱스·타임라인)과 보안 분석(SD 공격 표면, 카드의 민감 정보) |
+| [image-hints.md](image-hints.md) | 정지 이미지: 공통 해독기, OCR·QR·메타데이터·구조 지표, 증거 보관 기록과 모델 시각 관찰 |
 | [emulation.md](emulation.md) | 구현(증분 B): ESP32·S3·C3 QEMU, Arduino AVR simavr 펌웨어 실행. 출처 확인·봉인 memfd·마스킹 콘솔·세션 수명·고정 백엔드 설치 |
 | [esp32-instrument.md](esp32-instrument.md) | ESP32 기반 계측기 MCP(pweh-espprobe): PWEH 전용 펌웨어로 SPI/I2C 읽기·핀 찾기·전압 조사·로직 캡처·UART 브리지, (선택) Wi-Fi/BLE 수동 분석 |
 

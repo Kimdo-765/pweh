@@ -9,15 +9,21 @@ Skill 사이의 데이터 전달은 이 서버가 관리하는 케이스 디렉�
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
+
+from mcp.types import CallToolResult, ImageContent, TextContent
 
 from pweh import hostenv, safeio, schemas
 from pweh.case import PIPELINE_PHASES, PHASE_STATUSES
 from pweh.errors import NotFound, ValidationFailed
 from pweh.fsutil import is_within
-from pweh.mcpkit import ANN_LOCAL_WRITE, ANN_READ_ONLY, create_server, run_blocking, safe_tool
+from pweh.mcpkit import ANN_LOCAL_WRITE, ANN_READ_ONLY, create_server, run_blocking, run_blocking_cancellable, safe_tool
 from pweh.report import write_report
 from pweh.runtime import Runtime, get_runtime
 
@@ -35,7 +41,7 @@ server = create_server(
 )
 
 
-_FORENSICS_HINT = "카드 이미지·복구 파일은 pweh-forensics 도구(forensics_*)로만 다룬다(해시는 forensics_evidence_list·forensics_extract 결과에 있다)."
+_FORENSICS_HINT = "카드 이미지·복구 파일은 pweh-forensics 도구로만 다룬다(정지이미지는 forensics_image_hints, 해시는 forensics_evidence_list·forensics_extract)."
 
 
 def _refuse_case_protected(path: str | Path, what: str) -> None:
@@ -85,6 +91,66 @@ def _sha256_fd(fd: int) -> str:
 
 def rt() -> Runtime:
     return get_runtime(SERVER_NAME)
+
+
+@server.tool(
+    description=(
+        "케이스의 정지이미지 파일 1개를 오프라인 분석한다(소유/허가 확인 필수, 최대 64 MiB). "
+        "메타데이터·구조·OCR(kor+eng 기본)·QR/바코드·스테가노그래피 단서를 JSON 으로, "
+        "정규화 PNG 를 MCP 이미지 콘텐츠로 반환한다. OCR·코드는 마스킹하지 않으며 URL 을 열지 않는다. "
+        "crop=[x,y,width,height] 는 EXIF 방향을 적용한 좌표; 원본 전체 메타데이터·구조와 별도로 확대 미리보기를 만든다. "
+        "preview=false 면 이미지 콘텐츠 없음. 동영상·오디오·다중 프레임은 해독하지 않는다. "
+        "선택·읽기·분석 전체 max_seconds 기본/최대 45초. JSON·PNG 는 analysis/ 에 0444 로 저장·해시 등록한다. "
+        "forensics/·emu/ 는 받지 않는다(증거의 정지이미지는 forensics_image_hints)."
+    ),
+    annotations=ANN_LOCAL_WRITE,
+)
+@safe_tool
+async def case_image_hints(case_id: str, path: str, ocr: bool = True, ocr_lang: str = "kor+eng", qr: bool = True,
+                           preview: bool = True, crop: list[int] | None = None, max_seconds: float = 45.0) -> CallToolResult:
+    from pweh import evidence as E
+    from pweh.imagehints import MAX_INPUT_BYTES, analyze_image, resolve_image_tools
+
+    deadline = E.image_hints_deadline(max_seconds)
+    cancelled = threading.Event()
+
+    def work() -> CallToolResult:
+        case = rt().case(case_id, hardware=True)
+        raw = Path(path) if Path(path).is_absolute() else case.dir / path
+        _refuse_case_protected(raw, "분석할 수 없습니다")
+        p = case.resolve_path(path)
+        _refuse_case_protected(p, "분석할 수 없습니다")
+        rel = p.relative_to(case.dir.resolve())
+        dfd = safeio.open_dir_chain(case.dir, rel.parts[:-1])
+        try:
+            fd, _ = safeio.open_regular(rel.name, dir_fd=dfd, what="정지이미지")
+        finally:
+            os.close(dfd)
+        try:
+            real = safeio.fd_real_path(fd)
+            if real is not None:
+                if not is_within(case.dir, real):
+                    raise ValidationFailed("실제로 연 이미지가 케이스 밖에 있습니다.")
+                _refuse_case_protected(real, "분석할 수 없습니다")
+            data = E.read_image_bytes(fd, max_bytes=MAX_INPUT_BYTES, deadline=deadline, cancel=cancelled.is_set)
+        finally:
+            os.close(fd)
+        options = {"ocr": ocr, "ocr_lang": ocr_lang, "qr": qr, "preview": preview, "crop": crop, "max_seconds": max_seconds}
+        result = analyze_image(data, settings=resolve_image_tools(rt().config), **{**options, "max_seconds": E.image_hints_checkpoint(deadline, cancelled.is_set)},
+                               cancel_event=cancelled)
+        report = {**result["report"], "source": {"kind": "case-file", "path": rel.as_posix(), "size": len(data),
+                                                "sha256": hashlib.sha256(data).hexdigest()}, "params": options}
+
+        def check() -> None:
+            if cancelled.is_set():
+                raise E.EvidenceError("이미지 분석이 취소되었습니다.", code="cancelled")
+
+        out = E.store_image_hints(case, report, result["previews"], check=check)
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(out, ensure_ascii=False)), *[
+            ImageContent(type="image", data=base64.b64encode(p["data"]).decode("ascii"), mime_type=p["mime_type"])
+            for p in result["previews"]]], structured_content=out)
+
+    return await run_blocking_cancellable(work, on_cancel=cancelled.set)
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +281,7 @@ def _paths(case) -> dict[str, Any]:
         "Skill 단계 결과 저장. 각 Skill 의 마지막에 step='summary' 로 호출해야 하며, 이때 data 는 해당 Skill 의 출력 스키마를 "
         "따라야 한다 (uart-shell-acquisition→uart-recon, firmware-dump-via-uart→firmware-dump, firmware-static-analysis→"
         "static-analysis, logic-analyzer-protocol-decode→signal-capture, cctv-auth-bypass-hunt→auth-hunt, "
-        "game-save-unlock-analysis→save-analysis, sd-card-forensics→sd-forensics, firmware-emulation→emulation; schema_get 으로 확인). "
+        "game-save-unlock-analysis→save-analysis, sd-card-forensics→sd-forensics, firmware-emulation→emulation, image-hints-analysis→image-hints; schema_get 으로 확인). "
         "status: success|partial|failed|blocked|skipped|in-progress. artifacts 는 케이스 상대 경로 목록."
     ),
     annotations=ANN_LOCAL_WRITE,
@@ -534,7 +600,7 @@ def approvals_pending() -> dict[str, Any]:
 
 
 @server.tool(
-    description="PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt, save-analysis, sd-forensics, emulation.",
+    description="PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt, save-analysis, sd-forensics, emulation, image-hints.",
     annotations=ANN_READ_ONLY,
 )
 @safe_tool

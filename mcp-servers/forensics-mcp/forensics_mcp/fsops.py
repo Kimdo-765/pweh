@@ -742,6 +742,58 @@ def resolve_targets(vol: Any, refs: Iterable[str], paths: Iterable[str], *, limi
     return targets, unresolved
 
 
+def read_selected_image(img: ImageReader, *, partition: int | None, ref: str | None, path: str | None,
+                        method: str, max_bytes: int, deadline: float, cancel: Callable[[], bool]) -> tuple[bytes, dict[str, Any]]:
+    """FAT/exFAT 의 검증된 파일 1개를 읽는다. 디렉터리 도달 가능성·완전한 복구 계획을 먼저 확인한다.
+
+    ref 는 목록과 같은 검증 순회를 거치고 path 는 검증된 디렉터리 lookup 을 쓴다. 삭제 파일은 선택한 복구 방법·신뢰도를
+    출처에 남긴다. 잘린/예산 부족 계획을 완전한 정지이미지로 넘기지 않는다. 호스트 추출 파일을 만들거나 다시 열지 않는다.
+    """
+    from pweh.evidence import image_hints_checkpoint
+
+    def check() -> None:
+        image_hints_checkpoint(deadline, cancel)
+
+    left = image_hints_checkpoint(deadline, cancel)
+    limits = dataclasses.replace(Limits(), max_seconds=left, max_read_bytes=max_bytes)
+    p, vol = open_partition_volume(img, partition, limits=limits,
+                                    budget=engine_budget(None, limits, deadline=deadline, cancel=cancel))
+    check()
+    entries, unresolved = resolve_targets(vol, [ref] if ref else [], [path] if path else [], limits=limits,
+                                           deadline=deadline, check=check, cancel=cancel)
+    if unresolved or len(entries) != 1:
+        reason = str(unresolved[0].get("code")) if unresolved else "not_found"
+        raise FsError("이미지 파일 1개를 검증해 선택하지 못했습니다.", reason=reason, data={"unresolved": unresolved})
+    entry = entries[0]
+    if entry.get("is_dir"):
+        raise FsError("디렉터리는 이미지로 분석하지 않습니다.", reason="bad_argument")
+    check()
+    plan = vol.content_plan(entry["ref"], method, "data", limits=limits,
+                            budget=engine_budget(vol, limits, deadline=deadline, cancel=cancel))
+    pd = plan.to_dict(max_runs=0)
+    check()
+    if not pd.get("complete") or pd.get("limit_reason") or pd.get("status") == "limit" or pd.get("bytes_beyond_image"):
+        raise FsError("파일 내용 계획이 불완전해 이미지 분석에 넘기지 않습니다.", reason="incomplete_file",
+                       data={k: pd.get(k) for k in ("complete", "status", "limit_reason", "bytes_beyond_image")})
+    if not 0 < plan.size <= max_bytes:
+        raise FsError(f"이미지는 0 바이트 초과, {max_bytes} 바이트 이하여야 합니다.", reason="bad_argument")
+    chunks: list[bytes] = []
+    size = 0
+    for chunk in vol.iter_plan(plan, max_bytes=max_bytes):
+        check()
+        size += len(chunk)
+        if size > max_bytes:
+            raise FsError("이미지 크기 상한을 넘었습니다.", reason="bad_argument")
+        chunks.append(chunk)
+    if size != plan.size:
+        raise FsError("이미지 파일 내용을 끝까지 읽지 못했습니다.", reason="incomplete_file")
+    data = b"".join(chunks)
+    return data, {"partition": p.get("index"), "ref": entry.get("ref"), "path": entry.get("display_path"),
+                  "requested_path": entry.get("requested_path"), "deleted": bool(entry.get("deleted")),
+                  "method": pd.get("method"), "confidence": pd.get("confidence"), "complete": True,
+                  "note": pd.get("note"), "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+
 def extract_entries(vol: Any, entries: Iterable[dict[str, Any]], out_dir_fd: int, *, method: str, region: str, max_bytes_total: int,
                     max_files: int, limits: Limits | None = None, deadline: float | None = None,
                     cancel: Callable[[], bool] | None = None) -> dict[str, Any]:

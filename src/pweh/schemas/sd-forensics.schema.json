@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pweh.local/schemas/sd-forensics.schema.json",
   "title": "sd-card-forensics 요약 data",
-  "description": "카메라·블랙박스 SD 카드 이미지의 증거 분석(접수·해시·보관 기록·파일 시스템·삭제 파일)과 보안 분석(펌웨어의 SD 공격 표면·부팅 로그의 SD 이벤트) 요약. 녹화 내용은 열지 않는다 — 개수·범위·해시만. privacy 의 네 값은 항상 false 다. 잘림·불완전(forensics_fs_list·forensics_image_check·forensics_extract 의 truncated·truncated_reasons, 해석하지 못한 볼륨 call.volumes_failed, 검증하지 못한 디렉터리 unvalidated_dirs)과 사람이 읽는 상태 표시(status_label)는 이 스키마에 필드가 없다 — notes 에 적는다(그때 filesystems·contamination·recovered 는 본 범위만의 값이다).",
+  "description": "카메라·블랙박스 SD 카드 이미지의 증거 분석(접수·해시·보관 기록·파일 시스템·삭제 파일)과 보안 분석(펌웨어의 SD 공격 표면·부팅 로그의 SD 이벤트) 요약. 영상·음성 내용은 열지 않는다. 정지 그림은 forensics_image_hints의 미리보기·OCR만 허용하며 image-hints-analysis 요약으로 기록한다. privacy의 기존 네 값은 false이고 정지 이미지 반환 여부를 별도 필드로 기록한다. 잘림·불완전(forensics_fs_list·forensics_image_check·forensics_extract 의 truncated·truncated_reasons, 해석하지 못한 볼륨 call.volumes_failed, 검증하지 못한 디렉터리 unvalidated_dirs)과 사람이 읽는 상태 표시(status_label)는 이 스키마에 필드가 없다 — notes 에 적는다(그때 filesystems·contamination·recovered 는 본 범위만의 값이다).",
   "type": "object",
   "required": [
     "mode",
@@ -371,13 +371,24 @@
           "const": false
         },
         "face_plate_processing": {
-          "const": false
+          "const": false,
+          "description": "얼굴 신원 식별·번호판 조회 등 별도 식별 처리. 정지 그림의 일반 OCR은 still_image_ocr_returned로 기록한다."
         },
         "uploads": {
-          "const": false
+          "const": false,
+          "description": "외부 OCR 서비스·제3자 제공 업로드. 허용된 MCP 이미지 콘텐츠 전달은 still_image_content_viewed로 기록한다."
         },
         "recording_content_viewed": {
-          "const": false
+          "const": false,
+          "description": "영상·음성 녹화 내용의 열람. 정지 그림은 still_image_content_viewed로 구분한다."
+        },
+        "still_image_content_viewed": {
+          "type": "boolean",
+          "description": "forensics_image_hints의 정규화 미리보기를 모델이 확인했는지. 생략은 기존 요약과의 호환을 위한 것이며 새 분석은 명시한다."
+        },
+        "still_image_ocr_returned": {
+          "type": "boolean",
+          "description": "정지 이미지의 마스킹하지 않은 OCR 문구가 반환되었는지."
         }
       },
       "additionalProperties": false
@@ -387,6 +398,13 @@
       "items": {
         "type": "string"
       }
+    },
+    "image_hint_results": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "정지 이미지 분석 JSON 경로. 내용·가설·시각 관찰은 별도의 image-hints summary에 기록한다."
     }
   },
   "allOf": [

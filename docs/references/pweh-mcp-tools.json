@@ -3,6 +3,67 @@
   "module": "case_mcp.server",
   "tools": [
    {
+    "name": "case_image_hints",
+    "description": "케이스의 정지이미지 파일 1개를 오프라인 분석한다(소유/허가 확인 필수, 최대 64 MiB). 메타데이터·구조·OCR(kor+eng 기본)·QR/바코드·스테가노그래피 단서를 JSON 으로, 정규화 PNG 를 MCP 이미지 콘텐츠로 반환한다. OCR·코드는 마스킹하지 않으며 URL 을 열지 않는다. crop=[x,y,width,height] 는 EXIF 방향을 적용한 좌표; 원본 전체 메타데이터·구조와 별도로 확대 미리보기를 만든다. preview=false 면 이미지 콘텐츠 없음. 동영상·오디오·다중 프레임은 해독하지 않는다. 선택·읽기·분석 전체 max_seconds 기본/최대 45초. JSON·PNG 는 analysis/ 에 0444 로 저장·해시 등록한다. forensics/·emu/ 는 받지 않는다(증거의 정지이미지는 forensics_image_hints).",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "ocr",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "ocr_lang",
+      "type": "string",
+      "required": false,
+      "default": "kor+eng"
+     },
+     {
+      "name": "qr",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "preview",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "crop",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 45.0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
     "name": "case_create",
     "description": "새 분석 케이스 생성. authorization 은 필수: {basis: 'owned'|'written-authorization', owner, statement(사용자가 소유/허가를 확인한 말을 그대로 인용), scope?, document_ref?(서면 허가 시 필수)}. target 예: {vendor, model, serial, hardware_rev, firmware_version, soc}. profile 은 pipeline_profiles 의 이름 (모르면 생략 → generic-ipcam).",
     "params": [
@@ -245,7 +306,7 @@
    },
    {
     "name": "case_record_step",
-    "description": "Skill 단계 결과 저장. 각 Skill 의 마지막에 step='summary' 로 호출해야 하며, 이때 data 는 해당 Skill 의 출력 스키마를 따라야 한다 (uart-shell-acquisition→uart-recon, firmware-dump-via-uart→firmware-dump, firmware-static-analysis→static-analysis, logic-analyzer-protocol-decode→signal-capture, cctv-auth-bypass-hunt→auth-hunt, game-save-unlock-analysis→save-analysis, sd-card-forensics→sd-forensics, firmware-emulation→emulation; schema_get 으로 확인). status: success|partial|failed|blocked|skipped|in-progress. artifacts 는 케이스 상대 경로 목록.",
+    "description": "Skill 단계 결과 저장. 각 Skill 의 마지막에 step='summary' 로 호출해야 하며, 이때 data 는 해당 Skill 의 출력 스키마를 따라야 한다 (uart-shell-acquisition→uart-recon, firmware-dump-via-uart→firmware-dump, firmware-static-analysis→static-analysis, logic-analyzer-protocol-decode→signal-capture, cctv-auth-bypass-hunt→auth-hunt, game-save-unlock-analysis→save-analysis, sd-card-forensics→sd-forensics, firmware-emulation→emulation, image-hints-analysis→image-hints; schema_get 으로 확인). status: success|partial|failed|blocked|skipped|in-progress. artifacts 는 케이스 상대 경로 목록.",
     "params": [
      {
       "name": "case_id",
@@ -665,7 +726,7 @@
    },
    {
     "name": "schema_get",
-    "description": "PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt, save-analysis, sd-forensics, emulation.",
+    "description": "PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt, save-analysis, sd-forensics, emulation, image-hints.",
     "params": [
      {
       "name": "name",
@@ -5351,6 +5412,91 @@
     "meta": null
    },
    {
+    "name": "forensics_image_hints",
+    "description": "증거의 정지이미지 1개를 오프라인 분석한다(소유/허가·보관 기록·open_checked 무결성 검사 필수). ref 또는 path 로 FAT/exFAT 파일 1개를 선택한다(동시 지정 금지); 둘 다 없으면 EV 자체를 정지이미지로 읽는다. 삭제 파일은 ref 와 복구 method(auto 기본)로 선택하며 방법·신뢰도·완전성을 출처에 기록한다. 불완전한 파일은 거부한다. 최대 64 MiB, 선택·읽기·분석 전체 max_seconds 기본/최대 45초. OCR(kor+eng 기본)·QR/바코드·메타데이터·구조·스테가노그래피 단서를 JSON 으로, 정규화 PNG 를 MCP 이미지 콘텐츠로 반환한다. OCR·코드는 마스킹하지 않으며 URL 을 열지 않는다. crop=[x,y,width,height] 는 EXIF 방향 적용 후 좌표. preview=false 면 이미지 콘텐츠 없음. 동영상·오디오·다중 프레임은 해독하지 않는다. JSON·PNG 를 forensics/analysis/ 에 0444 로 저장하고 image-hints 보관 기록에 입수 해시·선택한 파일 해시·출력 해시를 묶는다. 원본·복구 파일을 에이전트가 직접 열지 않는다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "evidence_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "partition",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "ref",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "method",
+      "type": "string",
+      "required": false,
+      "default": "auto"
+     },
+     {
+      "name": "ocr",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "ocr_lang",
+      "type": "string",
+      "required": false,
+      "default": "kor+eng"
+     },
+     {
+      "name": "qr",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "preview",
+      "type": "boolean",
+      "required": false,
+      "default": true
+     },
+     {
+      "name": "crop",
+      "type": "array/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "max_seconds",
+      "type": "number",
+      "required": false,
+      "default": 45.0
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
     "name": "forensics_intake_start",
     "description": "증거 이미지 접수 (job). 이미지 파일만 받는다 — 원시 디스크·장치·FIFO·빈 파일·E01, 케이스·상태 폴더 안의 파일, NUL 이 든 경로, 증거 디렉터리 예약 이름(EV-NNNN.json·imaging-log.txt·*.partial)은 거부. 케이스 소유/허가와 purpose·legal_basis·site_type(home/public/business/vehicle/mobile-business/unknown — 적용 법률이 달라진다)·business_purpose(가정용이면 '없음')·role(owner/processor/investigator/other)을 기록한다. 보관 기록(forensics/custody.jsonl)을 먼저 확인해 깨졌으면 job 없이 바로 custody_broken. 원본을 한 번 연 fd 로 읽으며 sha256·md5·sha1 을 계산해 forensics/images/EV-NNNN/<이름>.partial 로 복사하고 끝나면 이름을 바꾼다(파일 0444, 디렉터리 0555). verify_copy=true(기본)면 사본을 다시 해시한다. imaging_log_path(FTK Imager·dc3dd·ewfacquire 로그)를 주면 해시를 대조하고 로그 사본을 보관한다. 커밋 지점은 보관 기록의 intake 사건이다: 그 전에 실패·취소하면 만든 파일을 지우고 번호를 돌려놓고, 그 뒤에 온 취소는 무시한다(succeeded). 서버가 도중에 끝나 남은 접수 디렉터리는 다음 접수·서버 시작 때 forensics/aborted-intakes/ 로 옮긴다(중단 흔적이 있는 것만, 번호는 다시 쓰지 않는다). 결과(forensics_job_status 의 result): evidence_id, hashes, copy_verified, imaging_log 대조, custody_seq, next_steps — 커밋 뒤 보조 기록(integrity-failed 사건·출처 원장·아티팩트 색인)과 같은 sha256 확인(보관 기록 읽기)의 실패는 post_commit_errors·note 로 알리고 접수는 그대로다(감사 로그 실패는 서버 로그에만 남는다).",
     "params": [
@@ -5611,7 +5757,7 @@
    },
    {
     "name": "forensics_extract",
-    "description": "파일·삭제 파일 추출 (job). refs(forensics_fs_list 결과 JSON 의 ref) 또는 paths(살아 있는 파일 경로)로 고른 파일만 forensics/recovered/<label>-NNN/ 에 0444 파일로 쓴다(이름 정리·번호, 원래 경로는 manifest.json, 실행 비트·링크 없음). refs·paths 는 중복을 없앤다(같은 항목을 가리키면 하나). ref 는 루트에서 검증한 디렉터리만 따라가는 확인 순회가 그 디렉터리를 찾은 것만 받는다(요청한 디렉터리를 다 찾으면 멈춘다). 모양이 틀리거나 순회를 끝까지 돌았는데 없으면 bad_ref, 순회가 한도에서 잘렸거나 끝까지 읽지 못한 살아 있는 디렉터리(beyond_image·dir_chain_broken·dir_unreadable)가 있어 찾지 못했으면 그 ref 만 skipped 의 code refs_unverifiable(찾은 ref 는 받는다) — 검증된 ref 가 하나도 없고 paths 도 없을 때만 job 이 refs_unverifiable 로 실패한다. paths 는 이름이 정확히 같은 항목이 먼저, 없으면 대소문자 무시(글자 수를 바꾸는 접기 없음, FAT 은 8.3 이름도)로 찾고 여럿이 맞으면 code ambiguous_path 로 거부한다. 끝까지 읽지 못했거나 검증하지 못한 디렉터리에서는 대소문자까지 정확히 같은 이름만 받고(대소문자·8.3 별칭으로만 맞으면 고르지 않는다), 찾지 못하면 not_found 가 아니라 그 사유(max_dir_slots·beyond_image·dir_chain_broken·dir_unvalidated, 읽지 못한 디렉터리는 dir_unreadable)가 code 다 — manifest·응답의 path 는 디스크의 이름이고 호출자 철자가 다르면 requested_path. method: auto(가장 믿을 만한 후보) 또는 후보 이름(그 후보만 만든다) — 살아 있는 파일 chain·nofatchain, 삭제한 FAT 파일 contiguous·skip-allocated·skip-claimed·fat-chain, 삭제한 exFAT 파일 stale-chain·contiguous·skip-allocated. 파일마다 method·confidence·note·status(예산 때문에 덜 만든 계획은 'limit' + limit_reason)가 manifest 에 남는다. region='residual' 이면 exFAT ValidDataLength 뒤 잔여 영역(이전 녹화 흔적)만. 상한: max_files(기본 200, 최대 1000), max_bytes(기본 1 GiB, 최대 4 GiB), job 300초 — 덜 쓰면 truncated_reasons(max_files·max_bytes·time·steps·cancelled·refs_unverifiable·max_depth·max_dir_slots·beyond_image·dir_chain_broken·dir_unreadable·dir_unvalidated)와 next_steps. 내용이 이미지 끝 너머라 덜 읽은 파일은 상한이 아니라 파일 기록의 complete=false·bytes_beyond_image 다. 취소는 엔진 계산 중에도 받아들인다: 시도하지 않은 항목은 skipped('취소됨'), manifest 에 'cancelled', job 은 cancelled(보관 기록 extract 뒤에 온 취소는 무시). 실패한 추출은 출력 디렉터리를 지운다. 응답·보관 기록에는 해시·크기·방법만 남고 내용은 돌려주지 않는다 — 에이전트는 추출물을 열지 않는다(사람이 자기 플레이어로 본다).",
+    "description": "파일·삭제 파일 추출 (job). refs(forensics_fs_list 결과 JSON 의 ref) 또는 paths(살아 있는 파일 경로)로 고른 파일만 forensics/recovered/<label>-NNN/ 에 0444 파일로 쓴다(이름 정리·번호, 원래 경로는 manifest.json, 실행 비트·링크 없음). refs·paths 는 중복을 없앤다(같은 항목을 가리키면 하나). ref 는 루트에서 검증한 디렉터리만 따라가는 확인 순회가 그 디렉터리를 찾은 것만 받는다(요청한 디렉터리를 다 찾으면 멈춘다). 모양이 틀리거나 순회를 끝까지 돌았는데 없으면 bad_ref, 순회가 한도에서 잘렸거나 끝까지 읽지 못한 살아 있는 디렉터리(beyond_image·dir_chain_broken·dir_unreadable)가 있어 찾지 못했으면 그 ref 만 skipped 의 code refs_unverifiable(찾은 ref 는 받는다) — 검증된 ref 가 하나도 없고 paths 도 없을 때만 job 이 refs_unverifiable 로 실패한다. paths 는 이름이 정확히 같은 항목이 먼저, 없으면 대소문자 무시(글자 수를 바꾸는 접기 없음, FAT 은 8.3 이름도)로 찾고 여럿이 맞으면 code ambiguous_path 로 거부한다. 끝까지 읽지 못했거나 검증하지 못한 디렉터리에서는 대소문자까지 정확히 같은 이름만 받고(대소문자·8.3 별칭으로만 맞으면 고르지 않는다), 찾지 못하면 not_found 가 아니라 그 사유(max_dir_slots·beyond_image·dir_chain_broken·dir_unvalidated, 읽지 못한 디렉터리는 dir_unreadable)가 code 다 — manifest·응답의 path 는 디스크의 이름이고 호출자 철자가 다르면 requested_path. method: auto(가장 믿을 만한 후보) 또는 후보 이름(그 후보만 만든다) — 살아 있는 파일 chain·nofatchain, 삭제한 FAT 파일 contiguous·skip-allocated·skip-claimed·fat-chain, 삭제한 exFAT 파일 stale-chain·contiguous·skip-allocated. 파일마다 method·confidence·note·status(예산 때문에 덜 만든 계획은 'limit' + limit_reason)가 manifest 에 남는다. region='residual' 이면 exFAT ValidDataLength 뒤 잔여 영역(이전 녹화 흔적)만. 상한: max_files(기본 200, 최대 1000), max_bytes(기본 1 GiB, 최대 4 GiB), job 300초 — 덜 쓰면 truncated_reasons(max_files·max_bytes·time·steps·cancelled·refs_unverifiable·max_depth·max_dir_slots·beyond_image·dir_chain_broken·dir_unreadable·dir_unvalidated)와 next_steps. 내용이 이미지 끝 너머라 덜 읽은 파일은 상한이 아니라 파일 기록의 complete=false·bytes_beyond_image 다. 취소는 엔진 계산 중에도 받아들인다: 시도하지 않은 항목은 skipped('취소됨'), manifest 에 'cancelled', job 은 cancelled(보관 기록 extract 뒤에 온 취소는 무시). 실패한 추출은 출력 디렉터리를 지운다. 응답·보관 기록에는 해시·크기·방법만 남고 내용은 돌려주지 않는다. 에이전트는 추출물을 직접 열지 않는다. 정지이미지는 원래 ref/path 를 forensics_image_hints 에 넘겨 분석하고, 동영상·오디오는 사람이 자기 플레이어로 확인한다.",
     "params": [
      {
       "name": "case_id",

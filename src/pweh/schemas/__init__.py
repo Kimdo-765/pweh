@@ -27,6 +27,7 @@ SKILL_DATA_SCHEMAS: dict[str, str] = {
     "game-save-unlock-analysis": "save-analysis",
     "sd-card-forensics": "sd-forensics",
     "firmware-emulation": "emulation",
+    "image-hints-analysis": "image-hints",
 }
 
 

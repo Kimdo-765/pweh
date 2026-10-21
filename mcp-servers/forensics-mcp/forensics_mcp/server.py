@@ -11,12 +11,14 @@
 - 내용 도구는 열 때마다 접수 기록을 보관 기록의 intake 사건과 대조하고, 사본을 안전하게 연 fd 로 빠른 지문(크기·mtime·앞/뒤 1 MiB
   해시)을 확인한다. 다르면 무결성 실패로 기록하고 거부한다(fail closed). 해석·재해시는 지문을 본 바로 그 fd 로 한다.
 - 파일 I/O 는 이벤트 루프 밖(워커 스레드·job)에서 한다. forensics/ 아래에는 링크를 따르지 않는 디렉터리 fd 로만 쓴다.
-- 녹화 내용(프레임·썸네일·오디오)은 에이전트 문맥으로 돌려주지 않는다 — 개수·범위·해시만. 추출물은 forensics/recovered/ 에만 쓴다.
+- 동영상 프레임·오디오는 에이전트 문맥으로 돌려주지 않는다. 정지이미지는 image-hints 전용 경로로만 분석·정규화하여 반환한다.
+  추출물은 forensics/recovered/ 에만 쓰고 에이전트가 직접 열지 않는다.
 - 이 서버는 기기에 아무것도 보내지 않는다. 사람 확인은 Claude Code 권한(쓰는 도구는 매번 확인)과 사람 증명(write-blocker)이다.
 """
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import dataclasses
 import functools
@@ -32,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 import anyio
+from mcp.types import CallToolResult, ImageContent, TextContent
 import anyio.to_thread
 
 from pweh import evidence as E
@@ -41,7 +44,7 @@ from pweh.case import CASE_ID_RE
 from pweh.errors import PwehError, ValidationFailed
 from pweh.fsutil import utcnow_iso
 from pweh.jobs import JobCancelled
-from pweh.mcpkit import ANN_LOCAL_WRITE, ANN_READ_ONLY, Context, create_server, register_job_tools, run_blocking, safe_tool
+from pweh.mcpkit import ANN_LOCAL_WRITE, ANN_READ_ONLY, Context, create_server, register_job_tools, run_blocking, run_blocking_cancellable, safe_tool
 from pweh.runtime import Runtime, get_runtime
 from pweh.safety import attestation_response
 from pweh.safety.attestations import display_text
@@ -99,7 +102,8 @@ server = create_server(
         "forensics_job_status → forensics_verify_start(사본 전체 재해시) → forensics_acquisition_attest(사람 증명: 쓰기 방지 장치) → "
         "forensics_partitions → forensics_image_check(호스트 오염 흔적) → forensics_fs_list(목록·시각·삭제 항목) → "
         "필요한 것만 forensics_extract → forensics_evidence_list(증거 목록·해시값 확인서). 녹화 내용(프레임·썸네일·오디오)은 돌려주지 않고 "
-        "추출물은 forensics/recovered/ 에만 쓴다 — 에이전트는 그 파일을 열지 않는다. 복구한 자격증명으로 어디에도 로그인하지 않는다."
+        "추출물은 forensics/recovered/ 에만 쓴다. 정지이미지 1개는 forensics_image_hints 로 검증 후 분석·정규화하여 반환한다. "
+        "에이전트는 원본·추출물을 직접 열지 않으며, 복구한 자격증명으로 어디에도 로그인하지 않는다."
     ),
 )
 
@@ -230,6 +234,101 @@ def _open_evidence_sync(case: Any, evidence_id: str) -> E.OpenedEvidence:
 
 async def open_evidence(case: Any, evidence_id: str) -> E.OpenedEvidence:
     return await run_blocking(_open_evidence_sync, case, evidence_id)
+
+
+@server.tool(
+    description=(
+        "증거의 정지이미지 1개를 오프라인 분석한다(소유/허가·보관 기록·open_checked 무결성 검사 필수). "
+        "ref 또는 path 로 FAT/exFAT 파일 1개를 선택한다(동시 지정 금지); 둘 다 없으면 EV 자체를 정지이미지로 읽는다. "
+        "삭제 파일은 ref 와 복구 method(auto 기본)로 선택하며 방법·신뢰도·완전성을 출처에 기록한다. 불완전한 파일은 거부한다. "
+        "최대 64 MiB, 선택·읽기·분석 전체 max_seconds 기본/최대 45초. OCR(kor+eng 기본)·QR/바코드·메타데이터·구조·"
+        "스테가노그래피 단서를 JSON 으로, 정규화 PNG 를 MCP 이미지 콘텐츠로 반환한다. OCR·코드는 마스킹하지 않으며 URL 을 열지 않는다. "
+        "crop=[x,y,width,height] 는 EXIF 방향 적용 후 좌표. preview=false 면 이미지 콘텐츠 없음. "
+        "동영상·오디오·다중 프레임은 해독하지 않는다. JSON·PNG 를 forensics/analysis/ 에 0444 로 저장하고 image-hints 보관 기록에 "
+        "입수 해시·선택한 파일 해시·출력 해시를 묶는다. 원본·복구 파일을 에이전트가 직접 열지 않는다."
+    ),
+    annotations=ANN_LOCAL_WRITE,
+)
+@safe_tool
+async def forensics_image_hints(case_id: str, evidence_id: str, partition: int | None = None,
+                                ref: str | None = None, path: str | None = None, method: str = "auto",
+                                ocr: bool = True, ocr_lang: str = "kor+eng", qr: bool = True,
+                                preview: bool = True, crop: list[int] | None = None, max_seconds: float = 45.0) -> CallToolResult:
+    from pweh.imagehints import MAX_INPUT_BYTES, analyze_image, resolve_image_tools
+
+    deadline = E.image_hints_deadline(max_seconds)
+    cancelled = threading.Event()
+    if ref is not None and path is not None:
+        raise ValidationFailed("ref 또는 path 중 하나만 지정하세요.")
+    if (ref is not None and not ref.strip()) or (path is not None and not path.strip()):
+        raise ValidationFailed("ref·path 는 빈 문자열일 수 없습니다.")
+    partition = _partition_arg(partition)
+    if ref is None and path is None and (partition is not None or method != "auto"):
+        raise ValidationFailed("EV 자체 이미지를 분석할 때는 partition·method 를 지정하지 않습니다.")
+
+    def check_cancelled() -> None:
+        if cancelled.is_set():
+            raise PwehError("이미지 분석이 취소되었습니다.", code="cancelled")
+
+    def work() -> CallToolResult:
+        case = rt().case(case_id, hardware=True)
+        with _open_evidence_sync(case, evidence_id) as opened:
+            def check_source() -> None:
+                after = os.fstat(opened.fd)
+                problems = E.fingerprint_problems_fd(opened.intake.get("fingerprint") or {}, opened.fd, after)
+                if opened.st.st_ctime_ns != after.st_ctime_ns:
+                    problems.append("읽기 시작 뒤 ctime 변경")
+                if problems:
+                    raise E.IntegrityProblem("이미지 분석 중 증거 사본이 변경되었습니다.", reason="fingerprint-mismatch", problems=problems)
+
+            try:
+                if ref is None and path is None:
+                    data = E.read_image_bytes(opened.fd, max_bytes=MAX_INPUT_BYTES, deadline=deadline, cancel=cancelled.is_set)
+                    member = {"partition": None, "ref": None, "path": None, "deleted": False, "method": "evidence-file",
+                              "confidence": "exact", "complete": True, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+                else:
+                    with _image(opened) as img:
+                        data, member = fsops.read_selected_image(img, partition=partition, ref=ref, path=path, method=method,
+                                                                 max_bytes=MAX_INPUT_BYTES, deadline=deadline, cancel=cancelled.is_set)
+            finally:
+                try:
+                    check_source()
+                except E.IntegrityProblem as exc:
+                    _record_integrity_failure(case, evidence_id, exc)
+                    raise
+            options = {"ocr": ocr, "ocr_lang": ocr_lang, "qr": qr, "preview": preview, "crop": crop, "max_seconds": max_seconds}
+            result = analyze_image(data, settings=resolve_image_tools(rt().config),
+                                   **{**options, "max_seconds": E.image_hints_checkpoint(deadline, cancelled.is_set)}, cancel_event=cancelled)
+            source = {"kind": "evidence", "member_selected": ref is not None or path is not None,
+                      "evidence_id": evidence_id, "evidence_sha256": (opened.intake.get("hashes") or {}).get("sha256"),
+                      "selector": {"partition": partition, "ref": ref, "path": path, "method": method}, **member}
+            if source.get("path") is None:
+                source.pop("path", None)
+            report = {**result["report"], "source": source, "params": options}
+
+            def commit(event_data: dict[str, Any]) -> dict[str, Any]:
+                def verify(entries: list[dict[str, Any]]) -> None:
+                    check_cancelled()
+                    check_source()
+                    # commit 직전 상태·접수 기록·사본을 다시 확인한다. 원본 전체 재해시를 뜻하지는 않는다.
+                    with E.open_checked(case, evidence_id, entries):
+                        pass
+
+                try:
+                    event = custody(case).append("image-hints", evidence_id=evidence_id, data=event_data, check=verify)
+                except E.IntegrityProblem as exc:
+                    _record_integrity_failure(case, evidence_id, exc)
+                    raise
+                _audit_custody(case, event)
+                return event
+
+            out = E.store_image_hints(case, report, result["previews"], forensic=True, evidence_id=evidence_id,
+                                      commit=commit, check=check_cancelled)
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(out, ensure_ascii=False)), *[
+            ImageContent(type="image", data=base64.b64encode(p["data"]).decode("ascii"), mime_type=p["mime_type"])
+            for p in result["previews"]]], structured_content=out)
+
+    return await run_blocking_cancellable(work, on_cancel=cancelled.set)
 
 
 async def _run_job(kind: str, case_id: str, description: str, fn: Any, *, exclusive_key: str | None = None,
@@ -718,13 +817,90 @@ def _int_or_zero(v: Any) -> int:
         return 0
 
 
+def _image_hint_outputs(case: Any, entries: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """image-hints 사건의 JSON·PNG 해시를 실제 바이트와 대조한다(해독하지 않음).
+
+    출력 경로는 검증된 custody 사건에서만 받으며 analysis/ 바로 아래 파일만 연다. 미기록 JSON 의 경로 필드는 따라가지 않는다.
+    """
+    prefix = "forensics/analysis/"
+    events: dict[str, dict[str, Any]] = {}
+    for e in entries or []:
+        if e.get("event") == "image-hints":
+            a = (e.get("data") or {}).get("analysis") or {}
+            if isinstance(a.get("path"), str):
+                events[a["path"]] = e
+    try:
+        dfd = E.open_forensics(case, "analysis")
+    except FileNotFoundError:
+        dfd = None
+    except PwehError as exc:
+        return [{"path": prefix.rstrip("/"), "kind": "image-hints", "custody": "unknown", "error": exc.message}]
+    names: set[str] = set()
+    if dfd is not None:
+        with os.scandir(dfd) as it:
+            names = {prefix + d.name for d in it if d.name.startswith("image-hints-") and d.name.endswith(".json")}
+    out = []
+
+    def read_output(path: str) -> bytes:
+        if not isinstance(path, str) or not path.startswith(prefix) or "/" in path[len(prefix):] or path[len(prefix):] in ("", ".", ".."):
+            raise ValidationFailed("이미지 분석 산출물 경로가 analysis/ 의 직접 자식이 아닙니다.")
+        if dfd is None:
+            raise FileNotFoundError(path)
+        return safeio.read_regular(path[len(prefix):], dir_fd=dfd, max_bytes=MANIFEST_MAX, what="이미지 분석 산출물")
+
+    try:
+        for rel in sorted(names | set(events)):
+            event = events.get(rel)
+            item: dict[str, Any] = {"path": rel, "kind": "image-hints", "custody": "unknown" if entries is None else "unrecorded"}
+            try:
+                raw = read_output(rel)
+                item["manifest_sha256"] = hashlib.sha256(raw).hexdigest()
+            except (OSError, PwehError) as exc:
+                item["error"] = "분석 JSON 을 안전하게 읽지 못했습니다."
+                if event:
+                    item["custody"] = "missing" if isinstance(exc, FileNotFoundError) else "mismatch"
+            if event:
+                data = event.get("data") or {}
+                analysis = data.get("analysis") or {}
+                item.update({"evidence_id": event.get("evidence_id"), "custody_seq": event.get("seq"), "files": 1,
+                             "bytes": _int_or_zero(analysis.get("size"))})
+                matches = item.get("manifest_sha256") == analysis.get("sha256") and "error" not in item
+                checks = []
+                previews = data.get("previews") or []
+                if not isinstance(previews, list):
+                    previews, matches = [], False
+                for p in previews:
+                    if not isinstance(p, dict):
+                        matches = False
+                        continue
+                    pc = {"path": p.get("path"), "sha256": p.get("sha256")}
+                    try:
+                        blob = read_output(p["path"])
+                        pc["actual_sha256"] = hashlib.sha256(blob).hexdigest()
+                        pc["match"] = pc["actual_sha256"] == p.get("sha256") and len(blob) == p.get("size")
+                    except (OSError, PwehError, TypeError, KeyError):
+                        pc["match"] = False
+                    matches = matches and pc["match"]
+                    checks.append(pc)
+                    item["files"] += 1
+                    item["bytes"] += _int_or_zero(p.get("size"))
+                item["previews"] = checks
+                if item["custody"] != "missing":
+                    item["custody"] = "recorded" if matches else "mismatch"
+            out.append(item)
+    finally:
+        if dfd is not None:
+            os.close(dfd)
+    return out
+
+
 def _derived_outputs(case: Any, entries: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     """forensics/recovered/*/manifest.json 요약 (개수·바이트·매니페스트 sha256)과 보관 기록 extract 사건 대조.
 
     custody: recorded(사건의 manifest_sha256 과 같음) / mismatch(다름 — 매니페스트가 바뀜) / unrecorded(사건 없음 — 서버가 만들지 않은 것)
     / missing(사건은 있는데 디렉터리·매니페스트가 없음) / unknown(보관 기록이 깨짐). 매니페스트가 객체가 아니면 error 항목으로 건너뛴다.
     링크는 따르지 않고, 매니페스트는 일반 파일만 상한까지 읽는다."""
-    out: list[dict[str, Any]] = []
+    out: list[dict[str, Any]] = _image_hint_outputs(case, entries)
     extracts: dict[str, dict[str, Any]] = {}
     for e in entries or []:
         od = (e.get("data") or {}).get("output_dir") if e.get("event") == "extract" else None
@@ -1165,7 +1341,7 @@ async def forensics_fs_list(case_id: str, evidence_id: str, partition: int | Non
                     with contextlib.suppress(OSError):
                         os.unlink(out_name, dir_fd=dfd)  # 실패·중단한 목록 파일은 남기지 않는다
                 os.close(dfd)
-        steps = ["삭제 파일은 목적에 필요한 것만 forensics_extract(case_id, evidence_id, refs=[…]) 로 복구한다(최소화) — 추출물은 열지 않는다."]
+        steps = ["삭제 파일은 목적에 필요한 것만 forensics_extract 로 복구한다. 정지이미지 1개는 forensics_image_hints(ref=…) 로 분석하며 원본·추출물을 직접 열지 않는다."]
         reasons = fsops.call_reasons(budget.limited, [s.get("truncated_reasons") or [] for s in summaries] + [layout_why])
         limited = bool(reasons) or any(s.get("truncated") for s in summaries)
         truncated = limited or budget.failed > 0  # 해석하지 못한 볼륨이 있으면 목록은 불완전하다
@@ -1209,8 +1385,8 @@ async def forensics_fs_list(case_id: str, evidence_id: str, partition: int | Non
         "dir_unvalidated)와 next_steps. 내용이 이미지 끝 너머라 덜 읽은 파일은 상한이 아니라 파일 기록의 complete=false·bytes_beyond_image "
         "다. 취소는 엔진 계산 중에도 받아들인다: "
         "시도하지 않은 항목은 skipped('취소됨'), manifest 에 'cancelled', job 은 cancelled(보관 기록 extract 뒤에 온 취소는 무시). 실패한 추출은 "
-        "출력 디렉터리를 지운다. 응답·보관 기록에는 해시·크기·방법만 남고 내용은 돌려주지 않는다 — 에이전트는 추출물을 열지 않는다(사람이 자기 "
-        "플레이어로 본다)."
+        "출력 디렉터리를 지운다. 응답·보관 기록에는 해시·크기·방법만 남고 내용은 돌려주지 않는다. 에이전트는 추출물을 직접 열지 않는다. "
+        "정지이미지는 원래 ref/path 를 forensics_image_hints 에 넘겨 분석하고, 동영상·오디오는 사람이 자기 플레이어로 확인한다."
     ),
     annotations=ANN_LOCAL_WRITE,
 )
@@ -1313,7 +1489,7 @@ async def forensics_extract(case_id: str, evidence_id: str, refs: list[str] | No
         out = {"ok": True, "evidence_id": evidence_id, "output_dir": rel, "manifest": f"{rel}/manifest.json",
                "manifest_sha256": digest, "custody_seq": entry["seq"], "bytes_total": res["bytes_total"], "truncated": bool(reasons),
                "truncated_reasons": reasons, "files": files, "skipped": skipped[:50], "skipped_total": len(skipped),
-               "note": "추출물은 열지 않는다(녹화 내용은 에이전트 문맥에 넣지 않는다). 사람이 자기 플레이어로 확인하고, 필요하면 결과를 알려 준다."}
+               "note": "원본·추출물을 직접 열지 않는다. 정지이미지는 원래 ref/path 를 forensics_image_hints 에 넘기고, 동영상·오디오는 사람이 자기 플레이어로 확인한다."}
         steps = fsops.limit_hints(reasons, tool="extract")
         if any(u.get("code") == "ambiguous_path" for u in unresolved):
             steps.append("경로가 여러 항목에 맞아(대소문자만 다른 이름 등) 고르지 않은 paths 가 있다(skipped 의 code ambiguous_path) — "

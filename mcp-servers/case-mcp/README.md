@@ -29,6 +29,7 @@ PWEH 오케스트레이션 레이어의 MCP 서버다. 분석 작업 하나를 *
 | `case_register_artifact(case_id, path, kind, description=None, producer="agent")` | 케이스 안 파일/디렉터리를 아티팩트로 등록(sha256). `kind` 어휘는 `docs/architecture.md` §3 |
 | `case_import_file(case_id, source_path, kind="firmware-image", dest_subdir="dumps", description=None)` | 케이스 밖 파일(벤더 공식 펌웨어, SPI 클립 덤프, 보드 사진)을 케이스로 복사·등록 → `artifact`, `absolute_path`, `provenance{recorded, kind: "imported-unattested", seq, sha256, note}`(출처 원장 기록 — 가져온 파일은 기기에서 읽은 것으로 취급하지 않는다. 기록에 실패하면 `recorded: false`, `reason` 이고 가져오기는 그대로 된다). `dest_subdir` 허용 값: `dumps`, `extract`, `analysis`, `signals`, `jtag`, `notes`, `uart` (다른 값은 `validation_failed`, 같은 이름의 파일이나 링크가 이미 있으면 거부). 보호 상태 디렉터리(state_dir — 승인·증명·출처 원장·솔트·감사 로그) 안의 파일은 가져오지 않는다(`validation_failed`) |
 | `case_hash_file(case_id, path, offset=0, length=None)` *(추가)* | 케이스 안 파일 또는 구간의 `sha256`, `md5`, `crc32`(+ `file_size`, `offset`, `length`). `offset`/`length` 는 정수 또는 `"0x50000"`·`"64k"`. 덤프 교차 검증용: SPI 클립·tftpput 으로 받은 파일과 UART 덤프의 같은 구간 비교, 기기 측 `md5sum`/`crc32` 값과 대조 (읽기 전용) |
+| `case_image_hints(case_id, path, ocr=True, ocr_lang="kor+eng", qr=True, preview=True, crop=None, max_seconds=45.0)` | 케이스 안 정지 그림의 EXIF/XMP·구조·OCR·QR과 정규화 미리보기. 보호 디렉터리는 거부하며 JSON/PNG를 analysis/에 저장한다. 실제 MCP 이미지 콘텐츠를 반환한다. 범위·한도는 architecture §6.1과 safety §3.8 |
 | `case_add_finding(case_id, finding)` | 발견사항 추가 (`schema_get("finding")`). 필수: `title`, `category`, `severity`, `confidence`, `summary`, `location`, `evidence[]`(1개 이상), `reasoning`. id 는 자동 부여되고, 중복이면 기존 항목을 `duplicate: true` 로 돌려준다 |
 | `case_update_finding(case_id, finding_id, patch)` | 발견사항 수정 (예: `status` 를 `static-confirmed` 로, 증거 추가) |
 | `case_list_findings(case_id, min_severity=None)` | 발견사항 목록 (심각도순) (읽기 전용) |
@@ -40,7 +41,7 @@ PWEH 오케스트레이션 레이어의 MCP 서버다. 분석 작업 하나를 *
 | `schema_get(name)` | JSON 스키마: `case`, `step-result`, `finding`, `uart-recon`, `firmware-dump`, `static-analysis`, `signal-capture`, `auth-hunt` (읽기 전용) |
 
 Skill 별 summary 스키마: uart-shell-acquisition → `uart-recon`, firmware-dump-via-uart → `firmware-dump`,
-logic-analyzer-protocol-decode → `signal-capture`, firmware-static-analysis → `static-analysis`, cctv-auth-bypass-hunt → `auth-hunt`.
+logic-analyzer-protocol-decode → `signal-capture`, firmware-static-analysis → `static-analysis`, cctv-auth-bypass-hunt → `auth-hunt`, firmware-emulation → `emulation`, image-hints-analysis → `image-hints`.
 
 ## 2. 안전 관련 동작
 

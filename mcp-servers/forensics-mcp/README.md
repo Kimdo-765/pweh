@@ -9,7 +9,7 @@
   파일 시스템 엔진은 코어 `src/pweh/fs/`, 보관 기록·증거 목록은 `src/pweh/evidence.py`, 믿을 수 없는 파일을 열고 쓰는 저수준 도구는 `src/pweh/safeio.py`.
 - 계약: [`docs/architecture.md`](../../docs/architecture.md) §3(케이스 디렉터리)·§4(SD 카드 증거)·§6.8(도구). 설계: [`docs/design/sd-forensics.md`](../../docs/design/sd-forensics.md) §3·§4·§6·§7.
   인자·설명 원문: [`docs/references/pweh-mcp-tools.md`](../../docs/references/pweh-mcp-tools.md). 안전·데이터 취급: [`docs/safety.md`](../../docs/safety.md) §3.5·§3.6(알려진 한계 전체)·§7.
-- 실행: `pweh-forensics-mcp` 또는 `python -m forensics_mcp` (stdio). 외부 도구가 필요 없다(순수 파이썬).
+- 실행: `pweh-forensics-mcp` 또는 `python -m forensics_mcp` (stdio). 증거 접수·파일 시스템은 순수 파이썬이며 정지 이미지 해독은 Pillow, OCR·바코드는 선택 설치한 Tesseract·ZBar를 쓴다.
   시작할 때 모든 케이스의 커밋하지 못한 접수 디렉터리를 정리하고(§5), SIGTERM·입력 종료(EOF) 때는 실행 중인 job 을 취소하고 기다린 뒤 끝낸다(job 마다 최대 10초, SIGTERM 이면 전체 최대 약 15초 — 커밋 전의 접수는 되돌린다).
 - 에이전트 절차: `sd-card-forensics` Skill (요약 스키마 `sd-forensics`).
 
@@ -21,7 +21,7 @@
   이 서버는 일반 파일만 받는다 — 장치·FIFO·소켓·디렉터리·빈 파일, `/dev`·`/proc`·`/sys` 아래, Windows 원시 디스크 경로는 거부한다. E01(EWF)은 아직 받지 않는다(raw 로 내보내 접수).
 - **이미지에 쓰지 않는다.** 접수한 사본은 0444, 커밋한 증거 디렉터리는 0555 다. 마운트·수리·포맷하지 않고 외부 도구를 실행하지 않는다.
   `forensics/` 아래에는 케이스 디렉터리에서 한 구성요소씩 링크를 따르지 않고 연 디렉터리 fd 기준으로만 만들고 쓴다(`O_CREAT|O_EXCL|O_NOFOLLOW`, 권한도 fd 로 바꾼다).
-- **녹화 내용은 돌려주지 않는다.** 응답은 개수·범위·이름·경로(메타데이터)와 해시뿐이다. 추출물은 `forensics/recovered/` 에만 쓰고, 에이전트는 그 파일을 열지 않는다(사람이 자기 플레이어로 본다).
+- **영상·음성 내용은 돌려주지 않는다.** 정지 그림은 `forensics_image_hints`로 미리보기·마스킹하지 않은 OCR·QR·EXIF/XMP·구조 지표를 반환한다. 추출물은 `forensics/recovered/`에만 쓰고 직접 열지 않는다. 영상·음성은 사람이 자기 플레이어로 본다.
   오디오를 재생·전사하지 않고, 얼굴·번호판 처리와 업로드를 하지 않는다. 복구한 자격증명으로 어디에도 로그인하지 않는다.
 - **끝까지 보지 못한 것을 '없음'이라 하지 않는다.** 한도·예산에 닿았거나, 이미지가 잘렸거나, 살아 있는 디렉터리를 끝까지 읽거나 검증하지 못했거나, 볼륨을 해석하지 못했으면
   결과는 `truncated=true` 와 사유(`truncated_reasons`)·`next_steps` 를 싣는다(§3.1). 그런 볼륨에서는 호스트 흔적이 없다고 말하지 않는다.
@@ -52,6 +52,7 @@
 
 | 도구 | 설명 / 주요 반환 |
 |---|---|
+| `forensics_image_hints(case_id, evidence_id, partition=None, ref=None, path=None, method="auto", ocr=True, ocr_lang="kor+eng", qr=True, preview=True, crop=None, max_seconds=45.0)` | EV 자체 사진 또는 선택한 파일 하나를 공통 이미지 worker로 분석한다. 입력·시간·픽셀 제한과 진입 무결성 검사, JSON/PNG 해시를 결속한 custody `image-hints`, 실제 MCP 이미지 콘텐츠. 전체 계약은 architecture §6.8, 알려진 한계는 safety §3.8 |
 | `forensics_intake_start(case_id, image_path, purpose, legal_basis, site_type, business_purpose, role, imaging_log_path=None, label=None, verify_copy=True)` | 증거 접수 **job**. job 을 띄우기 전에 검사한다(동기 오류): `purpose`(목적)·`legal_basis`(법적 근거, 예: '소유자 본인 기기')·`business_purpose`(업무 목적, 가정용이면 '없음')는 앞뒤 공백을 뺀 3~500자(탭 말고 제어 문자 없음), `site_type` 은 `home`/`public`/`business`/`vehicle`/`mobile-business`/`unknown`(설치 장소에 따라 적용 법률이 다르다), `role` 은 `owner`/`processor`/`investigator`/`other`, `label` 은 제어 문자 없는 80자 이하. `image_path` 는 링크를 한 번 푼 비어 있지 않은 일반 파일이어야 한다 — 원시 디스크 경로, `/dev`·`/proc`·`/sys` 아래, 디렉터리·장치·FIFO·소켓, NUL 이 든 경로, E01(EWF) 서명, 케이스·상태 폴더 안의 파일, 정리한 이름이 증거 디렉터리 예약 이름(`EV-NNNN.json`·`imaging-log.txt`·`*.partial`)과 겹치는 파일은 `validation_failed`. 원본은 이때 한 번 연 fd 로만 읽는다(경로를 다시 열지 않음). `imaging_log_path`(FTK Imager·dc3dd·ewfacquire·ewfinfo·Guymager 로그)는 열기 전과 연 뒤 모두 케이스·상태 폴더 검사를 하고 fd 로 4 MiB 까지만 읽는다. 케이스 디스크에 이미지 + 256 MiB 의 여유가 있어야 하고, 보관 기록이 깨져 있으면 아무것도 만들지 않고 `custody_broken`. job: EV 번호 확보(§5) → 원본 fd 에서 확인한 크기만큼 읽으며 sha256·md5·sha1 계산과 `<이름>.partial` 복사(fsync, 0444 — 복사 중 원본의 크기·mtime 이 바뀌면 `integrity_failed`) → `verify_copy=true` 면 사본 재해시 → 이름 바꾸기 → 빠른 지문 → 이미징 로그 대조·사본 `imaging-log.txt` → 접수 기록 `EV-NNNN.json`(원본은 파일 이름·크기·mtime 만, 전체 경로 없음) → **보관 기록 `intake`(커밋 지점** — 해시·크기·저장 경로·빠른 지문·접수 기록 sha256·법적 정보) → 접수 잠금 파일을 지우고 디렉터리 0555 → 커밋 뒤 보조 기록(감사 로그, 사본 재해시가 다르면 `integrity-failed` 사건, 출처 원장 `imported-unattested`, 아티팩트 `evidence-image`, 같은 sha256 확인). 커밋 전의 실패·취소는 만든 파일과 EV 디렉터리를 지우고 번호를 돌려놓는다. 커밋 뒤에 온 취소는 무시하고(succeeded), 감사 로그 실패는 서버 로그만 남기고 그 밖의 보조 기록(`integrity-failed` 사건·출처 원장·아티팩트 색인·같은 sha256 확인) 실패는 `post_commit_errors`·`note` 로 알린다(접수는 그대로). 같은 원본의 접수가 진행 중이면 `busy`. `result`: `ok`(사본 재해시가 다를 때만 false), `evidence_id`, `stored_path`, `size`, `hashes`, `copy_verified`(`verify_copy=false` 면 null), `imaging_log{tool, comparison{status: match/mismatch/no-hashes, details}, conflicts}`(로그가 없으면 null), `custody_seq`, `provenance{seq, kind}`(원장 기록 실패면 `{error}`), `next_steps`, 같은 sha256 의 증거가 이미 있으면 `duplicate_of`·`warning`, 로그 해시가 다르면 `warning`(둘 다면 한 `warning` 에 ' / ' 로 잇는다), 사본 재해시가 다르면 `error` |
 | `forensics_verify_start(case_id, evidence_id)` | 사본 전체 재해시 **job**. 공통 입구에서 빠른 지문이 이미 다르면 job 없이 `integrity-failed` 를 기록하고 `integrity_failed`. 입구에서 연 그 fd 를 접수 크기만큼 다시 읽어 보관 기록 `intake` 사건의 sha256·md5·sha1 과 비교 → 보관 기록 `verify` → `result`: `ok`, `result`(`match`/`mismatch` — 크기가 바뀌어도 mismatch), `details{sha256, md5, sha1}`, `custody_seq`. 다르면 `integrity-failed` 사건도 남기고 그 증거의 내용 도구는 모두 거부된다(되돌리지 않는다 — 원본에서 다시 접수). 그 사건을 남기지 못하면 `post_commit_errors`·`note`(상태는 그래도 integrity-failed). 해시하는 도중의 취소는 아무것도 기록하지 않고 `cancelled`, 해시가 끝난 뒤의 취소는 무시하고 기록한다(succeeded). 같은 증거의 검증이 진행 중이면 `busy`. verify 는 그때 디스크에 있는 바이트만 증명한다 |
 | `forensics_acquisition_attest(case_id, evidence_id)` | 사람 증명 `write-blocker`: 쓰기 방지 장치를 거쳐 이미징했고 카드를 그 장치에만 넣었다(예여야 승인), 장치 제조사·모델, 희생용 카드로 시험했는지(예/아니오 — 정보 항목), 이미징 도구와 버전. 대상은 증거 id·보관 기록의 sha256·크기, 바인딩은 케이스, 90일 유효. 충족하면 `status: "approved"`, `attestation_id`, `blocker_tested`, `next_steps`. 아니면 `attestation_required`(사람이 `pweh attest <id>`) 또는 `denied` — 앞 증명이 거부·철회·만료됐으면 다시 부를 때 새 요청과 `previous` 가 온다. 보관 기록 `attest` 는 상태가 바뀔 때만 남는다(승인 — 모델·시험 여부·도구 답, 거부, 철회·만료). 증명은 기록일 뿐 다른 도구를 막지 않는다 |
@@ -209,10 +210,10 @@
 - 자동 허용 서버 pweh-fwtriage 는 입력이 그 케이스의 `forensics/` 안(링크를 풀어 판단)이거나 `forensics/` 를 품은 디렉터리(케이스 루트 등)면 거부한다.
 - pweh-case 의 `case_import_file` 은 어느 케이스의 `forensics/` 에서도 파일을 가져오지 않는다(링크를 풀기 전 경로와 푼 경로를 모두 본다 — `forensics/` 자체가 링크여도 막는다. 카드 이미지·추출물을 `dumps/` 로 옮겨 펌웨어 도구가 읽게 하는 우회를 막는다).
   `case_hash_file`·`case_register_artifact` 도 어느 케이스의 `forensics/` 아래는 해시·등록하지 않는다(파일은 경로와 실제로 연 fd 의 경로를 모두 본다). pweh-sigrok 의 입력 파일도 어느 케이스의 `forensics/` 아래면 거부한다.
-- 이 경계는 위 서버들만 막는다. 에이전트의 파일 도구나 REA(`open_binary`·`read_bytes`)는 `forensics/` 를 읽을 수 있으므로, 이미지 사본과 추출물을 열지 않는 것은 에이전트 규칙이다.
+- 이 경계는 위 서버들만 막는다. 에이전트의 파일 도구나 REA(`open_binary`·`read_bytes`)는 `forensics/` 를 읽을 수 있으므로, 전용 이미지 도구 외에 이미지 사본과 추출물을 직접 열지 않는 것은 에이전트 규칙이다. 정지 그림은 원본 EV의 선택자를 사용하고 반환된 정규화 미리보기만 본다.
   전체 파일 목록 JSON 은 메타데이터라 추출할 `ref` 를 고를 때 읽어도 되지만, 요약·보고서에는 개수·범위·해시만 옮긴다.
 - 경로 확인은 같은 계정 프로세스의 바꿔치기(확인한 뒤 경로로 다시 여는 곳)와 하드 링크를 막지 못한다(§8).
-- `.claude/settings.json`: 조회 전용 도구 `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs` 는 `allow`,
+- `.claude/settings.json`: 조회 전용 도구 `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs`와 명시적 예외 `forensics_image_hints`는 `allow`,
   쓰는 도구 `forensics_intake_start`, `forensics_verify_start`, `forensics_acquisition_attest`, `forensics_evidence_list`, `forensics_fs_list`, `forensics_extract`, `forensics_job_cancel` 은 `ask` 다
   (Claude Code 에서는 bypass 모드에서도 묻는다). 클라이언트 권한은 보조 장치이고, 증거를 지키는 것은 보관 기록·지문·경계다.
 

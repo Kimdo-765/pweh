@@ -52,6 +52,7 @@ SKILL_NAMES = (
     "game-save-unlock-analysis",
     "sd-card-forensics",
     "firmware-emulation",
+    "image-hints-analysis",
 )
 SERVERS = {
     # MCP 서버 이름 → (콘솔 스크립트, 설명)
@@ -74,6 +75,7 @@ PWEH_ENV_KEYS = (
     "PWEH_UNBLOB", "PWEH_MKSQUASHFS", "PWEH_UNSQUASHFS", "PWEH_MKIMAGE", "PWEH_MKENVIMAGE", "PWEH_DUMPIMAGE", "PWEH_ZIG",
     "PWEH_GHIDRA_HEADLESS", "PWEH_REA", "PWEH_LZ4", "PWEH_ESPTOOL", "PWEH_ESPTOOL_WIN",
     "PWEH_QEMU_XTENSA", "PWEH_QEMU_RISCV32", "PWEH_AVR_RUN",
+    "PWEH_TESSERACT", "PWEH_TESSDATA_DIR", "PWEH_ZBARIMG",
 )
 
 
@@ -1103,6 +1105,28 @@ def emu_doctor_checks(config: Any) -> list[dict[str, Any]]:
     return checks
 
 
+def image_doctor_checks(config: Any) -> list[dict[str, Any]]:
+    """이미지 도구는 선택 항목이다. worker 와 같은 후보를 쓰고 실제 이미지는 읽지 않는다."""
+    from .imagehints import resolve_image_tools
+
+    settings = resolve_image_tools(config)
+    checks = []
+    for name, path, expect, component in (
+        ("tesseract", settings.tesseract, r"^tesseract \d", "tesseract"),
+        ("zbarimg", settings.zbarimg, r"^\d+\.\d+", "zbar"),
+    ):
+        hint = f"정지 이미지 분석이 필요할 때 scripts/install.sh --only {component} (지원 배포판은 --list)"
+        ok, detail = _tool_version([path, "--version"], expect) if path else (None, "없음 (선택)")
+        checks.append({"check": f"tool:{name}", "ok": ok, "detail": f"{path} :: {detail}" if path else detail,
+                       "hint": "" if ok else hint})
+    models = Path(settings.tessdata_dir) if settings.tessdata_dir else None
+    missing = [lang for lang in ("eng", "kor") if models is None or not (models / f"{lang}.traineddata").is_file()]
+    checks.append({"check": "tool:tessdata-eng-kor", "ok": not missing if settings.tesseract else None,
+                   "detail": f"{models or '없음'}" + (f" (없는 모델: {', '.join(missing)})" if missing else " (eng, kor)"),
+                   "hint": "scripts/install.sh --only tesseract" if missing else ""})
+    return checks
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     from . import hostenv
 
@@ -1135,7 +1159,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     env_cs = env_checks(report, local_ports=local_ports, windows_ports=windows_ports, listeners=listeners)
 
     add("python", sys.version_info >= (3, 10), platform.python_version())
-    for mod in ("mcp", "serial", "yaml", "jsonschema", "tomlkit"):
+    for mod in ("mcp", "serial", "yaml", "jsonschema", "tomlkit", "PIL"):
         try:
             m = __import__(mod)
             add(f"python:{mod}", True, getattr(m, "__version__", getattr(m, "VERSION", "")) or "ok")
@@ -1197,6 +1221,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     # Windows esptool.exe (방법 A): esp 와 같은 해석 — 설정 tools.esptool_win → PWEH_ESPTOOL_WIN → 도구 디렉터리 후보 (hostenv 보고서)
     checks.append(esptool_win_check(report))
     checks.extend(emu_doctor_checks(cfg))
+    checks.extend(image_doctor_checks(cfg))
     gh = os.environ.get("GHIDRA_INSTALL_DIR")
     add("ghidra", bool(gh and Path(gh).exists()), gh or "GHIDRA_INSTALL_DIR 미설정", "REA 의 네이티브 디컴파일에 필요")
     jh = os.environ.get("JAVA_HOME")
@@ -1297,7 +1322,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="codex: 대상 Codex 홈 (여러 번 줄 수 있다. 없으면 $CODEX_HOME 또는 ~/.codex, Windows 데스크톱 앱 WSL 모드 홈을 찾는다)")
     m.add_argument("--dry-run", action="store_true", help="codex: 바뀔 파일의 unified diff 만 보여 주고 아무것도 쓰지 않는다")
     m.add_argument("--direct", choices=["all", "case", "none"], default=None,
-                   help="codex: [features.code_mode] direct_only_tool_namespaces — all = PWEH 서버 8개(요청마다 약 112 KB, 기본), "
+                   help="codex: [features.code_mode] direct_only_tool_namespaces — all = PWEH 서버 9개(요청마다 그 도구 정의만큼 문맥이 늘어난다, 기본), "
                         "case = pweh-case 만, none = 쓰지 않음 (도구 검색으로만 노출). 주지 않으면 기존 프로젝트 설정의 값을 이어 쓴다")
     m.set_defaults(fn=cmd_mcp_config)
 

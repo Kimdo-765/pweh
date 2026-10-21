@@ -56,6 +56,7 @@ import datetime as _dt
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import stat
@@ -99,7 +100,7 @@ _QUARANTINE_RE = re.compile(r"^EV-(\d{4,6})-")
 #: 이미지 사본 이름으로 쓸 수 없는 이름 (같은 디렉터리의 접수 기록·로그 사본·잠금·복사 중 이름과 겹침)
 RESERVED_NAME_RE = re.compile(r"(?i)^(?:EV-\d+\.json|imaging-log\.txt|\.intake\.lock|.*\.partial)$")
 #: 보관 기록 사건 종류 (닫힌 집합)
-CUSTODY_EVENTS = ("intake", "intake-aborted", "verify", "integrity-failed", "attest", "check", "list", "extract", "evidence-list", "note")
+CUSTODY_EVENTS = ("intake", "intake-aborted", "verify", "integrity-failed", "attest", "check", "list", "extract", "image-hints", "evidence-list", "note")
 CUSTODY_ACTORS = ("server", "agent", "human")
 #: 빠른 지문: 앞·뒤 1 MiB 의 sha256 + 크기·mtime_ns
 FINGERPRINT_BLOCK = 1 << 20
@@ -126,7 +127,7 @@ _LOG_TOOLS = (
 IMAGING_LOG_MAX = 4 << 20
 #: 모든 SD 카드 포렌식 산출물(증거 목록·보고서)에 붙이는 고지 (설계 §7 — 법률 자문 아님)
 FORENSICS_NOTICE = ("PWEH 는 인증·검증된 포렌식 도구가 아니다. 법적 용도라면 원본 카드를 보존하고 원본·이미지·보관 기록을 자격 있는 전문가에게 넘긴다. "
-                    "녹화 내용은 열지 않았고(개수·범위·해시만), 오디오를 재생·전사하지 않았으며, 얼굴·번호판 처리와 업로드를 하지 않았다.")
+                    "동영상 프레임·오디오는 해독하지 않는다. 선택한 정지이미지는 image-hints 도구로 분석할 수 있으며, 그 결과와 정규화 미리보기는 별도 기록한다.")
 #: E01(EWF) 서명 — 1차에는 raw 이미지만 받는다
 EWF_SIGNATURES = (b"EVF\x09\x0d\x0a\xff\x00", b"EVF2\x0d\x0a\x81\x00", b"LVF\x09\x0d\x0a\xff\x00")
 #: 앵커(고정점)가 있는 상태 — 증거 목록의 해시값 확인서에는 이 상태의 항목만 싣는다(해시가 보관 기록의 intake 사건에서 온다)
@@ -1447,17 +1448,135 @@ def claim_evidence_id(case: Case, log: CustodyLog | None = None,
 # ---------------------------------------------------------------------------
 
 
+def image_hints_deadline(max_seconds: float) -> float:
+    """두 image-hints 도구가 공유하는 호출 전체 시간 예산(입력 선택·읽기 포함)."""
+    if isinstance(max_seconds, bool) or not isinstance(max_seconds, (int, float)) or not math.isfinite(max_seconds) or not 0 < max_seconds <= 45:
+        raise ValidationFailed("max_seconds 는 0 초 초과, 45 초 이하의 유한한 값이어야 합니다.")
+    return time.monotonic() + max_seconds
+
+
+def image_hints_checkpoint(deadline: float, cancel: Callable[[], bool]) -> float:
+    """취소·마감을 확인하고 남은 초를 반환한다(내부 예산은 1초로 올리지 않는다)."""
+    if cancel():
+        raise PwehError("이미지 분석이 취소되었습니다.", code="cancelled")
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise PwehError("이미지 선택·읽기 시간 한도에 닿았습니다.", code="time_limit")
+    return left
+
+
+def read_image_bytes(fd: int, *, max_bytes: int, deadline: float, cancel: Callable[[], bool]) -> bytes:
+    """검증된 일반 파일 fd 에서 크기 상한까지 읽는다. 같은 fd 의 크기·mtime 변경도 거부한다."""
+    st = os.fstat(fd)
+    if not stat.S_ISREG(st.st_mode) or not 0 < st.st_size <= max_bytes:
+        raise ValidationFailed(f"정지이미지는 0 바이트 초과, {max_bytes} 바이트 이하의 일반 파일이어야 합니다.")
+    chunks: list[bytes] = []
+    pos = 0
+    while pos < st.st_size:
+        image_hints_checkpoint(deadline, cancel)
+        chunk = os.pread(fd, min(1 << 20, st.st_size - pos), pos)
+        if not chunk:
+            raise ValidationFailed("이미지를 읽는 중 파일이 짧아졌습니다.")
+        chunks.append(chunk)
+        pos += len(chunk)
+    after = os.fstat(fd)
+    if (st.st_size, st.st_mtime_ns, st.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+        raise ValidationFailed("이미지를 읽는 중 파일이 변경되었습니다.")
+    return b"".join(chunks)
+
+
+def store_image_hints(case: Case, report: dict[str, Any], previews: list[dict[str, Any]], *,
+                      forensic: bool = False, evidence_id: str | None = None,
+                      commit: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+                      check: Callable[[], None] | None = None) -> dict[str, Any]:
+    """분석 JSON·정규화 PNG 를 0444 로 결속한다. commit 전 실패는 이번에 만든 파일만 지운다.
+
+    JSON 자체가 매니페스트이며 자기 해시·custody_seq 는 응답 analysis 에만 둔다(해시 순환 방지).
+    commit 은 custody.append 와 같은 계약: 사건이 남지 않았을 때만 예외, 커밋 후 취소는 파일을 지우지 않는다.
+    OCR 본문·미리보기 base64 는 아티팩트 색인·보관 기록에 넣지 않는다.
+    """
+    if forensic:
+        check_evidence_id(evidence_id)
+    parts = (FORENSICS_DIR, "analysis") if forensic else ("analysis",)
+    dfd = safeio.open_dir_chain(case.dir, parts, create=True)
+    made: list[str] = []
+    fd: int | None = None
+    committed = False
+    try:
+        prefix = f"image-hints-{evidence_id}" if forensic else "image-hints"
+        for n in range(1, 100000):
+            stem = f"{prefix}-{n:03d}"
+            name = stem + ".json"
+            try:
+                fd = safeio.create_excl(dfd, name, 0o600)
+                made.append(name)
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise EvidenceError("이미지 분석 출력 번호를 확보하지 못했습니다.")
+        preview_refs = []
+        for i, p in enumerate(previews):
+            if check:
+                check()
+            blob = p["data"]
+            if not isinstance(blob, bytes) or p.get("mime_type") != "image/png" or p.get("role") not in ("overview", "crop"):
+                raise ValidationFailed("정규화 PNG 미리보기 계약이 맞지 않습니다.")
+            digest = hashlib.sha256(blob).hexdigest()
+            if digest != p.get("sha256"):
+                raise ValidationFailed("미리보기 해시가 실제 바이트와 다릅니다.")
+            pname = f"{stem}-{i + 1:02d}-{p['role']}.png"
+            safeio.write_new(dfd, pname, blob, final_mode=0o444)
+            made.append(pname)
+            preview_refs.append({"role": p["role"], "path": "/".join((*parts, pname)), "sha256": digest,
+                                 "size": len(blob), "width": p.get("width"), "height": p.get("height"), "crop": p.get("crop")})
+        report = {**report, "artifacts": {"previews": preview_refs}}
+        raw = (json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False) + "\n").encode("utf-8")
+        safeio.write_all(fd, raw)
+        os.fchmod(fd, 0o444)
+        os.fsync(fd)
+        os.close(fd)
+        fd = None
+        os.fsync(dfd)
+        analysis = {"path": "/".join((*parts, name)), "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)}
+        if check:
+            check()
+        event_data = {"analysis": analysis, "previews": preview_refs, "source": report.get("source"),
+                      "params": report.get("params"), "status": report.get("status")}
+        event = commit(event_data) if commit else None
+        committed = True
+        if event is not None:
+            analysis = {**analysis, "custody_seq": event.get("seq"), "custody_hash": event.get("hash")}
+        warnings = []
+        producer = "pweh-forensics" if forensic else "pweh-case"
+        for item in [analysis, *preview_refs]:
+            try:
+                case.register_artifact(item["path"], kind="image-hints", producer=producer, sha256=item["sha256"])
+            except Exception:
+                warnings.append("분석 파일은 보존했으나 아티팩트 색인 등록에 실패했습니다.")
+                _log.warning("이미지 분석 아티팩트 등록 실패", exc_info=True)
+        return {"ok": True, "report": report, "analysis": analysis, "warnings": warnings}
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if not committed:
+            for name in made:
+                with contextlib.suppress(OSError):
+                    os.unlink(name, dir_fd=dfd)
+        os.close(dfd)
+
+
 def replay_status(entries: Iterable[dict[str, Any]], evidence_id: str) -> dict[str, Any]:
     """보관 기록에서 한 증거의 상태를 정한다.
 
     반환: {intake: bool, status: 'ok'|'unverified'|'integrity-failed', last_verify: {ts, result, seq} | None,
-           integrity_failures: [...], attestation: {status, attestation_id, ts} | None, extracts: n, events: n}.
+           integrity_failures: [...], attestation: {status, attestation_id, ts} | None, extracts: n, image_hints: n, events: n}.
     'unverified' = 접수만 했고 사본 전체 재해시가 아직 없다. 'integrity-failed' 는 한 번 생기면 되돌리지 않는다(새로 접수) —
     접수 사건의 copy_verified 가 false 이면 integrity-failed 사건이 없어도 실패다.
     attestation 은 보관 기록의 마지막 attest 사건 그대로다 — 지금 상태(철회·만료)와 대상 일치는 evidence_items 가 증명 저장소에서 확인한다.
     """
     out: dict[str, Any] = {"intake": False, "status": "unverified", "last_verify": None, "integrity_failures": [],
-                           "attestation": None, "extracts": 0, "events": 0}
+                           "attestation": None, "extracts": 0, "image_hints": 0, "events": 0}
     copy_mismatch: dict[str, Any] | None = None
     for e in entries:
         if e.get("evidence_id") != evidence_id:
@@ -1480,6 +1599,8 @@ def replay_status(entries: Iterable[dict[str, Any]], evidence_id: str) -> dict[s
             out["attestation"] = {"status": data.get("status"), "attestation_id": data.get("attestation_id"), "ts": e.get("ts")}
         elif ev == "extract":
             out["extracts"] += 1
+        elif ev == "image-hints":
+            out["image_hints"] += 1
     if copy_mismatch and not any(f.get("reason") == "copy-verify-mismatch" for f in out["integrity_failures"]):
         out["integrity_failures"].insert(0, copy_mismatch)
     if out["integrity_failures"]:
@@ -1690,6 +1811,8 @@ __all__ = [
     "forensics_dir",
     "forensics_rel",
     "hash_stream",
+    "image_hints_checkpoint",
+    "image_hints_deadline",
     "is_forensics_path",
     "is_protected_path",
     "latest_intake",
@@ -1701,6 +1824,7 @@ __all__ = [
     "parse_custody",
     "parse_imaging_log",
     "read_imaging_log",
+    "read_image_bytes",
     "read_record_at",
     "reconcile_orphans",
     "record_bytes",
@@ -1711,6 +1835,7 @@ __all__ = [
     "status_label",
     "stored_name",
     "stored_path",
+    "store_image_hints",
     "strict_rel",
     "under_any_case_forensics",
     "under_any_case_protected",

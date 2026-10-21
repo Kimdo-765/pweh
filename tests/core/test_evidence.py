@@ -863,3 +863,64 @@ def test_replay_copy_verify_mismatch_is_failure_even_without_event(case):
     assert st["status"] == "integrity-failed" and st["integrity_failures"][0]["reason"] == "copy-verify-mismatch"
     log.append("integrity-failed", evidence_id="EV-0001", data={"reason": "copy-verify-mismatch"})
     assert len(E.replay_status(log.entries(), "EV-0001")["integrity_failures"]) == 1
+
+
+def _hint_preview():
+    """저장 계층은 PNG 를 해독하지 않는다. 고정 합성 바이트의 해시 결속을 시험한다."""
+    data = b"synthetic normalized preview"
+    return {"role": "overview", "mime_type": "image/png", "data": data, "sha256": hashlib.sha256(data).hexdigest(),
+            "width": 1, "height": 1, "crop": None}
+
+
+def test_store_image_hints_commit_failure_removes_only_own_outputs(case):
+    outdir = case.dir / "forensics/analysis"
+    outdir.mkdir(parents=True)
+    prior = outdir / "image-hints-EV-0001-001.json"
+    prior.write_bytes(b"earlier report")
+
+    def fail(data):
+        raise RuntimeError("synthetic custody failure")
+
+    with pytest.raises(RuntimeError):
+        E.store_image_hints(case, {"status": "ok"}, [_hint_preview()], forensic=True, evidence_id="EV-0001", commit=fail)
+    assert list(outdir.iterdir()) == [prior]
+    assert prior.read_bytes() == b"earlier report"
+
+
+def test_store_image_hints_post_commit_index_failure_preserves_files(case, monkeypatch):
+    log = E.CustodyLog(case)
+
+    def fail_index(*args, **kwargs):
+        raise RuntimeError("synthetic index failure")
+
+    monkeypatch.setattr(case, "register_artifact", fail_index)
+    out = E.store_image_hints(case, {"status": "ok", "source": {"kind": "evidence"}}, [_hint_preview()],
+                              forensic=True, evidence_id="EV-0001",
+                              commit=lambda data: log.append("image-hints", evidence_id="EV-0001", data=data))
+    assert out["warnings"] and out["analysis"]["custody_seq"] == 1
+    for item in [out["analysis"], *out["report"]["artifacts"]["previews"]]:
+        p = case.dir / item["path"]
+        assert p.is_file() and stat.S_IMODE(p.stat().st_mode) == 0o444
+        assert hashlib.sha256(p.read_bytes()).hexdigest() == item["sha256"]
+    assert E.replay_status(log.entries(), "EV-0001")["image_hints"] == 1
+
+
+def test_store_image_hints_rejects_output_link_and_wrong_preview_hash(case, tmp_path):
+    outdir = tmp_path / "outside-analysis"
+    outdir.mkdir()
+    analysis = case.dir / "analysis"
+    analysis.rmdir()
+    analysis.symlink_to(outdir, target_is_directory=True)
+    with pytest.raises(safeio.UnsafeFile):
+        E.store_image_hints(case, {"status": "ok"}, [_hint_preview()])
+    assert not list(outdir.iterdir())
+    analysis.unlink()
+    with pytest.raises(ValidationFailed, match="해시"):
+        E.store_image_hints(case, {"status": "ok"}, [{**_hint_preview(), "sha256": "0" * 64}])
+    assert not list(analysis.iterdir())
+
+
+@pytest.mark.parametrize("seconds", [0, -1, 46, float("nan"), float("inf"), True])
+def test_image_hints_deadline_bounds(seconds):
+    with pytest.raises(ValidationFailed):
+        E.image_hints_deadline(seconds)

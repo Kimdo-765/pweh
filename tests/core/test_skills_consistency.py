@@ -161,6 +161,8 @@ def _guess_schema(obj: Any) -> str | None:
         return "sd-forensics"
     if {"backends", "sessions", "safety"} <= keys:
         return "emulation"
+    if {"images", "visual_observations", "hints", "safety"} <= keys:
+        return "image-hints"
     return None
 
 
@@ -500,6 +502,13 @@ HANDOFF = [
     ("cctv-auth-bypass-hunt", "firmware-static-analysis", "rea.evidence_bundle"),
     ("cctv-auth-bypass-hunt", "firmware-static-analysis", "rea.limitations"),
     ("cctv-auth-bypass-hunt", "firmware-static-analysis", "finding_ids"),
+    ("firmware-emulation", "firmware-dump-via-uart", "output.path"),
+    ("firmware-emulation", "firmware-dump-via-uart", "output.sha256"),
+    ("firmware-emulation", "firmware-dump-via-uart", "verification.method"),
+    ("firmware-emulation", "firmware-dump-via-uart", "verification.match"),
+    ("firmware-emulation", "firmware-dump-via-uart", "method"),
+    ("firmware-emulation", "firmware-dump-via-uart", "source.offset"),
+    ("firmware-emulation", "firmware-static-analysis", "firmware.path"),
 ]
 
 

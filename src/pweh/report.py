@@ -34,6 +34,7 @@ _PHASE_LABEL = {
     "flipper-rf-analysis": "Flipper·RF 분석",
     "sd-card-forensics": "SD 카드 포렌식",
     "firmware-emulation": "MCU 펌웨어 에뮬레이션",
+    "image-hints-analysis": "정지 이미지 힌트 분석",
     "espprobe": "ESP32 계측기(espprobe)",
 }
 

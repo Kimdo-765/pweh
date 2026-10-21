@@ -68,6 +68,7 @@ OPTIONAL_PHASES = (
     "flipper-rf-analysis",
     "sd-card-forensics",
     "firmware-emulation",
+    "image-hints-analysis",
     "espprobe",
 )
 PHASE_STATUSES = ("pending", "in-progress", "done", "partial", "failed", "skipped", "blocked")
