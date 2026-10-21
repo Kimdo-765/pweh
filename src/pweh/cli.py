@@ -1324,7 +1324,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="codex: 대상 Codex 홈 (여러 번 줄 수 있다. 없으면 $CODEX_HOME 또는 ~/.codex, Windows 데스크톱 앱 WSL 모드 홈을 찾는다)")
     m.add_argument("--dry-run", action="store_true", help="codex: 바뀔 파일의 unified diff 만 보여 주고 아무것도 쓰지 않는다")
     m.add_argument("--direct", choices=["all", "case", "none"], default=None,
-                   help="codex: [features.code_mode] direct_only_tool_namespaces — all = PWEH 서버 9개(요청마다 그 도구 정의만큼 문맥이 늘어난다, 기본), "
+                   help=f"codex: [features.code_mode] direct_only_tool_namespaces — all = PWEH 서버 {len(SERVERS)}개(요청마다 그 도구 정의만큼 문맥이 늘어난다, 기본), "
                         "case = pweh-case 만, none = 쓰지 않음 (도구 검색으로만 노출). 주지 않으면 기존 프로젝트 설정의 값을 이어 쓴다")
     m.set_defaults(fn=cmd_mcp_config)
 
