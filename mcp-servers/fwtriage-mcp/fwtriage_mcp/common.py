@@ -1,7 +1,7 @@
 """fwtriage 공통 헬퍼.
 
 - 작업 제어(Ctl): 취소 확인, 시간 예산, 진행률 보고 (인라인 실행과 백그라운드 job 모두에서 같은 코드 경로)
-- 케이스 내부 입력 경로 해석 (심볼릭 링크 탈출에 대한 명확한 안내 포함)
+- 케이스 내부 입력 경로 해석 (심볼릭 링크 탈출에 대한 명확한 안내 포함, 보호 폴더 forensics/·emu/ 거부)
 - 출력 번호(NNN) 원자적 확보: ``analysis/<prefix>-NNN.json``, ``extract/<label>-NNN/``
 - 결과 JSON 저장 + 아티팩트 등록
 - 큰 파일을 위한 읽기 전용 mmap, 응답 크기 제한(compact) 헬퍼
@@ -159,19 +159,24 @@ def resolve_case_path(case: Case, path: str, *, must_exist: bool = True) -> Path
             f"파일/디렉터리가 없습니다: {path}",
             hint="case_get(include_artifacts=true) 로 케이스 안의 경로를 확인하세요 (케이스 상대 경로 예: dumps/flash.bin).",
         )
-    _refuse_forensics(case, p)
+    _refuse_protected(case, p)
     return p
 
 
-def _refuse_forensics(case: Case, p: Path) -> None:
-    """케이스의 증거 폴더(forensics/ — SD 카드 이미지·복구한 녹화)는 이 서버가 읽지 않는다(링크를 풀어 판단).
+def _refuse_protected(case: Case, p: Path) -> None:
+    """케이스의 보호 폴더(pweh.evidence.PROTECTED_DIRS)는 이 서버가 읽지 않는다(링크를 풀어 판단):
+    - forensics/ — SD 카드 이미지·복구한 녹화. pweh-forensics 로만 다룬다.
+    - emu/ — 에뮬레이터 세션 파일(마스킹하지 않은 원시 콘솔·stderr). 콘솔은 emu_read 로만 본다.
 
-    이 서버는 자동 허용이고 결과 문자열을 에이전트에게 돌려주므로, 녹화 내용이 pweh-forensics 를 거치지 않고 문맥에 들어가지 않게 한다.
-    forensics/ 를 포함하는 디렉터리(케이스 루트 등)도 훑지 않는다.
+    이 서버는 자동 허용이고 결과 문자열(fw_strings_hunt 의 일치 문맥 등)을 에이전트에게 돌려주므로, 녹화 내용이나 원시 콘솔이
+    전용 도구(emu_read 는 마스킹한다)를 거치지 않고 문맥에 들어가지 않게 한다. 보호 폴더를 품은 디렉터리(케이스 루트 등)도 훑지 않는다.
     """
-    from pweh.evidence import contains_forensics_dir, forensics_dir, is_forensics_path
+    from pweh.evidence import EMU_REFUSAL_HINT, EMU_REFUSAL_MESSAGE, contains_protected_dir, is_protected_path
 
-    if is_forensics_path(case, p):
+    hit = is_protected_path(case, p)
+    if hit == "emu":
+        raise ValidationFailed(EMU_REFUSAL_MESSAGE, hint=EMU_REFUSAL_HINT)
+    if hit is not None:
         raise ValidationFailed(
             "케이스의 증거 폴더(forensics/ — SD 카드 이미지·복구한 녹화)는 펌웨어 도구로 읽지 않습니다.",
             hint="카드 이미지는 pweh-forensics 도구(forensics_*)로만 다룬다. 녹화 내용은 에이전트가 열지 않는다.",
@@ -180,7 +185,13 @@ def _refuse_forensics(case: Case, p: Path) -> None:
         is_dir = p.is_dir()
     except OSError:
         is_dir = False
-    if is_dir and forensics_dir(case).exists() and contains_forensics_dir(case, p):
+    hit = contains_protected_dir(case, p) if is_dir else None  # 케이스에 실제로 있는 보호 폴더만 센다
+    if hit == "emu":
+        raise ValidationFailed(
+            "이 디렉터리 아래에 에뮬레이터 세션 폴더(emu/)가 있어 훑지 않습니다. " + EMU_REFUSAL_MESSAGE,
+            hint="펌웨어 추출 트리(예: extract/rootfs-001)처럼 emu/ 를 포함하지 않는 하위 디렉터리를 지정하세요. " + EMU_REFUSAL_HINT,
+        )
+    if hit is not None:
         raise ValidationFailed(
             "이 디렉터리 아래에 증거 폴더(forensics/)가 있어 훑지 않습니다.",
             hint="펌웨어 추출 트리(예: extract/rootfs-001)처럼 forensics/ 를 포함하지 않는 하위 디렉터리를 지정하세요.",

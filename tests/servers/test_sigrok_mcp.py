@@ -563,3 +563,30 @@ async def test_file_info_refuses_case_forensics(fake):
     async with Client(server) as c:
         r = await call(c, "sigrok_file_info", case_id=cid, input_path="forensics/recovered/x-001/cap.sr")
         assert "validation_failed" in r["_error"] and "forensics" in r["_error"], r
+
+
+async def test_sigrok_inputs_refuse_emu_session_files(fake):
+    """자동 허용 sigrok 도구는 에뮬레이터 세션 파일(emu/ — 마스킹하지 않은 원시 콘솔)도 읽지 않는다(콘솔은 emu_read 로만).
+    signals/ 의 링크로 가리켜도, signals/ 기본 위치로 찾는 짧은 이름이어도 막는다. 다른 케이스의 emu/ 는 케이스 경계에서 막힌다."""
+    from sigrok_mcp.server import server
+
+    cid = make_case()
+    cdir = case_dir(cid)
+    target = cdir / "emu" / "emu-001" / "cap.sr"
+    write_uart_sr(target, BOOT_BANNER[:30], baud=115200, samplerate=1_000_000)
+    (cdir / "signals").mkdir(exist_ok=True)
+    (cdir / "signals" / "innocent.sr").symlink_to(target)
+    other = case_dir(make_case("other"))
+    theirs = other / "emu" / "emu-001" / "cap.sr"
+    write_uart_sr(theirs, BOOT_BANNER[:30], baud=115200, samplerate=1_000_000)
+    (cdir / "signals" / "theirs.sr").symlink_to(theirs)
+    async with Client(server) as c:
+        for path in ("emu/emu-001/cap.sr", str(target), "signals/innocent.sr", "innocent.sr"):
+            r = await call(c, "sigrok_file_info", case_id=cid, input_path=path)
+            assert "validation_failed" in r["_error"] and "emu/" in r["_error"] and "emu_read" in r["_error"], (path, r)
+        r = await call(c, "sigrok_decode", case_id=cid, input_path="signals/innocent.sr", decoders="uart:rx=RX:baudrate=115200")
+        assert "validation_failed" in r["_error"] and "emu/" in r["_error"], r
+        for path in ("signals/theirs.sr", str(theirs)):
+            r = await call(c, "sigrok_file_info", case_id=cid, input_path=path)
+            assert "_error" in r, (path, r)
+    assert not any("emu-001" in a or "innocent" in a or "theirs" in a for argv in fake.calls() for a in argv), fake.calls()

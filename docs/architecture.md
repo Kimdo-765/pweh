@@ -19,6 +19,7 @@
    ├─ pweh-fwtriage    (mcp-servers/fwtriage-mcp)    오프라인 펌웨어 트리아지 (외부 도구 없이 동작)
    ├─ pweh-esp         (mcp-servers/esp-mcp)         ESP32 계열 esptool 읽기 전용: 칩·보안 정보, 플래시 덤프(job) (선택)
    ├─ pweh-forensics   (mcp-servers/forensics-mcp)   SD 카드 이미지 증거 분석: 접수·해시·보관 기록, FAT/exFAT 목록, 삭제 파일 추출(job) — 기기 미접촉 (선택)
+   ├─ pweh-emu         (mcp-servers/emu-mcp)         ESP32·S3·C3/Arduino AVR 펌웨어 실행·마스킹 콘솔 — 기기 미접촉 (선택)
    └─ rea              (외부: rea-agents 6.5)        binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩
             │
       [대상 기기]  (또는 테스트용 pweh.mocktarget 시뮬레이터. pweh-forensics 는 기기 대신 사람이 만든 카드 이미지 파일을 받는다)
@@ -31,9 +32,10 @@ SD 카드 이미지 해석 엔진(`pweh.fs`), 증거 보관 기록·EV 번호·�
 
 | 경로 | 내용 |
 |---|---|
-| `src/pweh/` | 공통 코어: `config.py`, `case.py`, `safety/`(분류기·게이트·승인·사람 증명·비밀값 마스킹), `provenance.py`(출처 원장), `jobs.py`, `runtime.py`, `mcpkit.py`(서버 생성 — 네이티브 Windows·Cygwin·MSYS 는 시작 거부), `ports.py`(포트 참조 문법: COM1–COM4096, 루프백 원격 URL, 시뮬레이터 바인드 주소), `procutil.py`(PID 생존 확인), `hostenv.py`(실행 환경 감지 — WSL1/2·interop·네트워킹 모드·usbipd·컨테이너, 추천 경로; `pweh env`·doctor·`pipeline_environment`·esp 가 쓴다), `toolsdir.py`(외부 도구 위치, esptool.exe 후보), `report.py`, `cli.py`, `clientcfg.py`(Codex 클라이언트 설정: Codex 홈 감지 — CLI·데스크톱 앱 WSL 모드·`--codex-home`, 프로젝트 `.codex/config.toml` 생성, 전역 `config.toml` 병합과 trust 항목(tomlkit 으로 주석·서식 유지, 백업·다시 읽어 검사·원자적 교체) — `cli.py` 의 `mcp-config --client codex`·`codex-trust`·`mcp-check`·doctor 가 쓴다, docs/mcp-setup.md §3), `audit.py`, `errors.py`, `fsutil.py`, `formats.py`(mtdparts·uImage·U-Boot env·md.b/crc32 출력 파서), `evidence.py`(SD 카드 증거: 보관 기록 해시 체인 + 상태 폴더 고정점(세 단계 덧붙이기), 접수 기록과 상태 재생·`status_label`, EV 번호 확보와 중단된 접수 정리, 내용 도구의 무결성 입구, 이미징 로그 해석, 입력 검사·빠른 지문 — pweh-forensics 와 보고서 §8.1 이 쓴다), `safeio.py`(믿을 수 없는 파일·디렉터리: 일반 파일만 lstat → `O_NOFOLLOW\|O_NONBLOCK` → fstat 대조로 열기, 디렉터리는 한 구성요소씩 `O_DIRECTORY\|O_NOFOLLOW`, 파일은 디렉터리 fd 기준 `O_EXCL` 로 만들고 fd 로 fchmod, flock 잠금 — `pweh.evidence`·pweh-forensics·case-mcp 의 증거 가드가 쓴다), `fs/`(카드 이미지 파일 시스템 엔진: MBR/EBR·GPT·superfloppy, FAT12/16/32·exFAT. 순수 파이썬·읽기 전용, 공개 사양만으로 새로 작성, 모든 반복은 `Limits` 로, 공개 호출 하나는 `Budget`(시간·볼륨별 단계 상한·취소)으로 묶음, 디렉터리 데이터는 단위마다 검증한 뒤 해석), `schemas/`, `mocktarget/`, `data/` |
+| `src/pweh/` | 공통 코어: `config.py`, `case.py`, `safety/`(분류기·게이트·승인·사람 증명·비밀값 마스킹), `provenance.py`(출처 원장), `jobs.py`, `runtime.py`, `mcpkit.py`(서버 생성 — 네이티브 Windows·Cygwin·MSYS 는 시작 거부), `ports.py`(포트 참조 문법: COM1–COM4096, 루프백 원격 URL, 시뮬레이터 바인드 주소), `procutil.py`(PID 신원·생존 확인, pidfd·프로세스 그룹 종료), `espfmt.py`(ESP 파티션·앱·NVS 공용 해석 — fwtriage 는 재노출 shim), `console.py`(줄 경계 커서·열린 프롬프트·반복 접기), `safety/redact.py`(공용 자격증명 패턴·콘솔 마스킹), `hostenv.py`(실행 환경 감지 — WSL1/2·interop·네트워킹 모드·usbipd·컨테이너, 추천 경로; `pweh env`·doctor·`pipeline_environment`·esp 가 쓴다), `toolsdir.py`(외부 도구 위치, esptool.exe 후보), `report.py`, `cli.py`, `clientcfg.py`(Codex 클라이언트 설정: Codex 홈 감지 — CLI·데스크톱 앱 WSL 모드·`--codex-home`, 프로젝트 `.codex/config.toml` 생성, 전역 `config.toml` 병합과 trust 항목(tomlkit 으로 주석·서식 유지, 백업·다시 읽어 검사·원자적 교체) — `cli.py` 의 `mcp-config --client codex`·`codex-trust`·`mcp-check`·doctor 가 쓴다, docs/mcp-setup.md §3), `audit.py`, `errors.py`, `fsutil.py`, `formats.py`(mtdparts·uImage·U-Boot env·md.b/crc32 출력 파서), `evidence.py`(SD 카드 증거: 보관 기록 해시 체인 + 상태 폴더 고정점(세 단계 덧붙이기), 접수 기록과 상태 재생·`status_label`, EV 번호 확보와 중단된 접수 정리, 내용 도구의 무결성 입구, 이미징 로그 해석, 입력 검사·빠른 지문 — pweh-forensics 와 보고서 §8.1 이 쓴다), `safeio.py`(믿을 수 없는 파일·디렉터리: 일반 파일만 lstat → `O_NOFOLLOW\|O_NONBLOCK` → fstat 대조로 열기, 디렉터리는 한 구성요소씩 `O_DIRECTORY\|O_NOFOLLOW`, 파일은 디렉터리 fd 기준 `O_EXCL` 로 만들고 fd 로 fchmod, flock 잠금 — `pweh.evidence`·pweh-forensics·case-mcp 의 증거 가드가 쓴다), `fs/`(카드 이미지 파일 시스템 엔진: MBR/EBR·GPT·superfloppy, FAT12/16/32·exFAT. 순수 파이썬·읽기 전용, 공개 사양만으로 새로 작성, 모든 반복은 `Limits` 로, 공개 호출 하나는 `Budget`(시간·볼륨별 단계 상한·취소)으로 묶음, 디렉터리 데이터는 단위마다 검증한 뒤 해석), `schemas/`, `mocktarget/`, `data/` |
 | `mcp-servers/<name>-mcp/<name>_mcp/` | 서버 패키지 (`server.py` 에 `server` 객체와 `main()`), `mcp-servers/<name>-mcp/README.md`. pweh-forensics 는 `pweh.fs` 위의 작업(볼륨 고르기·호출 예산·목록 요약·호스트 오염 흔적·ref 확인·추출)을 `mcp-servers/forensics-mcp/forensics_mcp/fsops.py` 에 둔다 |
 | `skills/<skill>/SKILL.md` | 에이전트용 워크플로 (`.claude/skills/`·`.agents/skills/` 에 심볼릭 링크 — `pweh skills install --target claude-project`, `pweh skills install --target agents`) |
+| `native/emu/` | simavr 고정 커밋을 정적 링크하는 `pweh_avr_run.c`. 플래시 경계 밖 접근 보완, GDB 소켓 코드 제외, Intel HEX 입력(§6.9) |
 | `scripts/` | `install.sh`(원클릭 설치: 구성요소 → `mcp`·`skills`·`verify` 단계, docs/mcp-setup.md §1), `mcp-launch.sh`(Claude Code·Cursor 용 MCP 서버 런처, env.sh 자동 로드), `dump_tool_catalog.py`(도구 카탈로그·권한 검사), `run_example.py`, `run_agent_e2e.py` |
 | `.mcp.json`, `.claude/`, `.agents/skills/` | 에이전트 클라이언트 설정(커밋됨): Claude Code 프로젝트 MCP 서버(`.mcp.json`), 권한 규칙·`enabledMcpjsonServers`(`.claude/settings.json`), Skill 링크(`.claude/skills/` — Claude Code, `.agents/skills/` — Codex·Cursor) |
 | `.codex/config.toml` | Codex 프로젝트 MCP 설정. `pweh mcp-config --client codex --write` 가 만드는 생성물(이 PC 의 절대 경로·env.sh 의 도구 경로가 들어 있어 커밋하지 않음. 실행한 셸의 PATH 는 넣지 않는다). Codex 는 trusted 프로젝트에서만 읽는다(`pweh codex-trust`) |
@@ -47,7 +49,7 @@ SD 카드 이미지 해석 엔진(`pweh.fs`), 증거 보관 기록·EV 번호·�
 
 패키징: 루트 `pyproject.toml` 하나로 모든 패키지를 설치한다 (`pip install -e ".[dev]"`).
 콘솔 스크립트: `pweh`, `pweh-case-mcp`, `pweh-uart-mcp`, `pweh-openocd-mcp`, `pweh-sigrok-mcp`,
-`pweh-jtagulator-mcp`, `pweh-fwtriage-mcp`, `pweh-esp-mcp`, `pweh-forensics-mcp`, `pweh-mock-device`.
+`pweh-jtagulator-mcp`, `pweh-fwtriage-mcp`, `pweh-esp-mcp`, `pweh-forensics-mcp`, `pweh-emu-mcp`, `pweh-mock-device`.
 
 ## 3. 케이스 디렉터리 (Skill 사이의 데이터 전달)
 
@@ -76,6 +78,9 @@ cases/<case_id>/
   findings.json        발견사항 목록 (각 항목은 schemas/finding.schema.json)
   report.md            report_generate 결과 (forensics/ 가 있으면 §8.1 SD 카드 증거: 보관 기록 상태(고정점 대조)·증거 표(상태 칸은 status_label)·고지)
   patches/             세이브 패치 이미지(fw_patch_build — 계획·쓰기 준비. 권위 기록은 출처 원장의 patch-plan)
+  emu/<session_id>/    에뮬레이션 세션(처음 실행할 때 생성, 디렉터리 0700·파일 0600): console.bin(원시 UART),
+                       transcript.masked.txt(마스킹 기록), emulator.stderr.log, events.jsonl, meta.json, tmp/(스냅숏 오버레이).
+                       펌웨어 사본은 파일로 남기지 않는다(봉인 memfd). 에이전트는 emu_read 로만 본다(§6.9)
   forensics/           SD 카드 증거 (pweh-forensics 만 쓴다. 처음 접수할 때 만든다 — §6.8. 아래 디렉터리는 링크를 따르지 않고 한 구성요소씩 열고,
                        파일은 그 디렉터리 fd 기준 O_EXCL 로만 만든다 — pweh.safeio)
     images/EV-NNNN/    접수한 이미지 사본(원본 파일 이름의 글자·숫자·._- 밖의 문자를 _ 로 바꾼 96자 이하. 예약 이름과 겹치면 접수 거부), 접수 기록 EV-NNNN.json,
@@ -111,6 +116,7 @@ cases/<case_id>/
 | logic-analyzer-protocol-decode | `schemas/signal-capture.schema.json` |
 | cctv-auth-bypass-hunt | `schemas/auth-hunt.schema.json` |
 | game-save-unlock-analysis (선택 단계) | `schemas/save-analysis.schema.json` |
+| firmware-emulation (선택 단계) | `schemas/emulation.schema.json` |
 | sd-card-forensics (선택 단계) | `schemas/sd-forensics.schema.json` (`mode`: evidence/security/both — evidence·both 면 `legal`·`evidence`·`custody_ok`, security·both 면 `security` 가 필수. `privacy` 의 네 값 `audio_decoded`·`face_plate_processing`·`uploads`·`recording_content_viewed` 는 항상 false) |
 
 - firmware-dump-via-uart 밖에서 얻은 덤프(JTAG, SPI 클립, ESP32 esptool)도 다음 Skill 이 찾을 수 있게 `skill="firmware-dump-via-uart"` 로 firmware-dump 요약을 남긴다(master-prompt §5).
@@ -122,8 +128,8 @@ cases/<case_id>/
 - **파이프라인 단계**(`PIPELINE_PHASES`, 보안 분석 목표): `uart-shell-acquisition`, `firmware-dump-via-uart`, `logic-analyzer-protocol-decode`,
   `firmware-static-analysis`, `cctv-auth-bypass-hunt`, `report`. `case_create` 가 모두 `pending` 으로 만든다.
 - **선택 단계**(`OPTIONAL_PHASES`, 다른 목표·계측기용 Skill 에 예약한 이름): `game-save-unlock-analysis`, `nfc-behavior-analysis`, `game-play-automation`,
-  `flipper-rf-analysis`, `sd-card-forensics`, `espprobe`. 미리 만들지 않는다. 그 Skill 이 summary 를 기록하거나 `case_set_phase` 로 상태를 정할 때 처음 생기므로,
-  그 목표를 쓰지 않는 케이스의 `case.json`·보고서는 그대로다. 이 가운데 Skill 이 있는 것은 `game-save-unlock-analysis`(요약 스키마 `save-analysis`)와 `sd-card-forensics`(요약 스키마 `sd-forensics`)다. 나머지는 아직 없으므로 에이전트용 문서(master-prompt·Skill)에 그 이름을 적지 않는다.
+  `flipper-rf-analysis`, `sd-card-forensics`, `espprobe`, `firmware-emulation`. 미리 만들지 않는다. 그 Skill 이 summary 를 기록하거나 `case_set_phase` 로 상태를 정할 때 처음 생기므로,
+  그 목표를 쓰지 않는 케이스의 `case.json`·보고서는 그대로다. 이 가운데 Skill 이 있는 것은 `game-save-unlock-analysis`(요약 스키마 `save-analysis`)와 `sd-card-forensics`(요약 스키마 `sd-forensics`), `firmware-emulation`(요약 스키마 `emulation`)이다. 나머지는 아직 없으므로 에이전트용 문서(master-prompt·Skill)에 그 이름을 적지 않는다.
   Skill 을 만들 때 `SKILL_DATA_SCHEMAS`·master-prompt §5 표·`report._PHASE_LABEL` 에 함께 등록한다.
 - 상태 값: `pending`, `in-progress`, `done`, `partial`, `failed`, `skipped`, `blocked`. summary 의 status 는 `success` → `done`, `in-progress` → `in-progress`,
   나머지(`partial`·`failed`·`blocked`·`skipped`)는 같은 이름으로 옮긴다(`SUMMARY_PHASE_STATUS`).
@@ -151,7 +157,7 @@ cases/<case_id>/
 |---|---|---|
 | OBSERVE | 포트 목록, 버퍼 읽기, 로직 캡처 | 허용 |
 | INTERACT | `printenv`, `md.b`, `sf read`(RAM), `crc32`, `cat /proc/mtd`, `scan_chain`, `mdw` | 허용 |
-| MODIFY | `setenv`(저장 안 함), `boot`, `reset`, `halt`, DTR/RTS 토글, 서비스 시작, JTAGulator 스캔, 결과를 저장하는 `crc32 <주소> <크기> <대상>`, `/dev/watchdog`·`/dev/mem` 읽기, esptool 연결(`flash-id`·`get-security-info`·`read-flash` — 리셋으로 ROM 다운로드 모드 진입 + RAM 스텁) | 허용 (`safety.modify_policy`) |
+| MODIFY | `setenv`(저장 안 함), `boot`, `reset`, `halt`, DTR/RTS 토글, 서비스 시작, `emu_start`(확보한 펌웨어를 호스트에서 실행), JTAGulator 스캔, 결과를 저장하는 `crc32 <주소> <크기> <대상>`, `/dev/watchdog`·`/dev/mem` 읽기, esptool 연결(`flash-id`·`get-security-info`·`read-flash` — 리셋으로 ROM 다운로드 모드 진입 + RAM 스텁) | 허용 (`safety.modify_policy`) |
 | DESTRUCTIVE | `saveenv`, `sf erase/write`, `nand erase/write`, `mw`, `flash_erase`, `dd of=/dev/mtd*`, 시스템 디렉터리 밖 실행 파일 실행(`./x`, `/tmp/x`), `PATH`/`LD_PRELOAD` 변경, OpenOCD `flash write_image`/`mww`, JTAGulator 전압 설정, esptool `write-flash`/`erase-flash`·eFuse(pweh-esp 는 정책과 무관하게 거부) | **거부** (`safety.destructive_policy`) |
 
 - 분류기: `classify_uboot`, `classify_linux`, `classify_openocd`, `classify_console_line`(문맥별), `LineAssembler`(분할 쓰기/줄 편집 대응. 기기가 입력 일부를 버렸을 수 있으면 `mark_uncertain` 으로 남은 입력을 uncertain 처리).
@@ -290,8 +296,9 @@ if not decision.allowed:
 - **사람 증명(attestation)** — `src/pweh/safety/attestations.py`. 사람만 확인할 수 있는 사실(콘솔 오프라인, 결제 수단 제거, 배선 = 채널 라벨과 잰 전압,
   태그의 목적·소유, 쓰기 방지 장치, 가져온 파일의 출처 …)이나 물리 부작용이 있는 MODIFY 의 전제 조건을 에이전트가 스스로 채우지 못하게 한다.
   승인(1회 소비, 짧은 만료)과 달리 **소비되지 않고** 대상·바인딩·만료에 묶여 재사용된다.
-  증명을 요구하는 도구는 지금 둘이다: `fw_patch_build`(세이브 쓰기 명령을 보여 주기 전 `console-offline` — 네트워크 차단·재부팅 없음·변경 의사·판매 토큰 콘텐츠 아님, 30분 유효, 패치·백업·편집·선언에 묶임)와
-  `forensics_acquisition_attest`(카드 이미징의 `write-blocker` — 쓰기 방지 장치 사용·모델·시험 여부·이미징 도구, 증거 id·sha256·크기에 묶임, 90일. 결과를 보관 기록에 남길 뿐 다른 도구를 막지 않는다 — §6.8).
+  증명을 요구하는 도구는 `fw_patch_build`(세이브 쓰기 명령을 보여 주기 전 `console-offline` — 네트워크 차단·재부팅 없음·변경 의사·판매 토큰 콘텐츠 아님, 30분 유효, 패치·백업·편집·선언에 묶임)와
+  `forensics_acquisition_attest`(카드 이미징의 `write-blocker` — 쓰기 방지 장치 사용·모델·시험 여부·이미징 도구, 증거 id·sha256·크기에 묶임, 90일. 결과를 보관 기록에 남길 뿐 다른 도구를 막지 않는다 — §6.8),
+  `emu_start`(가져온 펌웨어의 `provenance-import` — 케이스·파일 sha256 에 묶임, §6.9)이다.
   사람에게 보이는 요약·질문은 `display_text` 로 제어·서식 문자를 이스케이프한다(`pweh attest` 화면, elicitation 폼 — 기기에서 온 문자열이 화면을 조작하지 못하게).
   - 레코드: `.pweh/state/attestations/att-<16진 10자>.json`(`pweh.attestation/v1`). `kind` 는 닫힌 집합이다(`tag-purpose`, `wiring`, `console-offline`,
     `payment-locked`, `hdmi-source`, `bridge-serial`, `write-blocker`, `provenance-import`, `instrument-pin`, `radio-target`, `module-kc` — 코드에서만 늘린다).
@@ -336,13 +343,13 @@ if not decision.allowed:
   - kind 와 기록하는 곳: `device-read`(기기 읽기 코드 경로만 — 지금은 `esp_read_flash_start` 가 끝까지 성공(`succeeded`)한 덤프의 읽기 파일. 이중 읽기면 두 파일이고,
     실패·취소 때 보존한 1차 읽기는 기록하지 않는다), `device-fact`(`esp_chip_info`·`esp_security_info` 결과. data 를 원장에 그대로 둔다), `imported-unattested`(`case_import_file`,
     그리고 `forensics_intake_start` 의 접수 기록 파일 `EV-NNNN.json` — extra 에 이미지 sha256·크기. 이미지 파일 자체는 원장 항목이 아니다).
-  - `verify(case, path)` → `{trusted, kind, record, reason, path, sha256}`: 체인 전체를 검증하고(하나라도 깨지면 모두 불신 — `ledger-chain-broken`), 그 경로의 마지막 항목과
-    지금 파일의 sha256 을 맞춘다(`sha256-mismatch`. 그 밖의 불신 이유는 `not-recorded`, `file-missing`). `device-read` 는 신뢰하고, `imported-unattested` 는 `provenance-import` 증명
+  - `verify(case, path, *, data=None)` → `{trusted, kind, record, reason, path, sha256}`: 체인 전체를 검증하고(하나라도 깨지면 모두 불신 — `ledger-chain-broken`), 그 경로의 마지막 항목과
+    지금 파일의 sha256 을 맞춘다(`data` 가 있으면 경로를 열지 않고 그 바이트를 해시한다. `sha256-mismatch`. 그 밖의 불신 이유는 `not-recorded`, `file-missing`). `device-read` 는 신뢰하고, `imported-unattested` 는 `provenance-import` 증명
     (같은 sha256·같은 케이스 — `provenance_import_target`, `PROVENANCE_IMPORT_QUESTIONS`)이 있을 때만 신뢰한다(`imported-attested`).
     `device-read` 는 출처(기기에서 읽음)이지 무결성이 아니다 — 이중 읽기가 어긋난 덤프(`source.match=false`)는 기록하지만 `verify` 는 신뢰하지 않는다(`device-read-mismatch`).
     검증하지 않은 단일 읽기(`match=null`)는 출처로 신뢰하므로, 무결성이 필요한 쪽(패치 base 등)은 `record.source.verify` 를 따로 확인한다.
   - 확인과 사용 사이에 에이전트가 케이스 파일을 바꿀 수 있다. 쓰는 쪽은 `verify` 가 돌려준 sha256 을 승인 지문·job 인자에 묶고, 실행 직전 같은 sha256 인지 다시 해시하거나 확인한 바이트를 그대로 쓴다.
-    `verify` 를 부르는 도구는 지금 `fw_patch_build`(base·백업)와 `fw_verify_writeback`(읽기 확인 덤프)이다. 출처가 중요한 다른 작업(에뮬레이션·올리기·계측기 플래시 절차)도 이 함수로 확인한다.
+    `verify` 를 부르는 도구는 `fw_patch_build`(base·백업), `fw_verify_writeback`(읽기 확인 덤프), `emu_start`(한 번 읽은 바이트를 `data` 로 확인하고 봉인 memfd 로 전달)이다. 출처가 중요한 다른 작업(올리기·계측기 플래시 절차)도 이 함수로 확인한다.
   - 원장 kind 를 늘린 뒤에는 모든 MCP 서버를 다시 시작한다 — 옛 코드의 서버는 모르는 kind 를 깨진 체인으로 보고 그 케이스의 출처 확인을 모두 실패시킨다(fail closed).
   - `patch-plan`(fw_patch_build 가 쓰기 명령을 보여 줄 때): 패치 파일 sha256, base·백업의 원장 seq, 대상(절대 오프셋·크기), 기기(MAC·포트), 증명 id. 기기에서 읽은 것이 아니므로 `verify` 의 신뢰 근거가 되지 않고,
     `fw_verify_writeback` 이 기대 sha256 의 권위 기록으로만 쓴다(패치 파일·결과 JSON 은 에이전트가 바꿀 수 있어 증거가 아니다).
@@ -351,14 +358,14 @@ if not decision.allowed:
     올바른 `prev` 로 끝에 줄을 덧붙이거나, 레코드를 처음부터 위조하는 것은 막지 못한다(docs/safety.md §3.5). 보호 상태는 케이스 id 로만 묶인다
     — 사람이 `cases/<id>` 를 지운 뒤 같은 id 로 케이스를 다시 만들면 예전 원장·증명·솔트를 이어받는다.
   - `case_import_file` 은 state_dir 안의 파일을 가져오지 않는다(보호 상태를 케이스로 복사해 읽어 내지 못하게). 대상은 `O_EXCL` 로 새로 만든다(같은 이름의 파일·링크가 있으면 거부).
-    어느 케이스의 `forensics/` 아래 파일도 가져오지 않는다(풀기 전 경로와 링크를 푼 경로를 모두 본다 — `forensics/` 자체가 링크여도 그 아래 경로로 부르면 막는다. 카드 이미지·추출물을 자동 허용 도구가 읽는 `dumps/` 같은 곳으로 옮기지 못하게, 아래 SD 카드 증거).
+    어느 케이스의 `forensics/`·`emu/` 아래 파일도 가져오지 않는다(풀기 전 경로와 링크를 푼 경로를 모두 본다 — 보호 폴더 자체가 링크여도 그 아래 경로로 부르면 막는다. 카드 이미지·추출물을 자동 허용 도구가 읽는 `dumps/` 같은 곳으로 옮기지 못하게, 아래 SD 카드 증거).
     확인한 뒤 원본을 경로로 다시 열어 복사하므로 그 사이에 같은 계정 프로세스가 이름을 바꿔치기하는 것은 막지 못한다(docs/safety.md §3.6).
 - **비밀값 마스킹** — `src/pweh/safety/masking.py`. 게이트 `action` 과 `classification.matched` 에는 원문 대신 `rt().secret_digest(case_id, 값)`
   (`sha256:` + sha256(케이스 솔트 ‖ 값)의 앞 16 hex) 또는 `<given>` 만 넣는다. 그러면 승인 지문·감사 로그·승인 레코드·`approval_status` 응답에 원문이 남지 않는다.
   같은 케이스의 같은 값은 늘 같은 다이제스트라 재시도 지문이 맞고, 케이스가 다르면 달라진다. 증명 subject 에 비밀이 들어가야 할 때도 다이제스트를 쓴다.
   응답·보고서에는 `mask_secret(값)` 을 쓴다(16자 이상은 앞뒤 2자와 길이, 10–15자는 앞뒤 1자와 길이, 더 짧은 값과 바이트는 길이만).
   솔트는 `.pweh/state/salts/<case_id>.key`(32 바이트, 0600, 처음 쓸 때 만들고 바꾸지 않는다)다.
-  게이트 `action` 에 비밀을 넣도록 설계된 도구는 `shell_login`(비밀번호 → `<given>`) 하나다. 다이제스트는 `fw_esp_nvs`·`fw_save_diff` 가 NVS 비밀값(Wi-Fi 비밀번호·토큰 등)을
+  게이트 `action` 의 비밀은 `shell_login` 의 비밀번호와 `emu_write` 의 입력 모두 `<given>` 으로 남긴다. 다이제스트는 `fw_esp_nvs`·`fw_save_diff` 가 NVS 비밀값(Wi-Fi 비밀번호·토큰 등)을
   응답·결과 파일에 표시할 때 마스킹과 함께 쓴다(게이트 `action` 에 다이제스트를 넣는 도구는 아직 없다).
   비밀번호 프롬프트에 `uart_send_command` 로 입력하면 원문이 게이트 작업 내용과 감사 로그에 남는다 — 로그인은 `shell_login` 으로 한다.
   - 한계: 솔트는 같은 OS 계정의 에이전트가 읽을 수 있다(파일 도구, 자동 허용된 REA `open_binary` + `read_bytes`). 다이제스트는 보고서·감사 로그를 읽는
@@ -378,6 +385,10 @@ if not decision.allowed:
   - 한계: 이 경계가 막는 경로는 위 도구들뿐이다. 에이전트의 파일 도구나 자동 허용된 REA `open_binary`·`read_bytes` 는 `forensics/` 를 읽을 수 있으므로,
     추출물·이미지를 열지 않는 것은 에이전트 규칙이다(docs/safety.md §7). 경로를 확인한 뒤 경로로 다시 여는 곳(`case_import_file`, pweh-fwtriage, pweh-sigrok)은 그 사이 같은 계정 프로세스의 바꿔치기를 막지 못하고,
     하드 링크는 어느 가드도 알아보지 못한다. 보관 기록·고정점에는 비밀 키가 없다(출처 원장과 같은 한계 — docs/safety.md §3.5). SD 카드 증거의 알려진 한계 전체는 docs/safety.md §3.6 에 있다.
+
+- **보호 하위 트리**: `pweh.evidence.PROTECTED_DIRS = ("forensics", "emu")`. `under_any_case_protected`·`is_protected_path`·`contains_protected_dir` 는 SD 증거와 에뮬레이터 원시 콘솔 경계를 함께 검사한다.
+  위 `case_import_file`·`case_hash_file`·`case_register_artifact`, pweh-fwtriage 입력/디렉터리 순회, pweh-sigrok 입력의 거부는 `emu/` 에도 적용된다(다른 케이스·심볼릭 링크 포함).
+  종전 `*_forensics*` 함수는 호환성을 위해 SD 경계만 검사한다. 에이전트 파일 도구·REA 와 하드 링크는 이 경계 밖이므로 운영 규칙도 필요하다(안전 가이드 §3.7).
 
 ## 5. 코딩 규칙
 
@@ -416,9 +427,9 @@ if not decision.allowed:
 
 - `case_hash_file` 은 케이스 안 파일(또는 `offset`/`length` 구간, 정수 또는 `"0x50000"`·`"64k"`)의 해시를 계산한다. 덤프 교차 검증용이다:
   tftpput·SPI 클립으로 받은 파일과 UART 덤프의 같은 구간 비교, 기기 측 `md5sum`/`crc32` 값과 대조.
-- 증거 가드(§4 'SD 카드 증거'): `case_hash_file`·`case_register_artifact` 는 어느 케이스의 `forensics/` 아래 파일도 다루지 않는다(링크를 푼 경로로 판단, `validation_failed`).
+- 보호 하위 트리 가드(§4): `case_hash_file`·`case_register_artifact` 는 어느 케이스의 `forensics/`·`emu/` 아래 파일도 다루지 않는다(링크를 푼 경로로 판단, `validation_failed`).
   파일은 `pweh.safeio` 로 일반 파일만 열고(FIFO·장치는 열지 않아 거기서 멈추지 않는다 — `validation_failed`), 실제로 연 fd 의 경로로 증거 폴더 여부를 다시 본 뒤 그 fd 로 해시한다(`case_register_artifact` 의 디렉터리는 해시하지 않는다).
-  `case_import_file` 은 state_dir 와 어느 케이스의 `forensics/` 아래 파일을 가져오지 않는다(`forensics/` 는 풀기 전 경로와 링크를 푼 경로 모두 — §4). 확인한 뒤 원본을 경로로 다시 열어 복사한다(그 사이의 바꿔치기 한계 — docs/safety.md §3.6).
+  `case_import_file` 은 state_dir 와 어느 케이스의 `forensics/`·`emu/` 아래 파일을 가져오지 않는다(보호 폴더는 풀기 전 경로와 링크를 푼 경로 모두 — §4). 확인한 뒤 원본을 경로로 다시 열어 복사한다(그 사이의 바꿔치기 한계 — docs/safety.md §3.6).
 - `pipeline_environment` 은 실행 환경 보고서(`pweh.hostenv/v1` — `kind`, `wsl{version, networking_mode, interop}`, `windows{build, uac_enabled, interop_elevated, smart_app_control, usbipd, tools.esptool_win}`, `linux`, `warnings`, `overridden`)와 장치 종류별 `routes[]`(`now` = 지금 되는 경로·사람 단계, `target{route, phase}` = 다음 단계 경로)를 돌려준다(OBSERVE, 기기 미접촉). 모르는 값은 `null`, 휘발 목록(COM 포트·usbipd attach 상태)은 넣지 않는다. WSL 첫 감지는 powershell.exe 고정 스크립트 smoke 로 몇 초, 이후 캐시(성공한 smoke 300 초, 실패한 감지는 30 초 뒤 다시), `refresh=true` 면 다시 감지. 표준 위치가 아닌 `$PATH` 의 usbipd 는 `windows.usbipd.found_elsewhere` 로 표시만 하고 실행하지 않는다(Windows 프로그램은 실제 경로가 정확히 맞는 System32 powershell·Program Files usbipd 만). 사람은 같은 내용을 `pweh env` 로 본다.
   설정 `hostenv.disable` 은 좁히기만 한다: `interop` — Windows 프로그램을 실행하지 않는다(kind 는 WSL2_NO_INTEROP), `windows_tools` — Windows 판 도구를 쓰지 않는다(esp esptool.exe → `tool_missing`), `serial_helper` — (P2) 헬퍼 경로. 알 수 없는 값은 경고와 함께 무시한다.
 - `case_import_file` 은 가져온 파일을 출처 원장에 `imported-unattested` 로 기록하고 응답에 `provenance{recorded, kind: "imported-unattested", seq, sha256, note}` 를 붙인다(§4).
@@ -478,7 +489,7 @@ if not decision.allowed:
 
 ### 6.3 pweh-sigrok
 로직 애널라이저/오실로스코프의 **입력 전용** 캡처, 신호 파일 디코딩·변환, 순수 Python 보드레이트 추정.
-경로 인자는 케이스 상대 경로(`signals/x.sr`, `signals/` 는 생략 가능)이며 케이스 밖 경로는 거부한다. 어느 케이스의 `forensics/`(SD 카드 증거) 아래 `input_path` 도 `validation_failed` 다(§4 'SD 카드 증거').
+경로 인자는 케이스 상대 경로(`signals/x.sr`, `signals/` 는 생략 가능)이며 케이스 밖 경로는 거부한다. 어느 케이스의 `forensics/`(SD 카드 증거)·`emu/`(원시 콘솔) 아래 `input_path` 도 `validation_failed` 다(§4 'SD 카드 증거').
 `sigrok_scan` 은 예외로 `case_id` 가 선택이다(시리얼/네트워크 `conn` 을 줄 때만 필수).
 시그니처의 `…` 는 생략한 선택 인자다(전체 목록: `docs/references/pweh-mcp-tools.md`).
 
@@ -590,7 +601,7 @@ JTAGulator(FW 1.10–1.12)의 USB-시리얼 텍스트 메뉴를 조작해 JTAG(I
 - **`background=true`**(`fw_identify`, `fw_entropy`, `fw_extract_squashfs`, `fw_elf_info`, `fw_rootfs_audit`, `fw_strings_hunt`, `fw_crack_hashes`, `fw_checksum_find`, `fw_find_seq_tables`): 응답은 `job_id` 이고
   `fwtriage_job_status` 의 `result` 가 인라인 응답과 같다(`result_path` 포함). `max_seconds` 는 시간 예산이며 넘으면 부분 결과로 끝난다(`summary.timed_out`/`truncated`).
 - 오프셋·크기 인자는 정수 또는 `"0x150000"`, `"64k"`, `"2M"` 같은 문자열을 받는다.
-- 입력 경로가 그 케이스의 `forensics/`(SD 카드 증거) 안이거나 `forensics/` 를 품은 디렉터리(케이스 루트 등)면 `validation_failed` 다(링크를 풀어 판단 — §4 'SD 카드 증거'). 카드 이미지·추출물은 pweh-forensics 로만 다룬다.
+- 입력 경로가 보호 하위 트리 `forensics/`(SD 카드 증거)·`emu/`(원시 콘솔) 안이거나 이를 품은 디렉터리(케이스 루트 등)면 `validation_failed` 다(링크를 풀어 판단 — §4 'SD 카드 증거'). 카드 이미지·추출물은 pweh-forensics 로만 다룬다.
 
 | 도구 | 설명 / 반환 |
 |---|---|
@@ -878,6 +889,64 @@ SD 카드 이미지의 증거 분석이다(설계 `docs/design/sd-forensics.md` 
 - **보고서**: `report_generate` 는 `forensics/` 가 있으면 §8.1 'SD 카드 증거'(보관 기록 상태 — 고정점과 대조, 증거 표 — 상태(`status_label`)·마지막 검증·쓰기 방지 장치 증명, 고지)를 넣는다. 녹화 내용과 파일 목록은 넣지 않는다.
 - **아직 없는 것**(설계 §4·§5.2 의 다음 단계): 프레임·파일 카빙(DHAV·XM·MPEG-PS·MP4·JPEG), CCTV 녹화 인덱스·이름 규칙, 타임라인, 카드의 비밀값 스캔·녹화 암호화 판정·침해 흔적 대조(`fw_sd_surface` 의 `sd_paths_referenced`),
   ext4·NTFS, E01 입력, 외부 도구(TSK·PhotoRec·ewf-tools·ffprobe) 교차 확인, 큰 카드의 외부 읽기 전용 폴더 제자리 참조. 지금의 삭제 파일 복구는 디렉터리 항목이 남은 파일만 다룬다.
+
+### 6.9 pweh-emu (선택)
+
+확보한 MCU 펌웨어를 PC 에서 실행하고 마스킹한 UART 콘솔을 읽는다. 백엔드는 `esp-qemu`(Espressif QEMU `esp_develop_9.2.2_20260417`: ESP32·ESP32-S3·ESP32-C3)와
+`avr-simavr`(simavr `5b08da60497f7564f50941f74a549fe2851db030` + `native/emu/pweh_avr_run.c`)다. 실제 기기·포트를 열지 않는다. 도구는 여섯이며 job 도구가 없다.
+설계 근거는 [design/emulation.md](design/emulation.md), 알려진 한계는 [safety.md](safety.md) §3.7, 운영은 `firmware-emulation` Skill 을 따른다.
+
+| 도구(인자) | 의미·반환 |
+|---|---|
+| `emu_status()` | OBSERVE, 케이스 불필요. `backends[esp-qemu\|avr-simavr]`(실행 파일 위치·출처·버전·머신·보드·지원 여부), `isolation{netns, seccomp:false, core_pattern_piped}`, `limits`, `sessions{this_process}`, `hints`. 게스트는 실행하지 않고 버전·머신 조회만 한다. 버전 문자열이 고정 값과 다르면 시작을 거부하며 실행 파일·ROM sha256 차이는 경고만 한다 |
+| `emu_start(case_id, firmware, backend="auto", chip=None, board=None, mcu=None, freq_hz=None, psram="auto", psram_mb=None, watchdog="disabled", on_reset="exit", timeout_s=600, idle_timeout_s=300, label=None, approval_id=None)` | MODIFY `emu.start`, 소유/허가 확인. 출처·이미지·백엔드 검사 → 고정 argv 분류 → 게이트 → 세션 시작. `session_id`, `state`, `backend`, `target`, `firmware{path,sha256,size,provenance_reason,verify,ledger_seq}`, `working_copy{sha256,size,padded_from,handoff:"memfd"}`, `limits`, `isolation`, `masking`, `cursor:0`, `dir`, `warnings`, `notes`, `next_steps`. ESP 는 `psram`·`image`·`efuse`·파티션/앱 요약, AVR 은 `avr` 요약도 반환한다. 빠르게 끝난 세션은 최종 상태·종료 이유를 반환한다. 첫 콘솔 출력은 `emu_read` 로 본다 |
+| `emu_read(session_id, since_cursor=None, max_chars=8000, wait_seconds=0, until=None, until_ignore_case=False, tail=False, case_id=None)` | OBSERVE. 마스킹·제어 문자 이스케이프·반복 접기한 `text`, `cursor_start/end`, `more`, `pending_line`, `lines`, `collapsed`, `lost_bytes`, `raw_total`, `raw_dropped`, `matched`, `match`, `state`, `hints`, `source`. 끝났으면 `stopped_by`·`exit`. 메모리에 없는 끝난 세션은 `case_id` 를 주면 마스킹 기록을 읽는다 |
+| `emu_write(session_id, data, encoding="text", approval_id=None)` | INTERACT `emu.write`, 세션의 케이스 소유/허가를 재확인하고 게이트·감사 기록을 거친다. UTF-8 text 또는 공백 허용 hex, 1–4096바이트, 줄 끝은 호출자가 넣는다. 비차단 쓰기 최대 2초. `bytes_written`, `bytes_requested`, `partial`, `cursor`, `state`. 감사·이벤트에는 바이트 수·인쇄 가능 여부와 `<given>` 만 남기며 입력 원문·다이제스트는 남기지 않는다 |
+| `emu_stop(session_id, case_id=None)` | 정리 도구, 서버 게이트 없음. SIGTERM → 3초 → SIGKILL(프로세스 그룹), 감독 스레드 합류·기록 마감·아티팩트 등록. `state`, `stopped_by`, `exit{code,signal}`, `duration_s`, `raw_bytes`, `raw_dropped_bytes`, `transcript_lines`, `artifacts`, `meta_path`, `stderr_tail`(허용한 진단 줄만 마스킹, 2000자 이하), `already_stopped`. 서버 메모리에 없는 끝난 세션은 `case_id` 를 준다 |
+| `emu_sessions(case_id=None)` | OBSERVE. 이 프로세스의 `sessions[]`(끝난 세션 포함), `count`, `other_process_live{case_id:n}`(다른 서버의 살아 있는 세션 수), `limits`. 콘솔 내용은 없다 |
+
+**입력·출처**
+
+- `firmware` 는 케이스 안 일반 파일이다. `forensics/`·`emu/`·상태 디렉터리, 장치·FIFO 는 거부한다. 경로를 케이스 안으로 해석한 뒤 `safeio` 로 링크를 따라가지 않고 한 번 읽고 `provenance.verify(..., data=그 바이트)` 로 확인한다.
+  허용 출처는 이 케이스에서 읽은 `device-read` 또는 `case_import_file` 뒤 사람이 `provenance-import` 를 증명한 파일이다. 원장 누락·해시 불일치·이중 읽기 불일치는 `emu_provenance` 다.
+  가져온 파일의 첫 호출은 `attestation_required` 일 수 있다. 사람 증명 뒤 같은 인자로 다시 부른다. `single_read` 는 경고와 함께 허용한다. `case.json` 의 producer 는 신뢰 근거가 아니다.
+- ESP 는 offset 0 전체 플래시만 받는다. 부트로더·칩 ID 를 확인하고 원장·같은 기기의 보안 사실과 대조한다. 시작 offset 이 0 이 아닌 덤프·지원하지 않는 칩·칩 불일치·플래시 암호화·16 MiB 초과는 거부한다.
+  offset 0 이미지가 헤더 선언 크기보다 짧으면 `partial_dump` 경고를 남기고 패딩한다(앱 파티션이 빠졌을 수 있다).
+  유효한 이미지는 0xFF 로 2·4·8·16 MiB 크기에 맞춘다. `chip` 은 생략 권장이다. `psram=auto|none|quad|octal`, `psram_mb` 는 칩별 허용 크기만 받는다.
+  `watchdog=disabled|emulated`(기본 disabled), `on_reset=exit|reboot`(기본 exit). eFuse 는 실기기 값을 복사하지 않고 기본 블롭을 쓴다.
+- AVR 은 Intel HEX 또는 raw 바이너리를 받아 HEX 로 정규화한다(ELF 거부, 입력 상한 2 MiB·raw 는 MCU 플래시 크기 이하). EEPROM 은 MCU 용량 안에서 보존하고 퓨즈·잠금·서명 레코드는 버린다.
+  `board=uno|nano|pro-mini-5v|pro-mini-3v3|mega2560|leonardo|micro|custom`; custom 은 허용 MCU 와 `freq_hz` 1–32 MHz 가 필요하다. 운영에서는 AVR 입력을 `case_import_file` 로 가져와 사람이 출처를 증명한다.
+- `backend=auto` 는 `board`·`mcu`·`freq_hz` 중 하나가 있으면 AVR, 나머지는 ESP 다(파일 내용으로 자동 선택하지 않는다). AVR 에 ESP 전용 옵션, ESP 에 AVR 옵션을 섞으면 거부한다.
+  `label` 은 `^[a-z0-9][a-z0-9-]{0,23}$`, 세션 id 는 `<label 또는 emu>-NNN` 이다.
+
+**실행 경계·세션 수명**
+
+- 서버가 정확한 argv 를 만들고 `classify_emu_argv` 가 다시 검사한다. QEMU 는 모니터·gdbstub·네트워크 장치·semihosting·호스트 파일 장치·사용자 설정·임의 옵션이 없다.
+  `-serial stdio` 는 모니터 다중화를 하지 않는다. AVR 실행기는 GDB 소켓 코드를 링크하지 않는다. 허용 형태를 벗어나면 `denied`, `gate.via="emu-policy"` 이며 승인 경로가 없다.
+- 입력과 eFuse 는 봉인한 memfd 로만 넘긴다. 세션 폴더에 펌웨어 사본을 남기지 않는다. QEMU 는 `-snapshot`, 세션 안 `tmp/` 를 쓰므로 원본 펌웨어는 바뀌지 않는다.
+  실행 shim 은 `python -I -S` 로 별도 실행하고 rlimit·부모 사망 신호·새 프로세스 그룹·정리한 환경을 적용한다. 가능하면 빈 네트워크 네임스페이스를 쓰며 사용 불가(exit 94) 때 한 번 재시도해 `isolation.netns=false` 를 기록한다.
+  exec 상태 파이프로 실행 성공을 확인한다. 서버 시작과 새 세션 시작 때 주인이 죽은 세션을 신원(uid·시작 시각·cwd·실행 파일·그룹 리더) 확인 뒤 정리한다(입양하지 않음).
+- 케이스당 동시 세션 2개(서버 간 케이스 잠금으로 계산), 서버 프로세스당 4개. `timeout_s` 10–3600(기본 600), `idle_timeout_s` 30–1800(기본 300, timeout 이하).
+  무활동은 게스트 출력이 아니라 `emu_read`/`emu_write` 호출 기준이다. 주소 공간은 QEMU 1 GiB·AVR 64 MiB, CPU 는 `ceil(timeout_s × vcpus × 1.1)+5`(hard +5초), 파일 fd 256·core 0.
+  원시 콘솔 32 MiB·stderr 1 MiB·마스킹 기록 16 MiB 상한이며 초과 출력은 버리고 개수로 남긴다. 세션을 시작했다면 이미 끝났어도 `emu_stop` 을 호출한다.
+- `emu_status`·`emu_read`·`emu_sessions` 는 `readOnlyHint`/Claude allow, `emu_start`·`emu_write`·`emu_stop` 은 Claude ask 다. 클라이언트 확인과 서버 게이트는 별개다.
+
+**콘솔·산출물**
+
+- 라이브 커서는 원시 바이트 오프셋이지만 줄 레코드 경계에 놓인다. 줄 중간 커서는 그 줄 시작으로 내린다. 생략하면 직전 cursor_end 부터 읽는다.
+  `max_chars` 는 256–65536 글자, `wait_seconds` 는 0–50초. `until` 은 리터럴 1개 또는 목록 1–8개(각 1–64자, 줄바꿈 금지)이며 정규식이 아니다.
+  0.2초 조용한 열린 줄은 `pending_line` 으로 보이고 커서는 그 시작에 남는다. 이미 보여 준 프롬프트만 있으면 새 바이트나 until 일치를 기다린다.
+  메모리에서 밀려난 끝난 세션은 `case_id` 로 `transcript.masked.txt` 를 읽으며 이때 커서는 마스킹 파일 바이트 기준이다(`source="transcript"`, 기다림 없음).
+- 공통 `ConsoleRedactor` 는 자격증명 패턴·NVS 에서 확인한 비밀값·개인키 블록·ESP 스택 덤프를 가린다. ANSI·제어·서식 문자도 처리한다.
+  `emu_write` 로 준 비밀번호가 게스트 에코에 나타날 수 있다. 마스킹은 완전하지 않으며 원시 로그는 어떤 도구로도 열지 않는 운영 규칙이 필요하다(안전 가이드 §3.7).
+- `emu/<sid>/` 의 `console.bin`·`transcript.masked.txt`·`events.jsonl`·`meta.json`·`emulator.stderr.log` 를 끝날 때 `kind="other"`,
+  `extra.type=emu-console-raw|emu-transcript|emu-events|emu-session|emu-stderr` 로 등록한다. 일반 case/fwtriage/sigrok 입력은 `emu/` 를 거부한다. 콘솔은 `emu_read` 로만 본다.
+- Wi-Fi·Bluetooth·USB 콘솔 및 대부분의 주변장치는 에뮬레이션하지 않는다. ESP32-S3/C3 앱이 USB 콘솔을 쓰면 부트로더 뒤 조용할 수 있다.
+  에뮬레이션의 성공·실패만으로 실제 기기 취약점을 확정하지 않는다. 요약은 `skill="firmware-emulation"`, `data` 는 `emulation` 스키마로 남긴다.
+
+오류: `validation_failed`, `not_found`, `tool_missing`, `emu_tool_version`, `emu_input_rejected`, `emu_provenance`(`data.reason`), `emu_changed`,
+`emu_not_full_image`, `emu_unsupported_chip`, `emu_machine_mismatch`, `emu_flash_encrypted`, `emu_flash_too_large`, `emu_bad_hex`, `emu_elf_refused`,
+`emu_session_limit`, `emu_spawn_failed`, `emu_not_running`. 사람 확인 상태는 `attestation_required`·`approval_required`·`denied` 다.
 
 ## 7. REA 연동
 

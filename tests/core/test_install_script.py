@@ -23,7 +23,8 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[2]
 SCRIPT = REPO / "scripts" / "install.sh"
-COMPONENTS = ["python", "sigrok", "openocd", "squashfs", "uboot", "zig", "jdk", "ghidra", "unblob", "extractors", "erofs", "binwalk", "rea", "esptool"]
+COMPONENTS = ["python", "sigrok", "openocd", "squashfs", "uboot", "zig", "jdk", "ghidra", "unblob", "extractors", "erofs", "binwalk", "rea", "esptool",
+              "qemu_esp", "simavr"]
 STEPS = ["mcp", "skills", "verify"]
 
 
@@ -81,6 +82,9 @@ def test_list_names_every_component_and_creates_nothing(tmp_path):
     assert "[minimal]" in r.stdout and "[선택]" in r.stdout
     esptool = next(line for line in r.stdout.splitlines() if line.split()[:1] == ["esptool"])
     assert "[선택]" in esptool and "[minimal]" not in esptool and "방법 A" in esptool
+    for emu in ("qemu_esp", "simavr"):  # 펌웨어 에뮬레이션 구성요소: 선택, --minimal 밖 (DESC 가 없으면 set -u 로 --list 가 멈춘다)
+        line = next(ln for ln in r.stdout.splitlines() if ln.split()[:1] == [emu])
+        assert line.endswith("[선택]") and "[minimal]" not in line, line
     for step in STEPS:
         line = next(ln for ln in r.stdout.splitlines() if ln.split()[:1] == [step])
         assert line.endswith("[단계]") and "[minimal]" not in line, line
@@ -126,7 +130,7 @@ def test_minimal_selects_only_minimal_components(tmp_path):
 
 def test_pinned_artifacts_have_sha256():
     text = SCRIPT.read_text(encoding="utf-8")
-    for var in ("OPENOCD", "ZIG", "JDK", "GHIDRA", "SASQUATCH", "NODE", "UNBLOB", "PIP", "RUSTUP", "ESPTOOL", "ESPTOOL_WIN"):
+    for var in ("OPENOCD", "ZIG", "JDK", "GHIDRA", "SASQUATCH", "NODE", "UNBLOB", "PIP", "RUSTUP", "ESPTOOL", "ESPTOOL_WIN", "QEMU_XTENSA", "QEMU_RISCV32"):
         line = next(ln for ln in text.splitlines() if ln.startswith(f"{var}_SHA="))
         value = line.split("=", 1)[1].split()[0]
         assert len(value) == 64 and all(c in "0123456789abcdef" for c in value), line
@@ -185,6 +189,157 @@ def test_esptool_optional_linux_and_windows_builds(tmp_path):
     _fake_esptool(linux, "4.8.1")  # 고정 버전이 아니면 설치된 것으로 보지 않는다
     r = _run("--check", "--only", "esptool", *common)
     assert r.returncode == 0 and "✗ esptool" in r.stdout, r.stdout
+
+
+# --- 펌웨어 에뮬레이션 구성요소 (qemu_esp, simavr) --------------------------------
+
+QEMU_VERSION_LINE = "QEMU emulator version 9.2.2 (esp_develop_9.2.2_20260417)"
+SIMAVR_COMMIT = "5b08da60497f7564f50941f74a549fe2851db030"
+AVR_RUN_SRC = REPO / "native" / "emu" / "pweh_avr_run.c"
+
+
+def _shell_value(text: str, name: str) -> str:
+    m = re.search(rf'^{name}="?([^"\n]*?)"?(?:\s+#.*)?$', text, re.M)
+    assert m, name
+    return m.group(1)
+
+
+def _emu_code() -> str:
+    """install.sh 의 qemu_esp·simavr 함수 부분(주석 줄 제외)."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    start = text.index("# 펌웨어 에뮬레이션 (pweh-emu, mcp-servers/emu-mcp)")
+    section = text[start:text.index("# env.sh", start)]
+    return "\n".join(ln.split("   #")[0] for ln in section.splitlines() if not ln.lstrip().startswith("#"))
+
+
+def _avr_run_source_version() -> str:
+    m = re.search(r'^#define PWEH_AVR_RUN_VERSION "([^"]+)"', AVR_RUN_SRC.read_text(encoding="utf-8"), re.M)
+    assert m
+    return m.group(1)
+
+
+def test_emulation_components_are_optional_and_pinned():
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert _shell_value(text, "ALL_COMPONENTS").split()[-3:] == ["esptool", "qemu_esp", "simavr"]  # 맨 끝에 더한다
+    assert {"qemu_esp", "simavr"} <= set(_shell_value(text, "OPTIONAL_COMPONENTS").split())
+    assert not {"qemu_esp", "simavr"} & set(_shell_value(text, "MINIMAL_COMPONENTS").split())
+    assert re.search(r"^\s*\[qemu_esp\]=", text, re.M) and re.search(r"^\s*\[simavr\]=", text, re.M)   # set -u: DESC 가 꼭 있어야 한다
+    # QEMU: 정확한 릴리스 asset 만 (sha256 은 test_pinned_artifacts_have_sha256)
+    assert _shell_value(text, "QEMU_ESP_TAG") == "esp-develop-9.2.2-20260417"
+    assert _shell_value(text, "QEMU_ESP_VER") == "esp_develop_9.2.2_20260417"
+    for arch in ("XTENSA", "RISCV32"):
+        assert _shell_value(text, f"QEMU_{arch}_URL").startswith("https://github.com/espressif/qemu/releases/download/${QEMU_ESP_TAG}/")
+    # simavr: erofs 처럼 커밋 고정 (해시를 고정해 받는 목록이 아니다)
+    assert _shell_value(text, "SIMAVR_COMMIT") == SIMAVR_COMMIT
+    assert _shell_value(text, "SIMAVR_GIT") == "https://github.com/buserror/simavr.git"
+    assert "SIMAVR_SHA" not in text and 'fetch "$SIMAVR' not in text
+    code = _emu_code()
+    assert 'git -C "$src" fetch -q --depth 1 "$SIMAVR_GIT" "$SIMAVR_COMMIT"' in code
+    assert '[ "$(git -C "$src" rev-parse HEAD)" = "$SIMAVR_COMMIT" ]' in code
+    assert "checkout -q FETCH_HEAD" in code
+
+
+def test_emulation_components_have_no_private_libraries_links_or_risky_build_flags():
+    text = SCRIPT.read_text(encoding="utf-8")
+    code = _emu_code()
+    # 런타임 라이브러리를 개인 경로에 받지 않는다 (관리자 안내만): LD_LIBRARY_PATH 배관·래퍼·배포판 패키지 풀기 없음
+    assert "PWEH_QEMU_ESP_LIBDIR" not in text
+    assert not re.search(r"LD_LIBRARY_PATH=|export LD_LIBRARY_PATH|make_wrapper|deb_fetch_extract", code)
+    assert "libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0" in code and "ldd" in code
+    # 공유 bin 디렉터리에 링크하지 않는다 (서버는 env.sh 의 절대 경로만)
+    assert not re.search(r"\bln\s", code)
+    # 검사는 설정 파일·기본 장치 없이, 시간 제한·터미널 입력 없이
+    assert 'timeout 20 "$1" -no-user-config -nodefaults -version </dev/null' in code
+    # simavr: 라이브러리만(run_avr 없음), libelf·libdwarf 끔, V=1·-DNDEBUG 없음, -Wl,--wrap 없음 (GDB 는 소스의 빈 함수)
+    assert "C_LIBELF= LD_LIBELF= C_LIBDWARF= LD_LIBDWARF=" in code
+    assert not re.search(r"\bV=1\b|-DNDEBUG|--wrap|run_avr|make install", code)
+    makes = [ln.strip() for ln in code.splitlines() if ln.strip().startswith("make -C")]
+    assert makes and all(ln.endswith(("obj config", '"$obj/libsimavr.a"')) for ln in makes), makes
+    assert 'ZIG_GLOBAL_CACHE_DIR=' in code and "$PREFIX/_build/zig-cache" in code   # ~/.cache/zig 를 쓰지 않는다
+    assert 'mv -f "$out" "$AVR_RUN"' in code   # 임시 이름으로 빌드·확인한 뒤 바꾼다
+    for name in ("socket", "bind", "listen", "accept", "connect"):
+        assert name in code   # 빌드 직후·--check 의 소켓 함수 검사
+    # env.sh: 확인을 통과한 절대 경로만
+    assert "export PWEH_QEMU_XTENSA='$QEMU_XTENSA_BIN'" in text and "export PWEH_QEMU_RISCV32='$QEMU_RISCV32_BIN'" in text
+    assert "export PWEH_AVR_RUN='$AVR_RUN'" in text
+
+
+def _fake_qemu(path: Path, version_line: str) -> None:
+    """설정 파일·기본 장치 없이 -version 을 물을 때만 버전을 내는 가짜 QEMU (검사가 정확히 그 인자로 부르는지도 확인)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('#!/bin/sh\n[ "$*" = "-no-user-config -nodefaults -version" ] || exit 9\n'
+                    f"printf '%s\\nCopyright (c) 2003-2024 Fabrice Bellard and the QEMU Project developers\\n' '{version_line}'\n")
+    path.chmod(0o755)
+
+
+def test_qemu_esp_check_install_and_env(tmp_path):
+    """qemu_esp 는 선택 구성요소다. 두 실행 파일이 고정 버전일 때만 설치된 것으로 보고 env.sh 에 절대 경로로만 알린다 (네트워크 없음)."""
+    prefix = tmp_path / "tools"
+    common = ("--prefix", str(prefix), "--venv", str(tmp_path / "v"), "--no-link")
+    r = _run("--check", "--only", "qemu_esp", *common)
+    assert r.returncode == 0 and "✗ qemu_esp" in r.stdout, r.stdout + r.stderr  # 없어도 --check 는 실패가 아니다
+    assert not prefix.exists()
+
+    xt = prefix / "qemu-esp" / "xtensa" / "qemu" / "bin" / "qemu-system-xtensa"
+    rv = prefix / "qemu-esp" / "riscv32" / "qemu" / "bin" / "qemu-system-riscv32"
+    _fake_qemu(xt, QEMU_VERSION_LINE)
+    assert "✗ qemu_esp" in _run("--check", "--only", "qemu_esp", *common).stdout   # 둘 다 있어야 한다
+    _fake_qemu(rv, QEMU_VERSION_LINE)
+    r = _run("--check", "--only", "qemu_esp", *common)
+    assert r.returncode == 0 and "✓ qemu_esp  Espressif QEMU 9.2.2 (esp_develop_9.2.2_20260417)" in r.stdout, r.stdout + r.stderr
+
+    (prefix / ".state").mkdir()  # 설치 모드가 pweh-tools 디렉터리로 알아보도록
+    r = _run("--only", "qemu_esp", *common)
+    assert r.returncode == 0 and "qemu_esp: 이미 설치됨" in r.stdout, r.stdout + r.stderr
+    env = (prefix / "env.sh").read_text()
+    assert f"export PWEH_QEMU_XTENSA='{xt}'" in env and f"export PWEH_QEMU_RISCV32='{rv}'" in env
+    assert str(prefix / "qemu-esp") not in env.split("export PATH")[0]   # PATH 에는 넣지 않는다
+    assert "LD_LIBRARY_PATH=" not in env and "PWEH_AVR_RUN" not in env
+    assert not (prefix / "bin" / "qemu-system-xtensa").exists()
+
+    _fake_qemu(rv, "QEMU emulator version 9.2.2 (esp_develop_9.2.2_20250101)")   # 다른 빌드는 받지 않는다
+    assert "✗ qemu_esp" in _run("--check", "--only", "qemu_esp", *common).stdout
+
+
+def _fake_runner(tmp_path: Path, out: Path, version_line: str, *, socket: bool = False) -> None:
+    """--version 만 아는 가짜 pweh_avr_run (ELF — 설치 스크립트가 nm 으로 소켓 함수를 검사하므로 셸 스크립트로는 안 된다)."""
+    src = tmp_path / "fake_runner.c"
+    use = "if (argc > 99) return socket(2, 1, 0);" if socket else ""
+    src.write_text("#include <stdio.h>\n#include <string.h>\n#include <sys/socket.h>\n"
+                   "int main(int argc, char **argv) {\n"
+                   f'  {use}\n  if (argc == 2 && !strcmp(argv[1], "--version")) {{ puts("{version_line}"); return 0; }}\n'
+                   "  return 2;\n}\n")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["cc", "-O0", str(src), "-o", str(out)], check=True, capture_output=True, timeout=120)
+
+
+@pytest.mark.skipif(not (shutil.which("cc") and shutil.which("nm")), reason="가짜 실행기를 만들 cc 와 검사할 nm 이 필요")
+def test_simavr_check_requires_source_version_commit_and_no_sockets(tmp_path):
+    """simavr 는 선택 구성요소다. pweh_avr_run --version 이 저장소 소스의 PWEH_AVR_RUN_VERSION 과 고정 simavr 커밋을 보이고
+    소켓 함수가 링크되지 않았을 때만 설치된 것으로 본다 (아니면 다시 빌드). 네트워크·빌드 없이 가짜 ELF 로 확인한다."""
+    prefix = tmp_path / "tools"
+    common = ("--prefix", str(prefix), "--venv", str(tmp_path / "v"), "--no-link")
+    runner = prefix / "simavr" / "bin" / "pweh_avr_run"
+    good = f"pweh_avr_run {_avr_run_source_version()} simavr {SIMAVR_COMMIT}"
+    r = _run("--check", "--only", "simavr", *common)
+    assert r.returncode == 0 and "✗ simavr" in r.stdout, r.stdout + r.stderr
+
+    _fake_runner(tmp_path, runner, good)
+    r = _run("--check", "--only", "simavr", *common)
+    assert r.returncode == 0 and f"✓ simavr  {good}" in r.stdout, r.stdout + r.stderr
+    (prefix / ".state").mkdir()
+    r = _run("--only", "simavr", *common)
+    assert r.returncode == 0 and "simavr: 이미 설치됨" in r.stdout, r.stdout + r.stderr
+    env = (prefix / "env.sh").read_text()
+    assert f"export PWEH_AVR_RUN='{runner}'" in env and str(prefix / "simavr") not in env.split("export PATH")[0]
+
+    for line, sock in ((f"pweh_avr_run 0.0-old simavr {SIMAVR_COMMIT}", False),   # 저장소 소스가 바뀌면 다시 빌드
+                       (f"pweh_avr_run {_avr_run_source_version()} simavr {'0' * 40}", False),   # 다른 simavr 커밋
+                       (good, True)):                                                         # GDB 서버 코드(소켓 함수)
+        _fake_runner(tmp_path, runner, line, socket=sock)
+        assert "✗ simavr" in _run("--check", "--only", "simavr", *common).stdout, (line, sock)
+    runner.write_text(f"#!/bin/sh\necho '{good}'\n")   # 기호 표를 읽을 수 없는 파일은 확인하지 못한 것으로 본다
+    assert "✗ simavr" in _run("--check", "--only", "simavr", *common).stdout
 
 
 # --- 단계: mcp, skills, verify (가짜 pweh) ----------------------------------
@@ -886,6 +1041,45 @@ def test_toolsdir_precedence(tmp_path, monkeypatch):
 
     monkeypatch.setenv("PWEH_TOOLS_ENV", str(tmp_path / "explicit.sh"))
     assert toolsdir.tools_env() == tmp_path / "explicit.sh"
+
+
+def test_emu_binary_candidates(tmp_path):
+    """pweh-emu 실행 파일 후보: 설정 → 환경 변수 → 도구 디렉터리의 고정 위치 (install.sh 가 두는 곳과 같다). 같은 경로는 한 번만."""
+    from pweh.toolsdir import EMU_BINARY_RELPATHS, emu_binary_candidates
+
+    assert emu_binary_candidates("qemu-system-xtensa", " /cfg/qemu-system-xtensa ", "/env/qemu-system-xtensa", tmp_path) == [
+        ("/cfg/qemu-system-xtensa", "config"), ("/env/qemu-system-xtensa", "env"),
+        (str(tmp_path / "qemu-esp" / "xtensa" / "qemu" / "bin" / "qemu-system-xtensa"), "pweh-tools")]
+    # 설정 기본값은 ${PWEH_…:-} 라 보통 환경 변수와 같은 값이다
+    assert emu_binary_candidates("pweh_avr_run", "/x/pweh_avr_run", "/x/pweh_avr_run", None) == [("/x/pweh_avr_run", "config")]
+    assert emu_binary_candidates("qemu-system-riscv32", "", None, tmp_path) == [
+        (str(tmp_path / "qemu-esp" / "riscv32" / "qemu" / "bin" / "qemu-system-riscv32"), "pweh-tools")]
+    assert emu_binary_candidates("pweh_avr_run", None, "  ", None) == []
+    for bad in ("qemu-system-avr", "qemu-system-arm", "simavr", "run_avr"):
+        with pytest.raises(ValueError):
+            emu_binary_candidates(bad, None, None, tmp_path)
+    text = SCRIPT.read_text(encoding="utf-8")
+    for var, name in (("QEMU_XTENSA_BIN", "qemu-system-xtensa"), ("QEMU_RISCV32_BIN", "qemu-system-riscv32"), ("AVR_RUN", "pweh_avr_run")):
+        assert f'{var}="$PREFIX/{EMU_BINARY_RELPATHS[name]}"' in text, var
+
+
+def test_emulator_tool_keys_in_config(monkeypatch):
+    """tools.qemu_xtensa / qemu_riscv32 / avr_run: 기본값·저장소 설정 모두 ${PWEH_…:-} (비면 빈 문자열, safety 키가 아님)."""
+    import yaml
+
+    from pweh.config import DEFAULTS, load_config
+
+    keys = {"qemu_xtensa": "PWEH_QEMU_XTENSA", "qemu_riscv32": "PWEH_QEMU_RISCV32", "avr_run": "PWEH_AVR_RUN"}
+    repo_cfg = yaml.safe_load((REPO / "orchestrator" / "pipeline-config.yaml").read_text(encoding="utf-8"))
+    for key, env in keys.items():
+        assert DEFAULTS["tools"][key] == f"${{{env}:-}}"
+        assert repo_cfg["tools"][key] == f"${{{env}:-}}"
+        assert key not in repo_cfg["safety"] and key not in DEFAULTS["safety"]
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.setenv("PWEH_QEMU_XTENSA", "/opt/q/qemu-system-xtensa")
+    cfg = load_config(REPO / "orchestrator" / "pipeline-config.yaml")
+    assert cfg.tools["qemu_xtensa"] == "/opt/q/qemu-system-xtensa"
+    assert cfg.tools["qemu_riscv32"] == "" and cfg.tools["avr_run"] == ""
 
 
 @pytest.mark.parametrize("var", ["PWEH_TOOLS_ENV", "PWEH_TOOLS_DIR"])

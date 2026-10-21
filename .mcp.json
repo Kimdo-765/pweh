@@ -64,6 +64,14 @@
         "d=\"$CLAUDE_PROJECT_DIR\"; [ -n \"$d\" ] || d=\"$PWD\"; exec \"$d/scripts/mcp-launch.sh\" pweh-forensics-mcp"
       ]
     },
+    "pweh-emu": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$CLAUDE_PROJECT_DIR\"; [ -n \"$d\" ] || d=\"$PWD\"; exec \"$d/scripts/mcp-launch.sh\" pweh-emu-mcp"
+      ]
+    },
     "rea": {
       "type": "stdio",
       "command": "bash",

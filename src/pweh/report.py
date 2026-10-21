@@ -33,6 +33,7 @@ _PHASE_LABEL = {
     "game-play-automation": "게임 플레이 자동화",
     "flipper-rf-analysis": "Flipper·RF 분석",
     "sd-card-forensics": "SD 카드 포렌식",
+    "firmware-emulation": "MCU 펌웨어 에뮬레이션",
     "espprobe": "ESP32 계측기(espprobe)",
 }
 

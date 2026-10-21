@@ -1,6 +1,6 @@
 ---
 name: pweh-start
-description: Start a PWEH hardware-analysis case for a device the operator owns or is authorized in writing to test. Phase 0 intake first picks the goal - security analysis of a CCTV/IP camera/DVR/IoT/ESP32 device (UART console → firmware dump → REA/Ghidra static analysis → CCTV auth-bypass hunt → report), game console analysis (partly supported - offline save/unlock analysis with game-save-unlock-analysis - ESP partitions/app/NVS, save snapshot diff, checksum and cheat-input table search), SD card forensics (partly supported - sd-card-forensics with pweh-forensics - write-blocked image intake with hashes and custody log, partitions, FAT/exFAT file list with deleted entries, extraction, evidence list, plus the firmware SD attack surface), or RF/hardware analysis, still in preparation, which for now uses only the existing Skills and tools (board-level console/signal/dump work). 사용자가 /pweh-start 로 명시적으로 호출할 때만 실행.
+description: Start a PWEH hardware-analysis case for a device the operator owns or is authorized in writing to test. Phase 0 intake first picks the goal - security analysis of a CCTV/IP camera/DVR/IoT/ESP32 device (UART console → firmware dump → REA/Ghidra static analysis → CCTV auth-bypass hunt → report), game console analysis (partly supported - offline save/unlock analysis with game-save-unlock-analysis - ESP partitions/app/NVS, save snapshot diff, checksum and cheat-input table search), SD card forensics (partly supported - sd-card-forensics with pweh-forensics - write-blocked image intake with hashes and custody log, partitions, FAT/exFAT file list with deleted entries, extraction, evidence list, plus the firmware SD attack surface), or RF/hardware analysis, still in preparation, which for now uses only the existing Skills and tools (board-level console/signal/dump work). Optional ESP32/AVR firmware emulation via firmware-emulation. 사용자가 /pweh-start 로 명시적으로 호출할 때만 실행.
 disable-model-invocation: true
 ---
 
@@ -14,10 +14,12 @@ disable-model-invocation: true
    게임 콘솔 분석은 세이브·해금 분석과 사용자가 원한 세이브 값 변경(사람이 쓴다)까지 일부 지원하고(NFC·플레이 자동화는 아직),
    SD 카드 포렌식은 `sd-card-forensics` 로 카드 이미지 증거 분석(접수·해시·보관 기록, 파일 목록·삭제 파일 추출, 증거 목록)과 펌웨어의 SD 공격 표면까지 일부 지원한다(녹화 형식 해석·타임라인·카빙은 아직).
    RF·하드웨어 분석은 준비 중이다. 보안 분석이 아닌 목표는 지금 있는 Skill·도구로 할 수 있는 일(master-prompt §3.1)만 한다는 것을 먼저 알린다.
+   확보한 ESP32·S3·C3/Arduino AVR 펌웨어를 PC 에서 실행할 때는 선택 단계 `firmware-emulation` 을 쓴다(USB 콘솔·무선·대부분의 주변장치 미지원).
 3. 진행 전에 필요한 MCP 서버가 연결되어 있는지 확인한다.
    - 보안 분석: `pweh-case`, `pweh-uart`, `pweh-fwtriage`, `rea` (선택: `pweh-sigrok`, `pweh-openocd`, `pweh-jtagulator`, ESP32 계열이면 `pweh-esp`).
    - 게임 콘솔 분석: `pweh-case`, `pweh-fwtriage`, `rea` (ESP32 기반이면 `pweh-esp`, 리눅스·MCU 기기면 보안 분석의 서버).
    - SD 카드 포렌식: `pweh-case`, `pweh-forensics` (펌웨어 쪽 SD 공격 표면도 보면 `pweh-fwtriage`·`rea`, 시험 카드 부팅 로그는 `pweh-uart`).
+   - 펌웨어 에뮬레이션(선택): `pweh-case`, `pweh-emu`. 콘솔은 `emu_read` 로만 보며 `emu/` 세션 파일은 열지 않는다.
    - 준비 중인 목표(RF·하드웨어): `pweh-case` 와 §3.1 경로에 필요한 서버 (보드 작업이면 보안 분석의 서버, 펌웨어 분석이면 `pweh-fwtriage`·`rea`).
    Codex 에서는 도구 이름이 `mcp__pweh_<서버>__<도구>` 다(예: `mcp__pweh_case__case_create`, REA 는 `mcp__rea__<도구>`).
    도구 목록에 보이지 않아도 지연 로딩되었을 수 있으니, 없다고 판단하기 전에 `ALL_TOOLS` 에서 이름이 `mcp__pweh_`(REA 는 `mcp__rea__`)로 시작하는 항목을 찾는다.
@@ -28,4 +30,5 @@ disable-model-invocation: true
 5. 이후 각 단계는 master-prompt 의 결정 트리(§4)와 §3.1 에 따라 다음 Skill 을 사용한다:
    `uart-shell-acquisition`, `logic-analyzer-protocol-decode`, `firmware-dump-via-uart`, `esp32-flash-dump`(ESP32 계열 MCU), `firmware-static-analysis`, `cctv-auth-bypass-hunt`,
    `game-save-unlock-analysis`(게임 콘솔 — 세이브·해금 오프라인 분석), `sd-card-forensics`(SD 카드 — 카드 이미지 증거 분석·펌웨어 SD 공격 표면 요약).
+   `firmware-emulation`(확보한 MCU 펌웨어의 로컬 실행과 마스킹 콘솔).
    준비 중인 목표(RF·하드웨어)의 전용 Skill 은 아직 없다. 없는 Skill 이름을 지어 쓰지 않는다.

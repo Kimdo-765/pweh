@@ -43,6 +43,10 @@
 한계(출처 원장과 같다 — docs/safety.md §3.5·§3.6): 비밀 키가 없으므로 같은 OS 계정이 두 기록을 함께 일관되게 다시 쓰는 것은 감지하지 못한다.
 
 이 모듈은 이미지 내용을 해석하지 않는다(파일 시스템 해석은 ``pweh.fs``). 이미지를 쓰거나 마운트하지 않는다.
+
+케이스의 보호 폴더(``PROTECTED_DIRS`` = forensics/·emu/) 판정도 여기 있다: ``under_any_case_protected``·``is_protected_path``·
+``contains_protected_dir`` 는 맞은 폴더 이름을 돌려주고, 자동 허용 도구(pweh-fwtriage·pweh-case·pweh-sigrok)와 pweh-emu 의 입력 검사가 쓴다.
+emu/ 에는 에뮬레이터의 마스킹하지 않은 원시 콘솔이 있다(콘솔은 emu_read 로만 — 설계 docs/design/emulation.md).
 """
 
 from __future__ import annotations
@@ -74,6 +78,14 @@ _log = logging.getLogger("pweh.evidence")
 SCHEMA_CUSTODY = "pweh.custody/v1"
 SCHEMA_EVIDENCE = "pweh.evidence/v1"
 FORENSICS_DIR = "forensics"
+#: 에뮬레이터 세션 폴더(pweh-emu 가 만든다 — cases/<id>/emu/<세션>/ 에 마스킹하지 않은 원시 콘솔이 있다)
+EMU_DIR = "emu"
+#: 케이스의 보호 하위 트리: 자동 허용 도구(pweh-fwtriage·pweh-case·pweh-sigrok)가 읽지 않는 폴더.
+#: forensics/ 는 pweh-forensics 로만, emu/ 의 콘솔은 emu_read 로만 본다. 순서가 우선순위다(둘 다 맞으면 앞의 이름).
+PROTECTED_DIRS = (FORENSICS_DIR, EMU_DIR)
+#: emu/ 를 거부할 때 모든 서버가 같은 문구를 쓴다 (forensics/ 문구는 서버마다 그대로 둔다)
+EMU_REFUSAL_MESSAGE = "에뮬레이터 세션 파일(emu/)에는 마스킹하지 않은 원시 콘솔이 있어 이 도구로 읽지 않습니다."
+EMU_REFUSAL_HINT = "콘솔은 emu_read 로만 본다 — 끝난 세션도 emu_read(session_id, case_id=…) 가 마스킹한 기록을 돌려준다."
 IMAGES_DIR = "images"
 QUARANTINE_DIR = "aborted-intakes"
 CUSTODY_FILE = "custody.jsonl"
@@ -229,6 +241,84 @@ def contains_forensics_dir(case: Case, directory: str | Path) -> bool:
     except (OSError, RuntimeError):
         return True
     return d == base or d in base.parents
+
+
+# 보호 하위 트리(forensics/·emu/) — 위의 forensics 전용 함수는 기존 호출자를 위해 그대로 두고, 둘 다 보는 판정은 아래 셋이 한다.
+# 돌려주는 값은 맞은 보호 폴더의 이름(PROTECTED_DIRS 의 값)이라 호출자가 폴더마다 다른 안내를 낼 수 있다.
+
+
+def under_any_case_protected(path: str | Path, cases_root: str | Path) -> str | None:
+    """``<cases_root>/<케이스>/<보호 폴더>`` 아래면 그 이름(``forensics`` | ``emu``), 아니면 None.
+
+    어느 케이스든 증거·에뮬레이터 세션 파일을 case_import_file 로 우회 복사하거나 자동 허용 도구로 읽지 못하게 한다.
+    under_any_case_forensics 와 같은 방식이다: 링크를 풀기 전 경로(정규화만)를 먼저 보고, 그다음 링크를 푼 경로를 본다 — 보호 폴더
+    자체가 다른 곳을 가리키는 링크여도 그 아래 경로로 부르면 막는다. 둘 다 맞으면 먼저 맞은 쪽(풀기 전 경로)의 이름이다.
+    판단 중 오류(링크 루프 등)도 under_any_case_forensics 처럼 None 이다 — 그런 경로는 뒤이은 열기도 실패한다."""
+    def _hit(p: Path, root: Path) -> str | None:
+        try:
+            rel = p.relative_to(root)
+        except ValueError:
+            return None
+        if len(rel.parts) >= 2 and rel.parts[1] in PROTECTED_DIRS:
+            return rel.parts[1]
+        return None
+
+    try:
+        root_abs = Path(os.path.abspath(os.fspath(cases_root)))
+        hit = _hit(Path(os.path.abspath(os.fspath(path))), root_abs)
+        if hit is not None:
+            return hit
+        return _hit(Path(path).resolve(), Path(cases_root).resolve())
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _case_relative(case: Case, path: str | Path) -> Path:
+    """상대 경로는 케이스 디렉터리 기준으로 (서버의 작업 디렉터리 기준으로 풀지 않는다)."""
+    p = Path(path)
+    return p if p.is_absolute() else case.dir / p
+
+
+def is_protected_path(case: Case, path: str | Path) -> str | None:
+    """케이스의 보호 폴더(forensics/·emu/) 아래(또는 그 자체)면 그 이름, 아니면 None — 심볼릭 링크를 풀어 판단한다.
+
+    상대 경로는 케이스 디렉터리 기준이다. 판단할 수 없으면(링크 루프 등) 막는 쪽으로 이름을 돌려준다(is_forensics_path 와 같은
+    fail closed — 경로 자체를 풀 수 없으면 첫 이름 'forensics', 보호 폴더 쪽을 풀 수 없으면 그 폴더 이름)."""
+    try:
+        p = _case_relative(case, path).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return PROTECTED_DIRS[0]
+    for name in PROTECTED_DIRS:
+        try:
+            base = (case.dir / name).resolve()
+        except (OSError, RuntimeError):
+            return name
+        if p == base or base in p.parents:
+            return name
+    return None
+
+
+def contains_protected_dir(case: Case, directory: str | Path) -> str | None:
+    """디렉터리를 훑으면 이 케이스에 있는 보호 폴더(forensics/·emu/)를 지나게 되는가 → 그 이름, 아니면 None (케이스 루트 등).
+
+    케이스에 없는 보호 폴더는 세지 않는다 — 그래서 보호 폴더가 없는 케이스의 루트는 훑을 수 있다. 이름이 있으면(심볼릭 링크도 —
+    os.path.lexists) 있는 것으로 보고, 비교는 contains_forensics_dir 처럼 링크를 푼 경로로 한다. 상대 경로는 케이스 디렉터리 기준.
+    판단할 수 없으면 막는 쪽으로(그 이름)."""
+    present = [name for name in PROTECTED_DIRS if os.path.lexists(case.dir / name)]
+    if not present:
+        return None
+    try:
+        d = _case_relative(case, directory).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return present[0]
+    for name in present:
+        try:
+            base = (case.dir / name).resolve()
+        except (OSError, RuntimeError):
+            return name
+        if d == base or d in base.parents:
+            return name
+    return None
 
 
 def evidence_dir(case: Case, evidence_id: str) -> Path:
@@ -1564,6 +1654,9 @@ __all__ = [
     "ANCHORED_STATUSES",
     "CUSTODY_EVENTS",
     "CustodyLog",
+    "EMU_DIR",
+    "EMU_REFUSAL_HINT",
+    "EMU_REFUSAL_MESSAGE",
     "EV_RE",
     "EvidenceClaim",
     "EvidenceError",
@@ -1572,6 +1665,7 @@ __all__ = [
     "HASH_ALGORITHMS",
     "IntegrityProblem",
     "OpenedEvidence",
+    "PROTECTED_DIRS",
     "QUARANTINE_DIR",
     "RESERVED_NAME_RE",
     "SCHEMA_CUSTODY",
@@ -1583,6 +1677,7 @@ __all__ = [
     "claim_evidence_id",
     "compare_log_hashes",
     "contains_forensics_dir",
+    "contains_protected_dir",
     "ensure_forensics_dir",
     "entry_hash",
     "evidence_dir",
@@ -1596,6 +1691,7 @@ __all__ = [
     "forensics_rel",
     "hash_stream",
     "is_forensics_path",
+    "is_protected_path",
     "latest_intake",
     "load_record",
     "open_checked",
@@ -1617,6 +1713,7 @@ __all__ = [
     "stored_path",
     "strict_rel",
     "under_any_case_forensics",
+    "under_any_case_protected",
     "validate_record",
     "write_record",
 ]

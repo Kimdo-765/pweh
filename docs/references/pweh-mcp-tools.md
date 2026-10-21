@@ -51,7 +51,7 @@
 - **`approvals_pending()`** — [읽기전용]  
   대기 중인 승인 요청 목록 (확인 코드는 제외).
 - **`schema_get(name)`** — [읽기전용]  
-  PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt.
+  PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt, save-analysis, sd-forensics, emulation.
 
 ## pweh-uart
 
@@ -309,4 +309,19 @@
   파일 시스템 목록 (FAT12/16/32·exFAT, 삭제 항목 포함). 전체 목록(경로·이름·크기·시각·삭제 여부·ref·체인·exFAT ValidDataLength 잔여)은 forensics/analysis/fs-list-<EV>-NNN.json(0444)에만 쓰고 보관 기록 list 사건에 sha256 을 남긴다. 응답은 볼륨마다 요약: stats, time_ranges(바탕별 — FA
 - **`forensics_extract(case_id, evidence_id, refs?, paths?, partition?, method?, region?, label?, max_files?, max_bytes?)`**  
   파일·삭제 파일 추출 (job). refs(forensics_fs_list 결과 JSON 의 ref) 또는 paths(살아 있는 파일 경로)로 고른 파일만 forensics/recovered/<label>-NNN/ 에 0444 파일로 쓴다(이름 정리·번호, 원래 경로는 manifest.json, 실행 비트·링크 없음). refs·paths 는 중복을 없앤다(같은 항목을 가리키면 하나). re
+
+## pweh-emu
+
+- **`emu_status()`** — [읽기전용]  
+  에뮬레이션 백엔드 확인 (OBSERVE, 케이스 없음, 게스트를 실행하지 않는다). backends['esp-qemu'] = {available, xtensa{path, source(config|env|pweh-tools), version, expected_version, version_ok, machines[], sha256_ok, roms{}}, riscv32{…}, chips, chip
+- **`emu_start(case_id, firmware, backend?, chip?, board?, mcu?, freq_hz?, psram?, psram_mb?, watchdog?, on_reset?, timeout_s?, idle_timeout_s?, label?, approval_id?)`**  
+  펌웨어 에뮬레이션 세션 시작 (MODIFY emu.start — 호스트에서 확보한 펌웨어를 실행, 기기 미접촉, 케이스 소유/허가 필요). firmware: 케이스 상대 경로(forensics/·emu/ 거부). 이 케이스 기기에서 읽은 덤프(device-read, 오프셋 0 전체 플래시)나 사람이 출처를 증명한 가져온 파일만 — 가져온 파일의 첫 호출은 attestation_required
+- **`emu_read(session_id, since_cursor?, max_chars?, wait_seconds?, until?, until_ignore_case?, tail?, case_id?)`** — [읽기전용]  
+  에뮬레이터 콘솔 읽기 (OBSERVE). 서버가 줄 단위로 마스킹한 글만(자격증명·NVS 비밀값 가림, 제어 문자 이스케이프, 반복 줄 접기 '⟪위 줄 ×N⟫'). 커서는 원시 바이트 오프셋이지만 줄 경계에만 놓인다 — since_cursor 가 줄 중간이면 그 줄 시작으로 내린다. 생략하면 직전 cursor_end 부터. max_chars 256–65536(글자 수 — uart_read 의
+- **`emu_write(session_id, data, encoding?, approval_id?)`**  
+  에뮬레이터 콘솔에 입력 (INTERACT emu.write — 에뮬레이션된 장치에만 영향, 늘 허용되고 감사에 남는다: 바이트 수·printable 만, 원문·다이제스트 없음). data: encoding='text'(UTF-8 그대로 — 줄 끝 \r/\n 은 직접 넣는다) | 'hex'(공백 허용), 1–4096 바이트. 비차단 쓰기로 최대 2초 — 게스트가 입력을 읽지 않으면 일부만 쓰고
+- **`emu_stop(session_id, case_id?)`**  
+  에뮬레이터 세션 정지 (정리 도구 — 게이트 없음, 늘 동작). 이유를 먼저 기록하고 SIGTERM → 3초 → SIGKILL(프로세스 그룹), 감독 스레드 합류, 기록 마감, 아티팩트 등록(kind other + extra.type: emu-console-raw·emu-transcript·emu-events·emu-session·emu-stderr). 이미 끝난 세션도 부른다(already
+- **`emu_sessions(case_id?)`** — [읽기전용]  
+  에뮬레이터 세션 목록 (OBSERVE). 이 서버 프로세스의 세션(끝난 것 포함): sessions[{session_id, case_id, backend, target, state, stopped_by, started_at, uptime_s, timeout_in_s, idle_timeout_in_s, raw_bytes, cursor_end, firmware{path, sha256}, dir}
 

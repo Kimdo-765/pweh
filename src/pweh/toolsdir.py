@@ -66,4 +66,38 @@ def esptool_win_candidates(configured: str | None, env_value: str | None, tools_
     return out
 
 
-__all__ = ["ESPTOOL_WIN_RELPATHS", "POINTER", "esptool_win_candidates", "tools_dir", "tools_env"]
+#: 도구 디렉터리 안의 pweh-emu 실행 파일 (scripts/install.sh --only qemu_esp / --only simavr 가 두는 위치)
+EMU_BINARY_RELPATHS: dict[str, str] = {
+    "qemu-system-xtensa": "qemu-esp/xtensa/qemu/bin/qemu-system-xtensa",
+    "qemu-system-riscv32": "qemu-esp/riscv32/qemu/bin/qemu-system-riscv32",
+    "pweh_avr_run": "simavr/bin/pweh_avr_run",
+}
+
+
+def emu_binary_candidates(name: str, configured: str | None, env_value: str | None, tools_dir: Path | None) -> list[tuple[str, str]]:
+    """pweh-emu 실행 파일 후보 (경로, 출처) — 설정 ``tools.*`` → 환경 변수 → 도구 디렉터리의 고정 상대 경로.
+
+    name: ``qemu-system-xtensa`` | ``qemu-system-riscv32`` | ``pweh_avr_run`` (그 밖은 ValueError).
+    설정 키·환경 변수: ``tools.qemu_xtensa``/``PWEH_QEMU_XTENSA``, ``tools.qemu_riscv32``/``PWEH_QEMU_RISCV32``,
+    ``tools.avr_run``/``PWEH_AVR_RUN``. 출처: config | env | pweh-tools (``esptool_win_candidates`` 와 같은 모양, 같은 경로는 한 번만).
+    파일이 있는지·절대 경로인지·basename 이 허용 목록에 맞는지는 보지 않는다 — 서버가 확인한다
+    (설정·환경 값은 절대 경로여야 하고 PATH 이름 찾기는 하지 않는다. 배포판 QEMU 를 잘못 잡지 않게).
+    """
+    rel = EMU_BINARY_RELPATHS.get(name)
+    if rel is None:
+        raise ValueError(f"알 수 없는 pweh-emu 실행 파일 이름: {name!r} (허용: {', '.join(EMU_BINARY_RELPATHS)})")
+    out: list[tuple[str, str]] = []
+
+    def add(path: str, source: str) -> None:
+        if path and all(path != p for p, _ in out):
+            out.append((path, source))
+
+    add((configured or "").strip(), "config")
+    add((env_value or "").strip(), "env")
+    if tools_dir is not None:
+        add(str(tools_dir / rel), "pweh-tools")
+    return out
+
+
+__all__ = ["EMU_BINARY_RELPATHS", "ESPTOOL_WIN_RELPATHS", "POINTER", "emu_binary_candidates", "esptool_win_candidates",
+           "tools_dir", "tools_env"]

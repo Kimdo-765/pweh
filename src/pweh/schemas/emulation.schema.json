@@ -1,0 +1,447 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/emulation.schema.json",
+  "title": "firmware-emulation 요약 data",
+  "description": "케이스가 이미 가진 MCU 펌웨어(ESP32·ESP32-S3·ESP32-C3 전체 플래시 덤프, Arduino AVR Intel HEX)를 pweh-emu 로 PC 에서 실행한 결과 요약. 세션은 하나 이상이다 — 세션을 하나도 시작하지 못했으면(백엔드 없음, 출처 거부, 증명 거부, 플래시 암호화, 정책 거부) summary 가 아니라 step='attempt' 로 남긴다. 콘솔 인용은 emu_read 의 마스킹한 글만 쓰고, safety 의 두 값은 항상 false 다 — 그 값이 사실이 되게 행동한다.",
+  "type": "object",
+  "required": [
+    "backends",
+    "sessions",
+    "safety"
+  ],
+  "properties": {
+    "backends": {
+      "type": "object",
+      "description": "emu_status 가 본 백엔드 버전 줄 (쓸 수 없었으면 null)",
+      "required": [
+        "esp-qemu",
+        "avr-simavr"
+      ],
+      "properties": {
+        "esp-qemu": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "QEMU -version 첫 줄 (예: QEMU emulator version 9.2.2 (esp_develop_9.2.2_20260417))"
+        },
+        "avr-simavr": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "pweh_avr_run --version 줄 (pweh_avr_run <버전> simavr <커밋>)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "sessions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "description": "에뮬레이션 세션 하나 (emu_start → emu_read·emu_write → emu_stop). 값은 서버 응답에서 옮긴다: emu_start 의 session_id·backend·target·firmware·psram·warnings, emu_stop 의 stopped_by·duration_s·exit·artifacts. 콘솔 인용(observations)은 emu_read 가 돌려준 마스킹한 글만 쓴다.",
+        "required": [
+          "session_id",
+          "backend",
+          "target",
+          "firmware",
+          "stopped_by",
+          "boot_stage"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,23}-[0-9]{3,}$",
+            "description": "emu_start 의 session_id (<label 또는 emu>-NNN)"
+          },
+          "backend": {
+            "enum": [
+              "esp-qemu",
+              "avr-simavr"
+            ]
+          },
+          "target": {
+            "enum": [
+              "esp32",
+              "esp32s3",
+              "esp32c3",
+              "uno",
+              "nano",
+              "pro-mini-5v",
+              "pro-mini-3v3",
+              "mega2560",
+              "leonardo",
+              "micro",
+              "custom"
+            ],
+            "description": "ESP 는 칩(esp32·esp32s3·esp32c3 — 서버가 원장·이미지 헤더로 정한 값), AVR 은 board (custom 이면 mcu·freq_hz 가 실제 값)"
+          },
+          "mcu": {
+            "enum": [
+              "atmega8",
+              "atmega168",
+              "atmega328p",
+              "atmega32u4",
+              "atmega644p",
+              "atmega1280",
+              "atmega1284p",
+              "atmega2560",
+              null
+            ],
+            "description": "AVR MCU (emu_start target.mcu). ESP 는 null 이거나 생략"
+          },
+          "freq_hz": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1000000,
+            "maximum": 32000000,
+            "description": "AVR 클록 (emu_start target.freq_hz)"
+          },
+          "firmware": {
+            "type": "object",
+            "description": "에뮬레이터에 넘긴 입력 (emu_start 의 firmware). 서버가 출처를 확인한 바이트의 sha256 이다",
+            "required": [
+              "path",
+              "sha256",
+              "provenance"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "케이스 상대 경로 (예: dumps/esp-flash.bin)"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "provenance": {
+                "enum": [
+                  "device-read",
+                  "imported-attested"
+                ],
+                "description": "emu_start firmware.provenance_reason. device-read = 이 케이스의 기기에서 PWEH 가 읽은 덤프, imported-attested = case_import_file 로 가져오고 사람이 출처를 증명한 파일(provenance-import)"
+              },
+              "verify": {
+                "enum": [
+                  "double-read",
+                  "none",
+                  null
+                ],
+                "description": "device-read 덤프의 읽기 검증 (원장 source.verify — none 이면 경고 single_read). 가져온 파일은 null"
+              },
+              "ledger_seq": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "description": "출처 원장 항목 번호 (emu_start firmware.ledger_seq)"
+              },
+              "attestation_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "provenance-import 증명 id (imported-attested 일 때)"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "provenance": {
+                      "const": "device-read"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "verify"
+                  ],
+                  "properties": {
+                    "verify": {
+                      "enum": [
+                        "double-read",
+                        "none"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "provenance": {
+                      "const": "imported-attested"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "attestation_id"
+                  ],
+                  "properties": {
+                    "attestation_id": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "options": {
+            "type": "object",
+            "description": "실제로 쓴 옵션 (emu_start 의 psram·인자). AVR 은 비워 둔다",
+            "properties": {
+              "psram": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "none",
+                      "quad",
+                      "octal"
+                    ]
+                  },
+                  "mb": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "source": {
+                    "enum": [
+                      "argument",
+                      "device-fact",
+                      "default"
+                    ],
+                    "description": "argument = 에이전트가 psram 인자로 줌, device-fact = esp_chip_info 의 Embedded PSRAM, default = 서버 기본값"
+                  }
+                }
+              },
+              "watchdog": {
+                "enum": [
+                  "disabled",
+                  "emulated"
+                ]
+              },
+              "on_reset": {
+                "enum": [
+                  "exit",
+                  "reboot"
+                ]
+              }
+            }
+          },
+          "stopped_by": {
+            "enum": [
+              "agent-stop",
+              "wall-timeout",
+              "idle-timeout",
+              "server-shutdown",
+              "guest-reset",
+              "guest-exit",
+              "guest-halt",
+              "guest-crash",
+              "max-cycles",
+              "config-error",
+              "rlimit-cpu",
+              "rlimit-fsize",
+              "killed",
+              "spawn-failed",
+              "server-gone"
+            ],
+            "description": "emu_stop(또는 끝난 세션 emu_read)의 stopped_by. agent-stop = emu_stop, wall-timeout·idle-timeout = 한도, server-shutdown = MCP 서버 종료, guest-reset = ESP 게스트 리셋(on_reset exit), guest-exit = 게스트가 스스로 끝냄, guest-halt = AVR 이 인터럽트를 끈 채 멈춤(rc 0), guest-crash = AVR PC 가 플래시 밖(rc 3), max-cycles = 시험 전용, config-error = 에뮬레이터 설정 오류(rc 1·2, invalid class name), rlimit-cpu·rlimit-fsize = 자원 한도 신호, killed = 서버가 보내지 않은 신호, spawn-failed = 실행 실패, server-gone = 서버가 사라진 뒤 시작 정리가 끝냄"
+          },
+          "duration_s": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "emu_stop 의 duration_s"
+          },
+          "exit": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "emu_stop 의 exit{code, signal}",
+            "properties": {
+              "code": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "signal": {
+                "type": [
+                  "integer",
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "boot_stage": {
+            "enum": [
+              "none",
+              "rom",
+              "bootloader",
+              "app",
+              "console",
+              "unknown"
+            ],
+            "description": "마스킹한 콘솔에서 확인한 가장 먼 단계. none = 출력 없음, rom = ROM 배너만(예: invalid header 반복), bootloader = 2단계 부트로더가 돌았지만 앱 출력 없음, app = 앱 출력(로그·패닉 포함), console = 앱의 대화형 콘솔(프롬프트·메뉴)을 봤다, unknown = 판단할 수 없음. AVR 은 rom·bootloader 를 쓰지 않는다(펌웨어 출력이면 app, 대화형이면 console)"
+          },
+          "observations": {
+            "type": "array",
+            "description": "관찰 (마스킹한 emu_read 글만 인용 — 원시 콘솔·세션 파일은 열지 않는다)",
+            "items": {
+              "type": "string"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "description": "emu_start 의 warnings 그대로 (예: single_read, partial_dump, octal_flash_unsupported, security_state_unknown)",
+            "items": {
+              "type": "string"
+            }
+          },
+          "netns": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "emu_start isolation.netns (빈 네트워크 네임스페이스를 썼는지)"
+          },
+          "transcript_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "emu_stop 이 등록한 마스킹 기록의 케이스 상대 경로 (emu/<session_id>/transcript.masked.txt) — 경로만 적는다. 에이전트는 열지 않는다"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "backend": {
+                  "const": "esp-qemu"
+                }
+              },
+              "required": [
+                "backend"
+              ]
+            },
+            "then": {
+              "properties": {
+                "target": {
+                  "enum": [
+                    "esp32",
+                    "esp32s3",
+                    "esp32c3"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "backend": {
+                  "const": "avr-simavr"
+                }
+              },
+              "required": [
+                "backend"
+              ]
+            },
+            "then": {
+              "required": [
+                "mcu",
+                "freq_hz"
+              ],
+              "properties": {
+                "target": {
+                  "enum": [
+                    "uno",
+                    "nano",
+                    "pro-mini-5v",
+                    "pro-mini-3v3",
+                    "mega2560",
+                    "leonardo",
+                    "micro",
+                    "custom"
+                  ]
+                },
+                "mcu": {
+                  "enum": [
+                    "atmega8",
+                    "atmega168",
+                    "atmega328p",
+                    "atmega32u4",
+                    "atmega644p",
+                    "atmega1280",
+                    "atmega1284p",
+                    "atmega2560"
+                  ]
+                },
+                "freq_hz": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "description": "에뮬레이션의 한계와 확인하지 못한 것 (예: Wi-Fi·BT 미에뮬레이션, USB 콘솔 미에뮬레이션, 옥탈 플래시, PSRAM 재시도 2회 소진)",
+      "items": {
+        "type": "string"
+      }
+    },
+    "finding_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^F-[0-9]{3,}$"
+      }
+    },
+    "safety": {
+      "type": "object",
+      "description": "raw_console_opened = emu/<session_id>/ 의 원시 파일(console.bin·emulator.stderr.log 등)을 어떤 도구로든 열었는가, monitor_or_network_used = 에뮬레이터 모니터·네트워크·디버거를 썼는가. 둘 다 항상 false",
+      "required": [
+        "raw_console_opened",
+        "monitor_or_network_used"
+      ],
+      "properties": {
+        "raw_console_opened": {
+          "const": false
+        },
+        "monitor_or_network_used": {
+          "const": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

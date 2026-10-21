@@ -19,7 +19,7 @@ Codex(0.162.0 기준) 사실:
   첫 표보다 앞에 있어야 한다.
 - 지금 모델은 code mode 전용 + 도구 검색이라 MCP 도구가 지연 노출된다(모델에 바로 보이지 않음).
   ``[features.code_mode] direct_only_tool_namespaces`` 에 이름공간(``mcp__`` + 서버 이름, '-' 는 '_')을 넣으면 바로 보인다.
-  PWEH 8개 전부 ≈ 요청마다 도구 정의 112 KB. ``CodeModeConfigToml`` 은 deny_unknown_fields 라 ``enabled`` 와 이 키만 쓴다.
+  PWEH 9개를 전부 노출하면 요청마다 해당 도구 정의가 포함된다(크기는 도구 설명에 따라 달라진다). ``CodeModeConfigToml`` 은 deny_unknown_fields 라 ``enabled`` 와 이 키만 쓴다.
   ``features.code_mode = true/false``(불리언 형식)는 ``enabled = <값>`` 인 표로 바꾼다.
 - REA 는 도구 207개(tools/list 3 MB)를 내놓는다 → ``.claude/settings.json`` 의 ``mcp__rea__*`` 허용/확인 항목으로 ``enabled_tools`` 를
   만든다. 항목이 없거나 와일드카드면 ``enabled_tools`` 를 쓰지 않는다(빈 목록은 도구를 모두 끈다).

@@ -59,6 +59,11 @@ tools:
   # esptool_win 이 비어 있으면 ~/pweh-tools/esptool-win/esptool-windows-amd64/esptool.exe 를 찾아본다.
   esptool: ${PWEH_ESPTOOL:-esptool}
   esptool_win: ${PWEH_ESPTOOL_WIN:-}
+  # emu-mcp (pweh-emu): Espressif QEMU(ESP32·S3 / C3)와 PWEH AVR 실행기의 절대 경로 (scripts/install.sh --only qemu_esp,simavr).
+  # 비어 있으면 도구 디렉터리의 고정 위치(qemu-esp/…/qemu/bin/…, simavr/bin/pweh_avr_run)를 찾고, PATH 는 보지 않는다.
+  qemu_xtensa: ${PWEH_QEMU_XTENSA:-}
+  qemu_riscv32: ${PWEH_QEMU_RISCV32:-}
+  avr_run: ${PWEH_AVR_RUN:-}
 
 # sigrok-mcp 캡처 드라이버 정책 (읽기 전용으로 참조됨).
 # 내장 규칙: 로직 애널라이저/오실로스코프 허용 목록만 캡처 가능, 출력 제어 장치(전원공급기·전자부하·신호발생기·릴레이)는

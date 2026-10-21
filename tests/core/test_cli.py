@@ -164,6 +164,23 @@ def test_doctor_tool_version_detects_broken_tools(tmp_path):
     assert not _tool_version([str(tmp_path / "missing"), "--version"], r".")[0]
 
 
+def test_emu_doctor_checks_optional_and_version_mismatch(monkeypatch):
+    """없는 에뮬레이터는 선택 항목, 다른 버전은 실패로 보고한다. 게스트는 실행하지 않는다."""
+    from types import SimpleNamespace
+    from emu_mcp import backends
+
+    monkeypatch.setattr(backends, "locate", lambda name, config: (None, []))
+    assert all(row["ok"] is None for row in cli.emu_doctor_checks(None))
+
+    monkeypatch.setattr(backends, "locate", lambda name, config: (SimpleNamespace(path=name), []))
+    monkeypatch.setattr(backends, "probe", lambda binary: {"version_ok": True, "version": "합성 버전"})
+    assert all(row["ok"] is True for row in cli.emu_doctor_checks(None))
+    monkeypatch.setattr(backends, "probe", lambda binary: {"version_ok": False, "version": "다른 버전"})
+    assert all(row["ok"] is False for row in cli.emu_doctor_checks(None))
+    monkeypatch.setattr(backends, "probe", lambda binary: {"version_ok": True, "warning": "실행기 버전 불일치"})
+    assert all(row["ok"] is False for row in cli.emu_doctor_checks(None))
+
+
 
 # ---------------------------------------------------------------------------
 # pweh env / doctor 환경 절 (합성 보고서·가짜 probe — 실제 호스트를 읽지 않는다)

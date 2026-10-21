@@ -35,7 +35,7 @@ description: Static analysis of camera/IoT firmware already in the case (UART/JT
 
 ## 안전 규칙
 
-1. **오프라인 분석만 한다.** 하드웨어 도구를 부르지 않는다. 추출물의 코드는 어떤 방식으로도 실행하지 않는다 (qemu·chroot·추출된 스크립트 실행 금지). REA 의 런타임 도구(Frida, GDB, rizin 디버거, capture_process_scenario 등)는 이 Skill 에서 쓰지 않는다.
+1. **오프라인 분석만 한다.** 하드웨어 도구를 부르지 않는다. 이 Skill 에서는 추출물의 코드를 어떤 방식으로도 실행하지 않는다 (qemu·chroot·추출된 스크립트 실행 금지) — MCU 펌웨어(ESP32·S3·C3 전체 덤프, Arduino AVR)의 실행은 pweh-emu 와 firmware-emulation Skill 에서만 하고, 리눅스 바이너리 실행은 지원하지 않는다. REA 의 런타임 도구(Frida, GDB, rizin 디버거, capture_process_scenario 등)는 이 Skill 에서 쓰지 않는다.
 2. **케이스 밖에 쓰지 않는다.** 새 출력 경로는 `case_paths` 로만 받는다. 기존 추출 디렉터리와 증거 파일을 지우거나 덮어쓰지 않는다 (overwrite 는 false 유지).
 3. **비밀값**: fw_crack_hashes 는 오프라인 대조만 한다. 응답은 기본 마스킹이다. reveal=true 는 사용자가 자기 기기 로그인에 평문이 필요하다고 명시할 때만 쓴다(템플릿 E). 사전 결과로 네트워크 로그인을 시도하지 않고, 같은 모델의 제3자 기기에 쓰지 않는다. 발견사항 excerpt 의 비밀번호·토큰·키는 마스킹한다.
 4. **execute_rizin_command 는 읽기 전용 정보 명령만** 보낸다 (`iI`, `ii`, `is`, `iz`). 쓰기(`w`), 셸(`!`), 스크립트 로드, 쓰기 모드 열기는 금지다. 이 도구는 열린 Ghidra 세션을 닫으므로 먼저 6-6 을 끝낸다.

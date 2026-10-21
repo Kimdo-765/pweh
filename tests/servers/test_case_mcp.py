@@ -406,6 +406,75 @@ async def test_case_import_file_refuses_the_case_path_when_forensics_is_a_link(w
         assert not (cdir / "dumps" / "0001-clip.mp4").exists()
 
 
+EMU_SENTINEL = "EMU-SENTINEL-7731"
+
+
+def _emu_refused(r: dict) -> bool:
+    return "validation_failed" in r.get("_error", "") and "emu/" in r["_error"] and "emu_read" in r["_error"] and EMU_SENTINEL not in str(r)
+
+
+async def test_case_tools_refuse_emu_session_files(workspace, auth, monkeypatch):
+    """에뮬레이터 세션 파일(cases/<id>/emu/ — 마스킹하지 않은 원시 콘솔)도 자동 허용 case 도구가 해시·등록·가져오기로 읽지 않는다
+    (콘솔은 emu_read 로만). 상대·절대 경로, dumps/ 의 링크, 다른 케이스의 emu/, 케이스 밖 링크, emu/ 를 밖으로 옮긴 링크,
+    연 뒤 실제 경로 재확인까지 forensics/ 와 같게."""
+    from case_mcp import server as srv
+
+    async with Client(srv.server) as c:
+        cid = (await call(c, "case_create", title="emu", authorization=auth))["case"]["id"]
+        other = (await call(c, "case_create", title="emu2", authorization=auth))["case"]["id"]
+        cdir = workspace["cases_dir"] / cid
+        sess = cdir / "emu" / "emu-001"
+        sess.mkdir(parents=True)
+        (sess / "console.bin").write_bytes(f"wifi_password={EMU_SENTINEL}\r\n".encode())
+        (sess / "meta.json").write_text("{}", encoding="utf-8")
+        for path in ("emu/emu-001/console.bin", str(sess / "console.bin")):
+            r = await call(c, "case_hash_file", case_id=cid, path=path, offset=0, length=4)
+            assert _emu_refused(r), r
+            r = await call(c, "case_register_artifact", case_id=cid, path=path, kind="other")
+            assert _emu_refused(r), r
+        r = await call(c, "case_register_artifact", case_id=cid, path="emu/emu-001", kind="other")
+        assert _emu_refused(r), r
+        (cdir / "dumps").mkdir(exist_ok=True)
+        (cdir / "dumps" / "innocent.bin").symlink_to(sess / "console.bin")
+        r = await call(c, "case_hash_file", case_id=cid, path="dumps/innocent.bin", offset=0, length=1)
+        assert _emu_refused(r), r
+        r = await call(c, "case_register_artifact", case_id=cid, path="dumps/innocent.bin", kind="other")
+        assert _emu_refused(r), r
+        # case_import_file: 다른 케이스·이 케이스의 emu/, 케이스 밖 링크로 가리켜도
+        osess = workspace["cases_dir"] / other / "emu" / "emu-001"
+        osess.mkdir(parents=True)
+        (osess / "console.bin").write_bytes(EMU_SENTINEL.encode())
+        for src in (osess / "console.bin", sess / "console.bin"):
+            r = await call(c, "case_import_file", case_id=cid, source_path=str(src))
+            assert _emu_refused(r), r
+        link = workspace["root"] / "innocent-console.bin"
+        link.symlink_to(osess / "console.bin")
+        r = await call(c, "case_import_file", case_id=cid, source_path=str(link))
+        assert _emu_refused(r), r
+        # 연 뒤 실제 경로로 다시 본다(확인한 뒤 바꿔치기한 링크 대비): 연 fd 의 실제 경로가 emu/ 면 거부
+        (cdir / "dumps" / "ok.bin").write_bytes(b"hello world")
+        with monkeypatch.context() as m:
+            m.setattr(srv.safeio, "fd_real_path", lambda fd: str(sess / "console.bin"))
+            r = await call(c, "case_hash_file", case_id=cid, path="dumps/ok.bin")
+            assert _emu_refused(r), r
+            r = await call(c, "case_register_artifact", case_id=cid, path="dumps/ok.bin", kind="other")
+            assert _emu_refused(r), r
+        r = await call(c, "case_hash_file", case_id=cid, path="dumps/ok.bin")
+        assert r["ok"] and r["sha256"] == __import__("hashlib").sha256(b"hello world").hexdigest(), r
+        # emu/ 를 케이스 밖으로 옮기고 링크로 되돌려도 케이스의 emu/ 아래 경로로 부르면 가져오지 않는다(풀기 전 경로)
+        moved = workspace["root"] / "moved-emu"
+        os.rename(cdir / "emu", moved)
+        (cdir / "emu").symlink_to(moved)
+        r = await call(c, "case_import_file", case_id=cid, source_path=str(cdir / "emu" / "emu-001" / "console.bin"))
+        assert _emu_refused(r), r
+        assert not list((cdir / "dumps").glob("console*"))
+        # 보호 폴더 밖의 파일 가져오기는 그대로
+        plain = workspace["root"] / "vendor.bin"
+        plain.write_bytes(b"vendor firmware")
+        r = await call(c, "case_import_file", case_id=cid, source_path=str(plain))
+        assert r["ok"] and r["artifact"]["path"] == "dumps/vendor.bin", r
+
+
 def test_pweh_report_compares_custody_with_the_anchor(workspace, auth, monkeypatch):
     """`pweh report` 도 SD 카드 보관 기록을 보호 위치의 고정점과 대조한다 (report_generate 와 같게)."""
     import argparse

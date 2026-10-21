@@ -315,3 +315,77 @@ def test_state_dirs_are_private_even_with_open_umask(workspace, auth):
         os.umask(old)
     for sub in ("provenance", "attestations", "salts"):
         assert (workspace["state_dir"] / sub).stat().st_mode & 0o777 == 0o700, sub
+
+
+def test_verify_with_data_hashes_the_given_bytes_and_never_opens_the_path(workspace, auth, monkeypatch):
+    """verify(data=…): sha256 을 호출자가 이미 읽은 바이트에서 계산하고 경로로 파일을 열지 않는다(존재 확인도 하지 않는다).
+    emu_start 가 safeio 로 한 번 읽은 펌웨어를 확인한 그대로 실행하게 하려는 것 — 판정은 '이 바이트가 그 경로의 마지막 원장 항목과 같은가'."""
+    import os
+
+    import pweh.provenance as provenance_mod
+
+    rt = get_runtime("test")
+    case = _case(rt, auth)
+    original = b"\x10" * 4096
+    sha = _write(case, "dumps/fw.bin", original)
+    rt.provenance.record_device_read(case, "dumps/fw.bin", SRC, sha256=sha)
+
+    def no_open(*_a, **_k):
+        raise AssertionError("verify(data=…) 가 경로로 파일을 해시했다")
+
+    monkeypatch.setattr(provenance_mod, "sha256_file", no_open)
+    v = rt.provenance.verify(case, "dumps/fw.bin", data=original)
+    assert v["trusted"] is True and v["reason"] == "device-read" and v["sha256"] == sha and v["path"] == "dumps/fw.bin", v
+    assert v["record"]["seq"] == 1 and v["kind"] == "device-read"
+    assert rt.provenance.verify(case, str(case.dir / "dumps" / "fw.bin"), data=original)["trusted"]  # 케이스 안 절대 경로도 같다
+    # bytes 같은 객체(bytearray·memoryview, 이어지지 않은 memoryview 포함)
+    for buf in (bytearray(original), memoryview(original), memoryview(b"\x10\x00" * 4096)[::2]):
+        assert rt.provenance.verify(case, "dumps/fw.bin", data=buf)["sha256"] == sha
+    # 디스크의 파일이 바뀌거나 없어지거나 FIFO 로 바뀌어도 판정은 넘긴 바이트로 한다(열지 않으므로 FIFO 앞에서 멈추지 않는다)
+    (case.dir / "dumps" / "fw.bin").write_bytes(b"\x20" * 4096)
+    assert rt.provenance.verify(case, "dumps/fw.bin", data=original)["trusted"] is True
+    (case.dir / "dumps" / "fw.bin").unlink()
+    assert rt.provenance.verify(case, "dumps/fw.bin", data=original)["trusted"] is True
+    os.mkfifo(case.dir / "dumps" / "fw.bin")
+    assert rt.provenance.verify(case, "dumps/fw.bin", data=original)["trusted"] is True
+    # 원장과 다른 바이트는 불신 (sha256 은 넘긴 바이트의 것)
+    other = b"\x20" * 4096
+    v = rt.provenance.verify(case, "dumps/fw.bin", data=other)
+    assert v["trusted"] is False and v["reason"] == "sha256-mismatch" and v["sha256"] == hashlib.sha256(other).hexdigest()
+    # 원장에 없는 경로, 빈 바이트
+    assert rt.provenance.verify(case, "dumps/never.bin", data=original)["reason"] == "not-recorded"
+    assert rt.provenance.verify(case, "dumps/fw.bin", data=b"")["reason"] == "sha256-mismatch"
+    # 경로 규칙과 인자 형식은 그대로
+    with pytest.raises(PwehError):
+        rt.provenance.verify(case, "/etc/passwd", data=original)
+    with pytest.raises(PwehError):
+        rt.provenance.verify(case, "../../etc/passwd", data=original)
+    for bad in ("text", 123, [1, 2]):
+        with pytest.raises(ValidationFailed):
+            rt.provenance.verify(case, "dumps/fw.bin", data=bad)  # type: ignore[arg-type]
+
+
+def test_verify_with_data_keeps_the_trust_rules(workspace, auth):
+    """data= 로 불러도 신뢰 규칙은 같다: 가져온 파일은 같은 바이트(sha256)·같은 케이스의 provenance-import 증명이 있어야 하고,
+    이중 읽기 불일치는 불신, 깨진 원장은 무엇보다 먼저 불신."""
+    rt = get_runtime("test")
+    case = _case(rt, auth)
+    blob = b":00000001FF\n"
+    sha = _write(case, "dumps/fw.hex", blob)
+    rt.provenance.record_import(case, "dumps/fw.hex", {"server": "case-mcp", "tool": "case_import_file"}, sha256=sha)
+    v = rt.provenance.verify(case, "dumps/fw.hex", data=blob)
+    assert v["trusted"] is False and v["reason"] == "imported-unattested" and v["sha256"] == sha
+    k, s, b = provenance_import_target(case.id, sha)
+    att = rt.attestations.request(k, s, b, list(PROVENANCE_IMPORT_QUESTIONS), case.id)
+    rt.attestations.decide(att["id"], {"source_known": "yes", "how_obtained": "avrdude 로 내 보드에서 읽음"}, via="cli-tty")
+    v = rt.provenance.verify(case, "dumps/fw.hex", data=blob)
+    assert v["trusted"] is True and v["reason"] == "imported-attested" and v["attestation_id"] == att["id"], v
+    assert rt.provenance.verify(case, "dumps/fw.hex", data=blob + b"\n")["reason"] == "sha256-mismatch"
+    bad = b"\x01" * 64
+    sha_bad = _write(case, "dumps/bad.bin", bad)
+    rt.provenance.record_device_read(case, "dumps/bad.bin", {**SRC, "match": False}, sha256=sha_bad)
+    assert rt.provenance.verify(case, "dumps/bad.bin", data=bad)["reason"] == READ_MISMATCH
+    ledger = _ledger(workspace, case.id)
+    ledger.write_bytes(ledger.read_bytes()[:-1])  # 잘린 마지막 줄
+    v = rt.provenance.verify(case, "dumps/fw.hex", data=blob)
+    assert v["trusted"] is False and v["reason"] == CHAIN_BROKEN and v["record"] is None and v["sha256"] is None

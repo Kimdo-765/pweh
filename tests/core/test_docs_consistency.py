@@ -50,7 +50,7 @@ FULL_SIGNATURE_SERVERS = ("pweh-uart", "pweh-case")
 #: 서버 이름 → mcp-servers/ 아래 디렉터리. 기본 규칙('pweh-esp' → 'esp-mcp')을 벗어나는 서버만 적는다.
 SERVER_DIR_OVERRIDES: dict[str, str] = {}
 #: 문서에 백틱으로 적는 안전 규칙 id 의 접두(`linux.exec-nonsystem`, `esp.cmd.flash-write` 등). 분류기가 새 접두를 쓰면 여기에 더한다.
-RULE_ID_PREFIXES = ("linux", "uboot", "uart", "openocd", "sigrok", "console", "jtagulator", "esp")
+RULE_ID_PREFIXES = ("linux", "uboot", "uart", "openocd", "sigrok", "console", "jtagulator", "esp", "emu")
 
 
 def _catalog() -> dict:

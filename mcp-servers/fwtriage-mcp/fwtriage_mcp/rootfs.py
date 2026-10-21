@@ -29,6 +29,10 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from pweh.safety.redact import CRED_RX
+from pweh.safety.redact import NON_VALUES as _NON_VALUES
+from pweh.safety.redact import QUOTED_CRED_RX as _QUOTED_CRED_RX
+
 from .common import Ctl, clip, mask_secret, severity_key
 from .elfinfo import describe_elf_header
 from .fswalk import Entry, is_text, load_manifest, read_in_root, resolve_in_root, walk_tree
@@ -987,17 +991,8 @@ STARTUP_ITEM_CAP_PER_RULE = 500
 #: execve·mount 가 받는 경로 길이 상한 (Linux PATH_MAX). 더 긴 경로는 ENAMETOOLONG 으로 실행·마운트될 수 없다
 PATH_MAX = 4096
 
-CRED_RX: list[tuple[str, re.Pattern[str]]] = [
-    ("builtin-config-password", re.compile(r"(?i)(?<![\w.-])(?P<key>[\w.-]{0,32}?(?:pass(?:word|wd)?|pwd|secret|psk|passphrase|rootpw))\b[\"']?\s*[=:]\s*(?P<q>[\"']?)(?P<val>[^\s\"'<>{};,&|]{3,64})(?P=q)")),
-    ("builtin-xml-password", re.compile(r"(?i)<(?P<key>pass(?:word)?|pwd|psk|passphrase)>(?P<val>[^<\s]{1,64})</")),
-    ("builtin-url-credential", re.compile(r"\b(?:ftp|http|https|rtsp|tftp|smb|mysql|postgres|mqtt)://(?P<key>[^/\s:@'\"]{1,64}):(?P<val>[^/\s@'\"]{1,64})@")),
-]
-_NON_VALUES = {"true", "false", "yes", "no", "on", "off", "none", "null", "nil", "required", "optional", "sufficient", "requisite", "include", "enable", "enabled", "disable", "disabled", "string", "char", "int", "text", "type", "hidden", "input", "value"}
-
-
-#: 따옴표로 감싼(공백 포함) 비밀번호 값 — CRED_RX 는 공백 없는 값만 잡는다. 길이 상한으로 선형 시간
-_QUOTED_CRED_RX = re.compile(
-    r"(?i)(?<![\w.-])(?P<key>[\w.-]{0,32}?(?:pass(?:word|wd)?|pwd|secret|psk|passphrase|rootpw))\b[\"']?\s{0,8}[=:]\s{0,8}(?P<q>[\"'])(?P<val>[^\"'\n]{1,256})(?P=q)")
+# 자격증명 정규식 CRED_RX(비밀번호·PSK·URL 자격증명)·_QUOTED_CRED_RX(따옴표로 감싼 값)와 값이 아닌 낱말 _NON_VALUES 는
+# 코어 pweh.safety.redact 에서 가져온다(파일 위 import — 에뮬레이터 콘솔 마스킹과 같은 정의, 결정 D2).
 
 
 def mask_credentials(text: str) -> str:

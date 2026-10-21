@@ -191,9 +191,14 @@ def _resolve_input(case: Case, input_path: str) -> Path:
             f"입력 파일이 없습니다: {input_path}",
             hint="케이스 상대 경로(예: signals/capture-fx2lafw-001.sr)를 사용하라. case_get(include_artifacts=true) 로 확인.",
         )
-    from pweh.evidence import under_any_case_forensics
+    from pweh.evidence import EMU_REFUSAL_HINT, EMU_REFUSAL_MESSAGE, under_any_case_protected
 
-    if under_any_case_forensics(p, rt().config.cases_dir):  # 카드 이미지·복구한 녹화는 pweh-forensics 로만 (자동 허용 도구가 읽지 않게)
+    # 케이스의 보호 폴더는 자동 허용 도구가 읽지 않는다(링크를 풀어 판단): 에뮬레이터 세션 파일(마스킹하지 않은 원시 콘솔)은 emu_read 로만,
+    # 카드 이미지·복구한 녹화는 pweh-forensics 로만
+    hit = under_any_case_protected(p, rt().config.cases_dir)
+    if hit == "emu":
+        raise ValidationFailed(EMU_REFUSAL_MESSAGE, hint=EMU_REFUSAL_HINT)
+    if hit is not None:
         raise ValidationFailed("케이스의 증거 폴더(forensics/)에 있는 파일은 읽지 않습니다.",
                                hint="sigrok 입력은 signals/ 의 캡처 파일이다. 카드 이미지는 pweh-forensics 도구로만 다룬다.")
     return p

@@ -1,6 +1,6 @@
 # MCP 설정 가이드 (Claude Code · Codex · Cursor)
 
-PWEH 는 MCP 서버 9개를 쓴다. 8개는 이 저장소에 있고, 1개는 외부 REA 다.
+PWEH 는 MCP 서버 10개를 쓴다. 9개는 이 저장소에 있고, 1개는 외부 REA 다.
 
 | 서버 이름 | 실행 파일 | 역할 |
 |---|---|---|
@@ -12,6 +12,7 @@ PWEH 는 MCP 서버 9개를 쓴다. 8개는 이 저장소에 있고, 1개는 외
 | `pweh-fwtriage` | `.venv/bin/pweh-fwtriage-mcp` | 오프라인 펌웨어 트리아지 |
 | `pweh-esp` | `.venv/bin/pweh-esp-mcp` | ESP32 계열 esptool 읽기 전용: 칩·보안 정보, 플래시 덤프 job. WSL 에서는 Windows `esptool.exe` + COM 포트(방법 A, §6) (선택) |
 | `pweh-forensics` | `.venv/bin/pweh-forensics-mcp` | SD 카드 이미지 증거 분석: 사람이 쓰기 방지 장치로 만든 이미지 파일의 접수·해시·보관 기록, FAT/exFAT 목록, 삭제 파일 추출 job, 증거 목록. 기기·카드를 열지 않고 외부 도구가 필요 없다 (선택) |
+| `pweh-emu` | `.venv/bin/pweh-emu-mcp` | ESP32·S3·C3(Espressif QEMU), Arduino AVR(simavr) 펌웨어 실행·마스킹 콘솔. 출처를 확인한 케이스 파일만 사용, 기기 미접촉 (선택) |
 | `rea` | `rea --mcp` (rea-agents 6.5.x) | binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩 |
 
 도구 목록과 인자는 [architecture.md](architecture.md) §6 과 각 서버의 `mcp-servers/<name>/README.md` 에 있다.
@@ -45,13 +46,15 @@ MCP 단계가 저장소 밖에 쓰는 것은 Codex 홈의 trust 항목과 그 �
 | `binwalk` *(선택)* | binwalk 3.1.0 (REA 영역 식별) | `cargo install --locked` (cargo 가 없으면 `~/pweh-tools/_rust` 에 rustup 1.29.1(sha256 고정) + Rust 1.98.0, 개발 파일이 없으면 `binwalk/root` 에 -dev 패키지를 풀어 씀. C 컴파일러 필요) |
 | `rea` *(선택)* | REA `rea-agents` 6.5.0 | 이미 설치된 REA 6.x 가 있으면 그대로 쓴다. 없으면 `npm install --prefix ~/pweh-tools/rea` (Node 22.19+ 가 없으면 Node 22 를 개인 경로에 받음). REA 의 Ghidra 분석에 필요한 `ps`(procps)가 없으면(Debian 최소 설치 등) 개인 경로에 풀어 `bin/ps` 로 둔다. `rea setup` 은 실행하지 않는다 |
 | `esptool` *(선택)* | esptool 5.4.0 (ESP32 계열 칩·보안 정보, 플래시 읽기) + WSL 이면 Windows `esptool.exe` (방법 A: WSL 에서 interop 으로 실행해 Windows COM 포트를 씀) | Linux 판: 전용 venv `esptool/venv` 에 PyPI 소스 배포판(sha256 고정. PyPI 에 5.x 휠이 없음)을 설치하고 `bin/esptool` 래퍼로 실행한다. Windows 판: WSL interop 이 켜져 있으면 공식 Windows 빌드 zip(sha256 고정)을 `esptool-win/` 에 풀고, interop 으로 `esptool.exe version` 을 실행해 확인한다. WSL 이 아니면 Windows 판은 건너뛴다(실패 아님). 한쪽이 실패해도 다른 쪽은 설치하고, env.sh 는 실제로 실행되는 쪽만 `PWEH_ESPTOOL`(Linux 판)·`PWEH_ESPTOOL_WIN`(Windows 판 `.exe` 절대 경로)으로 알려 준다 |
+| `qemu_esp` *(선택)* | Espressif QEMU 9.2.2 (`esp_develop_9.2.2_20260417`), ESP32·S3·C3 | xtensa/riscv32 공식 tar.xz 두 개(sha256 고정). 실행 파일과 ROM 을 `qemu-esp/{xtensa,riscv32}` 에 함께 설치 |
+| `simavr` *(선택)* | 고정 커밋 `5b08da60497f7564f50941f74a549fe2851db030` + PWEH `pweh_avr_run` | git 소스로 라이브러리·실행기를 빌드. ELF 입력·GDB 리스너 없음, 플래시 경계 밖 접근 보완. `simavr/bin/pweh_avr_run` 만 설치 |
 
 - **전제 조건:** Linux x86_64, bash, curl(또는 wget), tar, xz, Python 3.10 이상, git.
   배포판 패키지 구성요소는 Debian/Ubuntu(apt)에서만 받는다. apt 가 없으면 해당 도구를 직접 설치하고 `PWEH_*` 환경변수로 알려 준다.
   선택 구성요소(erofs, binwalk)는 C 컴파일러가 없으면 이유를 출력하고 건너뛴다. 관리자가 `build-essential` 을 설치해 두면 함께 설치된다.
   선택 구성요소 esptool 의 Windows 판(방법 A)은 WSL interop(`/proc/sys/fs/binfmt_misc/WSLInterop` 또는 `WSLInterop-late` 가 `enabled`)일 때만 설치하고,
   그 밖의 환경에서는 Linux 판만 설치한다. `./scripts/install.sh --check --only esptool` 은 Linux 판 버전과, WSL interop 이면 Windows 판 버전도 보여 준다.
-- **검증:** 스크립트가 직접 받는 파일(OpenOCD·Zig·JDK·Ghidra·Node·Windows esptool 압축 파일, pip·unblob 휠, esptool 소스 배포판, rustup-init, sasquatch .deb)은
+- **검증:** 스크립트가 직접 받는 파일(QEMU xtensa/riscv32 압축 파일·OpenOCD·Zig·JDK·Ghidra·Node·Windows esptool 압축 파일, pip·unblob 휠, esptool 소스 배포판, rustup-init, sasquatch .deb)은
   스크립트에 고정한 sha256 으로, 배포판 패키지는 apt 의 서명된 색인에 있는 해시로 검증한다.
   압축 해제 전에 절대 경로·`..`·밖을 가리키는 링크·장치 파일을 거부하고, 배포판 패키지의 설치 스크립트는 실행하지 않는다.
   - 한계: pip(pweh·unblob·esptool 의 의존성)와 npm(rea-agents 의 의존성)이 받는 패키지는 최상위 버전만 고정하고 해시는 고정하지 않는다.
@@ -62,12 +65,17 @@ MCP 단계가 저장소 밖에 쓰는 것은 Codex 홈의 trust 항목과 그 �
 - **옵션:** `--minimal`, `--only a,b`, `--skip a,b`, `--check`(점검만), `--list`, `--force`(다시 설치), `--prefix DIR`,
   `--seed DIR`, `--no-link`. MCP 등록·Skill·점검 단계의 옵션(`--no-mcp`, `--dry-run`, `--codex-trust` 등)은 §1.1 에 있다.
   - `--seed DIR`: 해시가 고정된 파일(압축 파일·휠·.deb)을 이 디렉터리에서 먼저 찾아 이름과 해시가 맞으면 쓴다(여러 대 설치·재설치용).
-    다른 머신의 `~/pweh-tools/_downloads` 를 그대로 넘기면 된다. pip·npm·cargo 의존성은 여전히 네트워크에서 받으므로 완전한 오프라인 설치는 아니다.
+    다른 머신의 `~/pweh-tools/_downloads` 를 그대로 넘기면 된다. simavr 는 git 소스이므로 `--seed` 로 제공할 수 없다. pip·npm·cargo 의존성은 여전히 네트워크에서 받으므로 완전한 오프라인 설치는 아니다.
 - **다른 위치에 설치:** `--prefix DIR` 로 설치하면 스크립트가 저장소에 `.pweh/tools-env.path`(git 제외)를 남긴다.
   `scripts/mcp-launch.sh` 와 테스트가 그 env.sh 를 찾는다. 순서는 `PWEH_TOOLS_ENV` → `PWEH_TOOLS_DIR/env.sh` → `.pweh/tools-env.path` → `~/pweh-tools/env.sh` 다.
 - **prefix 밖에 쓰는 것:** 시스템 cargo 를 쓰면 `~/.cargo` 레지스트리 캐시, Ghidra 를 처음 실행하면 `~/.config/ghidra`.
   pip·npm 캐시는 `~/pweh-tools/_cache` 에 둔다. 로그는 `~/pweh-tools/_logs/install-*.log`.
+- **에뮬레이터:** `./scripts/install.sh --only qemu_esp,simavr` 로 둘을 추가한다(기본 전체 설치에 포함, `--minimal` 에서는 제외). QEMU 에 필요한 공유 라이브러리가 없으면 해당 선택 구성요소를 실패로 표시하고
+  관리자 설치 안내(`libgcrypt20`, `libglib2.0-0`, `libpixman-1-0`, `libsdl2-2.0-0`, `libslirp0`)만 출력한다. 개인 라이브러리 디렉터리나 `LD_LIBRARY_PATH` 는 만들지 않는다.
+  simavr 는 git·make·C 컴파일러가 필요하고 설치된 PWEH Zig 를 우선 사용한다. `pweh doctor` 는 `tool:qemu-esp-xtensa`, `tool:qemu-esp-riscv32`, `tool:pweh_avr_run` 을 검사한다(없으면 선택 도구 `--`, 버전 불일치면 `!!`).
+  두 구성요소는 PATH 에 더하지 않는다. QEMU 코드는 GPL-2.0, 포함된 ESP ROM 블롭 라이선스는 미확인이다. 로컬에서 링크하는 AVR 실행기는 GPL-3.0 결합 바이너리이며 저장소에서 재배포하지 않는다.
 - **디스크:** 설치 후 약 3 GB(내려받기 캐시 `_downloads` 약 0.8 GB 포함). 시스템 cargo 가 없으면 개인 Rust 툴체인(`_rust`) 약 0.7 GB 가 더 든다.
+  에뮬레이터 두 구성요소는 약 0.2 GB 를 더 쓴다(빌드 캐시는 별도).
   esptool 은 Linux 판 venv 약 60 MB, WSL 이면 Windows 판 약 65 MB 와 내려받은 zip 66 MB 를 더 쓴다.
   `_downloads`(재설치용 캐시)와 `_build`(빌드 중간 파일)는 설치 뒤 지워도 된다.
 - **지우기:** `rm -rf ~/pweh-tools .venv` (그리고 `--prefix`/`--venv` 를 썼다면 `.pweh/tools-env.path`, `.pweh/venv.path`).
@@ -83,7 +91,7 @@ REA 는 Codex 에서도 런처로 실행돼 env.sh 를 실행할 때 불러온�
 
 | 단계 | 하는 일 | 쓰는 곳 |
 |---|---|---|
-| `mcp` | **Claude Code:** `.mcp.json` 과 `.claude/settings.json` 의 `enabledMcpjsonServers` 가 서버 9개와 맞는지 확인한다. 사용자 전역 설정(`~/.claude*`)은 건드리지 않는다. **Codex:** `pweh mcp-config --client codex --write`(프로젝트 범위, §3.2) 다음에 `pweh codex-trust`. **Cursor:** `--cursor` 를 줄 때만 `.cursor/mcp.json` 을 만든다(§4) | `<저장소>/.codex/config.toml`, 동의하면 Codex 홈마다 `config.toml` 의 trust 항목, `--cursor` 면 `.cursor/mcp.json` |
+| `mcp` | **Claude Code:** `.mcp.json` 과 `.claude/settings.json` 의 `enabledMcpjsonServers` 가 서버 10개와 맞는지 확인한다. 사용자 전역 설정(`~/.claude*`)은 건드리지 않는다. **Codex:** `pweh mcp-config --client codex --write`(프로젝트 범위, §3.2) 다음에 `pweh codex-trust`. **Cursor:** `--cursor` 를 줄 때만 `.cursor/mcp.json` 을 만든다(§4) | `<저장소>/.codex/config.toml`, 동의하면 Codex 홈마다 `config.toml` 의 trust 항목, `--cursor` 면 `.cursor/mcp.json` |
 | `skills` | `pweh skills install --target claude-project` 와 `pweh skills install --target agents`. 이미 맞는 링크는 그대로 둔다 | `.claude/skills/<name>`, `.agents/skills/<name>` 링크 (저장소에 이미 들어 있다) |
 | `verify` | `pweh doctor` 와 `pweh mcp-check`. 서버를 띄워 도구 목록만 받고 도구는 호출하지 않는다(§3.6). REA(선택 구성요소)가 설치되지 않았으면 `rea` 서버만 선택 서버로 넘겨(`--optional rea`) 그 실패는 경고로 본다. 다른 서버의 실패는 실패다 | 설정 파일은 없음. `pweh doctor` 가 저장소의 `cases/`·`.pweh/state` 가 없으면 만든다(어느 디렉터리에서 실행해도 저장소 설정 `PWEH_CONFIG` 로 돈다) |
 
@@ -117,8 +125,8 @@ REA 는 Codex 에서도 런처로 실행돼 env.sh 를 실행할 때 불러온�
 ## 2. Claude Code
 
 ### 2.1 서버 등록
-저장소 루트의 `.mcp.json` 이 프로젝트 범위로 9개 서버(`pweh-case`, `pweh-uart`, `pweh-openocd`, `pweh-sigrok`, `pweh-jtagulator`, `pweh-fwtriage`, `pweh-esp`, `pweh-forensics`, `rea`)를 등록한다.
-`.claude/settings.json` 의 `enabledMcpjsonServers` 도 같은 9개다. 다시 만들려면 다음을 실행한다.
+저장소 루트의 `.mcp.json` 이 프로젝트 범위로 10개 서버(`pweh-case`, `pweh-uart`, `pweh-openocd`, `pweh-sigrok`, `pweh-jtagulator`, `pweh-fwtriage`, `pweh-esp`, `pweh-forensics`, `pweh-emu`, `rea`)를 등록한다.
+`.claude/settings.json` 의 `enabledMcpjsonServers` 도 같은 10개다. 다시 만들려면 다음을 실행한다.
 ```bash
 .venv/bin/pweh mcp-config --client claude --write --force
 ```
@@ -157,11 +165,13 @@ REA 는 Codex 에서도 런처로 실행돼 env.sh 를 실행할 때 불러온�
     임의 Rizin 명령을 실행하는 `execute_rizin_command`(셸 탈출 `!` 로 호스트 명령 실행 가능),
     pweh-forensics 의 쓰는 도구 7개(`forensics_intake_start`, `forensics_verify_start`, `forensics_acquisition_attest`, `forensics_fs_list`, `forensics_extract`,
     `forensics_evidence_list`, `forensics_job_cancel` — 카드 이미지는 제3자의 개인정보라 접수·검증·증명·목록·추출·증거 목록을 매번 사람이 확인한다).
+    pweh-emu 의 `emu_start`, `emu_write`, `emu_stop` 도 `ask` 다(서버의 `emu_stop` 은 승인 게이트 없이 정리하나 클라이언트 확인은 별개).
     **bypassPermissions 모드에서도 묻는다.**
   - `allow`: pweh 서버의 조회 전용 도구(`readOnlyHint`), `pweh-case`·`pweh-fwtriage` 전체(`mcp__pweh-case__*`, `mcp__pweh-fwtriage__*`),
     REA 정적 분석 도구. 기본 모드에서 묻지 않는다(bypass 모드에서는 원래 묻지 않으므로 의미가 없다).
     프로젝트 `allow` 는 workspace trust 를 수락한 뒤에만 적용되고, `ask`/`deny` 는 trust 와 무관하게 적용된다.
   - 둘 다 아닌 도구(예: `uart_send_command`, `uboot_dump_start`, `sigrok_capture`, `openocd_halt`, `esp_chip_info`, `esp_read_flash_start`)는 기본 모드에서 처음 쓸 때 묻는다.
+    pweh-emu 는 `emu_status`, `emu_read`, `emu_sessions` 만 `allow` 다.
     pweh-esp 는 `esp_version`, `esp_list_ports`, `esp_job_status`, `esp_jobs` 가 `allow` 에 있다.
     pweh-forensics 는 조회 전용 `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs` 만 `allow` 에 있고 나머지는 모두 위의 `ask` 다.
     이 서버는 기기에 아무것도 보내지 않아 서버 측 게이트가 없다. 증거는 보관 기록·무결성 확인·사람 증명으로 지킨다([safety.md](safety.md) §3.5·§7.1, 알려진 한계는 §3.6, [architecture.md](architecture.md) §6.8).
@@ -295,8 +305,8 @@ WIN_CODEX_HOME="/mnt/c/Users/<Windows 사용자>/.codex"    # 예: 데스크톱 
 | 위치 | 값 | 이유 |
 |---|---|---|
 | 최상위 (첫 표보다 앞) | `mcp_optional_startup_grace_ms = 15000` | Codex 는 첫 도구 목록을 만들 때 선택(optional) 서버를 이 시간까지만 기다린다(기본 1000 ms). REA 는 시작에 약 1.5초가 걸려 기본값이면 첫 턴에서 빠진다(PWEH 서버는 한 번 실행한 뒤 약 0.5~0.75초). 서버가 다 뜨면 그 전에 진행한다. 첫 표보다 앞에 있어야 최상위 키다 |
-| `[features.code_mode]` | `direct_only_tool_namespaces`. 기본은 PWEH 서버 8개 전부(`mcp__pweh_case`, `mcp__pweh_uart`, …, `mcp__pweh_forensics`) | Codex 0.162.0 의 현재 모델은 Code Mode + tool search 로 돈다. MCP 도구는 지연 로딩되어 모델의 도구 목록에 나오지 않고, 모델이 `ALL_TOOLS` 나 tool search 로 찾아야 한다. 여기 적은 네임스페이스는 바로 보인다(Codex 는 서버 이름의 `-` 를 `_` 로 바꾼다). 대신 8개 전부면 요청마다 도구 정의가 약 112 KB 늘어난다. `--direct case` 는 `mcp__pweh_case` 만 넣고, `--direct none` 은 이 표를 넣지 않는다 |
-| `[mcp_servers.pweh-*]` (8개) | 절대 경로 `command`(지금 실행한 pweh 가 설치된 가상환경의 콘솔 스크립트), `args = []`, `cwd`(저장소), `env`(`PWEH_CONFIG` + env.sh 의 `PWEH_*` 도구 경로 — `PATH` 는 넣지 않는다), `env_vars = ["WSL_DISTRO_NAME"]`, `startup_timeout_sec = 60`, `tool_timeout_sec = 600` | Codex 는 서버에 화이트리스트 환경변수(`HOME`, `LOGNAME`, `PATH`, `SHELL`, `USER`, `LANG`, `LC_ALL`, `TERM`, `TMPDIR`, `TZ` 등)와 `env`·`env_vars` 만 넘긴다. 그래서 env.sh 의 도구 경로를 `env` 에 넣는다. `WSL_DISTRO_NAME` 은 표시용(`pweh env` 의 배포판 이름)이라 없어도 된다. `WSL_INTEROP` 은 넘기지 않아도 interop(esptool.exe 등)이 동작한다. 기본 타임아웃은 문서(시작 10초·도구 60초)와 소스(30초·300초)가 달라 명시한다 |
+| `[features.code_mode]` | `direct_only_tool_namespaces`. 기본은 PWEH 서버 9개 전부(`mcp__pweh_case`, `mcp__pweh_uart`, …, `mcp__pweh_forensics`, `mcp__pweh_emu`) | Codex 0.162.0 의 현재 모델은 Code Mode + tool search 로 돈다. MCP 도구는 지연 로딩되어 모델의 도구 목록에 나오지 않고, 모델이 `ALL_TOOLS` 나 tool search 로 찾아야 한다. 여기 적은 네임스페이스는 바로 보인다(Codex 는 서버 이름의 `-` 를 `_` 로 바꾼다). 대신 9개 전부를 노출하면 요청마다 도구 정의만큼 문맥·토큰 사용량이 늘어난다(크기는 서버 버전과 도구 설명에 따라 달라진다). `--direct case` 는 `mcp__pweh_case` 만 넣고, `--direct none` 은 이 표를 넣지 않는다 |
+| `[mcp_servers.pweh-*]` (9개) | 절대 경로 `command`(지금 실행한 pweh 가 설치된 가상환경의 콘솔 스크립트), `args = []`, `cwd`(저장소), `env`(`PWEH_CONFIG` + env.sh 의 `PWEH_*` 도구 경로 — `PATH` 는 넣지 않는다), `env_vars = ["WSL_DISTRO_NAME"]`, `startup_timeout_sec = 60`, `tool_timeout_sec = 600` | Codex 는 서버에 화이트리스트 환경변수(`HOME`, `LOGNAME`, `PATH`, `SHELL`, `USER`, `LANG`, `LC_ALL`, `TERM`, `TMPDIR`, `TZ` 등)와 `env`·`env_vars` 만 넘긴다. 그래서 env.sh 의 도구 경로를 `env` 에 넣는다. `WSL_DISTRO_NAME` 은 표시용(`pweh env` 의 배포판 이름)이라 없어도 된다. `WSL_INTEROP` 은 넘기지 않아도 interop(esptool.exe 등)이 동작한다. 기본 타임아웃은 문서(시작 10초·도구 60초)와 소스(30초·300초)가 달라 명시한다 |
 | `[mcp_servers.rea]` (`--no-rea` 면 없음) | `command` = `<저장소>/scripts/mcp-launch.sh`, `args = ["rea"]`, `env`(Ghidra·JDK·추출 도구 경로, 불러올 env.sh `PWEH_TOOLS_ENV`), `enabled_tools`, `tool_timeout_sec = 900` | REA 는 env.sh 가 `PATH` 에 넣는 node·JDK·압축 해제 도구가 있어야 돈다. 런처가 실행할 때 env.sh 를 불러오므로 설정 파일에 셸의 `PATH`(WSL 이면 Windows 사용자 이름이 든 Windows PATH)를 적지 않는다. REA 6.5 는 도구 207개(tools/list 약 3 MB)를 내보낸다. `enabled_tools` 에는 `.claude/settings.json` 의 `mcp__rea__*` 규칙(allow·ask)에 있는 도구만 넣는다. 거기 없는 REA 도구는 Codex 에서 보이지 않는다 |
 
 - Codex 는 `.claude/settings.json` 의 권한 규칙(§2.3)을 쓰지 않는다. pweh 가 REA 의 `enabled_tools` 를 만들 때 읽을 뿐이다.
@@ -442,11 +452,13 @@ signals/boot-001.sr 을 REA decode_signal_recording 으로 UART 디코딩해서 
 | `PWEH_WINDOWS_PROFILE` | Windows 사용자 프로필 디렉터리를 직접 지정(WSL 경로 또는 `C:\Users\…`). Codex 데스크톱 앱 홈(`<프로필>/.codex`) 자동 감지가 interop 대신 쓴다(§3.1) |
 | `PWEH_SIGROK_CLI`, `PWEH_OPENOCD`, `PWEH_OPENOCD_SCRIPTS`, `PWEH_UNSQUASHFS`, `PWEH_MKSQUASHFS`, `PWEH_ZIG` … | 외부 도구 경로 (env.sh 가 설정) |
 | `PWEH_ESPTOOL`, `PWEH_ESPTOOL_WIN` | pweh-esp 의 리눅스 esptool / Windows 용 `esptool.exe` 절대 경로(방법 A). 설정 키는 `tools.esptool`·`tools.esptool_win`. env.sh 는 실제로 실행되는 쪽만 설정한다. `PWEH_ESPTOOL_WIN` 이 비어 있으면 외부 도구 디렉터리의 `esptool-win/esptool-windows-amd64/esptool.exe` 를 찾고, `C:\tools\esptool.exe` 같은 Windows 경로도 받는다(`wslpath -u` 로 변환). 바꾸면 MCP 서버를 다시 시작한다 |
+| `PWEH_QEMU_XTENSA`, `PWEH_QEMU_RISCV32`, `PWEH_AVR_RUN` | pweh-emu 의 고정 Espressif QEMU / PWEH AVR 실행기 절대 경로. 설정 키 `tools.qemu_xtensa`, `tools.qemu_riscv32`, `tools.avr_run`. 설정 → 환경변수 → 외부 도구 디렉터리 순으로 찾고 PATH 는 탐색하지 않는다. env.sh 는 버전 검사를 통과한 것만 내보낸다. 변경 뒤 MCP 서버를 다시 시작한다 |
 
 ## 8. 문제 해결
 
 | 증상 | 확인 |
 |---|---|
+| pweh-emu `tool_missing`·`emu_tool_version` | `emu_status`·`pweh doctor` 로 백엔드를 확인하고 `scripts/install.sh --only qemu_esp,simavr` 로 고정 버전을 설치한다. 임의 QEMU 옵션으로 우회하지 않는다 |
 | `/mcp` 에 서버가 `Failed to connect` | `bash scripts/mcp-launch.sh pweh-case-mcp < /dev/null` 로 직접 실행해 오류를 본다. `.venv` 설치 여부도 확인한다 |
 | `Pending approval` | `claude` 를 대화형으로 실행해 승인한다. 또는 `claude mcp reset-project-choices` 후 다시 승인한다 |
 | Codex 에서 PWEH 도구가 보이지 않음, Codex 가 시작하지 않음 | §3.6 (`pweh mcp-check --client codex`, trust, Codex 홈) |

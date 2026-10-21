@@ -51,6 +51,7 @@ SKILL_NAMES = (
     "cctv-auth-bypass-hunt",
     "game-save-unlock-analysis",
     "sd-card-forensics",
+    "firmware-emulation",
 )
 SERVERS = {
     # MCP 서버 이름 → (콘솔 스크립트, 설명)
@@ -62,6 +63,7 @@ SERVERS = {
     "pweh-fwtriage": ("pweh-fwtriage-mcp", "오프라인 펌웨어 트리아지"),
     "pweh-esp": ("pweh-esp-mcp", "ESP32 esptool 읽기 전용 덤프 (WSL 에서 Windows esptool.exe·COM 포트 또는 Linux esptool)"),
     "pweh-forensics": ("pweh-forensics-mcp", "SD 카드 이미지 증거 분석 (사람이 만든 이미지 파일만 — 접수·보관 기록·무결성·파일 목록·삭제 파일 추출)"),
+    "pweh-emu": ("pweh-emu-mcp", "MCU 펌웨어 에뮬레이션 (Espressif QEMU·Arduino AVR, 출처 확인·마스킹 콘솔)"),
 }
 REA_ENV_KEYS = (
     "GHIDRA_INSTALL_DIR", "JAVA_HOME", "REA_SIGROK_COMMAND", "REA_BINWALK_COMMAND", "REA_UNBLOB_COMMAND",
@@ -71,6 +73,7 @@ PWEH_ENV_KEYS = (
     "PWEH_TOOLS_DIR", "PWEH_SIGROK_CLI", "PWEH_OPENOCD", "PWEH_OPENOCD_SCRIPTS", "PWEH_OPENOCD_DUMMY", "PWEH_BINWALK",
     "PWEH_UNBLOB", "PWEH_MKSQUASHFS", "PWEH_UNSQUASHFS", "PWEH_MKIMAGE", "PWEH_MKENVIMAGE", "PWEH_DUMPIMAGE", "PWEH_ZIG",
     "PWEH_GHIDRA_HEADLESS", "PWEH_REA", "PWEH_LZ4", "PWEH_ESPTOOL", "PWEH_ESPTOOL_WIN",
+    "PWEH_QEMU_XTENSA", "PWEH_QEMU_RISCV32", "PWEH_AVR_RUN",
 )
 
 
@@ -1077,6 +1080,29 @@ def cmd_env(args: argparse.Namespace) -> int:
     return 0
 
 
+def emu_doctor_checks(config: Any) -> list[dict[str, Any]]:
+    """선택 에뮬레이터의 위치·고정 버전을 서버와 같은 제한된 조회로 검사한다(게스트 실행 없음)."""
+    from emu_mcp import backends
+
+    checks = []
+    for name, label, component in (
+        (backends.EXE_XTENSA, "qemu-esp-xtensa", "qemu_esp"),
+        (backends.EXE_RISCV32, "qemu-esp-riscv32", "qemu_esp"),
+        (backends.EXE_AVR, "pweh_avr_run", "simavr"),
+    ):
+        binary, _rejected = backends.locate(name, config)
+        hint = f"MCU 펌웨어 에뮬레이션이 필요할 때 scripts/install.sh --only {component}"
+        if binary is None:
+            checks.append({"check": f"tool:{label}", "ok": None, "detail": "없음 (선택)", "hint": hint})
+            continue
+        result = backends.probe(binary)
+        ok = bool(result.get("version_ok")) and not result.get("warning")
+        detail = f"{binary.path} :: {result.get('version') or result.get('error') or '버전 확인 실패'}"
+        checks.append({"check": f"tool:{label}", "ok": ok, "detail": detail,
+                       "hint": "" if ok else f"고정 버전 확인 실패. scripts/install.sh --force --only {component} 로 다시 설치"})
+    return checks
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     from . import hostenv
 
@@ -1170,6 +1196,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             "" if ok else "실행 파일은 있지만 버전 확인에 실패했습니다. 필요 기능: pweh-esp 의 Linux esptool. scripts/install.sh --force --only esptool 로 다시 설치")
     # Windows esptool.exe (방법 A): esp 와 같은 해석 — 설정 tools.esptool_win → PWEH_ESPTOOL_WIN → 도구 디렉터리 후보 (hostenv 보고서)
     checks.append(esptool_win_check(report))
+    checks.extend(emu_doctor_checks(cfg))
     gh = os.environ.get("GHIDRA_INSTALL_DIR")
     add("ghidra", bool(gh and Path(gh).exists()), gh or "GHIDRA_INSTALL_DIR 미설정", "REA 의 네이티브 디컴파일에 필요")
     jh = os.environ.get("JAVA_HOME")

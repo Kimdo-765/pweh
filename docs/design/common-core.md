@@ -14,7 +14,10 @@
 | `src/pweh/wininterop.py` | interop 실행 허용 목록, `wslpath -w` 변환과 Windows 경로 검사(끝의 '.'·공백), Win32 프로세스 조회·종료·고아 처리, 자식 환경 정리, ACP 디코딩 스트리밍 실행 | esp-mcp 안에만(`ports.py`, `winproc.py`, `esptool_cli.py`) |
 | `src/pweh/winserial/` + `pweh-serial-helper.exe` | WSL 에서 Windows COM 포트 사용: stdio 프레임 프로토콜 헬퍼(정수 COM1–COM4096 만, 소켓 없음, sha256 고정) + `HelperSerial(serial.SerialBase)`. `pweh.ports.open_serial` 이 직접 만든다(pyserial URL 처리기 등록 없음) | 없음 — §2 |
 | `src/pweh/portlock.py` | 서버 프로세스 사이 포트 잠금: OS 객체 키(`win:COMn`·`tty:<major>:<minor>`·URL), 호스트 전체(작업 공간·클론·WSL 배포판), `os.open` 전에 잡고 승인 대기 중에도 쥔다, 커널이 해제(abstract 소켓). 역할 표지(instrument / instrument-aux / target / bridge) | 서버 안 레지스트리 + 열고 나서 flock·`/proc` 검사(최선 노력) |
-| `src/pweh/procutil.py` | 프로세스 그룹 실행·종료, PID 생존 확인(Windows 에서 `os.kill(pid,0)` 금지) | 4벌(esp·sigrok·openocd·fwtriage) |
+| `src/pweh/procutil.py` | 프로세스 신원·생존 확인, pidfd·그룹 종료, 소유자 기록 | 증분 B: 공용 함수 구현, pweh-emu 의 종료·고아 정리에 사용 |
+| `src/pweh/espfmt.py` | ESP 파티션·앱·NVS 해석 | 증분 B: fwtriage 에서 코어로 이동, 기존 경로는 재노출 shim. fwtriage·emu 가 함께 사용 |
+| `src/pweh/console.py`, `src/pweh/safety/redact.py` | 줄 경계 커서·반복 접기·열린 프롬프트, 공용 자격증명 패턴·알려진 비밀값 마스킹 | 증분 B: emu 콘솔에 사용, fwtriage 는 공용 패턴을 가져옴 |
+| `src/pweh/evidence.py` 보호 하위 트리 가드 | `forensics/`·`emu/` 를 다른 도구의 입력에서 제외 | 증분 B: case·fwtriage·sigrok 적용, 원시 콘솔은 emu_read 로만 표시 |
 | `src/pweh/safety/attestations.py` | 사람 증명 레코드(재사용 가능, 대상·바인딩·만료) | I1 에서 구현 — §3 구현 상태 |
 | `src/pweh/provenance.py` | 출처 원장(기기에서 읽은 산출물만 기록) | I1 에서 구현 — §4 구현 상태 |
 | `src/pweh/safety/rf.py`, `src/pweh/rf/` | 지역 대역표·RF 수신 분류기, `.sub`/`.ook`/펄스 파서 | 없음 |
@@ -47,7 +50,7 @@
 
 > **구현 상태 (I1, 2026-10-20)**: 코어 구현 — `src/pweh/safety/attestations.py`(`AttestationStore`·`Attestor`), `rt().attest(...)` → `AttestationDecision`
 > (충족이 아니면 `attestation_response(...)`), 사람 명령 `pweh attest <id>`·`pweh attest --list`(`--all`)·`pweh attest --revoke <id>`(모두 TTY 전용),
-> 케이스 사본 `attestations.json`(0400, 증거 아님). 계약은 architecture.md §4, safety.md §3.5·§4 규칙 12. **증명을 요구하는 도구는 I2b 의 `fw_patch_build`(세이브 쓰기 명령을 보여 주기 전 `console-offline`)와 I3b 의 `forensics_acquisition_attest`(SD 카드 이미지를 쓰기 방지 장치로 만들었는지 — `write-blocker`) 둘이다**.
+> 케이스 사본 `attestations.json`(0400, 증거 아님). 계약은 architecture.md §4, safety.md §3.5·§4 규칙 12. **증명을 요구하는 도구는 I2b 의 `fw_patch_build`(세이브 쓰기 명령을 보여 주기 전 `console-offline`)와 I3b 의 `forensics_acquisition_attest`(SD 카드 이미지를 쓰기 방지 장치로 만들었는지 — `write-blocker`)와 증분 B 의 `emu_start`(가져온 파일의 `provenance-import`)다**.
 > 설계와 다른 점: 사람 쪽은 `pweh approve` 의 증명 화면이 아니라 별도 명령 `pweh attest` 다. `require` 에 서버가 지금 묻는 질문을 넘겨 질문이 늘면 예전 증명을 쓰지 않는다.
 > 유효 기간은 범위별 코드 기본값(case 7일·connection 12시간·job 24시간·instrument 는 철회까지, 서버가 `valid_seconds` 60초~90일), pending 은 `approval_ttl_seconds`,
 > 확인 경로는 `safety.approval_methods`(새 설정 키 없음)다. 연결 해제·재연결·장치 시리얼 변화에 따른 무효화는 바인딩·subject 지문으로만 된다(연결 토큰을 쓰는 서버가 아직 없다).
@@ -72,8 +75,8 @@
 > **구현 상태 (I1)**: 코어 구현 — `src/pweh/provenance.py`(`ProvenanceLedger`: 정규화 JSON 줄의 해시 체인, 파일 잠금, 깨지면 모두 불신, `verify`).
 > 기록하는 곳은 지금 셋이다: pweh-esp(`esp_read_flash_start` 의 끝까지 성공한 덤프 = `device-read`, `esp_chip_info`·`esp_security_info` = `device-fact`),
 > `case_import_file`(`imported-unattested`), I3b 의 `forensics_intake_start`(SD 카드 이미지의 접수 기록 파일 = `imported-unattested`, 이미지 sha256·크기는 extra — PWEH 는 카드를 읽지 않으므로
-> 기기 읽기가 아니다. 사본 검증·추출은 SD 카드 보관 기록에 남는다 — safety.md §3.5). 나머지 기록 지점(Flipper·CU·수신 job·espprobe)과 확인 지점(에뮬레이션·SD 올리기·패치 base·
-> `espprobe_flash_plan`)은 그 서버를 만들 때 붙인다 — `verify` 를 부르는 도구는 I2b 의 `fw_patch_build`·`fw_verify_writeback` 이고, 원장에 `patch-plan` kind(쓰기 확인의 권위 기록)가 더해졌다. `provenance-import` 증명의 대상은 `provenance_import_target(case_id, sha256)`·
+> 기기 읽기가 아니다. 사본 검증·추출은 SD 카드 보관 기록에 남는다 — safety.md §3.5). 나머지 기록 지점(Flipper·CU·수신 job·espprobe)과 확인 지점(SD 올리기·
+> `espprobe_flash_plan`)은 그 서버를 만들 때 붙인다 — `verify` 를 부르는 도구는 I2b 의 `fw_patch_build`·`fw_verify_writeback` 과 증분 B 의 `emu_start` 다. `emu_start` 는 `verify(data=…)` 로 한 번 읽은 바이트를 확인한 뒤 봉인 memfd 로 전달한다. 원장에 `patch-plan` kind(쓰기 확인의 권위 기록)가 더해졌다. `provenance-import` 증명의 대상은 `provenance_import_target(case_id, sha256)`·
 > `PROVENANCE_IMPORT_QUESTIONS` 하나로 정했다. 기록 실패는 도구 결과를 막지 않고 응답의 `provenance.recorded=false` 로 알린다.
 > 반박 검증 뒤 보강: 이중 읽기가 어긋난 덤프(`source.match=false`)는 기록하되 `verify` 가 불신한다(`device-read-mismatch` — 출처 ≠ 무결성). `case_import_file` 은 state_dir 의 파일을 거부하고,
 > 대상을 `O_EXCL` 로 만들며 복사하면서 해시한다. 확인과 사용 사이의 변경(TOCTOU)은 소비자가 sha256 을 승인 지문·job 인자에 묶어 막는다(architecture §4).
@@ -85,6 +88,8 @@
   산출물 외에 기기 사실도 기록한다(pweh-esp `esp_chip_info`·`esp_security_info` 결과 — ESP32 계측기를 플래시하기 전 백업·보안 상태 확인의 근거).
 - **확인하는 곳**: 에뮬레이션, SD 올리기, (향후) 송신, 패치 base, `espprobe_flash_plan`(계측기 플래시 절차를 보여 주기 전). 산출물을 다시 해시해 원장과 맞춰 본다.
 - `case_import_file` 과 Flipper 기존 폴더에서 가져온 파일은 `imported-unattested` 로 기록되고, `provenance-import` 증명이 있을 때만 쓸 수 있다. 출처 확인은 `producer` 를 보지 않는다.
+
+> **증분 B**: 에뮬레이션 출처 확인 지점이 구현됐다. 가져온 ESP/AVR 파일은 `provenance-import` 사람 증명 뒤 실행한다(architecture §6.9). 단일 읽기는 경고와 함께 허용하고 이중 읽기 불일치는 거부한다.
 
 ## 5. 비밀값 마스킹
 

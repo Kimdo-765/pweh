@@ -67,6 +67,7 @@ OPTIONAL_PHASES = (
     "game-play-automation",
     "flipper-rf-analysis",
     "sd-card-forensics",
+    "firmware-emulation",
     "espprobe",
 )
 PHASE_STATUSES = ("pending", "in-progress", "done", "partial", "failed", "skipped", "blocked")

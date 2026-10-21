@@ -26,6 +26,7 @@ SKILL_DATA_SCHEMAS: dict[str, str] = {
     "cctv-auth-bypass-hunt": "auth-hunt",
     "game-save-unlock-analysis": "save-analysis",
     "sd-card-forensics": "sd-forensics",
+    "firmware-emulation": "emulation",
 }
 
 

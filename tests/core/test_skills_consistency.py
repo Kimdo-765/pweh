@@ -159,6 +159,8 @@ def _guess_schema(obj: Any) -> str | None:
         return "save-analysis"
     if {"mode", "privacy"} <= keys:  # sd-forensics 의 필수 키 둘 (privacy 는 다른 스키마에 없다)
         return "sd-forensics"
+    if {"backends", "sessions", "safety"} <= keys:
+        return "emulation"
     return None
 
 

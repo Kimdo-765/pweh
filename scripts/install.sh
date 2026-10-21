@@ -5,6 +5,7 @@
 #   ./scripts/install.sh                  # 전체 설치 + MCP 등록·Skill 링크·점검 (권장)
 #   ./scripts/install.sh --minimal        # Python + sigrok + OpenOCD + squashfs/u-boot 도구만 (아래 단계는 하지 않음)
 #   ./scripts/install.sh --only ghidra,jdk
+#   ./scripts/install.sh --only qemu_esp,simavr   # 펌웨어 에뮬레이션(pweh-emu)의 선택 구성요소만: Espressif QEMU + simavr/pweh_avr_run
 #   ./scripts/install.sh --skip rea,binwalk
 #   ./scripts/install.sh --only mcp,skills,verify   # 도구는 다시 설치하지 않고 MCP 등록·Skill 링크·점검만
 #   ./scripts/install.sh --dry-run        # 아무것도 바꾸지 않고 MCP 등록·Codex 신뢰가 바꿀 내용(diff)만 보여 줌
@@ -14,8 +15,9 @@
 # 옵션
 #   --prefix DIR   외부 도구 설치 위치 (기본: $PWEH_TOOLS_DIR 또는 ~/pweh-tools)
 #   --cache DIR    내려받은 파일 캐시 (기본: <prefix>/_downloads)
-#   --seed DIR     해시가 고정된 파일(압축 파일·휠·.deb)을 먼저 찾을 디렉터리. 이름과 해시가 맞을 때만 쓴다.
-#                  pip·npm·cargo 의존성은 여전히 네트워크에서 받는다 (완전한 오프라인 설치는 아님)
+#   --seed DIR     해시가 고정된 파일(압축 파일·휠·.deb)을 먼저 찾을 디렉터리 (그런 파일을 가리키는 심볼릭 링크도 쓴다). 이름과 해시가 맞을 때만 쓴다.
+#                  pip·npm·cargo 의존성은 여전히 네트워크에서 받는다 (완전한 오프라인 설치는 아님).
+#                  git 커밋으로 고정한 소스(erofs, simavr)는 seed 로 대신할 수 없다 (git 으로 받는다)
 #   --venv DIR     pweh Python 가상환경 (기본: <저장소>/.venv). 아래 단계는 이 가상환경의 pweh 만 쓴다
 #   --force        이미 설치된 구성요소도 다시 설치
 #   --no-link      기본 위치가 아닐 때 저장소에 .pweh/tools-env.path 를 남기지 않음 (시험·CI 용)
@@ -51,7 +53,13 @@
 #   해시는 고정하지 않으며 (npm 패키지의 설치 스크립트가 실행되고, esptool 소스 배포판을 빌드하는 setuptools 도 PyPI 에서 받음),
 #   binwalk 의존성은 Cargo.lock(--locked) 의 체크섬으로 검증된다.
 # - 압축 해제 전에 절대 경로, '..', 밖을 가리키는 링크, 장치 파일을 거부한다. 배포판 패키지의 설치 스크립트는 실행하지 않는다.
-# - 이미 설치된 구성요소는 건너뛴다. 선택 구성요소(erofs, binwalk, rea, esptool)가 실패해도 나머지는 계속한다.
+# - 이미 설치된 구성요소는 건너뛴다. 선택 구성요소(erofs, binwalk, rea, esptool, qemu_esp, simavr)가 실패해도 나머지는 계속한다.
+# - 펌웨어 에뮬레이션(pweh-emu) 구성요소는 선택이고 --minimal 에 없다:
+#   qemu_esp  Espressif QEMU 릴리스 tar.xz 두 개(sha256 고정)를 <prefix>/qemu-esp/{xtensa,riscv32} 에 푼다 (bin/·share/qemu 함께).
+#             공유 라이브러리가 없으면 개인 경로에 받지 않고, 빠진 라이브러리와 관리자용 배포판 패키지 목록을 알린다.
+#   simavr    simavr 를 git 커밋으로 고정해 라이브러리만 빌드하고 PWEH 실행기 native/emu/pweh_avr_run.c 를 정적 링크한다
+#             (C 컴파일러 또는 PWEH zig. run_avr 는 설치하지 않는다). 결과 실행 파일은 GPL-3.0 결합물이다 (배포하지 않음).
+#   두 구성요소의 실행 파일은 PATH 에 넣지 않고 env.sh 의 PWEH_QEMU_XTENSA·PWEH_QEMU_RISCV32·PWEH_AVR_RUN(절대 경로)으로만 알린다.
 # - 종료 코드: 필수 구성요소나 mcp·skills·verify 단계가 실패하면 1. 신뢰를 거절했거나 묻지 않은 것은 실패가 아니고,
 #   REA(선택 구성요소)가 설치되지 않았을 때 rea 서버만 뜨지 않는 것도 경고로만 본다 (`pweh mcp-check --optional rea` — 다른 서버의 실패는 실패).
 # - `rea setup` 은 실행하지 않는다 (다른 에이전트 클라이언트의 설정을 바꾼다).
@@ -107,10 +115,22 @@ ESPTOOL_SHA=fd756598db0a26c9975fa18511b08687c54bf2ce7322ede80cf1f5117dad1f50
 ESPTOOL_WIN_ZIP="esptool-v${ESPTOOL_VER}-windows-amd64.zip"   # 방법 A: 공식 Windows 빌드 (의존성을 담은 단일 실행 파일들)
 ESPTOOL_WIN_URL="https://github.com/espressif/esptool/releases/download/v${ESPTOOL_VER}/${ESPTOOL_WIN_ZIP}"
 ESPTOOL_WIN_SHA=b7f6b9dd301a210b31f4829118c909c84aae23107f9ca1fdc14ccf4d7384be2e
+# 펌웨어 에뮬레이션 (pweh-emu): Espressif QEMU 릴리스 asset 만 고정한다 (브랜치 esp-develop 는 강제 push 됨).
+# pweh-emu 는 이 정확한 버전 문자열만 받는다 — 바꾸면 서버의 고정값·샌드박스 검토도 함께 바꿔야 한다.
+QEMU_ESP_TAG=esp-develop-9.2.2-20260417
+QEMU_ESP_VER=esp_develop_9.2.2_20260417
+QEMU_XTENSA_URL="https://github.com/espressif/qemu/releases/download/${QEMU_ESP_TAG}/qemu-xtensa-softmmu-${QEMU_ESP_VER}-x86_64-linux-gnu.tar.xz"
+QEMU_XTENSA_SHA=0eecb2a34a5586c0e59110f77b9343b7b336e82fdb0e1a30e1dc1bab8a547e35    # 15 619 396 B
+QEMU_RISCV32_URL="https://github.com/espressif/qemu/releases/download/${QEMU_ESP_TAG}/qemu-riscv32-softmmu-${QEMU_ESP_VER}-x86_64-linux-gnu.tar.xz"
+QEMU_RISCV32_SHA=547f03e04701a92cbb699f7f7d015adc1f5b5ef93cbb94c0dd9b7107e2d84e77   # 16 842 920 B
+# simavr: 릴리스 asset 이 없어 커밋으로 고정한다 (erofs 처럼 rev-parse 로 확인). v1.8 에는 전체 플래시 이미지의 마지막 바이트
+# 잘림(#589)·UART stdio 1바이트 힙 넘침(#588) 수정이 없다. git 소스라 --seed 로 대신할 수 없다.
+SIMAVR_GIT="https://github.com/buserror/simavr.git"
+SIMAVR_COMMIT=5b08da60497f7564f50941f74a549fe2851db030
 
-ALL_COMPONENTS="python sigrok openocd squashfs uboot zig jdk ghidra unblob extractors erofs binwalk rea esptool"
+ALL_COMPONENTS="python sigrok openocd squashfs uboot zig jdk ghidra unblob extractors erofs binwalk rea esptool qemu_esp simavr"
 MINIMAL_COMPONENTS="python sigrok openocd squashfs uboot"
-OPTIONAL_COMPONENTS="erofs binwalk rea esptool"   # 실패해도 설치 전체를 실패로 보지 않는다 (경고만)
+OPTIONAL_COMPONENTS="erofs binwalk rea esptool qemu_esp simavr"   # 실패해도 설치 전체를 실패로 보지 않는다 (경고만)
 SKIP_RC=99   # install_* 가 이 값으로 끝나면 "건너뜀" (빌드 도구 같은 전제 조건이 없음). 실패로 세지 않는다
 
 declare -A DESC=(
@@ -128,6 +148,8 @@ declare -A DESC=(
   [binwalk]="binwalk ${BINWALK_VER} (cargo 빌드, REA 영역 식별, 선택)"
   [rea]="REA rea-agents ${REA_VER} (npm, Ghidra 연동 MCP 서버, 선택)"
   [esptool]="esptool ${ESPTOOL_VER} (ESP32 계열 칩·보안 정보, 플래시 읽기) + WSL 이면 Windows esptool.exe (방법 A: interop 으로 COM 포트, 선택)"
+  [qemu_esp]="Espressif QEMU 9.2.2 (${QEMU_ESP_VER}) — qemu-system-xtensa(ESP32·S3)·qemu-system-riscv32(C3), 펌웨어 에뮬레이션 (선택)"
+  [simavr]="simavr(커밋 ${SIMAVR_COMMIT:0:12}) + PWEH AVR 실행기 pweh_avr_run 소스 빌드 (Arduino AVR 에뮬레이션, C 컴파일러 또는 PWEH zig, 선택)"
 )
 # 구성요소와 env.sh 다음에 이 순서로 도는 단계. 구성요소처럼 --only/--skip 으로 고르고, --minimal 에는 넣지 않는다
 STEPS="mcp skills verify"
@@ -304,7 +326,7 @@ fetch() {  # fetch <url> <dest> [hex] [sha256|sha512]  — 캐시·seed 재사�
       # 복사본을 검증한다 (검사 뒤 바뀐 seed·복사 실패를 성공으로 보지 않음)
       if cp "$cand" "$dest.part" 2>/dev/null && hash_ok "$dest.part" "$want" "$algo"; then mv -f "$dest.part" "$dest"; return 0; fi
       rm -f "$dest.part"
-    done < <(find "$SEED" -type f -name "$(basename "$dest")" 2>/dev/null)
+    done < <(find "$SEED" -name "$(basename "$dest")" \( -type f -o -xtype f \) 2>/dev/null)   # 일반 파일을 가리키는 링크도 (링크한 디렉터리 안으로는 들어가지 않음)
   fi
   info "내려받기: $url"
   if command -v curl >/dev/null; then
@@ -974,6 +996,144 @@ version_esptool() {
   printf '%s\n' "$s"
 }
 
+# 펌웨어 에뮬레이션 (pweh-emu, mcp-servers/emu-mcp). 실행 파일은 <prefix>/bin 에 링크하지 않는다 — 서버는 env.sh 의 절대 경로만 쓴다
+# (배포판 QEMU 등 다른 실행 파일과 섞이지 않게). 위치 규칙은 src/pweh/toolsdir.py 의 emu_binary_candidates 와 같다.
+QEMU_XTENSA_BIN="$PREFIX/qemu-esp/xtensa/qemu/bin/qemu-system-xtensa"
+QEMU_RISCV32_BIN="$PREFIX/qemu-esp/riscv32/qemu/bin/qemu-system-riscv32"
+QEMU_ESP_VERSION_LINE="QEMU emulator version 9.2.2 (${QEMU_ESP_VER})"
+QEMU_ESP_ADMIN_PKGS="libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0"   # Espressif 가 안내하는 런타임 패키지
+qemu_esp_version() {  # qemu_esp_version <실행 파일> — 설정 파일·기본 장치 없이 -version 의 첫 줄 (시간 제한, 터미널 입력 없음)
+  local out
+  out="$(timeout 20 "$1" -no-user-config -nodefaults -version </dev/null 2>/dev/null)" || return 1
+  printf '%s\n' "${out%%$'\n'*}"
+}
+check_qemu_esp() {
+  local b
+  for b in "$QEMU_XTENSA_BIN" "$QEMU_RISCV32_BIN"; do
+    [ -x "$b" ] && [ "$(qemu_esp_version "$b")" = "$QEMU_ESP_VERSION_LINE" ] || return 1
+  done
+}
+qemu_esp_loads() {  # qemu_esp_loads <실행 파일> — 실행 파일과 공유 라이브러리가 실제로 올라오는가. 아니면 빠진 것과 관리자 안내
+  local b=$1 rc=0 deps missing
+  timeout 20 "$b" -no-user-config -nodefaults -version >/dev/null 2>&1 </dev/null || rc=$?
+  deps="$(ldd "$b" 2>&1 || true)"   # pipefail 아래 '… | grep' 대신 먼저 받는다
+  missing="$(printf '%s\n' "$deps" | awk '/not found/ {print $1}' | sort -u | tr '\n' ' ')"
+  if [ "$rc" -ne 126 ] && [ "$rc" -ne 127 ] && [ -z "${missing// /}" ]; then return 0; fi
+  echo "${b#"$PREFIX"/} 가 실행되지 않습니다 (종료 코드 $rc)." >&2
+  if [ -n "${missing// /}" ]; then echo "  빠진 공유 라이브러리: $missing" >&2; fi
+  echo "  관리자에게 Espressif 가 안내하는 런타임 패키지 설치를 요청하세요: sudo apt-get install $QEMU_ESP_ADMIN_PKGS" >&2
+  echo "  (PWEH 는 개인 경로에 라이브러리를 받거나 LD_LIBRARY_PATH 를 쓰지 않는다. 선택 구성요소라 나머지 설치는 계속된다)" >&2
+  return 1
+}
+install_qemu_esp() {
+  local ax="$CACHE/qemu-esp/qemu-xtensa-softmmu-${QEMU_ESP_VER}-x86_64-linux-gnu.tar.xz"
+  local ar="$CACHE/qemu-esp/qemu-riscv32-softmmu-${QEMU_ESP_VER}-x86_64-linux-gnu.tar.xz"
+  fetch "$QEMU_XTENSA_URL" "$ax" "$QEMU_XTENSA_SHA"
+  fetch "$QEMU_RISCV32_URL" "$ar" "$QEMU_RISCV32_SHA"
+  # 두 압축 파일 모두 qemu/ 로 풀리므로 디렉터리를 나눈다. QEMU 는 ROM 을 <bin>/../share/qemu 에서 찾으므로 bin/·share/ 를 함께 둔다
+  rm -rf "$PREFIX/qemu-esp/xtensa" "$PREFIX/qemu-esp/riscv32"
+  extract "$ax" "$PREFIX/qemu-esp/xtensa"
+  extract "$ar" "$PREFIX/qemu-esp/riscv32"
+  local b bad=0
+  for b in "$QEMU_XTENSA_BIN" "$QEMU_RISCV32_BIN"; do
+    [ -x "$b" ] || { echo "압축 파일에 ${b#"$PREFIX"/} 가 없습니다" >&2; return 1; }
+    qemu_esp_loads "$b" || bad=1
+  done
+  [ "$bad" = 0 ] || return 1
+  check_qemu_esp || { echo "QEMU 버전이 고정값($QEMU_ESP_VERSION_LINE)과 다릅니다" >&2; return 1; }
+}
+version_qemu_esp() { echo "Espressif QEMU 9.2.2 (${QEMU_ESP_VER}) xtensa+riscv32 ($PREFIX/qemu-esp)"; }
+
+AVR_RUN="$PREFIX/simavr/bin/pweh_avr_run"
+AVR_RUN_SRC="$REPO/native/emu/pweh_avr_run.c"
+avr_run_src_version() { sed -n 's/^#define PWEH_AVR_RUN_VERSION "\([^"]*\)".*/\1/p' "$AVR_RUN_SRC" 2>/dev/null | head -n 1; }
+avr_run_version() {  # avr_run_version <실행 파일> — --version 한 줄
+  local out
+  out="$(timeout 10 "$1" --version </dev/null 2>/dev/null)" || return 1
+  printf '%s\n' "${out%%$'\n'*}"
+}
+# 소켓 함수(socket/bind/listen/accept/connect)를 가져오지도(동적 링크) 담지도(정적 링크) 않았는가. GDB 서버 코드(sim_gdb.o)가
+# 링크되지 않았다는 확인이다. nm 이 없으면 objdump, 둘 다 없거나 기호 표가 비면 확인하지 못한 것으로 보고 실패한다
+avr_run_no_sockets() {
+  local f=$1 syms=""
+  if command -v nm >/dev/null; then
+    syms="$( { nm -D --undefined-only "$f" 2>/dev/null || true; nm "$f" 2>/dev/null || true; } | awk 'NF {print $NF}' | sed 's/@.*//')"
+  elif command -v objdump >/dev/null; then
+    syms="$( { objdump -T "$f" 2>/dev/null || true; objdump -t "$f" 2>/dev/null || true; } | awk 'NF {print $NF}' | sed 's/@.*//')"
+  else
+    echo "nm 도 objdump 도 없어 pweh_avr_run 의 소켓 함수 검사를 할 수 없습니다 (binutils)" >&2; return 1
+  fi
+  [ -n "$syms" ] || { echo "pweh_avr_run 의 기호 표를 읽지 못해 소켓 함수 검사를 할 수 없습니다" >&2; return 1; }
+  if grep -Eqx '(socket|bind|listen|accept|accept4|connect)' <<<"$syms"; then
+    echo "pweh_avr_run 에 소켓 함수가 링크되어 있습니다 (GDB 서버 코드) — 쓰지 않습니다" >&2; return 1
+  fi
+}
+avr_run_ok() {  # avr_run_ok <실행 파일> — 고정 simavr 커밋 + 저장소 소스의 PWEH_AVR_RUN_VERSION, 소켓 함수 없음
+  local f=$1 want
+  want="pweh_avr_run $(avr_run_src_version) simavr $SIMAVR_COMMIT"
+  [ -x "$f" ] && [ "$(avr_run_version "$f")" = "$want" ] && avr_run_no_sockets "$f"
+}
+check_simavr() { avr_run_ok "$AVR_RUN"; }   # 저장소 소스의 버전이 바뀌면 설치된 것으로 보지 않는다 (다시 빌드)
+simavr_build() {  # simavr_build <소스> <cc> <ar> <ranlib> <출력> — libsimavr.a(라이브러리만) + pweh_avr_run 정적 링크
+  local src=$1 cc=$2 ar=$3 ranlib=$4 out=$5 obj
+  # libelf·libdwarf 자동 감지를 끈다 (ELF 해석기 없음). V=1 은 쓰지 않는다 (/tmp/simavr_conf.log 를 쓴다). -DNDEBUG 도 쓰지 않는다
+  local mk=(RELEASE=1 C_LIBELF= LD_LIBELF= C_LIBDWARF= LD_LIBDWARF= "CC=$cc" "AR=$ar" "RANLIB=$ranlib")
+  rm -rf "$src"/simavr/obj-* "$src/simavr/sim_core_config.h" "$src/simavr/sim_core_decl.h"   # 앞 컴파일러의 산출물
+  make -C "$src/simavr" "${mk[@]}" obj config
+  obj="obj-$("$cc" -dumpmachine)"
+  make -C "$src/simavr" -j"$JOBS" "${mk[@]}" "$obj/libsimavr.a"
+  "$cc" -std=gnu99 -O2 -Wall -I"$src/simavr/sim" -I"$src/simavr/sim/avr" -I"$src/simavr" \
+    -DPWEH_SIMAVR_COMMIT="\"$SIMAVR_COMMIT\"" "$AVR_RUN_SRC" "$src/simavr/$obj/libsimavr.a" -lm -o "$out"
+}
+zig_cc_wrappers() {  # zig_cc_wrappers <디렉터리> — PWEH zig 의 cc/ar/ranlib 래퍼 (캐시는 <prefix>/_build 아래, ~/.cache/zig 를 쓰지 않음)
+  local d=$1 t
+  mkdir -p "$d" "$PREFIX/_build/zig-cache"
+  for t in cc ar ranlib; do
+    printf '%s\n' '#!/bin/sh' "# scripts/install.sh 가 만든 zig $t 래퍼 (simavr 빌드용)" \
+      "ZIG_GLOBAL_CACHE_DIR='$PREFIX/_build/zig-cache'; ZIG_LOCAL_CACHE_DIR='$PREFIX/_build/zig-cache'" \
+      'export ZIG_GLOBAL_CACHE_DIR ZIG_LOCAL_CACHE_DIR' "exec '$B/zig' $t \"\$@\"" >"$d/$t.tmp"
+    chmod +x "$d/$t.tmp"; mv -f "$d/$t.tmp" "$d/$t"
+  done
+}
+install_simavr() {
+  local t
+  for t in git make; do
+    command -v "$t" >/dev/null || { echo "simavr 소스 빌드에 '$t' 가 필요합니다 (관리자: sudo apt-get install git make)" >&2; return "$SKIP_RC"; }
+  done
+  # 컴파일러: PWEH zig 가 있으면 먼저 (고정 판으로 simavr 의 -Werror 빌드가 확인됨), 없거나 실패하면 시스템 cc
+  local comps=()
+  if check_zig; then comps+=(zig); fi
+  if command -v cc >/dev/null; then comps+=(cc); fi
+  [ ${#comps[@]} -gt 0 ] || { echo "C 컴파일러(cc)도 PWEH zig 도 없습니다 (관리자: sudo apt-get install build-essential, 또는 ./scripts/install.sh --only zig)" >&2; return "$SKIP_RC"; }
+  [ -f "$AVR_RUN_SRC" ] && [ -n "$(avr_run_src_version)" ] || { echo "$AVR_RUN_SRC 에서 PWEH_AVR_RUN_VERSION 을 찾지 못했습니다" >&2; return 1; }
+  local src="$PREFIX/_build/simavr-src" out="$PREFIX/simavr/bin/pweh_avr_run.tmp" c ok=0
+  rm -rf "$src"
+  mkdir -p "$src" "$PREFIX/simavr/bin"
+  git -C "$src" init -q
+  git -C "$src" fetch -q --depth 1 "$SIMAVR_GIT" "$SIMAVR_COMMIT"
+  git -C "$src" -c advice.detachedHead=false checkout -q FETCH_HEAD
+  # 커밋으로 확인한다 (git 이 받은 내용의 해시가 곧 고정값)
+  [ "$(git -C "$src" rev-parse HEAD)" = "$SIMAVR_COMMIT" ] || { echo "simavr 커밋이 고정값($SIMAVR_COMMIT)과 다릅니다" >&2; return 1; }
+  local tc rc
+  for c in "${comps[@]}"; do
+    rm -f "$out"
+    if [ "$c" = zig ]; then zig_cc_wrappers "$PREFIX/_build/zigcc"; tc="$PREFIX/_build/zigcc/"; else tc=""; fi
+    echo "--- simavr + pweh_avr_run: ${tc:+PWEH zig }cc ---"
+    # 조건 밖의 subshell 이라야 그 안의 set -e 가 산다 (run_component 와 같은 방식): 첫 실패에서 멈추고 종료 코드만 받는다
+    set +e
+    ( set -Eeuo pipefail; simavr_build "$src" "${tc}cc" "${tc}ar" "${tc}ranlib" "$out" )
+    rc=$?
+    set -e
+    if [ "$rc" -eq 0 ] && [ -x "$out" ]; then ok=1; break; fi
+    echo "${tc:+PWEH zig }cc 로 빌드하지 못했습니다 (종료 코드 $rc)" >&2
+  done
+  [ "$ok" = 1 ] || { echo "simavr·pweh_avr_run 빌드 실패 (위 로그 참고)" >&2; return 1; }
+  # 바꾸기 전에 새 실행 파일을 확인한다: 고정 커밋·소스 버전, 소켓 함수 없음
+  avr_run_ok "$out" || { echo "새로 빌드한 pweh_avr_run 이 확인을 통과하지 못했습니다 ($(avr_run_version "$out" || echo '--version 실패'))" >&2; rm -f "$out"; return 1; }
+  mv -f "$out" "$AVR_RUN"
+}
+version_simavr() { avr_run_version "$AVR_RUN"; }
+
 # ---------------------------------------------------------------------------
 # env.sh
 # ---------------------------------------------------------------------------
@@ -1020,6 +1180,9 @@ write_env() {
     # esp-mcp 서버의 tools.esptool / tools.esptool_win. 두 판을 따로 판정한다 (Windows 판은 WSL interop 에서 실제로 실행될 때만)
     if esptool_linux_ok; then echo "export PWEH_ESPTOOL='$B/esptool'"; fi
     if esptool_win_ok; then echo "export PWEH_ESPTOOL_WIN='$ESPTOOL_WIN_EXE'"; fi
+    # emu-mcp 서버의 tools.qemu_xtensa / tools.qemu_riscv32 / tools.avr_run: 확인을 통과한 절대 경로만 (PATH 에는 넣지 않는다)
+    if check_qemu_esp; then echo "export PWEH_QEMU_XTENSA='$QEMU_XTENSA_BIN'"; echo "export PWEH_QEMU_RISCV32='$QEMU_RISCV32_BIN'"; fi
+    if check_simavr 2>/dev/null; then echo "export PWEH_AVR_RUN='$AVR_RUN'"; fi
     if [ -x "$B/rea" ]; then echo "export PWEH_REA='$B/rea'"; fi
     if [ -x "$PREFIX/extractors/bin/lz4" ]; then echo "export PWEH_LZ4='$PREFIX/extractors/bin/lz4'"; fi
   } >"$f.tmp"

@@ -3,7 +3,7 @@
 **에이전트 주도 임베디드 기기 하드웨어 분석 파이프라인** (CCTV / IP 카메라 / DVR·NVR / IoT)
 
 사람은 배선·프로브·전원 같은 **물리 작업**만 한다. AI 에이전트(Claude Code / Codex / Cursor)는 MCP 서버와 Skill 을 통해
-UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분석(REA + Ghidra), SD 카드 이미지 증거 분석을 주도한다. 결과는 증거가 달린 구조화된 보고서로 남는다.
+UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분석(REA + Ghidra), MCU 펌웨어 에뮬레이션, SD 카드 이미지 증거 분석을 주도한다. 결과는 증거가 달린 구조화된 보고서로 남는다.
 
 > ⚠️ **소유한 기기 또는 서면 허가를 받은 기기만** 분석한다. 모든 하드웨어 도구는 케이스에 소유/허가 증명이 있어야 동작한다.
 > 플래시 쓰기·삭제, `saveenv`, 전압 인가 같은 위험 작업은 서버 측 안전 게이트가 기본으로 거부한다.
@@ -24,6 +24,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
    ├─ pweh-fwtriage    오프라인 트리아지: 시그니처, 엔트로피, U-Boot env, mtdparts 분할, rootfs 감사, 문자열 휴리스틱
    ├─ pweh-esp         ESP32: esptool 칩·보안 정보, 플래시 덤프(job, 두 번 읽어 sha256 비교). WSL 에서는 Windows esptool.exe + COM 포트 (선택)
    ├─ pweh-forensics   SD 카드 이미지 증거 분석: 접수·해시·보관 기록, 파티션·FAT/exFAT 목록, 삭제 파일 추출(job), 증거 목록 — 기기·카드를 열지 않음 (선택)
+   ├─ pweh-emu         ESP32·S3·C3/Arduino AVR 펌웨어 실행, 출처 확인·마스킹 콘솔·세션 종료 — 기기 미접촉 (선택)
    └─ rea              REA(rea-agents): binwalk/unblob 추출, Ghidra 디컴파일, 참조 추적, 신호 디코딩
             │
       [대상 기기]  (또는 pweh-mock-device 시뮬레이터. pweh-forensics 는 사람이 만든 카드 이미지 파일만 받는다)
@@ -49,6 +50,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
 | B | `firmware-dump-via-uart` | U-Boot `sf read`+`md.b`(+crc32) 또는 셸 `dd`(+md5) 덤프, 재개 가능 | `dumps/*.bin` + 메타데이터 |
 | B′ | `esp32-flash-dump` | ESP32 계열 보드: esptool 로 칩·보안 정보 확인 → 플래시를 두 번 읽어 sha256 비교(WSL 에서는 Windows esptool.exe + COM 포트). 요약은 firmware-dump 형식 | `dumps/*.bin`, `*.read2.bin` + 메타데이터 |
 | C | `firmware-static-analysis` | fwtriage 1차 분석 → REA 추출/Ghidra 디컴파일 → 인증·하드코딩·백도어 후보 | `extract/`, `analysis/`, `findings.json` |
+| C+ | `firmware-emulation` (선택) | 확보한 ESP32·S3·C3 전체 플래시 또는 Arduino AVR HEX/raw 를 PC 에서 실행, 마스킹 콘솔 확인. USB 콘솔·무선 미지원 | `emu/<session>/`, `steps/*` |
 | D | `cctv-auth-bypass-hunt` | Hikvision/Dahua/XiongMai 스타일 공개 취약점 패턴 중심 집중 탐색 | `findings.json` |
 | E | — | `report_generate` | `report.md` |
 
@@ -63,6 +65,9 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
   알려진 한계(잘린 이미지·손상된 카드, 같은 계정 프로세스의 경합 창 등)는 [안전 가이드](docs/safety.md) §3.6 에 있다.
 - **RF·하드웨어 분석** — 준비 중. 지금은 기존 Skill 로 보드 단위 콘솔·신호·덤프만 한다.
 
+MCU 에뮬레이션은 확보한 펌웨어로 부팅 로그·UART 응답을 보는 선택 단계다. `firmware-emulation` Skill 이 출처를 확인하고 `emu_read` 로 마스킹한 콘솔을 읽은 뒤 `emu_stop` 으로 끝낸다.
+가져온 파일의 출처는 사람이 증명한다. Wi-Fi·Bluetooth·USB 콘솔·대부분의 주변장치가 없어 앱이 조용하거나 멈출 수 있다. 지원 범위와 격리·마스킹 한계는 [설계](docs/design/emulation.md)와 [안전 가이드](docs/safety.md) §3.7 에 있다.
+
 ## 빠른 시작
 
 ```bash
@@ -72,6 +77,7 @@ git clone https://github.com/Kimdo-765/pweh.git ~/pweh && cd ~/pweh
 ./scripts/install.sh              # 처음엔 Ghidra·JDK 등 약 1 GB 를 내려받는다(설치 후 디스크 약 3~4 GB). 다시 실행하면 설치된 것은 건너뛴다
 #   ./scripts/install.sh --minimal   Python + sigrok + OpenOCD + squashfs/u-boot 도구만
 #   ./scripts/install.sh --only esptool   ESP32 용 esptool 5.4.0 만 추가 (선택 구성요소. WSL interop 이면 Windows esptool.exe 도)
+#   ./scripts/install.sh --only qemu_esp,simavr   MCU 펌웨어 에뮬레이션 백엔드 추가 (선택, --minimal 제외)
 #   ./scripts/install.sh --only mcp,verify   설치 없이 MCP 등록과 점검만 다시
 #   ./scripts/install.sh --only mcp --dry-run   MCP 등록·trust 가 바꿀 파일과 diff 만 보기 (쓰지 않음)
 #   ./scripts/install.sh --codex-trust   Codex trust 를 묻지 않고 추가 (--no-codex-trust 는 건너뛰기, --no-mcp 는 MCP 단계 전체를 건너뛰기)
@@ -135,7 +141,7 @@ Cursor 는 `/pweh-start` 로 시작한다(`.cursor/mcp.json` 은 `./scripts/inst
 ### 사람 증명 (`pweh attest`)
 
 에이전트가 확인할 수 없는 사실(콘솔 오프라인, 배선과 잰 전압, 가져온 파일의 출처 등)이 필요한 도구는 `status: attestation_required` 와 `attestation_id` 를 돌려준다
-(지금은 세이브 패치의 쓰기 명령을 보여 주기 전 `fw_patch_build` 와, SD 카드 이미지를 쓰기 방지 장치로 만들었는지 묻는 `forensics_acquisition_attest` 가 요구한다 — RF·계측기 서버도 쓸 기반이다).
+(지금은 `fw_patch_build` 의 쓰기 준비, `forensics_acquisition_attest` 의 쓰기 방지 장치 확인, `emu_start` 의 가져온 펌웨어 출처 확인에 쓴다 — RF·계측기 서버도 쓸 기반이다).
 사람이 **별도 터미널**에서 `.venv/bin/pweh attest <attestation_id>` 를 실행해 항목마다 직접 답하고, 승인이 되는 답이면 화면의 확인 코드를 입력한다(대화형 터미널 전용).
 클라이언트가 지원하면 같은 항목이 확인 폼으로 뜬다.
 승인과 달리 한 번 쓰고 사라지지 않고, 대상·범위(케이스·연결·job·계측기)와 만료에 묶여 재사용된다. 목록은 `pweh attest --list`, 철회는 `pweh attest --revoke <id>` 다.
@@ -148,11 +154,12 @@ Cursor 는 `/pweh-start` 로 시작한다(`.cursor/mcp.json` 은 `./scripts/inst
 ```
 pweh/
 ├── README.md, project.md(명세), AGENTS.md, CLAUDE.md
-├── pyproject.toml                  하나의 패키지로 코어 + 8개 서버 설치
-├── src/pweh/                       공통 코어 (config, case, safety, provenance, evidence, fs, jobs, mcpkit, report, cli, formats, schemas, mocktarget)
+├── pyproject.toml                  하나의 패키지로 코어 + 9개 서버 설치
+├── src/pweh/                       공통 코어 (config, case, safety, provenance, evidence, fs, jobs, mcpkit, report, cli, formats, espfmt, console, schemas, mocktarget)
 ├── mcp-servers/
-│   ├── case-mcp/  uart-mcp/  openocd-mcp/  sigrok-mcp/  jtagulator-mcp/  fwtriage-mcp/  esp-mcp/  forensics-mcp/
-├── skills/                         pweh-start + 8개 Skill (.claude/skills, .agents/skills 에 링크)
+│   ├── case-mcp/  uart-mcp/  openocd-mcp/  sigrok-mcp/  jtagulator-mcp/  fwtriage-mcp/  esp-mcp/  forensics-mcp/  emu-mcp/
+├── native/emu/                     simavr 기반 AVR 실행기 (로컬 빌드)
+├── skills/                         pweh-start + 9개 Skill (.claude/skills, .agents/skills 에 링크)
 ├── orchestrator/
 │   ├── master-prompt.md            파이프라인 전체 지침 (이 하나로 시작)
 │   └── pipeline-config.yaml        안전 정책, 도구 경로, 대상 기기 프로필

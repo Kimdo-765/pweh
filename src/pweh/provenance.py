@@ -306,7 +306,7 @@ class ProvenanceLedger:
         return self._append(cid, body)
 
     # -- 확인 ---------------------------------------------------------------
-    def verify(self, case: Case, path: str | Path) -> dict[str, Any]:
+    def verify(self, case: Case, path: str | Path, *, data: bytes | bytearray | memoryview | None = None) -> dict[str, Any]:
         """케이스 파일의 출처를 확인한다: {trusted, kind, record, reason, path, sha256, attestation_id?}.
 
         체인 전체를 검증하고(깨지면 모두 불신), 그 경로의 마지막 항목과 지금 파일의 sha256 을 맞춰 본다(다르면 불신).
@@ -316,9 +316,16 @@ class ProvenanceLedger:
 
         확인과 사용 사이에 케이스 파일이 바뀔 수 있다 — 쓰는 쪽은 여기서 받은 sha256 을 승인 지문·job 인자에 묶고,
         실행 직전 다시 해시하거나 확인한 바이트를 그대로 쓴다.
+
+        ``data``: 호출자가 이미 읽은 그 파일의 바이트(예: emu_start 가 safeio.open_regular 로 한 번 읽은 펌웨어). 주면 sha256 을
+        이 바이트에서 계산하고 경로로 파일을 열지 않는다(존재 확인도 하지 않는다 — file-missing 이 나오지 않는다). 판정은 내용 기준이라
+        "이 바이트가 그 경로의 마지막 원장 항목과 같은가"이고, 확인한 바이트를 그대로 쓰면 확인과 사용 사이에 바꿔치기할 창이 없다.
+        경로는 원장 항목을 찾는 데만 쓴다(케이스 밖이면 오류). 주지 않으면 지금 파일을 경로로 해시한다.
         """
         if not isinstance(case, Case):
             raise ValidationFailed("provenance 확인에는 Case 객체가 필요합니다.")
+        if data is not None and not isinstance(data, (bytes, bytearray, memoryview)):
+            raise ValidationFailed(f"provenance 확인의 data 는 bytes 여야 합니다 ({type(data).__name__}).")
         cid = _case_id_of(case)
         p = case.resolve_path(path)
         rel = case.rel(p)
@@ -327,10 +334,13 @@ class ProvenanceLedger:
         if broken:
             out.update(reason=CHAIN_BROKEN, detail=broken)
             return out
-        if not p.is_file():
+        if data is not None:
+            actual = hashlib.sha256(data.tobytes() if isinstance(data, memoryview) else data).hexdigest()
+        elif not p.is_file():
             out["reason"] = "file-missing"
             return out
-        actual = sha256_file(p)
+        else:
+            actual = sha256_file(p)
         out["sha256"] = actual
         rec = None
         for e in reversed(entries):

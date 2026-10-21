@@ -78,6 +78,11 @@ DEFAULTS: dict[str, Any] = {
         # esp-mcp: 리눅스용 esptool(PATH 또는 절대 경로)과 WSL interop 으로 실행할 Windows 용 esptool.exe 절대 경로
         "esptool": "${PWEH_ESPTOOL:-esptool}",
         "esptool_win": "${PWEH_ESPTOOL_WIN:-}",
+        # emu-mcp: Espressif QEMU 두 실행 파일과 PWEH AVR 실행기의 절대 경로. 비면 도구 디렉터리의 고정 위치를 찾는다
+        # (pweh.toolsdir.emu_binary_candidates — PATH 이름 찾기는 하지 않는다)
+        "qemu_xtensa": "${PWEH_QEMU_XTENSA:-}",
+        "qemu_riscv32": "${PWEH_QEMU_RISCV32:-}",
+        "avr_run": "${PWEH_AVR_RUN:-}",
     },
     "uart": {
         "default_baud_candidates": [115200, 57600, 38400, 19200, 9600, 230400, 460800, 921600, 1500000],
