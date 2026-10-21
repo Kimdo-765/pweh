@@ -1,5 +1,197 @@
 {
-  "artifact": null,
+  "artifact": {
+    "builds": [
+      {
+        "flags": [
+          "-target",
+          "x86_64-windows-gnu",
+          "-std=c11",
+          "-O2",
+          "-fno-builtin",
+          "-fno-stack-protector",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-nostdlib",
+          "-s",
+          "-Wl,--entry,pweh_entry",
+          "-Wl,--dynamicbase",
+          "-Wl,--nxcompat",
+          "-lkernel32"
+        ],
+        "inputs": {
+          "scripts/build_serial_helper.py": "57868045dc36e17960b812d97c7649abf1718b0888e8355e14bde5322fc4a111",
+          "tools/winserial/pweh-serial-helper.c": "c750efb5b93d9df71921bdef471f968050db931830f3ec525b2df1bd97e00446",
+          "tools/winserial/test-native.c": "6bc42c3234d8efd7572a87825f1b8fb7895f5c1246b86210d04cb38941cc9034",
+          "tools/winserial/test-win32.c": "00df4960b2fbe1504092e3832275daec261dec1c5354e8d5684aa54f97711155",
+          "tools/winserial/win32-abi.h": "83705d3697802a1edd95c350736292a33b632ef791a84e92ec7c4bc7ae3c27db"
+        },
+        "normalization": "coff-timestamp-zero-4bytes",
+        "pe": {
+          "dlls": [
+            "kernel32.dll"
+          ],
+          "entrypoint": 4560,
+          "imports": [
+            "CancelIoEx",
+            "CancelSynchronousIo",
+            "ClearCommBreak",
+            "ClearCommError",
+            "CloseHandle",
+            "CreateEventW",
+            "CreateFileW",
+            "CreateThread",
+            "EnterCriticalSection",
+            "EscapeCommFunction",
+            "ExitProcess",
+            "GetCommModemStatus",
+            "GetCommState",
+            "GetCommandLineW",
+            "GetCurrentProcess",
+            "GetFileType",
+            "GetLastError",
+            "GetOverlappedResult",
+            "GetStdHandle",
+            "GetTickCount64",
+            "InitializeCriticalSection",
+            "LeaveCriticalSection",
+            "PurgeComm",
+            "ReadFile",
+            "ResetEvent",
+            "SetCommBreak",
+            "SetCommState",
+            "SetCommTimeouts",
+            "SetEvent",
+            "Sleep",
+            "TerminateProcess",
+            "WaitForSingleObject",
+            "WriteFile"
+          ],
+          "machine": "amd64",
+          "protocol": [
+            1,
+            0
+          ],
+          "sha256": "d5d3ee6ebf65f727022fb7085f9bee32477e67e3052e7fd4202747fb5c8c7c1c",
+          "size": 17920,
+          "source_commit": "0ed29451f42f9007350e3cc58ccdcc786b235fc5",
+          "timestamp": 0,
+          "version": [
+            0,
+            1,
+            0
+          ]
+        },
+        "preliminary": false,
+        "raw_sha256": "9e637591681d1aee9e65e0ae3aebc96cb2145c8adb0915fbd31348d5e6bf2248",
+        "run_id": "b18fc10f678f935b64a9a6ddbe81c027",
+        "schema": "pweh.winserial-build-run/v1",
+        "sha256": "d5d3ee6ebf65f727022fb7085f9bee32477e67e3052e7fd4202747fb5c8c7c1c",
+        "source_commit": "0ed29451f42f9007350e3cc58ccdcc786b235fc5",
+        "zig": {
+          "archive_sha256": "1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026",
+          "version": "0.17.0"
+        }
+      },
+      {
+        "flags": [
+          "-target",
+          "x86_64-windows-gnu",
+          "-std=c11",
+          "-O2",
+          "-fno-builtin",
+          "-fno-stack-protector",
+          "-Wall",
+          "-Wextra",
+          "-Werror",
+          "-nostdlib",
+          "-s",
+          "-Wl,--entry,pweh_entry",
+          "-Wl,--dynamicbase",
+          "-Wl,--nxcompat",
+          "-lkernel32"
+        ],
+        "inputs": {
+          "scripts/build_serial_helper.py": "57868045dc36e17960b812d97c7649abf1718b0888e8355e14bde5322fc4a111",
+          "tools/winserial/pweh-serial-helper.c": "c750efb5b93d9df71921bdef471f968050db931830f3ec525b2df1bd97e00446",
+          "tools/winserial/test-native.c": "6bc42c3234d8efd7572a87825f1b8fb7895f5c1246b86210d04cb38941cc9034",
+          "tools/winserial/test-win32.c": "00df4960b2fbe1504092e3832275daec261dec1c5354e8d5684aa54f97711155",
+          "tools/winserial/win32-abi.h": "83705d3697802a1edd95c350736292a33b632ef791a84e92ec7c4bc7ae3c27db"
+        },
+        "normalization": "coff-timestamp-zero-4bytes",
+        "pe": {
+          "dlls": [
+            "kernel32.dll"
+          ],
+          "entrypoint": 4560,
+          "imports": [
+            "CancelIoEx",
+            "CancelSynchronousIo",
+            "ClearCommBreak",
+            "ClearCommError",
+            "CloseHandle",
+            "CreateEventW",
+            "CreateFileW",
+            "CreateThread",
+            "EnterCriticalSection",
+            "EscapeCommFunction",
+            "ExitProcess",
+            "GetCommModemStatus",
+            "GetCommState",
+            "GetCommandLineW",
+            "GetCurrentProcess",
+            "GetFileType",
+            "GetLastError",
+            "GetOverlappedResult",
+            "GetStdHandle",
+            "GetTickCount64",
+            "InitializeCriticalSection",
+            "LeaveCriticalSection",
+            "PurgeComm",
+            "ReadFile",
+            "ResetEvent",
+            "SetCommBreak",
+            "SetCommState",
+            "SetCommTimeouts",
+            "SetEvent",
+            "Sleep",
+            "TerminateProcess",
+            "WaitForSingleObject",
+            "WriteFile"
+          ],
+          "machine": "amd64",
+          "protocol": [
+            1,
+            0
+          ],
+          "sha256": "d5d3ee6ebf65f727022fb7085f9bee32477e67e3052e7fd4202747fb5c8c7c1c",
+          "size": 17920,
+          "source_commit": "0ed29451f42f9007350e3cc58ccdcc786b235fc5",
+          "timestamp": 0,
+          "version": [
+            0,
+            1,
+            0
+          ]
+        },
+        "preliminary": false,
+        "raw_sha256": "9e637591681d1aee9e65e0ae3aebc96cb2145c8adb0915fbd31348d5e6bf2248",
+        "run_id": "ba19b7bec21a940dc75cf8368332927b",
+        "schema": "pweh.winserial-build-run/v1",
+        "sha256": "d5d3ee6ebf65f727022fb7085f9bee32477e67e3052e7fd4202747fb5c8c7c1c",
+        "source_commit": "0ed29451f42f9007350e3cc58ccdcc786b235fc5",
+        "zig": {
+          "archive_sha256": "1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026",
+          "version": "0.17.0"
+        }
+      }
+    ],
+    "reproducibility": "matched",
+    "runs": 2,
+    "sha256": "d5d3ee6ebf65f727022fb7085f9bee32477e67e3052e7fd4202747fb5c8c7c1c",
+    "size": 17920,
+    "source_commit": "0ed29451f42f9007350e3cc58ccdcc786b235fc5"
+  },
   "flags": [
     "-target",
     "x86_64-windows-gnu",
