@@ -267,3 +267,12 @@ def register_secrets_tools(server: Any, namespace: dict[str, Any]) -> None:
                                max_hits=max_hits, max_seconds=max_seconds)
 
     namespace["forensics_scan_secrets"] = forensics_scan_secrets
+    try:
+        registered = server._tool_manager.get_tool("forensics_scan_secrets")
+        if registered is None:
+            raise RuntimeError
+        model = registered.fn_metadata.arg_model
+        model.model_config["hide_input_in_errors"] = True
+        model.model_rebuild(force=True)
+    except Exception:
+        raise RuntimeError("비밀값 검사 도구의 비공개 입력 검증 설정을 완료하지 못했습니다.") from None

@@ -9,6 +9,7 @@ import os
 import stat
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 from mcp import Client
@@ -20,6 +21,67 @@ pytestmark = pytest.mark.anyio
 SECRET = "SYNTHETIC_SURVEY_PRIVATE_7b95"
 CONTENT = ("password=" + SECRET + "\n").encode()
 TOOL = "forensics_scan_secrets_from_list"
+
+
+@pytest.mark.parametrize("tool", ["forensics_scan_secrets", TOOL])
+@pytest.mark.parametrize("key,value", [
+    ("partition", SECRET), ("xor_key", SECRET), ("max_seconds", SECRET),
+    ("case_id", {"private": SECRET}), ("evidence_id", {"private": SECRET}),
+])
+async def test_sdk_invalid_arguments_hide_inputs_in_reply_and_log(tool, key, value, monkeypatch, caplog):
+    from forensics_mcp import server as S
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("SDK 입력 거부 전에 케이스에 접근했습니다.")
+
+    monkeypatch.setattr(S, "_case", forbidden)
+    args = {"case_id": "synthetic", "evidence_id": "EV-0001"}
+    if tool == TOOL:
+        args["fs_list_path"] = "forensics/analysis/fs-list-EV-0001-001.json"
+    args[key] = value
+    async with Client(S.server) as client:
+        reply = await client.call_tool(tool, args)
+    assert reply.is_error
+    assert SECRET not in reply.model_dump_json() + caplog.text
+
+
+@pytest.mark.parametrize("tool,key", [
+    (TOOL, "fs_list_path"), ("forensics_scan_secrets", "ref"),
+    ("forensics_scan_secrets", "path"), ("forensics_scan_secrets", "method"),
+    ("forensics_scan_secrets", "max_hits"),
+])
+async def test_sdk_tool_specific_invalid_arguments_hide_inputs(tool, key, monkeypatch, caplog):
+    from forensics_mcp import server as S
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("SDK 입력 거부 전에 케이스에 접근했습니다.")
+
+    monkeypatch.setattr(S, "_case", forbidden)
+    args = {"case_id": "synthetic", "evidence_id": "EV-0001", key: {"private": SECRET}}
+    async with Client(S.server) as client:
+        reply = await client.call_tool(tool, args)
+    assert reply.is_error
+    assert SECRET not in reply.model_dump_json() + caplog.text
+
+
+@pytest.mark.parametrize("tool", ["forensics_scan_secrets", TOOL])
+@pytest.mark.parametrize("lookup", ["missing", "rebuild"])
+async def test_private_sdk_configuration_failure_refuses_registration(tool, lookup):
+    from forensics_mcp.secret_survey_tools import register_secret_survey_tools
+    from forensics_mcp.secrets_tools import register_secrets_tools
+
+    def rebuild(**kwargs):
+        raise RuntimeError(SECRET)
+
+    model = SimpleNamespace(model_config={}, model_rebuild=rebuild)
+    registered = None if lookup == "missing" else SimpleNamespace(fn_metadata=SimpleNamespace(arg_model=model))
+    server = SimpleNamespace(tool=lambda **kwargs: lambda fn: fn,
+                             _tool_manager=SimpleNamespace(get_tool=lambda name: registered))
+    register = register_secret_survey_tools if tool == TOOL else register_secrets_tools
+    with pytest.raises(RuntimeError) as error:
+        register(server, {})
+    assert SECRET not in str(error.value)
+    assert error.value.__suppress_context__
 
 
 def analyses(case):
