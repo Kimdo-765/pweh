@@ -1813,11 +1813,13 @@ from .android_tools import register_android_tools
 from .secrets_tools import register_secrets_tools
 from .ioc_tools import register_ioc_tools
 from .media_tools import register_media_tools
+from .media_candidate_tools import register_media_candidate_tools
 
 register_android_tools(server, globals())
 register_secrets_tools(server, globals())
 register_ioc_tools(server, globals())
 register_media_tools(server, globals())
+register_media_candidate_tools(server, globals())
 
 
 if __name__ == "__main__":

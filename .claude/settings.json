@@ -86,6 +86,7 @@
       "mcp__pweh-forensics__forensics_scan_secrets",
       "mcp__pweh-forensics__forensics_sd_ioc_scan",
       "mcp__pweh-forensics__forensics_media_inventory",
+      "mcp__pweh-forensics__forensics_media_candidates",
       "mcp__pweh-forensics__forensics_sqlite_inventory",
       "mcp__pweh-forensics__forensics_android_artifacts",
       "mcp__pweh-forensics__forensics_timeline",

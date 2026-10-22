@@ -36,7 +36,7 @@ def outputs(case):
     return list((case.dir / "forensics/analysis").glob("*.json"))
 
 
-@pytest.mark.parametrize("event", ["secrets-scan", "sd-ioc-scan", "media-inventory", "sqlite-inventory", "android-artifacts", "timeline"])
+@pytest.mark.parametrize("event", ["secrets-scan", "sd-ioc-scan", "media-inventory", "media-candidates", "sqlite-inventory", "android-artifacts", "timeline"])
 def test_analysis_held_fd_and_custody_lock_through_final_check(analysis_case, monkeypatch, event):
     case, log, opened, report = analysis_case
     created = []
@@ -263,12 +263,13 @@ def test_analysis_precommit_cancel_discards_only_owned_output(analysis_case, whe
     assert [e["event"] for e in log.entries()] == ["intake"]
 
 
-@pytest.mark.parametrize("event", ["secrets_scan", "secrets-scan/other", "sd_ioc_scan", "sd-ioc-scan/other", "media_inventory", "media-inventory/other", "other", "note", "image-hints"])
+@pytest.mark.parametrize("event", ["secrets_scan", "secrets-scan/other", "sd_ioc_scan", "sd-ioc-scan/other", "media_inventory", "media-inventory/other", "media_candidates", "media-candidates/other", "media-candidate", "other", "note", "image-hints"])
 def test_analysis_unknown_event_stays_closed(analysis_case, event):
     case, log, opened, report = analysis_case
     with pytest.raises(ValidationFailed):
         store(analysis_case, event=event)
-    assert E.ANALYSIS_EVENTS == {"sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "sd-ioc-scan", "media-inventory"}
+    assert E.ANALYSIS_EVENTS == {"sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "sd-ioc-scan", "media-inventory", "media-candidates"}
+    assert E.CUSTODY_EVENTS == ("intake", "intake-aborted", "verify", "integrity-failed", "attest", "check", "list", "extract", "image-hints", "sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "sd-ioc-scan", "media-inventory", "media-candidates", "evidence-list", "note")
     if event not in {"note", "image-hints"}:
         with pytest.raises(ValidationFailed):
             log.append(event, evidence_id=opened.evidence_id, data={})
@@ -276,7 +277,8 @@ def test_analysis_unknown_event_stays_closed(analysis_case, event):
 
 
 @pytest.mark.parametrize("failure", ["audit", "cancel", "index", "late-cancel"])
-def test_analysis_postcommit_failure_keeps_output_and_event(analysis_case, monkeypatch, failure):
+@pytest.mark.parametrize("event", ["secrets-scan", "media-candidates"])
+def test_analysis_postcommit_failure_keeps_output_and_event(analysis_case, monkeypatch, failure, event):
     case, log, opened, report = analysis_case
     committed = False
 
@@ -295,11 +297,11 @@ def test_analysis_postcommit_failure_keeps_output_and_event(analysis_case, monke
 
     if failure == "index":
         monkeypatch.setattr(case, "register_artifact", bad_index)
-    result = store(analysis_case, check=check, on_commit=on_commit)
+    result = store(analysis_case, event=event, check=check, on_commit=on_commit)
     assert result["ok"] and committed
     assert bool(result["warnings"]) is (failure != "late-cancel")
     assert (case.dir / result["analysis"]["path"]).is_file()
-    assert log.entries()[-1]["event"] == "secrets-scan"
+    assert log.entries()[-1]["event"] == event
 
 
 def test_analysis_postcommit_close_error_keeps_success(analysis_case, monkeypatch):

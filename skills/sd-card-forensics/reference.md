@@ -247,3 +247,15 @@ E01 입력과 외부 도구(TSK·PhotoRec·ewf·ffprobe), ext4·NTFS 목록, 장
 `media_inventory_results[]`에는 `evidence_id`, `analysis_path`/`sha256`(응답 analysis), `status`(report.status), `selected_size`(source.selected_size), `boxes_reported`(보고한 상자 수)만 기록한다. 원래 파일명·경로·시각·FourCC·UUID·메타데이터 원문은 추가하지 않는다. 범위별 한계는 결과 JSON을 참조하고 증거 목록의 derived에서 media-inventory 결과 해시/보관 기록을 확인한다. 기존 privacy.audio_decoded·recording_content_viewed는 false로 유지한다.
 
 상자4096·깊이8·brand ftyp당64/전체256·범위8193·JSON1 MiB·최대45초의 제한이 있다. 구조 실패/한도에서 검증한 prefix와 미검사 tail을 구분한다. 구조를 읽어볼 필요가 없거나 지원 범위를 벗어나면 외부 decoder/파일 도구로 대신하지 않는다. 전체 계약은 architecture §6.8, 한계는 safety §3.6이다.
+
+## 13. 선택 미디어 연속 후보
+
+`forensics_media_candidates`는 EV 자체 또는 FAT/exFAT·TAR/ZIP의 완전한 선택 파일 하나(최대64 MiB)에서 ftyp와 연속 최상위 상자 prefix 후보를 찾는다. ref/path 중 하나를 지정하며 직접 EV는 둘 다 생략하고 partition 없이 method=auto다. 큰 입력의 앞부분·잔여 영역·미할당 공간·여러 파일 결합을 받지 않는다.
+
+`report.status`는 ok/partial/unsupported다. 후보마다 선택 기준 offset과 검증 prefix 길이·고정 known brand·종료 사유를 기록한다. size0·selection_end·next_ftyp는 원본 파일 종료의 증거가 아니다. payload 내부에 우연히 들어 있는 ftyp도 후보가 될 수 있으며, confidence는 possible, complete_recording은 false다. 프레임·음성·시각·암호화·재생·물리 카빙을 검증하지 않는다.
+
+`coverage.search_positions_examined`는 anchor 처리까지 끝난 헤더 시작 위치의 연속 prefix 길이이며 읽은 bytes 수가 아니다. 현재 미처리 anchor와 미검사 suffix, candidate_checks_complete, candidate_list_complete, relations_complete를 각각 확인한다. 관계는 반환 후보들의 검증 prefix 사이에서만 계산한다. 관계 검사가 미완료라면 빈 배열을 겹침 없음으로 읽지 않는다. 삭제·복구·부모 상태 불확실성과 알려진 컨테이너 목록 잘림은 지원 후보0건이어도 partial로 남긴다.
+
+`media_candidate_results[]`에는 `evidence_id`, `analysis_path`/`sha256`(응답 analysis), `status`(report.status), `selected_size`(source.selected_size), `candidates_reported`(report.summary.candidates_reported)만 남긴다. 이름·경로·후보 offset·원문 메타데이터를 요약에 복사하지 않는다. 증거 목록 derived에서 media-candidates 결과의 해시/보관 기록을 확인하고 기존 privacy.audio_decoded·recording_content_viewed는 false로 유지한다.
+
+후보128·anchor probe1024·header 후보당1024/전체8192·brand anchor당64/전체4096·구조 판독 합1 MiB·최종 JSON1 MiB·공통 시간45초의 상한이 있다. 한도나 구조 실패는 부분 후보/검사 범위로 남는다. 원본 녹화 복구·벤더 지원·전카드 탐색 완료로 보고하지 않는다. 전체 계약은 architecture §6.8, 한계는 safety §3.6이다.
