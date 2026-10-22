@@ -51,17 +51,15 @@ def test_open_regular_detects_swap_between_lstat_and_open(tmp_path, monkeypatch)
     fifo = tmp_path / "f"
     os.mkfifo(fifo)
     real_lstat = os.lstat
-    monkeypatch.setattr(safeio.os, "lstat", lambda path, dir_fd=None: real_lstat(reg))
+    monkeypatch.setattr(safeio.os, "lstat", lambda path, dir_fd=None: real_lstat(reg) if os.fspath(path) == "f" else real_lstat(path, dir_fd=dir_fd))
     t0 = time.monotonic()
     with pytest.raises(safeio.UnsafeFile, match="바뀌었습니다"):
         safeio.open_regular(fifo)
     assert time.monotonic() - t0 < 2
 
 
-def test_open_regular_intermediate_dir_swap_limit_and_dir_fd(tmp_path, monkeypatch):
-    """문서화된 한계(I-N3): O_NOFOLLOW 는 마지막 구성요소만 막는다. 여러 구성요소의 경로로 열 때 lstat 과 open 사이에 중간 디렉터리를
-    (같은 이름의 FIFO 가 있는 곳을 가리키는) 링크로 바꾸면 open() 은 그 FIFO 에 닿는다 — O_NONBLOCK 이라 멈추지 않고 fstat 대조로 거부한다.
-    open_dir_chain 으로 연 dir_fd 와 이름 한 구성요소로 열면 중간 디렉터리가 fd 로 고정돼 바꿔치기가 닿지 않는다."""
+def test_open_regular_intermediate_dir_swap_keeps_original_fd(tmp_path, monkeypatch):
+    """중간 이름을 FIFO 쪽 링크로 바꿔도 원래 디렉터리 fd 에서 일반 파일만 연다."""
     src = tmp_path / "src"
     sub, alt = src / "sub", src / "alt"
     sub.mkdir(parents=True)
@@ -81,8 +79,11 @@ def test_open_regular_intermediate_dir_swap_limit_and_dir_fd(tmp_path, monkeypat
 
     monkeypatch.setattr(safeio.os, "lstat", lstat_then_swap)
     t0 = time.monotonic()
-    with pytest.raises(safeio.UnsafeFile, match="바뀌었습니다"):
-        safeio.open_regular(sub / "card.img")
+    fd, st = safeio.open_regular(sub / "card.img")
+    try:
+        assert safeio.read_fd(fd, 10) == b"x" * 10 and st.st_size == 10
+    finally:
+        os.close(fd)
     assert time.monotonic() - t0 < 2 and not armed[0]
     monkeypatch.setattr(safeio.os, "lstat", real_lstat)
     os.unlink(sub)
@@ -301,3 +302,143 @@ def test_remove_dir_at_removes_without_following_links(tmp_path):
     finally:
         os.close(pfd)
     assert not out.exists() and victim.read_bytes() == b"keep"
+
+
+def test_path_alias_compatibility_and_relative_fd_boundary(tmp_path):
+    """일반 경로의 기존 디렉터리 별칭은 유지하되 dir_fd 아래 링크·상위 이동은 거부한다."""
+    base = tmp_path / "real"
+    (base / "sub").mkdir(parents=True)
+    (base / "sub" / "data").write_bytes(b"synthetic")
+    (tmp_path / "alias").symlink_to("real", target_is_directory=True)
+    (tmp_path / "absolute").symlink_to(base, target_is_directory=True)
+    for alias in ("alias", "absolute"):
+        assert safeio.read_regular(tmp_path / alias / "sub" / "data", max_bytes=20) == b"synthetic"
+    fd = safeio.open_dir_chain(tmp_path)
+    try:
+        assert safeio.read_regular("real/sub/data", dir_fd=fd, max_bytes=20) == b"synthetic"
+        for bad in ("alias/sub/data", "../real/sub/data", str(base / "sub" / "data")):
+            with pytest.raises(safeio.UnsafeFile):
+                safeio.open_regular(bad, dir_fd=fd)
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.parametrize("replacement", ["symlink", "directory"])
+def test_directory_swap_before_open_never_opens_final_file(tmp_path, monkeypatch, replacement):
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "data").write_bytes(b"original")
+    other = tmp_path / "other"
+    other.mkdir()
+    os.mkfifo(other / "data")
+    real_lstat, real_open = os.lstat, os.open
+    seen = []
+    def changing_lstat(name, *, dir_fd=None):
+        st = real_lstat(name, dir_fd=dir_fd)
+        if name == "sub":
+            sub.rename(tmp_path / "original")
+            if replacement == "symlink":
+                sub.symlink_to(other, target_is_directory=True)
+            else:
+                sub.mkdir()
+        return st
+    def opening(name, flags, *args, **kwargs):
+        if name == "data":
+            seen.append(name)
+        return real_open(name, flags, *args, **kwargs)
+    monkeypatch.setattr(safeio.os, "lstat", changing_lstat)
+    monkeypatch.setattr(safeio.os, "open", opening)
+    with pytest.raises(safeio.UnsafeFile, match="바뀌었습니다"):
+        safeio.open_regular(sub / "data")
+    assert seen == []
+
+
+def test_directory_resolution_bounds_and_no_fd_leak(tmp_path, monkeypatch):
+    (tmp_path / "loop").symlink_to("loop", target_is_directory=True)
+    initial = len(os.listdir("/proc/self/fd"))
+    with pytest.raises(safeio.UnsafeFile, match="상한"):
+        safeio.open_regular(tmp_path / "loop" / "data")
+    with pytest.raises(safeio.UnsafeFile, match="길이 상한"):
+        safeio.open_regular("a" * (safeio.PATH_MAX_BYTES + 1))
+    monkeypatch.setattr(safeio, "PATH_MAX_STEPS", 2)
+    with pytest.raises(safeio.UnsafeFile, match="상한"):
+        safeio.open_regular(tmp_path / "a" / "b" / "c")
+    monkeypatch.setattr(safeio, "PATH_MAX_STEPS", 256)
+    clock = iter((0., 10.))
+    monkeypatch.setattr(safeio.time, "monotonic", lambda: next(clock))
+    with pytest.raises(safeio.UnsafeFile, match="시간 상한"):
+        safeio.open_regular(tmp_path / "data")
+    assert len(os.listdir("/proc/self/fd")) == initial
+
+
+def test_hardlink_rejection_is_opt_in_and_precedes_file_open(tmp_path, monkeypatch):
+    p = tmp_path / "source"
+    p.write_bytes(b"synthetic")
+    os.link(p, tmp_path / "alias")
+    assert safeio.read_regular(p, max_bytes=20) == b"synthetic"
+    real_open = os.open
+    seen = []
+    def opening(name, flags, *args, **kwargs):
+        if name == "source":
+            seen.append(name)
+        return real_open(name, flags, *args, **kwargs)
+    monkeypatch.setattr(safeio.os, "open", opening)
+    with pytest.raises(safeio.UnsafeFile, match="하드 링크"):
+        safeio.read_regular(p, max_bytes=20, reject_hardlinks=True)
+    assert seen == []
+
+
+@pytest.mark.parametrize("reply", [b"/private/tmp/board.bin\0", b"relative.bin\0", b"\0", b"x" * 1024, None])
+def test_fd_real_path_darwin_fixed_buffer(tmp_path, monkeypatch, reply):
+    """Darwin F_GETPATH 는 고정 1024바이트 버퍼를 사용하며 오류·상대·잘린 결과를 신뢰하지 않는다."""
+    from types import SimpleNamespace
+
+    p = tmp_path / "source"
+    p.write_bytes(b"synthetic")
+    fd = os.open(p, os.O_RDONLY)
+    calls = []
+
+    def getpath(got_fd, command, buffer):
+        calls.append((got_fd, command, buffer))
+        if reply is None:
+            raise OSError("합성 F_GETPATH 실패")
+        return reply
+
+    monkeypatch.setattr(safeio, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(safeio.fcntl, "fcntl", getpath)
+    try:
+        assert safeio.fd_real_path(fd) == ("/private/tmp/board.bin" if reply == b"/private/tmp/board.bin\0" else None)
+        assert calls == [(fd, getattr(safeio.fcntl, "F_GETPATH", 50), bytes(1024))]
+        p.unlink()
+        assert safeio.fd_real_path(fd) is None
+        assert len(calls) == 1
+    finally:
+        os.close(fd)
+
+
+def test_hardlink_created_between_lstat_and_open_is_rejected(tmp_path, monkeypatch):
+    p = tmp_path / "source"
+    p.write_bytes(b"synthetic")
+    real_open = os.open
+    def opening(name, flags, *args, **kwargs):
+        if name == "source":
+            os.link(p, tmp_path / "alias")
+        return real_open(name, flags, *args, **kwargs)
+    monkeypatch.setattr(safeio.os, "open", opening)
+    initial = len(os.listdir("/proc/self/fd"))
+    with pytest.raises(safeio.UnsafeFile, match="하드 링크"):
+        safeio.open_regular(p, reject_hardlinks=True)
+    assert len(os.listdir("/proc/self/fd")) == initial
+
+
+def test_read_regular_rejects_hardlink_added_during_read(tmp_path, monkeypatch):
+    p = tmp_path / "source"
+    p.write_bytes(b"synthetic")
+    original = safeio.read_fd
+    def read_then_link(*args, **kwargs):
+        data = original(*args, **kwargs)
+        os.link(p, tmp_path / "alias")
+        return data
+    monkeypatch.setattr(safeio, "read_fd", read_then_link)
+    with pytest.raises(safeio.UnsafeFile, match="하드 링크"):
+        safeio.read_regular(p, max_bytes=20, reject_hardlinks=True)

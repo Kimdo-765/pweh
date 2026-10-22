@@ -43,7 +43,7 @@ REA_RUNTIME_ASK = {"gdb_console", "cutter_command", "load_frida_script", "resume
 
 # --- 정책 상수 (서버·도구 목록 자체는 카탈로그에서 얻는다. 새 서버는 아래 상수에 해당할 때만 적는다) ---
 #: .claude/settings.json 에서 서버 전체(`mcp__<server>__*`)를 자동 허용하는 서버(기기에 닿지 않는 서버).
-#: 나머지 pweh 서버는 카탈로그에서 readOnlyHint 인 도구만 allow 에 있다.
+#: 나머지 pweh 서버는 readOnlyHint와 아래에 명시한 로컬 기록 도구만 allow에 있다.
 FULL_ALLOW_SERVERS = ("pweh-case", "pweh-fwtriage")
 #: 사용자가 정지 그림·OCR 반환을 별도 승인 없이 허용한 도구. 로컬 산출물을 쓰므로 readOnlyHint 는 false 다.
 LOCAL_WRITE_ALLOW = {f"mcp__pweh-forensics__{name}" for name in (
@@ -51,6 +51,10 @@ LOCAL_WRITE_ALLOW = {f"mcp__pweh-forensics__{name}" for name in (
 # I5 1a는 서버 내부 모델과 로컬 JSON만 다루며 실제 전송 계층이 없다.
 LOCAL_WRITE_ALLOW |= {f"mcp__pweh-espprobe__{name}" for name in (
     "espprobe_connect", "espprobe_self_test", "espprobe_release_all", "espprobe_disconnect")}
+# 상태 조회의 기존 자동 허용을 유지한다. 선택 case_id의 종료 기록만 정리하며 기기·작업은 실행하지 않는다.
+LOCAL_WRITE_ALLOW |= {f"mcp__pweh-{prefix}__{prefix}_{suffix}"
+                      for prefix in ("uart", "openocd", "sigrok", "jtagulator", "esp", "forensics")
+                      for suffix in ("job_status", "jobs")}
 #: architecture §6 에 시그니처(모든 인자)까지 적어야 하는 서버. 다른 서버는 도구 이름만 있으면 된다.
 FULL_SIGNATURE_SERVERS = ("pweh-uart", "pweh-case")
 #: 서버 이름 → mcp-servers/ 아래 디렉터리. 기본 규칙('pweh-esp' → 'esp-mcp')을 벗어나는 서버만 적는다.

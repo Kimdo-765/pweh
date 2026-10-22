@@ -924,3 +924,40 @@ def test_store_image_hints_rejects_output_link_and_wrong_preview_hash(case, tmp_
 def test_image_hints_deadline_bounds(seconds):
     with pytest.raises(ValidationFailed):
         E.image_hints_deadline(seconds)
+
+
+def test_source_hardlink_refused_before_read(tmp_path, monkeypatch):
+    image = tmp_path / "source.img"
+    image.write_bytes(b"synthetic" * 100)
+    os.link(image, tmp_path / "alias.img")
+    monkeypatch.setattr(E.safeio, "read_fd", lambda *a, **k: pytest.fail("하드링크 파일 내용을 읽음"))
+    with pytest.raises(ValidationFailed):
+        E.open_image_source(image)
+
+
+@pytest.mark.parametrize("which", ["copy", "record"])
+def test_open_checked_rejects_hardlinked_evidence_or_record(case, tmp_path, which):
+    log = E.CustodyLog(case, tmp_path / "state" / "custody")
+    ev = _commit_intake(case, log)
+    source = E.evidence_dir(case, ev) / ("card.img" if which == "copy" else f"{ev}.json")
+    os.link(source, tmp_path / "outside-alias")
+    with pytest.raises(E.IntegrityProblem):
+        E.open_checked(case, ev, log.entries())
+
+
+def test_reference_hardlink_refused_without_mount_probe(tmp_path, monkeypatch):
+    image = tmp_path / "source.img"
+    image.write_bytes(b"synthetic" * 100)
+    os.link(image, tmp_path / "alias.img")
+    monkeypatch.setattr(os, "fstatvfs", lambda *a: pytest.fail("거부할 하드링크의 마운트 조사"))
+    with pytest.raises(E.EvidenceError, match="안전하게 열 수 없습니다"):
+        E.open_reference(image, [tmp_path])
+
+
+def test_opened_evidence_recheck_detects_new_hardlink(case, tmp_path):
+    log = E.CustodyLog(case, tmp_path / "state" / "custody")
+    ev = _commit_intake(case, log)
+    with E.open_checked(case, ev, log.entries()) as opened:
+        os.link(E.evidence_dir(case, ev) / "card.img", tmp_path / "alias")
+        with pytest.raises(E.IntegrityProblem):
+            E.recheck_opened(case, opened, log.entries())

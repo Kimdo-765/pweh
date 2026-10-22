@@ -55,7 +55,15 @@ jffs2/UBI/cramfs/ext 파티션은 `fw_carve` 로 분리한 뒤 REA `extract_firm
 | `fw_find_seq_tables(case_id, path, offset=None, length=None, partition=None, base_addr=None, min_len=6, max_results=50, max_seconds=120, background=False)` | 치트 입력(버튼 시퀀스) 표 후보: 작은 알파벳의 배열, 코나미형 모양 점수. ESP 앱 이미지면 코드가 아닌 세그먼트를 load 주소(디컴파일러 주소)로 훑는다 | `analysis/seq-tables-NNN.json` |
 | `fw_patch_build(case_id, base_path, target, edits, purpose, unlock_source, online_capable, backup_path=None, description=None)` | 세이브 값 패치(사용자가 원할 때만). base = 기기에서 두 번 읽어 일치한 전체 플래시 덤프(출처 원장 확인), target = NVS 정수 항목 또는 사용자 데이터 파티션(+체크섬). backup_path 없이 → 계획(패치 이미지), 새 백업과 사람 증명 뒤 → 출처 원장 `patch-plan` 기록 + 사람이 실행할 쓰기 명령(sha256 확인 → esptool write-flash, 에이전트는 실행하지 않음) | `patches/<label>-patch-NNN.bin`, `analysis/patch-build-NNN.json` |
 | `fw_verify_writeback(case_id, patch_path, readback_path)` | 쓴 뒤 다시 읽은 덤프를 출처 원장의 패치 sha256 과 비교 → applied / not-applied / differs | `analysis/patch-verify-NNN.json` |
-| `fwtriage_job_status(job_id, wait_seconds=0)`, `fwtriage_job_cancel(job_id)`, `fwtriage_jobs(active_only=False)` | `background=true` 로 시작한 작업 폴링/취소. `result` 는 인라인 응답과 같다 | `jobs/<job_id>.json` |
+| `fwtriage_job_status(job_id, wait_seconds=0, case_id=None)`, `fwtriage_job_cancel(job_id)`, `fwtriage_jobs(active_only=False, case_id=None)` | `background=true` 로 시작한 작업 폴링/취소. `result` 는 인라인 응답과 같다 | `jobs/<job_id>.json` |
+
+작업 상태·목록의 `case_id`를 생략하면 이 서버 프로세스의 작업만 보인다. 재시작 뒤에는
+`fwtriage_job_status(job_id, case_id="<케이스 ID>")` 또는 `fwtriage_jobs(case_id="<케이스 ID>")`로 같은 서버의 저장 기록을 확인한다.
+소유 서버 종료가 확실한 활성 기록만 `failed`(`error.code=job_owner_terminated`)로 정리한다. 소유자 없는 과거 기록·다른 호스트/namespace·관찰 불가는
+원본 상태를 보존하고 `recovery.owner_state="unknown"`과 사유를 표시한다. 살아 있는 다른 서버 프로세스의 기록도 보존한다.
+원시 owner 식별자는 응답에 나오지 않는다. 저장 기록의 재개/취소는 없고, `wait_seconds`는 이 프로세스의 작업만 기다린다.
+한 기록 1MiB, 목록 512디렉터리 항목·256기록·누적 8MiB·2초로 제한하며 목록의 `recovery.truncated/reasons`가 확인하지 못한 범위를 알린다.
+이 두 도구는 로컬 기록을 정리하므로 `readOnlyHint=false`다. 파일·기기·외부 자식의 정리 여부는 별도로 확인한다.
 
 ## 데이터 파일
 

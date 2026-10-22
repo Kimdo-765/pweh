@@ -30,7 +30,15 @@ REA 의 `decode_signal_recording` / `inspect_signal_decoders` 는 이미 녹화�
 | `sigrok_file_info(case_id, input_path)` *(추가)* | 순수 Python 으로 만든 요약(형식, samplerate, 채널, 샘플 수, 길이)과 채널별 활동(에지 수, high 비율, 처음/끝 레벨), `uart_candidates` |
 | `sigrok_estimate_baud(case_id, input_path, channel=None, data_bits=8, parity="none")` | `baudrate`, `baudrate_raw`, `confidence`(0~1), `idle_level`(1=정상, 0=반전), `inverted`, `candidates`, `samples_per_bit`, `frame_check`, `segments`, `warnings`, `suggested_decoder` |
 | `sigrok_uart_autodecode(case_id, input_path, channel=None, baudrate=None, data_bits=8, parity="none", engine="auto", background=None)` | 보드레이트를 추정한 뒤 uart 디코더로 디코드한다. `text_preview`, `hex_preview`, `framing_errors`, `boot_hints`, `uart_estimate`, 디코드 텍스트와 바이트 파일(`.txt`/`.bin`) 경로를 돌려준다. 입력이 크면 job 으로 돈다 |
-| `sigrok_job_status(job_id, wait_seconds=0)`, `sigrok_job_cancel(job_id)`, `sigrok_jobs()` | 백그라운드 캡처·디코드 작업. 취소하면 부분 캡처를 `<name>-partial.sr` 로 보존하고 등록한다 |
+| `sigrok_job_status(job_id, wait_seconds=0, case_id=None)`, `sigrok_job_cancel(job_id)`, `sigrok_jobs(active_only=False, case_id=None)` | 백그라운드 캡처·디코드 작업. 취소하면 부분 캡처를 `<name>-partial.sr` 로 보존하고 등록한다 |
+
+작업 상태·목록의 `case_id`를 생략하면 이 서버 프로세스의 작업만 보인다. 재시작 뒤에는
+`sigrok_job_status(job_id, case_id="<케이스 ID>")` 또는 `sigrok_jobs(case_id="<케이스 ID>")`로 같은 서버의 저장 기록을 확인한다.
+소유 서버 종료가 확실한 활성 기록만 `failed`(`error.code=job_owner_terminated`)로 정리한다. 소유자 없는 과거 기록·다른 호스트/namespace·관찰 불가는
+원본 상태를 보존하고 `recovery.owner_state="unknown"`과 사유를 표시한다. 살아 있는 다른 서버 프로세스의 기록도 보존한다.
+원시 owner 식별자는 응답에 나오지 않는다. 저장 기록의 재개/취소는 없고, `wait_seconds`는 이 프로세스의 작업만 기다린다.
+한 기록 1MiB, 목록 512디렉터리 항목·256기록·누적 8MiB·2초로 제한하며 목록의 `recovery.truncated/reasons`가 확인하지 못한 범위를 알린다.
+이 두 도구는 로컬 기록을 정리하므로 `readOnlyHint=false`다. 파일·기기·외부 자식의 정리 여부는 별도로 확인한다.
 
 경로 인자는 케이스 상대 경로(`signals/x.sr`)를 쓴다. `signals/` 는 생략해도 된다. 케이스 밖 경로는 거부한다.
 `channel` 에는 이름(`D0`, `RX`)이나 인덱스를 쓸 수 있다. srzip 의 인덱스는 비트 위치이고, VCD 의 인덱스는 선언 순서다.

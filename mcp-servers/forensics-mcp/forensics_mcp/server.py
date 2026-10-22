@@ -49,7 +49,7 @@ from pweh.runtime import Runtime, get_runtime
 from pweh.safety import attestation_response
 from pweh.safety.attestations import display_text
 
-from . import fsops
+from . import fsops, outputs
 
 SERVER_NAME = "forensics-mcp"
 PRODUCER = "pweh-forensics"
@@ -90,6 +90,8 @@ RESPONSE_MAX_PARTITIONS = 128
 CHECK_MAX_SECONDS = 120.0
 #: 증거 목록이 읽는 매니페스트 크기 상한
 MANIFEST_MAX = 64 << 20
+#: 목록 JSON의 직렬화 크기 상한(해석 예산과 별개)
+LIST_MAX_OUTPUT_BYTES = 256 << 20
 #: 서버 종료 때 실행 중인 job 을 기다리는 시간
 SHUTDOWN_TIMEOUT_S = 10.0
 
@@ -229,11 +231,16 @@ def _reference_roots() -> list[str]:
     return value
 
 
-def _checked_evidence_event(case: Any, opened: E.OpenedEvidence, event: str, data: dict[str, Any]) -> dict[str, Any]:
+def _checked_evidence_event(case: Any, opened: E.OpenedEvidence, event: str, data: dict[str, Any], *,
+                            check: Any = None) -> dict[str, Any]:
     """기존 목록·추출도 같은 EV 의 최종 재검증을 거쳐 커밋한다. 잠금 밖에서 무결성 실패를 기록한다."""
+    def verify(entries: Any) -> None:
+        E.recheck_opened(case, opened, entries, reference_roots=_reference_roots)
+        if check is not None:
+            check()
+
     try:
-        return custody(case).append(event, evidence_id=opened.evidence_id, data=data,
-                                     check=lambda entries: E.recheck_opened(case, opened, entries, reference_roots=_reference_roots))
+        return custody(case).append(event, evidence_id=opened.evidence_id, data=data, check=verify)
     except E.IntegrityProblem as exc:
         _record_integrity_failure(case, opened.evidence_id, exc)
         raise
@@ -379,14 +386,19 @@ def _dumps(obj: Any) -> str:
 class _HashingWriter:
     """fd 로 버퍼링해 쓰면서 sha256 을 계산한다 (쓴 바이트 그대로의 해시 — 경로로 다시 읽지 않는다)."""
 
-    def __init__(self, fd: int) -> None:
+    def __init__(self, fd: int, check: Any = None) -> None:
         self.fd = fd
         self.h = hashlib.sha256()
         self.buf = bytearray()
         self.size = 0
+        self.check = check
 
     def write(self, text: str | bytes) -> None:
+        if self.check is not None:
+            self.check()
         b = text.encode("utf-8") if isinstance(text, str) else text
+        if self.size + len(b) > LIST_MAX_OUTPUT_BYTES:
+            raise E.EvidenceError("목록 JSON이 256 MiB 상한을 넘습니다. 항목 수를 줄이거나 파티션별로 조회하세요.", code="output_limit")
         self.h.update(b)
         self.buf += b
         self.size += len(b)
@@ -394,6 +406,8 @@ class _HashingWriter:
             self.flush()
 
     def flush(self) -> None:
+        if self.check is not None:
+            self.check()
         if self.buf:
             data, self.buf = bytes(self.buf), bytearray()
             safeio.write_all(self.fd, data)
@@ -608,7 +622,7 @@ async def forensics_intake_start(
                 copy_verified = None
                 if verify_copy:
                     jctx.progress(0, size, "사본 재해시 중")
-                    vfd, _ = safeio.open_regular(tmp, dir_fd=claim.dir_fd, expect=copy_st, what="사본")
+                    vfd, _ = safeio.open_regular(tmp, dir_fd=claim.dir_fd, expect=copy_st, what="사본", reject_hardlinks=True)
                     try:
                         again = safeio.hash_fd(vfd, size, algorithms=E.HASH_ALGORITHMS, progress=lambda d, t: jctx.progress(d, size),
                                                check=jctx.check_cancelled)
@@ -616,7 +630,7 @@ async def forensics_intake_start(
                         os.close(vfd)
                     copy_verified = all(again[a] == hashes[a] for a in E.HASH_ALGORITHMS)
                 os.rename(tmp, name, src_dir_fd=claim.dir_fd, dst_dir_fd=claim.dir_fd)
-                ffd, fst = safeio.open_regular(name, dir_fd=claim.dir_fd, expect=copy_st, what="사본")
+                ffd, fst = safeio.open_regular(name, dir_fd=claim.dir_fd, expect=copy_st, what="사본", reject_hardlinks=True)
                 try:
                     fp = E.fingerprint_fd(ffd, fst)
                 finally:
@@ -904,7 +918,7 @@ def _image_hint_outputs(case: Any, entries: list[dict[str, Any]] | None) -> list
             raise ValidationFailed("이미지 분석 산출물 경로가 analysis/ 의 직접 자식이 아닙니다.")
         if dfd is None:
             raise FileNotFoundError(path)
-        return safeio.read_regular(path[len(prefix):], dir_fd=dfd, max_bytes=MANIFEST_MAX, what="이미지 분석 산출물")
+        return safeio.read_regular(path[len(prefix):], dir_fd=dfd, max_bytes=MANIFEST_MAX, what="이미지 분석 산출물", reject_hardlinks=True)
 
     try:
         for rel in sorted(names | set(events)):
@@ -1000,7 +1014,7 @@ def _derived_outputs(case: Any, entries: list[dict[str, Any]] | None) -> list[di
                         item["error"] = f"디렉터리를 열 수 없음: {exc.strerror or exc}"
                     else:
                         try:
-                            raw = safeio.read_regular("manifest.json", dir_fd=dfd, max_bytes=MANIFEST_MAX, what="manifest")
+                            raw = safeio.read_regular("manifest.json", dir_fd=dfd, max_bytes=MANIFEST_MAX, what="manifest", reject_hardlinks=True)
                         except FileNotFoundError:
                             item["error"] = "manifest.json 없음"
                         except PwehError as exc:
@@ -1202,6 +1216,12 @@ async def forensics_evidence_list(case_id: str, write_files: bool = True) -> dic
 # ---------------------------------------------------------------------------
 
 
+def _check_cancelled(cancelled: threading.Event) -> None:
+    """동기 분석도 요청 취소를 계산·쓰기·커밋 직전에 확인한다."""
+    if cancelled.is_set():
+        raise JobCancelled()
+
+
 @server.tool(
     description=(
         "증거 이미지의 파티션 구조 (읽기 전용, 호출 예산 60초): MBR/EBR·GPT(헤더·항목 CRC 검사, 512/4096 바이트 섹터)·파티션 표 없음"
@@ -1219,13 +1239,17 @@ async def forensics_evidence_list(case_id: str, write_files: bool = True) -> dic
 @safe_tool
 async def forensics_partitions(case_id: str, evidence_id: str) -> dict[str, Any]:
     case = await _case(case_id)
-    opened = await open_evidence(case, evidence_id)
+    cancelled = threading.Event()
 
     def work() -> dict[str, Any]:
+        _check_cancelled(cancelled)
         lim = fsops.limits_for(None, PARTITIONS_MAX_SECONDS)
+        opened = _open_evidence_sync(case, evidence_id)
         try:
+            _check_cancelled(cancelled)
             with _image(opened) as img:
-                layout = pfs.analyze_image(img, limits=lim)
+                layout = pfs.analyze_image(img, limits=lim, budget=pfs.Budget.for_limits(lim, cancel=cancelled.is_set))
+                _check_cancelled(cancelled)
         finally:
             opened.close()
         parts = layout.get("partitions") or []
@@ -1258,10 +1282,7 @@ async def forensics_partitions(case_id: str, evidence_id: str) -> dict[str, Any]
                 "next_steps": ["forensics_image_check(case_id, evidence_id) 로 호스트 오염 흔적을 본다.",
                                "forensics_fs_list(case_id, evidence_id, partition=<index>) 로 목록·시각·삭제 항목을 본다."]}
 
-    try:
-        out = await anyio.to_thread.run_sync(work)
-    finally:
-        opened.close()
+    out = await run_blocking_cancellable(work, on_cancel=cancelled.set)
     await run_blocking(_audit_bg, {"event": "forensics_partitions", "evidence_id": evidence_id, "scheme": out.get("scheme")}, case.id)
     return out
 
@@ -1277,7 +1298,8 @@ async def forensics_partitions(case_id: str, evidence_id: str) -> dict[str, Any]
         "디렉터리(beyond_image·dir_chain_broken·dir_unreadable), 검증하지 못한 살아 있는 디렉터리(dir_unvalidated), 이미지 끝 너머까지 이어지는 "
         "볼륨·통째로 이미지 끝 너머인 파티션(image_truncated — 잘린 이미징), 파티션 표 항목보다 큰 파일 시스템(volume_exceeds_partition)이 있으면 "
         "truncated=true(truncated_reasons, next_steps — volumes[].walk_truncated(_reason)·walk_truncated_reasons 도 이 사유를 포함)이고 "
-        "'흔적 없음'이라 하지 않는다. 본 볼륨이 하나도 없으면 note 는 '보지 못했다'다. 흔적은 정황이다(카메라가 만들 수 없는 것은 아니다)."
+        "'흔적 없음'이라 하지 않는다. 본 볼륨이 하나도 없으면 note 는 '보지 못했다'다. 흔적은 정황이다(카메라가 만들 수 없는 것은 아니다). "
+        "요청 취소는 엔진 검사 지점에서 받아들이고 작업 스레드가 증거 fd를 닫는다."
     ),
     annotations=ANN_READ_ONLY,
 )
@@ -1287,19 +1309,23 @@ async def forensics_image_check(case_id: str, evidence_id: str, partition: int |
     part = _partition_arg(partition)
     if acquisition_date is not None and not fsops._DATE_RX.match(acquisition_date):
         raise ValidationFailed("acquisition_date 는 YYYY-MM-DD 형식이어야 합니다.")
-    opened = await open_evidence(case, evidence_id)
-    acq = acquisition_date or str(opened.intake_ts or (opened.record.get("intake") or {}).get("ts") or "")[:10] or None
+    cancelled = threading.Event()
 
     def work() -> dict[str, Any]:
+        _check_cancelled(cancelled)
         lim = fsops.limits_for(None, CHECK_MAX_SECONDS)
         budget = fsops.CallBudget.from_limits(lim)
         results = []
+        opened = _open_evidence_sync(case, evidence_id)
+        acq = acquisition_date or str(opened.intake_ts or (opened.record.get("intake") or {}).get("ts") or "")[:10] or None
         try:
+            _check_cancelled(cancelled)
             with _image(opened) as img:
                 image_size = int(getattr(img, "size", 0) or 0) or None
                 layout = pfs.detect_partitions(img, limits=lim)
                 layout_why = fsops.layout_reasons(layout, part)  # 파티션이 통째로 이미지 끝 너머(잘린 이미지)
-                for v in fsops.iter_volumes(img, layout, part, lim, budget, include_deleted=True):
+                for v in fsops.iter_volumes(img, layout, part, lim, budget, include_deleted=True, cancel=cancelled.is_set):
+                    _check_cancelled(cancelled)
                     item: dict[str, Any] = {"partition": v["partition"].get("index"), "fs": v["partition"].get("fs_hint")}
                     if v.get("error"):
                         item["error"] = v["error"]
@@ -1316,6 +1342,7 @@ async def forensics_image_check(case_id: str, evidence_id: str, partition: int |
                         del walk
                     results.append(item)
                     del v  # 볼륨 목록은 요약한 뒤 버린다
+                _check_cancelled(cancelled)
         finally:
             opened.close()
         strong = sum(1 for r in results for i in r.get("indicators") or [] if i["strength"] == "strong")
@@ -1349,15 +1376,12 @@ async def forensics_image_check(case_id: str, evidence_id: str, partition: int |
             out["next_steps"] = steps
         return out
 
-    try:
-        out = await anyio.to_thread.run_sync(work)
-    finally:
-        opened.close()
+    out = await run_blocking_cancellable(work, on_cancel=cancelled.set)
     await run_blocking(_audit_bg, {"event": "forensics_image_check", "evidence_id": evidence_id, "strong": out["strong_indicators"]}, case.id)
     return out
 
 
-def _store_archive_list(case: Any, opened: E.OpenedEvidence, inventory: dict[str, Any]) -> dict[str, Any]:
+def _store_archive_list(case: Any, opened: E.OpenedEvidence, inventory: dict[str, Any], *, check: Any = None) -> dict[str, Any]:
     """논리 아카이브 전체 목록은 JSON0444 로, 응답은 제한한 표본으로 남긴다."""
     ev = opened.evidence_id
     dfd, name, fd = _claim_output(case, "analysis", f"fs-list-{ev}")
@@ -1365,15 +1389,22 @@ def _store_archive_list(case: Any, opened: E.OpenedEvidence, inventory: dict[str
     try:
         report = {"schema": "pweh.forensics.fs-list/v1", "evidence_id": ev, "evidence_sha256": opened.intake["hashes"]["sha256"],
                   "generated_at": utcnow_iso(), "archive": inventory}
-        raw = (json.dumps(report, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
-        safeio.write_all(fd, raw)
+        writer = _HashingWriter(fd, check)
+        for chunk in json.JSONEncoder(ensure_ascii=False, allow_nan=False).iterencode(report):
+            writer.write(chunk)
+        writer.write("\n")
+        digest = writer.finish()
         os.fchmod(fd, 0o444)
-        os.fsync(fd)
-        digest = hashlib.sha256(raw).hexdigest()
+        sealed = outputs.seal_file(dfd, name, fd)
         rel = E.forensics_rel("analysis", name)
+        def verify() -> None:
+            outputs.check_root(case, "analysis", dfd)
+            outputs.check_file(dfd, name, sealed)
+            if check is not None:
+                check()
         entry = _checked_evidence_event(case, opened, "list",
                                {"result_path": rel, "result_sha256": digest, "format": inventory["format"],
-                                "members": len(inventory["entries"]), "truncated": inventory["truncated"]})
+                                "members": len(inventory["entries"]), "truncated": inventory["truncated"]}, check=verify)
         committed = True
         _audit_custody(case, entry)
         sample = [{k: e.get(k) for k in ("ref", "display_path", "size", "times", "sha256", "status", "blocked_reason")}
@@ -1383,10 +1414,10 @@ def _store_archive_list(case: Any, opened: E.OpenedEvidence, inventory: dict[str
                 "bytes_hashed": inventory["bytes_hashed"], "truncated": inventory["truncated"],
                 "truncated_reasons": inventory["truncated_reasons"], "warnings": inventory["warnings"]}
     finally:
-        os.close(fd)
         if not committed:
             with contextlib.suppress(OSError):
-                os.unlink(name, dir_fd=dfd)
+                outputs.discard_file(dfd, name, fd)
+        os.close(fd)
         os.close(dfd)
 
 
@@ -1396,18 +1427,20 @@ def _extract_archive_work(case: Any, opened: E.OpenedEvidence, refs: list[str], 
     pfd, name, dfd = _claim_dir(case, "recovered", label)
     rel = E.forensics_rel("recovered", name)
     committed = False
+    seals: dict[str, os.stat_result] = {}
     try:
         res = fsops.extract_archive(opened.fd, refs, paths, dfd, max_files=max_files, max_bytes_total=max_bytes,
-                                    deadline=deadline, cancel=lambda: jctx.cancelled)
+                                    deadline=deadline, cancel=lambda: jctx.cancelled, seals=seals)
         manifest = {"schema": "pweh.forensics.recovered/v1", "evidence_id": opened.evidence_id,
                     "evidence_sha256": opened.intake["hashes"]["sha256"], "generated_at": utcnow_iso(), **res}
         raw = (json.dumps(manifest, ensure_ascii=False, allow_nan=False) + "\n").encode("utf-8")
-        safeio.write_new(dfd, "manifest.json", raw, final_mode=0o444)
+        seals["manifest.json"] = outputs.write_sealed(dfd, "manifest.json", raw)
         digest = hashlib.sha256(raw).hexdigest()
         os.fchmod(dfd, 0o555)
         entry = _checked_evidence_event(case, opened, "extract",
                                {"output_dir": rel, "manifest_sha256": digest, "files": len(res["files"]), "bytes": res["bytes_total"],
-                                "method": "archive-member", "region": "data", "truncated": res["truncated"]})
+                                "method": "archive-member", "region": "data", "truncated": res["truncated"]},
+                               check=lambda: outputs.check_tree(case, pfd, name, dfd, seals))
         committed = True
         if "cancelled" not in res["truncated_reasons"]:
             jctx.mark_committed()
@@ -1415,10 +1448,10 @@ def _extract_archive_work(case: Any, opened: E.OpenedEvidence, refs: list[str], 
         return {"ok": True, "evidence_id": opened.evidence_id, "output_dir": rel, "manifest": f"{rel}/manifest.json",
                 "manifest_sha256": digest, "custody_seq": entry["seq"], **res}
     finally:
-        os.close(dfd)
         if not committed:
-            with contextlib.suppress(OSError):
-                safeio.remove_dir_at(pfd, name)
+            with contextlib.suppress(OSError, PwehError):
+                safeio.remove_dir_at(pfd, name, expect=os.fstat(dfd))
+        os.close(dfd)
         os.close(pfd)
 
 
@@ -1455,6 +1488,8 @@ def _write_volume(w: _HashingWriter, v: dict[str, Any]) -> None:
         "잘린 이미징), 파티션 표 항목보다 큰 파일 시스템(volume_exceeds_partition)도 사유다 — truncated_reasons·next_steps 로 알린다. "
         "해석하지 못한 볼륨은 volumes[].error·call.volumes_failed 이고 truncated=true. 볼 수 있는 파티션이 없는데 파티션이 이미지 끝 너머면 "
         "validation_failed 가 그렇게 말하고, 그런 파티션을 partition 으로 고르면 beyond_image 다. "
+        "목록 JSON은 최대 256 MiB이며 초과하면 output_limit로 실패한다. 요청 취소를 해석·쓰기·커밋 직전에 확인하고 "
+        "커밋 전 작성 파일을 정리한다. 커밋 전에 출력 이름·파일 신원·링크 수를 재확인한다. "
         "녹화 내용은 읽지 않는다. 삭제 파일 복구·추출은 forensics_extract 에 ref 를 넘긴다."
     ),
     annotations=ANN_LOCAL_WRITE,
@@ -1464,22 +1499,27 @@ async def forensics_fs_list(case_id: str, evidence_id: str, partition: int | Non
                             max_entries: int = fsops.LIST_MAX_ENTRIES, max_seconds: float = fsops.LIST_MAX_SECONDS) -> dict[str, Any]:
     case = await _case(case_id)
     part = _partition_arg(partition)
-    opened = await open_evidence(case, evidence_id)
+    cancelled = threading.Event()
+    check = functools.partial(_check_cancelled, cancelled)
 
     def work() -> dict[str, Any]:
+        check()
         lim = fsops.limits_for(max_entries, max_seconds)
         budget = fsops.CallBudget.from_limits(lim)
         dfd = out_name = out_fd = None
         done = False
         summaries: list[dict[str, Any]] = []
         layout_why: list[str] = []
+        opened = _open_evidence_sync(case, evidence_id)
         try:
+            check()
             inventory = fsops.archive_inventory(opened.fd, max_entries=lim.max_entries, deadline=budget.deadline,
-                                               cancel=lambda: False, hash_members=True, max_hash_bytes=1 << 30)
+                                               cancel=cancelled.is_set, hash_members=True, max_hash_bytes=1 << 30)
             if inventory is not None:
                 if part is not None:
                     raise ValidationFailed("논리 아카이브에는 partition 을 지정하지 않습니다.")
-                return _store_archive_list(case, opened, inventory)
+                check()
+                return _store_archive_list(case, opened, inventory, check=check)
             with _image(opened) as img:
                 image_size = int(getattr(img, "size", 0) or 0) or None
                 layout = pfs.detect_partitions(img, limits=lim)
@@ -1491,14 +1531,15 @@ async def forensics_fs_list(case_id: str, evidence_id: str, partition: int | Non
                                                     "warnings: partition_beyond_image·ebr_beyond_image).")
                     raise ValidationFailed("해석할 수 있는 FAT/exFAT 파티션이 없습니다.", hint="forensics_partitions 로 fs_hint 를 확인하세요(ext4·NTFS 는 아직 없음).")
                 dfd, out_name, out_fd = _claim_output(case, "analysis", f"fs-list-{evidence_id}")
-                w = _HashingWriter(out_fd)
+                w = _HashingWriter(out_fd, check)
                 head = _dumps({"schema": "pweh.forensics.fs-list/v1", "evidence_id": evidence_id, "generated_at": utcnow_iso(),
                                "params": {"partition": part, "include_deleted": include_deleted, "max_entries": lim.max_entries,
                                           "max_seconds": lim.max_seconds, "max_partitions": budget.max_partitions},
                                "scheme": layout.get("scheme")})
                 w.write(head[:-1] + ', "volumes": [')
                 n = 0
-                for v in fsops.iter_volumes(img, layout, part, lim, budget, include_deleted=include_deleted):
+                for v in fsops.iter_volumes(img, layout, part, lim, budget, include_deleted=include_deleted, cancel=cancelled.is_set):
+                    check()
                     item: dict[str, Any] = {"partition": v["partition"].get("index"), "fs": v["partition"].get("fs_hint")}
                     if v.get("error"):
                         item["error"] = v["error"]
@@ -1513,20 +1554,26 @@ async def forensics_fs_list(case_id: str, evidence_id: str, partition: int | Non
                 w.write('\n], "call": ' + _dumps(budget.summary()) + "}\n")
                 digest = w.finish()
             os.fchmod(out_fd, 0o444)
+            sealed = outputs.seal_file(dfd, out_name, out_fd)
             rel = E.forensics_rel("analysis", out_name)
+            def verify() -> None:
+                outputs.check_root(case, "analysis", dfd)
+                outputs.check_file(dfd, out_name, sealed)
+                check()
             entry = _checked_evidence_event(case, opened, "list", {"result_path": rel, "result_sha256": digest, "call": budget.summary(),
-                                                               "volumes": [{"partition": s.get("partition"), "stats": s.get("stats")} for s in summaries[:64]]})
+                                                               "volumes": [{"partition": s.get("partition"), "stats": s.get("stats")} for s in summaries[:64]]},
+                                            check=verify)
             done = True
             _audit_custody(case, entry)
         finally:
             opened.close()
-            if out_fd is not None:
-                os.close(out_fd)
             if dfd is not None:
                 if not done and out_name:
                     with contextlib.suppress(OSError):
-                        os.unlink(out_name, dir_fd=dfd)  # 실패·중단한 목록 파일은 남기지 않는다
+                        outputs.discard_file(dfd, out_name, out_fd)
                 os.close(dfd)
+            if out_fd is not None:
+                os.close(out_fd)
         steps = ["삭제 파일은 목적에 필요한 것만 forensics_extract 로 복구한다. 정지이미지 1개는 forensics_image_hints(ref=…) 로 분석하며 원본·추출물을 직접 열지 않는다."]
         reasons = fsops.call_reasons(budget.limited, [s.get("truncated_reasons") or [] for s in summaries] + [layout_why])
         limited = bool(reasons) or any(s.get("truncated") for s in summaries)
@@ -1545,10 +1592,7 @@ async def forensics_fs_list(case_id: str, evidence_id: str, partition: int | Non
                 "volumes": summaries[:RESPONSE_MAX_PARTITIONS], "volumes_total": len(summaries), "truncated": truncated,
                 "truncated_reasons": reasons, "call": budget.summary(), "next_steps": steps}
 
-    try:
-        return await anyio.to_thread.run_sync(work)
-    finally:
-        opened.close()
+    return await run_blocking_cancellable(work, on_cancel=cancelled.set)
 
 
 @server.tool(
@@ -1572,7 +1616,8 @@ async def forensics_fs_list(case_id: str, evidence_id: str, partition: int | Non
         "dir_unvalidated)와 next_steps. 내용이 이미지 끝 너머라 덜 읽은 파일은 상한이 아니라 파일 기록의 complete=false·bytes_beyond_image "
         "다. 취소는 엔진 계산 중에도 받아들인다: "
         "시도하지 않은 항목은 skipped('취소됨'), manifest 에 'cancelled', job 은 cancelled(보관 기록 extract 뒤에 온 취소는 무시). 실패한 추출은 "
-        "출력 디렉터리를 지운다. 응답·보관 기록에는 해시·크기·방법만 남고 내용은 돌려주지 않는다. 에이전트는 추출물을 직접 열지 않는다. "
+        "작성한 출력 디렉터리를 지운다(다른 객체로 바뀐 이름은 건드리지 않음). 커밋 직전에 디렉터리·파일·매니페스트의 "
+        "신원·링크 수·변경 여부를 확인해 교체된 출력은 기록하지 않는다. 응답·보관 기록에는 해시·크기·방법만 남고 내용은 돌려주지 않는다. 에이전트는 추출물을 직접 열지 않는다. "
         "정지이미지는 원래 ref/path 를 forensics_image_hints 에 넘겨 분석하고, 동영상·오디오는 사람이 자기 플레이어로 확인한다."
     ),
     annotations=ANN_LOCAL_WRITE,
@@ -1630,10 +1675,11 @@ async def forensics_extract(case_id: str, evidence_id: str, refs: list[str] | No
                 pfd, out_name, dfd = _claim_dir(case, "recovered", lbl)
                 rel = E.forensics_rel("recovered", out_name)
                 recorded = False  # 보관 기록 extract 를 덧붙였다(커밋) — 그 뒤에는 무슨 일이 있어도 출력 디렉터리를 지우지 않는다
+                seals: dict[str, os.stat_result] = {}
                 try:
                     try:
                         res = fsops.extract_entries(vol, targets, dfd, method=method, region=region, max_bytes_total=mb, max_files=mf,
-                                                    limits=job_lim, deadline=deadline, cancel=cancel)
+                                                    limits=job_lim, deadline=deadline, cancel=cancel, seals=seals)
                         skipped = res["skipped"] + unresolved
                         reasons = fsops.merge_reasons(res["truncated_reasons"], unresolved)
                         manifest = {"schema": "pweh.forensics.recovered/v1", "evidence_id": evidence_id,
@@ -1643,13 +1689,14 @@ async def forensics_extract(case_id: str, evidence_id: str, refs: list[str] | No
                                     "files": res["files"], "skipped": skipped, "bytes_total": res["bytes_total"],
                                     "truncated": bool(reasons), "truncated_reasons": reasons}
                         mbytes = (json.dumps(manifest, ensure_ascii=False, indent=1, default=str) + "\n").encode("utf-8")
-                        safeio.write_new(dfd, "manifest.json", mbytes, final_mode=0o444)
+                        seals["manifest.json"] = outputs.write_sealed(dfd, "manifest.json", mbytes)
                         digest = hashlib.sha256(mbytes).hexdigest()
                         os.fchmod(dfd, 0o555)
                         # 커밋 지점: append 는 사건이 남지 않았을 때만 예외를 던진다(고정점 확정 실패는 삼킨다 — pweh.evidence)
                         entry = _checked_evidence_event(case, opened, "extract", {
                             "output_dir": rel, "manifest_sha256": digest, "files": len(res["files"]), "bytes": res["bytes_total"],
-                            "method": method, "region": region, "truncated": bool(reasons)})
+                            "method": method, "region": region, "truncated": bool(reasons)},
+                            check=lambda: outputs.check_tree(case, pfd, out_name, dfd, seals))
                         recorded = True
                         if "cancelled" not in reasons:
                             # 기록한 뒤(또는 다 쓴 뒤) 도착한 취소는 결과를 바꾸지 않는다(succeeded). 추출이 취소를 받아들여 멈췄으면
@@ -1661,7 +1708,7 @@ async def forensics_extract(case_id: str, evidence_id: str, refs: list[str] | No
                             raise
                         # 실패한 추출은 출력 디렉터리를 남기지 않는다(기록 없는 부분 출력 방지 — 취소는 정상 종료로 매니페스트가 남는다)
                         with contextlib.suppress(Exception):
-                            left = safeio.remove_dir_at(pfd, out_name)
+                            left = safeio.remove_dir_at(pfd, out_name, expect=os.fstat(dfd))
                             if left:
                                 log.warning("추출 정리에서 지우지 못한 항목: %s %s", rel, left)
                         if isinstance(exc, FileExistsError):  # 새로 만든 출력 디렉터리에 서버가 만들지 않은 항목(링크 등)이 생김

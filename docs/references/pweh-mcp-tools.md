@@ -99,12 +99,12 @@
   리눅스 셸 식별 (읽기 전용 명령 묶음, 명령마다 게이트): uname -a, /proc/cpuinfo, /proc/mtd(파싱 → mtd[]), /proc/cmdline(mtdparts → partitions), /proc/mounts, ps, netstat -tuln(listening), busybox(applets), id. 반환: uname, kernel_version, arch, c
 - **`shell_dump_start(case_id, session_id, path, offset?, length?, method?, chunk_size?, output_name?, resume?, retries?)`**  
   리눅스 셸 덤프 job 시작 → job_id. 청크마다 'dd if=<path> bs=… skip=… count=… 2>/dev/null | base64'(없으면 '| hexdump -C') 를 파싱하고 같은 범위의 '| md5sum' 과 비교, 실패 청크는 재시도. path 는 /dev/mtdN · /dev/mtdblockN 또는 일반 파일(절대 경로). length 생략 시 /proc/m
-- **`uart_job_status(job_id, wait_seconds?)`** — [읽기전용]  
-  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`uart_job_status(job_id, wait_seconds?, case_id?)`**  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 이 프로세스의 작업만 최대 50초 기다린다. case_id를 주면 해당 케이스의 저장 기록도 조회하고, 소유
 - **`uart_job_cancel(job_id)`**  
   실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
-- **`uart_jobs(active_only?)`** — [읽기전용]  
-  이 서버 프로세스의 백그라운드 작업 목록.
+- **`uart_jobs(active_only?, case_id?)`**  
+  이 서버 프로세스의 백그라운드 작업 목록. case_id를 주면 해당 케이스에 저장된 이 서버의 기록을 최대 256개·8MiB·2초로 확인하며 잘림은 recovery에 표시한다. 소유 서버 종료가 확인된 활성 기록만 failed로 정리한다. owner 없는 과거 기록은 확인 불가로 표시하며 재개하지 않는다.
 
 ## pweh-openocd
 
@@ -144,12 +144,12 @@
   플래시에 이미지 쓰기 (flash write_image [erase] [unlock] {파일} 주소 bin, DESTRUCTIVE — 기본 정책 거부). 기기를 벽돌로 만들 수 있다. path 는 케이스 디렉터리 안의 파일만 허용. 승인 지문에 파일 sha256 이 포함되어, 승인 후 파일이 바뀌면 실행되지 않는다. 정책이 approve 일 때만 사람 승인 후 approval_id 로 1회 
 - **`openocd_list_configs(kind?, pattern?, limit?)`** — [읽기전용]  
   OpenOCD scripts 디렉터리의 cfg 파일 목록 (interface|target|board|all). pattern 으로 부분 문자열 필터. 예: kind='interface', pattern='ftdi' → interface/ftdi/tigard.cfg 등. openocd_start 의 interface_cfg/target_cfg 에 그대로 쓴다.
-- **`openocd_job_status(job_id, wait_seconds?)`** — [읽기전용]  
-  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`openocd_job_status(job_id, wait_seconds?, case_id?)`**  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 이 프로세스의 작업만 최대 50초 기다린다. case_id를 주면 해당 케이스의 저장 기록도 조회하고, 소유
 - **`openocd_job_cancel(job_id)`**  
   실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
-- **`openocd_jobs(active_only?)`** — [읽기전용]  
-  이 서버 프로세스의 백그라운드 작업 목록.
+- **`openocd_jobs(active_only?, case_id?)`**  
+  이 서버 프로세스의 백그라운드 작업 목록. case_id를 주면 해당 케이스에 저장된 이 서버의 기록을 최대 256개·8MiB·2초로 확인하며 잘림은 recovery에 표시한다. 소유 서버 종료가 확인된 활성 기록만 failed로 정리한다. owner 없는 과거 기록은 확인 불가로 표시하며 재개하지 않는다.
 
 ## pweh-sigrok
 
@@ -175,12 +175,12 @@
   순수 Python 오프라인 UART 보드레이트 추정 (.sr/.vcd, sigrok-cli 불필요). 펄스 폭 분포 → 비트 시간(근사 GCD) → 표준 보드레이트 (300~3000000, 1500000 포함)에 스냅, 8N1 프레임 검사로 T/2 모호성·idle 극성(반전 라인) 판정. 반환: baudrate, baudrate_raw, confidence(0~1), idle_level(1=
 - **`sigrok_uart_autodecode(case_id, input_path, channel?, baudrate?, data_bits?, parity?, max_preview_bytes?, engine?, background?, timeout_s?)`**  
   UART 자동 디코드: sigrok_estimate_baud 로 보드레이트/idle 극성을 추정한 뒤(또는 baudrate 지정) sigrok-cli uart 디코더(format=hex, 반전 시 invert_rx=yes)로 디코드해 ASCII 미리보기(text_preview), 16진 미리보기, 프레임 오류 수, 부트 로그 힌트(U-Boot 배너, autoboot 프롬프트, 커널 버전/cm
-- **`sigrok_job_status(job_id, wait_seconds?)`** — [읽기전용]  
-  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`sigrok_job_status(job_id, wait_seconds?, case_id?)`**  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 이 프로세스의 작업만 최대 50초 기다린다. case_id를 주면 해당 케이스의 저장 기록도 조회하고, 소유
 - **`sigrok_job_cancel(job_id)`**  
   실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
-- **`sigrok_jobs(active_only?)`** — [읽기전용]  
-  이 서버 프로세스의 백그라운드 작업 목록.
+- **`sigrok_jobs(active_only?, case_id?)`**  
+  이 서버 프로세스의 백그라운드 작업 목록. case_id를 주면 해당 케이스에 저장된 이 서버의 기록을 최대 256개·8MiB·2초로 확인하며 잘림은 recovery에 표시한다. 소유 서버 종료가 확인된 활성 기록만 failed로 정리한다. owner 없는 과거 기록은 확인 불가로 표시하며 재개하지 않는다.
 
 ## pweh-jtagulator
 
@@ -210,21 +210,21 @@
   핀아웃을 알 때 BYPASS 시험(JTAG 메뉴 'T'): TDI/TDO/TCK/TMS 로 체인 장치 수를 세고 32비트 무작위 패턴이 BYPASS 를 통해 그대로 돌아오는지(Match!) 확인한다 — 찾은 핀아웃 검증용. 주의: 24채널 전부를 출력 HIGH 로 만든 뒤 실행(MODIFY). 전압 설정 필요.
 - **`jtagulator_gpio_read(case_id, samples?, interval_ms?)`**  
   모든 채널의 논리 레벨 읽기(GPIO 메뉴 'R', 수동): 채널을 입력으로 두고 samples 번(간격 interval_ms) 읽어 채널별 레벨, LOW 로 고정된 채널, 표본 사이에 값이 바뀐(활동 있는) 채널을 보고한다. 타깃을 구동하지 않는 관찰 단계(레벨 변환기의 약한 풀업만). 전압 설정 필요. UART TXD 후보(유휴 HIGH, 송신 중 변화)나 GND/고정 신호를 빠르게 가늠
-- **`jtagulator_job_status(job_id, wait_seconds?)`** — [읽기전용]  
-  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`jtagulator_job_status(job_id, wait_seconds?, case_id?)`**  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 이 프로세스의 작업만 최대 50초 기다린다. case_id를 주면 해당 케이스의 저장 기록도 조회하고, 소유
 - **`jtagulator_job_cancel(job_id)`**  
   실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
-- **`jtagulator_jobs(active_only?)`** — [읽기전용]  
-  이 서버 프로세스의 백그라운드 작업 목록.
+- **`jtagulator_jobs(active_only?, case_id?)`**  
+  이 서버 프로세스의 백그라운드 작업 목록. case_id를 주면 해당 케이스에 저장된 이 서버의 기록을 최대 256개·8MiB·2초로 확인하며 잘림은 recovery에 표시한다. 소유 서버 종료가 확인된 활성 기록만 failed로 정리한다. owner 없는 과거 기록은 확인 불가로 표시하며 재개하지 않는다.
 
 ## pweh-fwtriage
 
-- **`fwtriage_job_status(job_id, wait_seconds?)`** — [읽기전용]  
-  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`fwtriage_job_status(job_id, wait_seconds?, case_id?)`**  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 이 프로세스의 작업만 최대 50초 기다린다. case_id를 주면 해당 케이스의 저장 기록도 조회하고, 소유
 - **`fwtriage_job_cancel(job_id)`**  
   실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
-- **`fwtriage_jobs(active_only?)`** — [읽기전용]  
-  이 서버 프로세스의 백그라운드 작업 목록.
+- **`fwtriage_jobs(active_only?, case_id?)`**  
+  이 서버 프로세스의 백그라운드 작업 목록. case_id를 주면 해당 케이스에 저장된 이 서버의 기록을 최대 256개·8MiB·2초로 확인하며 잘림은 recovery에 표시한다. 소유 서버 종료가 확인된 활성 기록만 failed로 정리한다. owner 없는 과거 기록은 확인 불가로 표시하며 재개하지 않는다.
 - **`fw_identify(case_id, path, offset?, length?, max_results?, include_nested?, max_seconds?, background?)`**  
   펌웨어/플래시 덤프 시그니처 스캔(헤더 검증으로 오탐 억제): uImage(헤더·데이터 CRC), FIT/DTB, squashfs(v1~4, 벤더 매직), jffs2(노드 CRC), UBI/UBIFS(CRC, 볼륨 이름), cramfs/romfs/erofs/ext2·3·4, gzip/xz/lzma/bzip2(시험 해제로 정확한 크기), zstd/lz4(프레임 검증), ELF, cpio, AR
 - **`fw_entropy(case_id, path, block_size?, offset?, length?, high_threshold?, annotate?, max_results?, max_seconds?, background?)`**  
@@ -282,21 +282,21 @@
   보안 설정 조회 (esptool get-security-info, MODIFY: 리셋으로 ROM 다운로드 모드 진입, 쓰기 없음, 케이스 소유/허가 증명 필요). 반환: status('ok' | 'unsupported'), secure_boot, flash_encryption(SPI_BOOT_CRYPT_CNT 홀수 비트=켜짐), crypt_cnt, secure_download_mode(플래그
 - **`esp_read_flash_start(case_id, port, chip?, offset?, size?, output_name?, baud?, verify?, before?, after?, no_stub?, timeout_s?, approval_id?)`**  
   플래시 덤프 작업 시작 (esptool read-flash, job, MODIFY: 리셋으로 ROM 다운로드 모드 진입 + RAM 스텁, 플래시/eFuse 쓰기 없음, 케이스 소유/허가 증명 필요). 방법 A: port='COM3' 이면 Windows esptool.exe 가 wslpath 로 바꾼 경로에 바로 쓴다. offset(정수/'0x..'), size('all'=감지 크기(offse
-- **`esp_job_status(job_id, wait_seconds?)`** — [읽기전용]  
-  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`esp_job_status(job_id, wait_seconds?, case_id?)`**  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 이 프로세스의 작업만 최대 50초 기다린다. case_id를 주면 해당 케이스의 저장 기록도 조회하고, 소유
 - **`esp_job_cancel(job_id)`**  
   실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
-- **`esp_jobs(active_only?)`** — [읽기전용]  
-  이 서버 프로세스의 백그라운드 작업 목록.
+- **`esp_jobs(active_only?, case_id?)`**  
+  이 서버 프로세스의 백그라운드 작업 목록. case_id를 주면 해당 케이스에 저장된 이 서버의 기록을 최대 256개·8MiB·2초로 확인하며 잘림은 recovery에 표시한다. 소유 서버 종료가 확인된 활성 기록만 failed로 정리한다. owner 없는 과거 기록은 확인 불가로 표시하며 재개하지 않는다.
 
 ## pweh-forensics
 
-- **`forensics_job_status(job_id, wait_seconds?)`** — [읽기전용]  
-  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초).
+- **`forensics_job_status(job_id, wait_seconds?, case_id?)`**  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 이 프로세스의 작업만 최대 50초 기다린다. case_id를 주면 해당 케이스의 저장 기록도 조회하고, 소유
 - **`forensics_job_cancel(job_id)`**  
   실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
-- **`forensics_jobs(active_only?)`** — [읽기전용]  
-  이 서버 프로세스의 백그라운드 작업 목록.
+- **`forensics_jobs(active_only?, case_id?)`**  
+  이 서버 프로세스의 백그라운드 작업 목록. case_id를 주면 해당 케이스에 저장된 이 서버의 기록을 최대 256개·8MiB·2초로 확인하며 잘림은 recovery에 표시한다. 소유 서버 종료가 확인된 활성 기록만 failed로 정리한다. owner 없는 과거 기록은 확인 불가로 표시하며 재개하지 않는다.
 - **`forensics_image_hints(case_id, evidence_id, partition?, ref?, path?, method?, ocr?, ocr_lang?, qr?, preview?, crop?, max_seconds?)`**  
   증거의 정지이미지 1개를 오프라인 분석한다(소유/허가·보관 기록·open_checked 무결성 검사 필수). ref 또는 path 로 FAT/exFAT·TAR/ZIP 파일 1개를 선택한다(동시 지정 금지); 둘 다 없으면 EV 자체를 정지이미지로 읽는다. 삭제 파일은 ref 와 복구 method(auto 기본)로 선택하며 방법·신뢰도·완전성을 출처에 기록한다. 불완전한 파일은 거부한다. 최대
 - **`forensics_intake_start(case_id, image_path, purpose, legal_basis, site_type, business_purpose, role, imaging_log_path?, label?, verify_copy?, storage?)`**  

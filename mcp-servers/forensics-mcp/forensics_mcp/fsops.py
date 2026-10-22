@@ -808,7 +808,8 @@ def read_selected_image(img: ImageReader, *, partition: int | None, ref: str | N
 
 def extract_entries(vol: Any, entries: Iterable[dict[str, Any]], out_dir_fd: int, *, method: str, region: str, max_bytes_total: int,
                     max_files: int, limits: Limits | None = None, deadline: float | None = None,
-                    cancel: Callable[[], bool] | None = None) -> dict[str, Any]:
+                    cancel: Callable[[], bool] | None = None,
+                    seals: dict[str, os.stat_result] | None = None) -> dict[str, Any]:
     """항목들의 내용을 출력 디렉터리 fd 안에 0444 파일로 쓴다(O_CREAT|O_EXCL|O_NOFOLLOW, 실행 비트·링크 없음, fd 로 fchmod).
     반환: {files:[…], skipped:[…], bytes_total, truncated, truncated_reasons}.
 
@@ -897,6 +898,9 @@ def extract_entries(vol: Any, entries: Iterable[dict[str, Any]], out_dir_fd: int
         finally:
             try:
                 os.fchmod(fd, 0o444)
+                if seals is not None:
+                    from .outputs import seal_file
+                    seals[name] = seal_file(out_dir_fd, name, fd)
             finally:
                 os.close(fd)
         total += n
@@ -987,7 +991,8 @@ def read_selected_file(fd: int, *, partition: int | None = None, ref: str | None
 
 
 def extract_archive(fd: int, refs: list[str], paths: list[str], out_dir_fd: int, *, max_files: int,
-                    max_bytes_total: int, deadline: float, cancel: Callable[[], bool]) -> dict[str, Any]:
+                    max_bytes_total: int, deadline: float, cancel: Callable[[], bool],
+                    seals: dict[str, os.stat_result] | None = None) -> dict[str, Any]:
     """선택한 아카이브 멤버를 평평한 생성 이름으로만 쓴다. CRC 실패·불완전 멤버는 파일을 지운다."""
     from pweh.archive import Archive
     arc = Archive(fd, deadline=deadline, cancel=cancel)
@@ -1020,6 +1025,9 @@ def extract_archive(fd: int, refs: list[str], paths: list[str], out_dir_fd: int,
                 size += len(blob)
             os.fchmod(out, 0o444)
             os.fsync(out)
+            if seals is not None:
+                from .outputs import seal_file
+                seals[name] = seal_file(out_dir_fd, name, out)
             complete = True
         except FsError as exc:
             reasons.add(exc.reason)

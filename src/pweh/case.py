@@ -20,11 +20,10 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
-import shutil
+import stat
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -274,36 +273,69 @@ class Case:
         self.audit({"event": "artifact_registered", "artifact": result})
         return result
 
-    def import_file(self, src: str | Path, dest_subdir: str, *, kind: str, producer: str, description: str | None = None) -> dict[str, Any]:
+    def import_file(self, src: str | Path, dest_subdir: str, *, kind: str, producer: str, description: str | None = None,
+                    source_fd: int | None = None) -> dict[str, Any]:
         """케이스 밖의 파일(예: 공식 펌웨어 다운로드)을 케이스로 복사 후 등록.
 
-        대상 파일은 O_CREAT|O_EXCL 로 새로 만든다. 같은 이름의 파일이나 심볼릭 링크(끊어진 링크 포함)가 있으면 거부한다
-        — 링크를 따라 케이스 밖에 쓰지 않게. 복사하면서 sha256 을 계산해 아티팩트에 싣는다(파일을 다시 읽지 않음).
+        원본은 한 번 연 일반 파일 fd 에서 복사·해시한다. source_fd 는 호출자가 경로 가드를 끝낸 fd 이며
+        여기서는 복제본만 닫는다. src 는 그 경우 이름·출처 표시용이고 다시 해석하거나 열지 않는다.
+        원본 하드 링크는 거부하고, 대상은 디렉터리 fd 안에 O_EXCL 로 만든다(기존 파일·끊어진 링크도 거부).
         """
-        srcp = Path(src).expanduser().resolve()
-        if not srcp.is_file():
-            raise NotFound(f"가져올 파일이 없습니다: {srcp}")
-        dst_dir = self.subdir(dest_subdir)
-        dst = dst_dir / srcp.name
+        srcp = Path(os.path.abspath(Path(src).expanduser())) if source_fd is not None else Path(src).expanduser().resolve()
         try:
-            fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-        except FileExistsError:
-            raise CaseError(f"이미 같은 이름의 파일이 있습니다: {self.rel(dst)}") from None
-        digest = hashlib.sha256()
+            if source_fd is None:
+                inp, st = safeio.open_regular(srcp, what="가져올 파일", reject_hardlinks=True)
+            else:
+                inp = os.dup(source_fd)
+                try:
+                    st = os.fstat(inp)
+                    if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
+                        raise safeio.UnsafeFile("가져올 파일은 하드 링크가 없는 일반 파일이어야 합니다.")
+                except BaseException:
+                    os.close(inp)
+                    raise
+        except FileNotFoundError:
+            raise NotFound(f"가져올 파일이 없습니다: {srcp}") from None
+        except safeio.UnsafeFile as exc:
+            raise ValidationFailed(exc.message) from exc
         try:
-            with os.fdopen(fd, "wb") as out, srcp.open("rb") as inp:
-                while True:
-                    block = inp.read(1 << 20)
-                    if not block:
-                        break
-                    digest.update(block)
-                    out.write(block)
-            shutil.copystat(srcp, dst, follow_symlinks=False)
-        except BaseException:
-            dst.unlink(missing_ok=True)  # 방금 O_EXCL 로 만든 파일만 지운다(복사 실패·취소 때 잘린 파일을 남기지 않게)
-            raise
+            dst_dir = self.subdir(dest_subdir)
+            dst = dst_dir / srcp.name
+            dfd = safeio.open_dir_chain(self.dir, dst_dir.relative_to(self.dir).parts)
+            try:
+                try:
+                    out = safeio.create_excl(dfd, srcp.name)
+                except FileExistsError:
+                    raise CaseError(f"이미 같은 이름의 파일이 있습니다: {self.rel(dst)}") from None
+                made = os.fstat(out)
+                try:
+                    digest = safeio.hash_fd(inp, st.st_size, algorithms=("sha256",), out_fd=out)["sha256"]
+                    after = os.fstat(inp)
+                    if after.st_nlink != 1 or (after.st_size, after.st_mtime_ns) != (st.st_size, st.st_mtime_ns):
+                        raise safeio.UnsafeFile("가져올 파일의 크기·수정 시각·링크 수가 복사 중 바뀌었습니다.")
+                    # 경로를 다시 읽는 copystat 대신 처음 고정한 원본의 속성만 쓴다.
+                    os.fchmod(out, stat.S_IMODE(st.st_mode))
+                    os.utime(out, ns=(st.st_atime_ns, st.st_mtime_ns))
+                    named = os.stat(srcp.name, dir_fd=dfd, follow_symlinks=False)
+                    if not safeio.same_file(named, made) or named.st_nlink != 1:
+                        raise safeio.UnsafeFile("가져온 파일의 이름이 복사 중 바뀌었습니다.")
+                except BaseException:
+                    # 다른 파일로 교체된 이름은 지우지 않는다.
+                    try:
+                        named = os.stat(srcp.name, dir_fd=dfd, follow_symlinks=False)
+                        if safeio.same_file(named, made):
+                            os.unlink(srcp.name, dir_fd=dfd)
+                    except FileNotFoundError:
+                        pass
+                    raise
+                finally:
+                    os.close(out)
+            finally:
+                os.close(dfd)
+        finally:
+            os.close(inp)
         return self.register_artifact(dst, kind=kind, producer=producer, description=description, extra={"imported_from": str(srcp)},
-                                      sha256=digest.hexdigest())
+                                      sha256=digest)
 
     def artifacts(self, kind: str | None = None) -> list[dict[str, Any]]:
         arts = self.load().get("artifacts", [])

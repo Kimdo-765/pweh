@@ -189,7 +189,7 @@ def _recorded_artifacts(case: Any, evidence_id: str, path: str, entries: list[di
         raise ValidationFailed("분석 JSON 크기가 허용 범위가 아닙니다.")
     dfd = E.open_forensics(case, "analysis")
     try:
-        raw = safeio.read_regular(path[len(prefix):], dir_fd=dfd, max_bytes=MAX_ANALYSIS_BYTES, what="기록된 앱 분석")
+        raw = safeio.read_regular(path[len(prefix):], dir_fd=dfd, max_bytes=MAX_ANALYSIS_BYTES, what="기록된 앱 분석", reject_hardlinks=True)
     finally:
         os.close(dfd)
     if len(raw) != record["size"] or hashlib.sha256(raw).hexdigest() != record.get("sha256"):

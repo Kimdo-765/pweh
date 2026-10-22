@@ -112,8 +112,8 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 > 접수 아티팩트 kind는 사본의 `evidence-image`와 참조 기록의 `evidence-reference`다(추출물은 매니페스트로 센다). 발견사항 카테고리 `insecure-storage`·`privacy` 는 아직 없다. D의 `pweh-fwtriage` raw GPT 분할은 `pweh.fs`의 파티션 파서를 재사용한다(증거 파일 시스템 접근은 아님).
 > 남음: F2 — CCTV 형식(프레임 카버·인덱스·이름 규칙), 카빙, 녹화 인덱스 타임라인, §5.2 의 카드 쪽 비밀 스캔·암호화 판정·침해 흔적 대조(지금은 `fw_sd_surface` 의 `sd_paths_referenced` 를 `forensics_fs_list` 목록과 대조한다), E01·외부 도구(TSK·PhotoRec·ewf·ffprobe).
 > F3 — ext4(NTFS 목록도 없음), Windows 원시 읽기 헬퍼, 영상 내보내기. 장치에서 카드 식별 정보 읽기(sysfs cid/csd)도 아직 없다.
-> 검토에서 남긴 보강(지금은 safety.md §3.6 의 알려진 한계): 만든 출력 이름의 dev·ino 재확인, `pweh.safeio` 의 중간 디렉터리 고정, 출처 원장이 접수 기록을 `pweh.safeio` 로 읽기, 강제 종료 뒤 job 기록 정리,
-> 동기 도구의 취소, 하드 링크 감지, FAT32 디렉터리의 교차 연결 검사.
+> 유지보수 보강 구현: 출력 커밋 전 신원 재확인, `pweh.safeio`의 중간 디렉터리 고정, 출처 원장의 안전한 접수 기록 읽기, 지정 케이스의 종료된 job 기록 정리,
+> 동기 해석의 요청 취소, 증거 경계의 하드링크 거부, FAT12/16/32 디렉터리 교차 연결 검사. 같은 계정 경합·부분 FAT 색인 등 남은 범위는 safety.md §3.6에 적는다.
 
 ## 5. 보안 분석
 

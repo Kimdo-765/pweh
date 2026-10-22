@@ -59,9 +59,15 @@ class Runtime:
         if not job.case_id:
             return self.config.state_dir / "jobs"
         try:
-            return self.cases.get(job.case_id).subdir("jobs")
+            return self.cases.get(job.case_id).dir / "jobs"
         except Exception:
             return self.config.state_dir / "jobs"
+
+    def job_records(self, case_id: str, *, job_id: str | None = None,
+                    active_only: bool = False) -> dict[str, Any]:
+        """명시한 케이스의 저장 작업만 지연 확인한다. 전체 케이스를 훑지 않는다."""
+        case = self.case(case_id)
+        return self.jobs.saved(case.dir, case.id, job_id=job_id, active_only=active_only)
 
     def audit(self, event: dict[str, Any], case_id: str | None = None) -> None:
         ev = {"server": self.server, **event}

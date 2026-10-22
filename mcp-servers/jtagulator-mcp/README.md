@@ -32,7 +32,15 @@
 | `jtagulator_gpio_read(case_id, samples=1, interval_ms=100)` | INTERACT(수동) | GPIO `R`: 24채널 레벨, LOW 고정 채널, 표본 사이 변화(활동) 채널 |
 | `jtagulator_get_device_ids(case_id, tdo, tck, tms)` | MODIFY | JTAG `D`: 지정 핀으로 IDCODE 상세 |
 | `jtagulator_bypass_test(case_id, tdi, tdo, tck, tms)` | MODIFY | JTAG `T`: BYPASS 패턴 일치 여부(핀아웃 검증) |
-| `jtagulator_job_status(job_id, wait_seconds=0)` / `jtagulator_job_cancel(job_id)` / `jtagulator_jobs()` | – | 스캔 작업 폴링·취소 |
+| `jtagulator_job_status(job_id, wait_seconds=0, case_id=None)` / `jtagulator_job_cancel(job_id)` / `jtagulator_jobs(active_only=False, case_id=None)` | – | 스캔 작업 폴링·취소 |
+
+작업 상태·목록의 `case_id`를 생략하면 이 서버 프로세스의 작업만 보인다. 재시작 뒤에는
+`jtagulator_job_status(job_id, case_id="<케이스 ID>")` 또는 `jtagulator_jobs(case_id="<케이스 ID>")`로 같은 서버의 저장 기록을 확인한다.
+소유 서버 종료가 확실한 활성 기록만 `failed`(`error.code=job_owner_terminated`)로 정리한다. 소유자 없는 과거 기록·다른 호스트/namespace·관찰 불가는
+원본 상태를 보존하고 `recovery.owner_state="unknown"`과 사유를 표시한다. 살아 있는 다른 서버 프로세스의 기록도 보존한다.
+원시 owner 식별자는 응답에 나오지 않는다. 저장 기록의 재개/취소는 없고, `wait_seconds`는 이 프로세스의 작업만 기다린다.
+한 기록 1MiB, 목록 512디렉터리 항목·256기록·누적 8MiB·2초로 제한하며 목록의 `recovery.truncated/reasons`가 확인하지 못한 범위를 알린다.
+이 두 도구는 로컬 기록을 정리하므로 `readOnlyHint=false`다. 파일·기기·외부 자식의 정리 여부는 별도로 확인한다.
 
 스캔 공통 옵션: `pins_low`(순열마다 채널을 LOW 로 내렸다 올림, 타깃 리셋용), `pins_low_ms`/`pins_high_ms`(1–1000),
 `idle_timeout_seconds`(장치 출력이 이 시간 동안 없으면 중단), `max_duration_seconds`(전체 시간 제한), `approval_id`

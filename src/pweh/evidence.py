@@ -401,9 +401,9 @@ def _open_source(raw: str, real: Path, what: str) -> tuple[int, os.stat_result]:
     if not stat.S_ISREG(lst.st_mode):
         raise ValidationFailed(f"일반 파일이 아닙니다 (장치·FIFO·소켓은 읽지 않습니다): {raw}")
     try:
-        return safeio.open_regular(real, what=what)
+        return safeio.open_regular(real, expect=lst, what=what, reject_hardlinks=True)
     except UnsafeFile as exc:
-        raise ValidationFailed(f"{what} 파일이 확인하는 동안 바뀌었거나 일반 파일이 아닙니다: {raw}",
+        raise ValidationFailed(f"{what} 파일을 안전하게 열 수 없습니다: {exc.message}",
                                hint="원본을 다른 프로그램이 바꾸지 않는지 확인하고 다시 접수하세요.") from exc
     except OSError as exc:
         raise ValidationFailed(f"{what} 파일을 열 수 없습니다: {raw} ({exc.strerror or exc})") from exc
@@ -479,7 +479,7 @@ def fingerprint_fd(fd: int, st: os.stat_result) -> dict[str, Any]:
 
 def fingerprint(path: Path) -> dict[str, Any]:
     """빠른 지문 (경로를 safeio.open_regular 로 열어 fd 로 읽는다). 내용 도구는 open_checked 의 fd 로 확인한다."""
-    fd, st = safeio.open_regular(path, what="증거 사본")
+    fd, st = safeio.open_regular(path, what="증거 사본", reject_hardlinks=True)
     try:
         return fingerprint_fd(fd, st)
     finally:
@@ -488,6 +488,8 @@ def fingerprint(path: Path) -> dict[str, Any]:
 
 def fingerprint_problems_fd(expected: dict[str, Any], fd: int, st: os.stat_result, *, require_readonly_mode: bool = True) -> list[str]:
     """보관 기록(접수 때)의 지문과 연 fd 의 지금 지문을 비교한다. 문제 목록(비어 있으면 일치)."""
+    if st.st_nlink != 1:
+        return ["증거 파일의 하드 링크 수가 1이 아님"]
     try:
         now = fingerprint_fd(fd, st)
     except OSError as exc:
@@ -502,7 +504,7 @@ def fingerprint_problems_fd(expected: dict[str, Any], fd: int, st: os.stat_resul
 def fingerprint_problems(expected: dict[str, Any], path: Path) -> list[str]:
     """접수 때 지문과 지금 파일을 비교한다 (경로를 안전하게 열어 fd 로). 열 수 없거나 일반 파일이 아니면 그것이 문제다."""
     try:
-        fd, st = safeio.open_regular(path, what="증거 사본")
+        fd, st = safeio.open_regular(path, what="증거 사본", reject_hardlinks=True)
     except UnsafeFile as exc:
         return [f"일반 파일이 아님: {exc.message}"]
     except OSError as exc:
@@ -741,7 +743,7 @@ class CustodyLog:
         if afd is None:
             return b"", None
         try:
-            return safeio.read_regular(f"{self.case.id}.jsonl", dir_fd=afd, max_bytes=ANCHOR_MAX, what="고정점"), None
+            return safeio.read_regular(f"{self.case.id}.jsonl", dir_fd=afd, max_bytes=ANCHOR_MAX, what="고정점", reject_hardlinks=True), None
         except FileNotFoundError:
             return b"", None
         except PwehError as exc:  # UnsafeFile·너무 큼
@@ -775,7 +777,7 @@ class CustodyLog:
     # -- 읽기 ----------------------------------------------------------------
     def _read_custody_raw(self, ffd: int) -> tuple[bytes, str | None]:
         try:
-            return safeio.read_regular(CUSTODY_FILE, dir_fd=ffd, max_bytes=CUSTODY_MAX, what="보관 기록"), None
+            return safeio.read_regular(CUSTODY_FILE, dir_fd=ffd, max_bytes=CUSTODY_MAX, what="보관 기록", reject_hardlinks=True), None
         except FileNotFoundError:
             return b"", None
         except PwehError as exc:  # UnsafeFile(장치·FIFO·링크)·너무 큼
@@ -981,6 +983,8 @@ def check_reference_fd(fd: int, path: Path, roots: Any) -> None:
     """제자리 참조는 현재 허용 폴더·열린 실제 파일 경로·읽기 전용 마운트가 모두 맞아야 한다."""
     if callable(roots):
         roots = roots()
+    if os.fstat(fd).st_nlink != 1:
+        raise EvidenceError("참조 파일의 하드 링크 수가 1이 아닙니다.", code="reference_unavailable")
     actual = safeio.fd_real_path(fd)
     p = Path(os.path.abspath(path))
     if actual is None or Path(actual) != p or not isinstance(roots, (list, tuple)):
@@ -1006,7 +1010,7 @@ def open_reference(path: str | Path, roots: Any) -> tuple[int, os.stat_result]:
     try:
         parent = safeio.open_dir_chain("/", p.parts[1:-1])
         try:
-            fd, st = safeio.open_regular(p.name, dir_fd=parent, what="참조 이미지")
+            fd, st = safeio.open_regular(p.name, dir_fd=parent, what="참조 이미지", reject_hardlinks=True)
         finally:
             os.close(parent)
         check_reference_fd(fd, p, value)
@@ -1048,7 +1052,7 @@ def validate_record(case: Case, evidence_id: str, raw: bytes) -> dict[str, Any]:
 def read_record_at(case: Case, evidence_id: str, ev_fd: int) -> tuple[dict[str, Any], bytes]:
     """EV 디렉터리 fd 에서 접수 기록을 안전하게 읽는다 → (기록, 원래 바이트). 없으면 FileNotFoundError."""
     try:
-        raw = safeio.read_regular(f"{evidence_id}.json", dir_fd=ev_fd, max_bytes=RECORD_MAX, what="접수 기록")
+        raw = safeio.read_regular(f"{evidence_id}.json", dir_fd=ev_fd, max_bytes=RECORD_MAX, what="접수 기록", reject_hardlinks=True)
     except FileNotFoundError:
         raise
     except PwehError as exc:
@@ -1203,7 +1207,7 @@ def open_checked(case: Case, evidence_id: str, entries: list[dict[str, Any]], *,
             if is_reference:
                 fd, fst = open_reference(rec["reference"]["path"], reference_roots)
             else:
-                fd, fst = safeio.open_regular(name, dir_fd=ev_fd, what="증거 사본")
+                fd, fst = safeio.open_regular(name, dir_fd=ev_fd, what="증거 사본", reject_hardlinks=True)
         except FileNotFoundError:
             raise IntegrityProblem(f"증거 사본이 없습니다({evidence_id}).", reason="stored-copy-missing", problems=["사본 없음"]) from None
         except UnsafeFile as exc:

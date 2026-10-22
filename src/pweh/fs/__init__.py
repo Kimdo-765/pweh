@@ -87,7 +87,7 @@ def open_volume(src: Any, *, limits: Limits | None = None, fs_hint: str | None =
 
 
 @guard
-def analyze_image(src: Any, *, limits: Limits | None = None) -> dict[str, Any]:
+def analyze_image(src: Any, *, limits: Limits | None = None, budget: Budget | None = None) -> dict[str, Any]:
     """파티션 구조 + 지원하는 파티션마다 볼륨 정보(info). src 는 Source 또는 경로. 목록·복구는 하지 않는다(빠름).
 
     호출 전체가 예산 하나(``Budget.for_limits(lim)`` — 시간은 limits.max_seconds, 단계 상한은 limits.max_follow_steps 가 정수면 그 값이고
@@ -104,7 +104,7 @@ def analyze_image(src: Any, *, limits: Limits | None = None) -> dict[str, Any]:
         own = True
     try:
         lim = limits or Limits()
-        budget = Budget.for_limits(lim)
+        budget = budget or Budget.for_limits(lim)
         layout = detect_partitions(src, limits=lim)
         vols = []
         seen: dict[tuple[int, int], Any] = {}

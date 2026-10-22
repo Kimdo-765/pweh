@@ -169,13 +169,27 @@ def register_job_tools(server: MCPServer, runtime_getter: Callable[[], Any], pre
         description=(
             "백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), "
             "progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. "
-            "wait_seconds>0 이면 최대 그 시간만큼 완료를 기다린다(최대 50초)."
+            "wait_seconds>0 이면 이 프로세스의 작업만 최대 50초 기다린다. "
+            "case_id를 주면 해당 케이스의 저장 기록도 조회하고, 소유 서버 종료가 확인된 활성 기록만 failed로 정리한다. "
+            "생존 확인 불가는 상태를 유지하고 recovery에 표시한다. 저장 기록은 재개/취소하지 않는다."
         ),
-        annotations=ANN_READ_ONLY,
+        annotations=ANN_LOCAL_WRITE,
     )
     @safe_tool
-    async def job_status(job_id: str, wait_seconds: float = 0.0) -> dict[str, Any]:
+    async def job_status(job_id: str, wait_seconds: float = 0.0, case_id: str | None = None) -> dict[str, Any]:
         rt = runtime_getter()
+        if case_id is not None:
+            records = await run_blocking(rt.job_records, case_id, job_id=job_id)
+            # 저장 기록은 wait에 넘기지 않는다. 메모리 작업만 기존 대기 계약을 따른다.
+            row = records["jobs"][0]
+            if row.get("recovery") is not None:
+                return {"ok": True, **row}
+            try:
+                live = rt.jobs.get(job_id)
+            except PwehError:
+                return {"ok": True, **row}
+            if live.case_id != case_id:
+                return {"ok": True, **row}
         job = rt.jobs.get(job_id)
         wait = max(0.0, min(float(wait_seconds), 50.0))
         if wait and job.status in ("queued", "running", "cancelling"):
@@ -196,12 +210,16 @@ def register_job_tools(server: MCPServer, runtime_getter: Callable[[], Any], pre
 
     @server.tool(
         name=f"{prefix}_jobs",
-        description="이 서버 프로세스의 백그라운드 작업 목록.",
-        annotations=ANN_READ_ONLY,
+        description=("이 서버 프로세스의 백그라운드 작업 목록. case_id를 주면 해당 케이스에 저장된 이 서버의 기록을 "
+                     "최대 256개·8MiB·2초로 확인하며 잘림은 recovery에 표시한다. 소유 서버 종료가 확인된 활성 기록만 "
+                     "failed로 정리한다. owner 없는 과거 기록은 확인 불가로 표시하며 재개하지 않는다."),
+        annotations=ANN_LOCAL_WRITE,
     )
     @safe_tool
-    def jobs(active_only: bool = False) -> dict[str, Any]:
+    def jobs(active_only: bool = False, case_id: str | None = None) -> dict[str, Any]:
         rt = runtime_getter()
+        if case_id is not None:
+            return {"ok": True, **rt.job_records(case_id, active_only=active_only)}
         return {"ok": True, "jobs": rt.jobs.list(active_only=active_only)}
 
 

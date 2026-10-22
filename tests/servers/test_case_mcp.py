@@ -521,3 +521,98 @@ def test_pweh_report_compares_custody_with_the_anchor(workspace, auth, monkeypat
     monkeypatch.setattr(cli, "_runtime", lambda: rt)
     assert cli.cmd_report(argparse.Namespace(case_id=case.id)) == 0
     assert seen["anchor"] == Path(rt.config.state_dir) / "custody"
+
+
+async def test_case_file_tools_refuse_hardlink_aliases(workspace, auth, tmp_path):
+    """증거·상태·콘솔 파일의 하드 링크 별칭은 가져오기·해시·파일 등록 모두 읽기 전에 거부한다."""
+    from case_mcp.server import server
+    from pweh.runtime import get_runtime
+
+    async with Client(server) as client:
+        cid = (await call(client, "case_create", title="합성 하드 링크", authorization=auth))["case"]["id"]
+        case = get_runtime("case-mcp").cases.get(cid)
+        for index, directory in enumerate((case.dir / "forensics", case.dir / "emu", workspace["state_dir"] / "synthetic")):
+            directory.mkdir(exist_ok=True)
+            source = directory / "source.bin"
+            source.write_bytes(b"PWEH SYNTHETIC protected")
+            alias = case.dir / "dumps" / f"alias-{index}.bin"
+            imported = tmp_path / f"import-{index}.bin"
+            os.link(source, alias)
+            os.link(source, imported)
+            for name, kwargs in (
+                ("case_hash_file", {"path": case.rel(alias)}),
+                ("case_register_artifact", {"path": case.rel(alias), "kind": "other"}),
+                ("case_import_file", {"source_path": str(imported)}),
+            ):
+                result = await call(client, name, case_id=cid, **kwargs)
+                assert "하드 링크" in result.get("_error", ""), result
+        assert case.artifacts() == []
+
+
+@pytest.mark.parametrize("protected", ["state", "forensics", "emu"])
+async def test_case_import_rechecks_opened_fd_after_parent_swap(workspace, auth, tmp_path, monkeypatch, protected):
+    """선행 경로 검사 뒤 중간 폴더가 보호 폴더 링크로 바뀌어도 실제 fd 경로 검사에서 거부한다."""
+    from pathlib import Path
+
+    from case_mcp import server as S
+    from pweh.runtime import get_runtime
+
+    async with Client(S.server) as client:
+        cid = (await call(client, "case_create", title="합성 원본 교체", authorization=auth))["case"]["id"]
+        case = get_runtime("case-mcp").cases.get(cid)
+        parent = tmp_path / "input"
+        parent.mkdir()
+        source = parent / "source.bin"
+        source.write_bytes(b"PWEH SYNTHETIC original")
+        target = workspace["state_dir"] / "synthetic" if protected == "state" else case.dir / protected
+        target.mkdir(exist_ok=True)
+        (target / source.name).write_bytes(b"PWEH SYNTHETIC protected")
+        real_open = S.safeio.open_regular
+        swapped = False
+
+        def swap(path, **kwargs):
+            nonlocal swapped
+            if Path(path) == source and not swapped:
+                swapped = True
+                parent.rename(tmp_path / "saved-input")
+                parent.symlink_to(target, target_is_directory=True)
+            return real_open(path, **kwargs)
+
+        monkeypatch.setattr(S.safeio, "open_regular", swap)
+        result = await call(client, "case_import_file", case_id=cid, source_path=str(source))
+        assert protected in result.get("_error", ""), result
+        assert list((case.dir / "dumps").iterdir()) == []
+        assert case.artifacts() == []
+
+
+async def test_case_import_macos_getpath_and_unknown_fd_path(workspace, auth, tmp_path, monkeypatch):
+    """Darwin 의 F_GETPATH 결과로 정상 가져오기하고, 실제 경로 조회 실패 때는 복사하지 않는다."""
+    from types import SimpleNamespace
+
+    from case_mcp import server as S
+    from pweh.runtime import get_runtime
+
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"PWEH SYNTHETIC macOS")
+    async with Client(S.server) as client:
+        cid = (await call(client, "case_create", title="합성 macOS", authorization=auth))["case"]["id"]
+        real_fcntl = S.safeio.fcntl.fcntl
+
+        def getpath(fd, command, arg=0):
+            if command == 50:
+                assert arg == bytes(1024)
+                return os.fsencode(os.readlink(f"/proc/self/fd/{fd}")) + b"\0"
+            return real_fcntl(fd, command, arg)
+
+        monkeypatch.setattr(S.safeio, "sys", SimpleNamespace(platform="darwin"))
+        monkeypatch.setattr(S.safeio.fcntl, "fcntl", getpath)
+        result = await call(client, "case_import_file", case_id=cid, source_path=str(source))
+        assert result.get("ok"), result
+        case = get_runtime("case-mcp").cases.get(cid)
+        assert (case.dir / result["artifact"]["path"]).read_bytes() == source.read_bytes()
+        monkeypatch.setattr(S.safeio, "fd_real_path", lambda fd: None)
+        second = tmp_path / "unknown.bin"
+        second.write_bytes(b"PWEH SYNTHETIC unknown path")
+        result = await call(client, "case_import_file", case_id=cid, source_path=str(second))
+        assert "경로를 확인할 수 없어" in result.get("_error", ""), result
+        assert not (case.dir / "dumps/unknown.bin").exists()

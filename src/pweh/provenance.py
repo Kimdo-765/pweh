@@ -34,6 +34,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from . import safeio
 from .case import CASE_ID_RE, Case
 from .errors import PwehError, ValidationFailed
 from .fsutil import atomic_write_bytes, file_lock, sha256_file, utcnow_iso
@@ -234,10 +235,37 @@ class ProvenanceLedger:
         if not isinstance(case, Case):
             raise ValidationFailed("provenance 기록에는 Case 객체가 필요합니다.")
         p = case.resolve_path(path)
-        if not p.is_file():
-            raise ValidationFailed(f"출처를 기록할 파일이 없습니다: {case.rel(p)}")
         src = _check_source(source)
-        actual = sha256_file(p)
+        rel = p.relative_to(case.dir.resolve())
+        given = Path(path)
+        if given.is_absolute():
+            try:
+                given = given.relative_to(case.dir)
+            except ValueError:
+                given = rel
+        evidence_record = bool(given.parts and given.parts[0] == "forensics")
+        if evidence_record:
+            rel = given
+        # 접수 기록은 케이스 fd 아래의 링크 없는 경로로 연다. 해시와 크기는 같은 fd 에서 얻는다.
+        try:
+            parent = safeio.open_dir_chain(case.dir, rel.parts[:-1])
+        except FileNotFoundError as exc:
+            raise ValidationFailed(f"출처를 기록할 파일이 없습니다: {rel}") from exc
+        try:
+            fd, st = safeio.open_regular(rel.name, dir_fd=parent, what="출처 산출물", reject_hardlinks=evidence_record)
+            try:
+                actual = safeio.hash_fd(fd, st.st_size, algorithms=("sha256",))["sha256"]
+                after = os.fstat(fd)
+                named = os.lstat(rel.name, dir_fd=parent)
+                if (not safeio.same_file(st, named) or (st.st_size, st.st_mtime_ns, st.st_ctime_ns) !=
+                        (after.st_size, after.st_mtime_ns, after.st_ctime_ns) or (evidence_record and after.st_nlink != 1)):
+                    raise ProvenanceError("출처를 계산하는 동안 파일이 바뀌었습니다.", code="provenance_sha256_mismatch")
+            finally:
+                os.close(fd)
+        except FileNotFoundError as exc:
+            raise ValidationFailed(f"출처를 기록할 파일이 없습니다: {rel}") from exc
+        finally:
+            os.close(parent)
         if sha256 is not None and _check_sha256(sha256) != actual:
             raise ProvenanceError(
                 f"파일 내용이 읽을 때 계산한 해시와 다릅니다: {case.rel(p)} (기대 {sha256}, 지금 {actual})",
@@ -245,9 +273,9 @@ class ProvenanceLedger:
             )
         return {
             "kind": kind,
-            "path": case.rel(p),
+            "path": str(rel),
             "sha256": actual,
-            "size": p.stat().st_size,
+            "size": st.st_size,
             "source": src,
             "attestation_id": attestation_id,
             "extra": _json_value(extra or {}, "provenance extra"),

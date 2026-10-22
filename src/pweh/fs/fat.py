@@ -20,9 +20,11 @@
   조합(볼륨 레이블+디렉터리 금지, 레이블은 루트에만·클러스터와 크기 0), 8.3 이름 바이트(" * . / : < > ? \\ | 와 제어 문자 금지,
   2바이트 코드 페이지의 둘째 바이트로는 \\ | 허용; + , ; = [ ] 는 Linux msdos 드라이버가 쓰고 fsck.fat 도 받으므로 허용), LFN 구조
   (LDIR_Type 0, LDIR_FstClusLO 0, ordinal 범위, 종결자 뒤 0xFFFF 채움), 클러스터 번호 범위, 크기(볼륨 데이터 영역보다 클 수 없음,
-  살아 있는 파일이 크기가 있으면 시작 클러스터가 있어야 함), 하위 디렉터리 첫 두 슬롯의 '.'(자기 클러스터)·'..', FAT12/16 디렉터리의
-  이어지는(첫 번째가 아닌) 클러스터를 다른 FAT 항목도 가리키면 교차 연결(cross_linked). LFN 순서·체크섬이 어긋난 것은 검증 실패가 아니라
-  고아 LFN 으로 보고한다(예전과 같음).
+  살아 있는 파일이 크기가 있으면 시작 클러스터가 있어야 함), 하위 디렉터리 첫 두 슬롯의 '.'(자기 클러스터)·'..', FAT12/16/32 디렉터리의
+  이어지는 클러스터를 다른 FAT 항목이나 살아 있는 항목의 시작 클러스터도 가리키면 교차 연결(cross_linked). FAT32 루트도 검사한다.
+  역방향 FAT·시작 클러스터 색인은 예산·슬롯·깊이·메모리 한도 안에서 만든다. 역방향 FAT 을 다 못 보면
+  cross_link_check_incomplete 로 멈추며, 시작 클러스터 색인만 일부면 앞부분을 보존하고 cross_link_check_partial 로 알린다.
+  LFN 순서·체크섬이 어긋난 것은 검증 실패가 아니라 고아 LFN 으로 보고한다(예전과 같음).
 - 일부러 fsck.fat 보다 엄격한 검사: 속성 예약 비트(attr_reserved), 하위 디렉터리의 볼륨 레이블(label_outside_root), LFN ordinal 의
   예약 비트·제어 문자·종결자 뒤 글자(lfn_ordinal·lfn_char·lfn_padding). 알려진 기록기가 쓰지 않는 값이고, 녹화 데이터(무작위 바이트)를
   디렉터리로 잘못 읽지 않게 거르는 주된 장치라 그대로 둔다. 이런 클러스터는 조용히 버리지 않고 unvalidated_dirs(사유 코드 포함)와
@@ -41,7 +43,7 @@ import bisect
 import codecs
 import re
 import struct
-from collections import Counter, OrderedDict
+from collections import OrderedDict
 from typing import Any
 
 from .common import (
@@ -353,6 +355,18 @@ def _expected_sfn_first(long_name: str) -> tuple[set[int], bool] | None:
     return {ord("_")} | set(range(0x80, 0x100)), False
 
 
+class _FatDirCtx(DirCtx):
+    """교차 연결 색인에도 이 디렉터리를 읽는 호출의 예산을 전달한다."""
+
+    __slots__ = ("budget", "partial_reason", "heads")
+
+    def __init__(self, spec: str, spec_t: tuple[Any, ...], budget: Budget) -> None:
+        super().__init__(spec, spec_t)
+        self.budget = budget
+        self.partial_reason: str | None = None
+        self.heads: set[int] | None = None
+
+
 class FatVolume(VolumeBase):
     """FAT12/16/32 볼륨 (읽기 전용)."""
 
@@ -421,8 +435,15 @@ class FatVolume(VolumeBase):
         self._claims_partial: str | None = None
         #: 디렉터리 항목 크기의 상한 = 주소를 붙일 수 있는 데이터 영역 바이트
         self._data_bytes = max(0, self.max_cluster - 1) * self.cluster_size
-        #: FAT12/16: 클러스터마다 그것을 가리키는 FAT 항목 수 (교차 연결 검사용, 처음 쓸 때 만든다)
-        self._preds: Counter | None = None
+        #: 역방향 FAT: 하나 이상/둘 이상이 가리키는 클러스터. 표 크기와 max_scan_clusters 로 메모리를 묶는다.
+        self._preds: tuple[BitSet, BitSet] | None = None
+        self._preds_complete = False
+        self._preds_reason: str | None = None
+        #: 검증한 살아 있는 항목의 시작 클러스터. 완주한 색인만 캐시한다.
+        self._heads: set[int] | None = None
+        self._heads_reason: str | None = None
+        self._heads_partial: tuple[Budget, set[int], str] | None = None
+        self._scanning_heads = False
         if budget is not None:
             budget.raise_steps(self.step_cap())  # 호출자가 이 볼륨에 함께 쓸 예산 — 이 볼륨의 단계 상한까지 올린다
 
@@ -533,13 +554,97 @@ class FatVolume(VolumeBase):
             out.append("fat-chain")
         return out
 
-    def _pred_count(self, c: int) -> int:
-        """FAT12/16: 클러스터 c 를 다음 클러스터로 가리키는 FAT 항목 수 (볼륨마다 한 번 표 전체를 센다 — 항목 65525 개 이하)."""
-        if self._preds is None:
-            whole = self._fat._whole
-            vals = whole[2:self.max_cluster + 1] if whole is not None else []
-            self._preds = Counter(vals)  # 범위 밖 값(EOC·0)은 묻지 않으므로 걸러 낼 필요가 없다
-        return self._preds.get(c, 0)
+    def _ensure_predecessors(self, budget: Budget) -> None:
+        """FAT12/16/32 의 역방향 수를 2 에서 포화시킨다. 미완료 표는 다음 호출에서 다시 만든다."""
+        if self._preds_complete:
+            return
+        cap = max(0, int(self.limits.max_scan_clusters))
+        nbits = min(self._bitset_size(), cap + 2)
+        seen, shared = BitSet(nbits), BitSet(nbits)
+        self._preds = seen, shared
+        self._preds_reason = None
+        stop = min(self.max_cluster + 1, self._fat.readable, cap + 2)
+        scanned = 2
+        # 조각마다 취소·시간·단계 예산을 확인한다(다른 FAT 순회처럼 64 항목 = 1 단계).
+        for start in range(2, stop, 4096):
+            budget.tick(ceil_div(min(4096, stop - start), 64))
+            if budget.expired():
+                self._preds_reason = budget.reason
+                return
+            for base, values in self._fat.slices(start, min(stop, start + 4096)):
+                for c in values:
+                    if 2 <= c < nbits and seen.set(c):
+                        shared.set(c)
+                scanned = base + len(values)
+        self._preds_complete = scanned >= self.max_cluster + 1
+        if not self._preds_complete:
+            self._preds_reason = "max_scan_clusters" if cap < self.cluster_count else "fat_unreadable"
+
+    def _directory_heads(self, budget: Budget) -> set[int]:
+        """살아 있는 디렉터리의 검증된 항목만 읽어 시작 클러스터를 모은다. 내용·파일 체인은 읽지 않는다.
+
+        이어지는 디렉터리 클러스터가 파일의 첫 클러스터이면 역방향 FAT 이 하나뿐일 수 있다. 따라서 그 단위를 내보내기 전에
+        이름 없는 시작 클러스터 색인을 만든다. 순회 도중 검증하지 못한 디렉터리·한도는 '미완료'이고, 양성 근거만 쓸 수 있다.
+        """
+        if self._heads is not None:
+            return self._heads
+        if self._heads_partial is not None and self._heads_partial[0] is budget:
+            self._heads_reason = self._heads_partial[2]
+            return self._heads_partial[1]
+        self._heads_partial = None
+        heads: set[int] = {self.root_cluster} if self.fat_type == "fat32" else set()
+        visited: set[Any] = set()
+        stack = [("root", 0)]
+        slots = entries = 0
+        reason = None
+        self._scanning_heads = True
+        try:
+            while stack:
+                if budget.expired():
+                    reason = budget.reason
+                    break
+                if slots >= self.limits.max_total_slots:
+                    reason = "max_total_slots"
+                    break
+                spec, depth = stack.pop()
+                key = self._spec_key(spec)
+                if key in visited:
+                    continue
+                visited.add(key)
+                try:
+                    res = self._parse_dir(spec, budget, summaries=False)
+                except FsError as exc:
+                    reason = budget.reason or exc.reason
+                    continue
+                slots += res.slots
+                if res.unvalidated or res.incomplete or res.cut or res.budget_stop:
+                    reason = res.budget_stop or res.incomplete or (res.cut or {}).get("reason") or "dir_unvalidated"
+                for e in res.entries:
+                    if e["deleted"]:
+                        continue
+                    entries += 1
+                    if entries > self.limits.max_entries:
+                        reason = "max_entries"
+                        stack.clear()
+                        break
+                    fc = e["first_cluster"]
+                    if 2 <= fc <= self.max_cluster:
+                        heads.add(fc)
+                    child = e.get("child_dir")
+                    if child:
+                        if depth + 1 >= self.limits.max_depth:
+                            reason = "max_depth"
+                        else:
+                            stack.append((child, depth + 1))
+        finally:
+            self._scanning_heads = False
+        self._heads_reason = reason
+        if reason is None:
+            self._heads = heads
+        else:
+            # 같은 호출에서 여러 디렉터리를 읽어도 같은 부분 색인을 다시 만들지 않는다. 새 예산이면 다시 확인한다.
+            self._heads_partial = budget, heads, reason
+        return heads
 
     def _check_dir(self, spec: str, key: Any, res: DirResult, w: Warnings, path: str) -> None:
         dot = res.extra.get("dot", {}).get(".")
@@ -602,13 +707,22 @@ class FatVolume(VolumeBase):
 
     def _unit_problem(self, ctx: DirCtx, first: int, data: bytes, peek: Peek) -> tuple[str | None, int | None]:
         is_root = ctx.is_root
-        if (first and ctx.off is not None and self.fat_type != "fat32" and ctx.spec_t[0] == "chain"
-                and self._fat._whole is not None):
-            # FAT12/16 디렉터리의 이어지는 클러스터: 앞 디렉터리 클러스터 말고 다른 FAT 항목도 가리키면 다른 체인과 교차 연결됐다
-            # (전원 차단 등으로 디렉터리 체인이 파일 데이터 중간으로 이어진 경우 — 그 클러스터는 디렉터리 데이터로 믿지 않는다)
+        if first and ctx.off is not None and (ctx.spec_t[0] == "chain" or (is_root and self.fat_type == "fat32")):
+            # 고정 루트와 삭제된 연속 디렉터리는 FAT 체인의 교차 연결 검사 대상이 아니다.
+            budget = ctx.budget
+            if self._preds is None or (not self._preds_complete and not self._scanning_heads):
+                self._ensure_predecessors(budget)
             c = (ctx.off - self.data_offset) // self.cluster_size + 2
-            if self._pred_count(c) > 1:
+            if self._preds is not None and self._preds[1].test(c):
                 return "cross_linked", None
+            if not self._scanning_heads:
+                if ctx.heads is None:
+                    ctx.heads = self._directory_heads(budget)
+                    ctx.partial_reason = self._heads_reason
+                if c in ctx.heads:
+                    return "cross_linked", None
+                if not self._preds_complete or budget.expired():
+                    return "cross_link_check_incomplete", None
         for i in range(len(data) // 32):
             idx = first + i
             raw = data[32 * i:32 * i + 32]
@@ -709,7 +823,8 @@ class FatVolume(VolumeBase):
                 self._orphan(res, del_lfn, deleted=True, reason=reason)
                 del_lfn = []
 
-        for slot, off, raw in self._validated_slots(res, DirCtx(spec, spec_t), runs, unit, max_slots, budget):
+        ctx = _FatDirCtx(spec, spec_t, budget)
+        for slot, off, raw in self._validated_slots(res, ctx, runs, unit, max_slots, budget):
             res.slots = slot + 1
             b0 = raw[0]
             attr = raw[11]
@@ -784,6 +899,15 @@ class FatVolume(VolumeBase):
         flush_live("dangling")
         flush_del("unassociated")
         res.extra["public"] = {"dot_entries": dict(res.extra.get("dot", {}))}
+        if res.unvalidated and res.unvalidated["reason"] == "cross_link_check_incomplete":
+            res.extra["public"]["cross_link_check"] = {
+                "status": "unknown", "reasons": list(dict.fromkeys(
+                    r for r in (self._preds_reason, self._heads_reason) if r is not None)),
+            }
+        elif ctx.partial_reason is not None:
+            res.extra["public"]["cross_link_check"] = {"status": "partial", "reasons": [ctx.partial_reason]}
+            w.add("cross_link_check_partial", "시작 클러스터 색인을 끝까지 만들지 못해 디렉터리 교차 연결 검사는 일부 범위뿐입니다.",
+                  reason=ctx.partial_reason)
         return self._finish_dir(self._dir_cache, spec, res, budget, summaries=summaries, runs=runs)
 
     def _make_entry(self, res: DirResult, slot: int, off: int, raw: bytes, *, deleted: bool,

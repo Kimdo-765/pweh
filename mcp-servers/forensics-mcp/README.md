@@ -61,7 +61,15 @@
 | `forensics_fs_list(case_id, evidence_id, partition=None, include_deleted=True, max_entries=200000, max_seconds=180)` | FAT12/16/32·exFAT 목록(삭제 항목 포함, **동기 호출**). 지원하는 파티션이 없거나 고른 파티션이 지원 밖이면 `validation_failed`(파티션이 이미지 끝 너머라 볼 수 없으면 메시지·힌트가 ext4·NTFS 안내 대신 잘린 이미지라고 알리고, 고른 파티션의 시작이 이미지 끝 너머면 메시지가 잘린 이미지라고 알린다 — 엔진 사유는 `beyond_image`(`unsupported_fs` 가 아니다)지만 동기 도구의 오류에는 메시지·힌트만 온다). 전체 목록은 `forensics/analysis/fs-list-<EV>-NNN.json`(0444, 볼륨마다 한 줄에 항목 하나씩 이어 쓰며 sha256 계산)에만 쓰고 보관 기록 `list` 에 그 sha256 과 `call` 을 남긴다. 실패·중단하면 만든 목록 파일을 지운다. 응답: `result_path`, `result_sha256`, `custody_seq`, `volumes[{partition, fs, volume, stats{files, dirs, deleted_files, deleted_dirs, orphans, dirs_read}, truncated, truncated_reason, truncated_reasons, cut_dirs, cut_dirs_total, time_ranges[{state(live/deleted), time_basis, first, last, files}], time_basis, top_dirs, extensions(개수만), files_with_residual, orphans, unvalidated_dirs, unvalidated_dirs_live, warnings_count, sample(처음 20개: 경로·크기·수정 시각·ref)}]`(해석하지 못하면 `error`, 128개까지 — `volumes_total`), `truncated`, `truncated_reasons`, `call`, `next_steps`. 한도·잘림 사유는 §3.1 |
 | `forensics_extract(case_id, evidence_id, refs=None, paths=None, partition=None, method="auto", region="data", label=None, max_files=200, max_bytes="1G")` | 고른 파일만 추출하는 **job**(정책 전체는 §3.2). `refs`(목록 JSON 의 `ref`, 삭제 항목 포함)·`paths`(살아 있는 파일)는 중복을 없애고 합쳐 1000개까지. `region="residual"` 이면 exFAT ValidDataLength 뒤 잔여 영역(이전 녹화 흔적)만. `max_files` 1~1000, `max_bytes` 4 GiB 까지(정수 또는 `"1G"`·`"512M"`), 시작 전에 여유 공간(`max_bytes` + 256 MiB) 확인, `label` 은 `[0-9A-Za-z._-]` 로 정리해 32자(기본 `recovered`). `forensics/recovered/<label>-NNN/` 에 `NNNN-<정리한 이름>`(0444, 실행 비트·링크 없음)과 `manifest.json` → 디렉터리 0555 → 보관 기록 `extract`(커밋 지점). `result`: `output_dir`, `manifest`, `manifest_sha256`, `custody_seq`, `bytes_total`, `truncated`, `truncated_reasons`, `files[{seq, file, path, deleted, method, confidence, status, size, complete, sha256, limit_reason?, requested_path?}]`, `skipped`(50개까지)·`skipped_total`, `note`, `next_steps`. 해시·크기·방법만 돌려준다. 같은 증거의 추출이 진행 중이면 `busy` |
 | `forensics_evidence_list(case_id, write_files=True)` | 증거 목록: `custody{ok, count, head, detail}`, `items[{evidence_id, label, stored_path, size, hashes, intake_ts, imaging_log, intake, status, status_label, last_verify{ts, result, seq, kind(intake-copy/full-rehash)}, integrity_failures, attestation, extracts, events, problems?}]`(아래 상태), `aborted[{evidence_id, ts, seq, quarantine_path, reason}]`(커밋하지 못해 `aborted-intakes/` 로 옮긴 것 — 증거가 아니다), `derived[{path, evidence_id, files, bytes, manifest_sha256, custody, custody_seq, error?}]`(`recovered/*/manifest.json` 을 보관 기록 `extract` 사건과 대조: `recorded`/`mismatch`/`unrecorded`/`missing`/`unknown`), `notice`. 목록을 만들기 전에 커밋한 증거마다 공통 입구로 다시 대조하고 새 문제는 `integrity-failed` 로 기록해 `integrity_failures_recorded` 에 싣는다(`write_files=false` 여도). `write_files=true` 면 `forensics/evidence-list.json`·`.md`(해시값 확인서 서식·서명란·고지 — 확인서에는 보관 기록에 해시가 있는 상태만)를 다시 쓰고 `files{json, markdown, json_sha256}`, 보관 기록이 정상이면 `evidence-list` 사건에 JSON sha256 을 남긴다. `forensics/` 가 링크 등이면 파일은 쓰지 않고 `files_error` |
-| `forensics_job_status(job_id, wait_seconds=0)`, `forensics_job_cancel(job_id)`, `forensics_jobs(active_only=False)` | `register_job_tools(..., "forensics")`. 접수·검증·추출 job 의 진행률·결과(`wait_seconds` 최대 50초). 이 서버 프로세스의 job 만 보인다(기록 사본은 `cases/<id>/jobs/<job_id>.json`). 취소: 접수·검증은 1 MiB 읽기 조각마다 확인한다 — 커밋 전이면 접수는 만든 파일을 지우고 검증은 기록 없이 끝난다(`cancelled`), 커밋(접수 `intake` 사건·검증 해시 완료) 뒤의 취소는 무시한다(succeeded). 추출은 §3.2 의 규칙을 따른다 — job 이 `cancelled` 여도 `result` 가 있으면 그 부분 결과는 보관 기록에 남은 것이다. `forensics_job_cancel` 의 공통 설명('부분 결과는 보존된다')은 추출에만 맞다 |
+| `forensics_job_status(job_id, wait_seconds=0, case_id=None)`, `forensics_job_cancel(job_id)`, `forensics_jobs(active_only=False, case_id=None)` | `register_job_tools(..., "forensics")`. 접수·검증·추출 job 의 진행률·결과(`wait_seconds` 최대 50초). 기본은 이 서버 프로세스의 job, `case_id`를 주면 `cases/<id>/jobs/<job_id>.json`의 저장 기록도 확인한다(아래 공통 동작). 취소: 접수·검증은 1 MiB 읽기 조각마다 확인한다 — 커밋 전이면 접수는 만든 파일을 지우고 검증은 기록 없이 끝난다(`cancelled`), 커밋(접수 `intake` 사건·검증 해시 완료) 뒤의 취소는 무시한다(succeeded). 추출은 §3.2 의 규칙을 따른다 — job 이 `cancelled` 여도 `result` 가 있으면 그 부분 결과는 보관 기록에 남은 것이다. `forensics_job_cancel` 의 공통 설명('부분 결과는 보존된다')은 추출에만 맞다 |
+
+작업 상태·목록의 `case_id`를 생략하면 이 서버 프로세스의 작업만 보인다. 재시작 뒤에는
+`forensics_job_status(job_id, case_id="<케이스 ID>")` 또는 `forensics_jobs(case_id="<케이스 ID>")`로 같은 서버의 저장 기록을 확인한다.
+소유 서버 종료가 확실한 활성 기록만 `failed`(`error.code=job_owner_terminated`)로 정리한다. 소유자 없는 과거 기록·다른 호스트/namespace·관찰 불가는
+원본 상태를 보존하고 `recovery.owner_state="unknown"`과 사유를 표시한다. 살아 있는 다른 서버 프로세스의 기록도 보존한다.
+원시 owner 식별자는 응답에 나오지 않는다. 저장 기록의 재개/취소는 없고, `wait_seconds`는 이 프로세스의 작업만 기다린다.
+한 기록 1MiB, 목록 512디렉터리 항목·256기록·누적 8MiB·2초로 제한하며 목록의 `recovery.truncated/reasons`가 확인하지 못한 범위를 알린다.
+이 두 도구는 로컬 기록을 정리하므로 `readOnlyHint=false`다. 파일·기기·외부 자식의 정리 여부는 별도로 확인한다.
 
 `status` 값(증거 목록 `items[].status`):
 
@@ -212,8 +220,8 @@
   `case_hash_file`·`case_register_artifact` 도 어느 케이스의 `forensics/` 아래는 해시·등록하지 않는다(파일은 경로와 실제로 연 fd 의 경로를 모두 본다). pweh-sigrok 의 입력 파일도 어느 케이스의 `forensics/` 아래면 거부한다.
 - 이 경계는 위 서버들만 막는다. 에이전트의 파일 도구나 REA(`open_binary`·`read_bytes`)는 `forensics/` 를 읽을 수 있으므로, 전용 이미지 도구 외에 이미지 사본과 추출물을 직접 열지 않는 것은 에이전트 규칙이다. 정지 그림은 원본 EV의 선택자를 사용하고 반환된 정규화 미리보기만 본다.
   전체 파일 목록 JSON 은 메타데이터라 추출할 `ref` 를 고를 때 읽어도 되지만, 요약·보고서에는 개수·범위·해시만 옮긴다.
-- 경로 확인은 같은 계정 프로세스의 바꿔치기(확인한 뒤 경로로 다시 여는 곳)와 하드 링크를 막지 못한다(§8).
-- `.claude/settings.json`: 조회 전용 도구 `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs`와 명시적 예외 `forensics_image_hints`는 `allow`,
+- 증거 입구는 부모 디렉터리를 고정하고 하드링크를 거부한다. 다른 서버의 경로 가드와 같은 계정 경합의 남은 범위는 §8을 본다.
+- `.claude/settings.json`: 조회 전용 도구 `forensics_partitions`, `forensics_image_check`와 로컬 쓰기가 있는 명시적 예외 `forensics_job_status`·`forensics_jobs`·`forensics_image_hints`·`forensics_sqlite_inventory`·`forensics_android_artifacts`·`forensics_timeline`은 `allow`,
   쓰는 도구 `forensics_intake_start`, `forensics_verify_start`, `forensics_acquisition_attest`, `forensics_evidence_list`, `forensics_fs_list`, `forensics_extract`, `forensics_job_cancel` 은 `ask` 다
   (Claude Code 에서는 bypass 모드에서도 묻는다). 클라이언트 권한은 보조 장치이고, 증거를 지키는 것은 보관 기록·지문·경계다.
 
@@ -223,7 +231,7 @@
 |---|---|---|
 | `authorization_required` | 케이스에 소유/허가 증명이 없다 | 사용자에게 확인받고 `case_set_authorization` |
 | `validation_failed` | 인자 오류, 받지 않는 입력(원시 디스크·장치·FIFO·빈 파일·E01·NUL·케이스/상태 폴더 안·예약 이름, 4 MiB 를 넘는 이미징 로그), 여유 공간 부족, 이미지 해석 실패. 해석 실패의 사유는 `data.reason`: `unsupported_fs`, `beyond_image`(파티션 시작이 이미지 끝 너머 — 잘린 이미지), `not_found`(없는 파티션), `bad_argument`(지원 파티션이 여럿 — `partition` 필요), `bad_ref`, `refs_unverifiable`(추출: 확인 순회가 잘려 검증된 ref 가 하나도 없고 `paths` 도 없음), `budget_exceeded`(`data.limit`), `internal_error`, `malformed` … | 메시지와 `hint` 를 따른다. 이미지 문제면 사람에게 다시 이미징을 요청한다 |
-| `not_found` | 없는 증거 id, 이 서버 프로세스에 없는 job id | `forensics_evidence_list`·`forensics_jobs` 로 확인한다 |
+| `not_found` | 없는 증거 id, 선택한 범위에 없는 job id | `forensics_evidence_list`·`forensics_jobs(case_id=...)`로 확인한다 |
 | `integrity_failed` | 사본·접수 기록이 보관 기록의 접수 때와 다르거나(빠른 지문·재해시·접수 기록 대조), 무결성 실패로 표시됐거나, EV 디렉터리가 지워졌거나, 커밋하지 못한 디렉터리. 접수 job 에서는 복사 중 원본이 바뀜 | 그 사본은 더 쓰지 않는다. 원본 이미지에서 다시 접수한다(새 EV 번호) |
 | `custody_broken` | 보관 기록이나 고정점 대조가 깨졌다(`forensics/` 가 링크인 경우 포함) | 고치지 말고 사람에게 보고한다. 서버는 깨진 기록에 덧붙이지 않는다 |
 | `path_outside_base` | 서버가 쓰려는 `forensics/` 아래 디렉터리(`images/`·`analysis/`·`recovered/`·`aborted-intakes/`)가 링크이거나 디렉터리가 아니다, 새 추출 디렉터리에 서버가 만들지 않은 이름이 생겼다. (내용 도구가 여는 EV 디렉터리가 링크면 `integrity_failed`, 사유 `unsafe-path`) | 아무것도 따라가 쓰지 않았다(추출 디렉터리는 지웠다). 사람이 `forensics/` 를 확인한다 |
@@ -236,25 +244,25 @@ job 의 실패는 `forensics_job_status` 의 `error` 에 있다(예상하지 못
 
 알려진 한계의 전체 목록과 정확한 조건은 [`docs/safety.md`](../../docs/safety.md) §3.6 에 있다. 여기에는 요약만 둔다.
 
-- 지원 범위: MBR/EBR·GPT·superfloppy, FAT12/16/32·exFAT. ext4·NTFS·E01, 카빙(DHAV·XM·MPEG-PS·MP4·JPEG), CCTV 녹화 인덱스·이름 규칙, 타임라인, 비밀값 스캔·녹화 암호화 판정·침해 흔적 대조,
+- 지원 범위: MBR/EBR·GPT·superfloppy, FAT12/16/32·exFAT와 논리 TAR/ZIP, 선택 SQLite·앱 기록 및 파일·앱 타임라인. ext4·NTFS·E01, 카빙(DHAV·XM·MPEG-PS·MP4·JPEG), CCTV 녹화 인덱스·이름 규칙과 그 타임라인, 비밀값 스캔·녹화 암호화 판정·침해 흔적 대조,
   외부 도구(TSK·PhotoRec·ewf-tools·ffprobe) 교차 확인은 아직 없다(설계 §4·§5.2). 삭제 파일 복구는 디렉터리 항목이 남은 파일만 다룬다.
 - 삭제한 FAT 파일은 보통 FAT 체인이 지워져 단편화 여부를 알 수 없다(Windows 는 FAT32 에서 시작 클러스터의 상위 16비트도 지운다). 후보(`contiguous`·`skip-allocated`·`skip-claimed`·`fat-chain`)마다 신뢰도와 설명이 매니페스트에 남지만 결과는 추정이다.
   `skip-allocated` 류 후보가 훑기 상한에서 멈추면 `status: "incomplete"`·`complete=false` 일 뿐 그 사유는 따로 없다. 미리 할당한 녹화 파일(링 버퍼)은 삭제 항목 복구로 아무것도 나오지 않을 수 있다.
 - 호스트 오염 흔적은 정황이다. 지원하는 파티션이 없으면 결과가 비어 있을 뿐 흔적이 없다는 뜻이 아니다.
 - 보관 기록·고정점·출처 원장에는 비밀 키가 없다. 같은 OS 계정이 보관 기록과 고정점을 함께 일관되게 다시 쓰면 감지하지 못한다. 0444·0555 권한은 실수를 막을 뿐 같은 계정은 되돌릴 수 있다.
   고정점은 케이스 id 로만 묶이므로 지운 케이스와 같은 id 로 새 케이스를 만들면 처음부터 `custody_broken` 이다(새 id 를 쓴다).
-- 증거는 케이스로 복사한다. 큰 카드는 그만큼 디스크(WSL 이면 가상 디스크)를 쓴다. 외부 읽기 전용 폴더의 제자리 참조는 아직 없다.
+- 증거는 기본적으로 케이스로 복사한다. 큰 카드는 그만큼 디스크를 쓴다. 제자리 참조는 `storage="reference"`와 설정된 읽기 전용 마운트 입구를 사용한다(위 참조 모드 계약).
 - 요약(docs/safety.md §3.6 의 항목들):
   - 무결성: 빠른 지문은 inode·ctime 을 보지 않고 verify 는 그때의 바이트만 증명한다. 마지막 고정점이 '기록 중'으로 남은 동안에는 보관 기록 마지막 줄을 지워도 드러나지 않는다.
     보관 기록과 고정점을 함께 잃으면 증거 목록은 '보관 기록 정상(항목 0개)' 옆에 `record-without-intake` 줄을 보인다 — 사람이 그 줄을 알아차려야 한다. 정리(reconcile)에도 드문 모서리 경우가 있다(두 겹의 사고, 다른 서버가 되돌리는 중인 접수).
     같은 계정이 `images/` 를 링크로 바꾸면 증거 목록의 다시 대조가 커밋한 EV 마다(이미 무결성 실패인 것 빼고) 무결성 실패(`unsafe-path`)를 남긴다(되돌리지 않는다 — 원본에서 다시 접수).
-  - 같은 계정 프로세스: 경로를 확인한 뒤 경로로 다시 여는 곳(`case_import_file`, pweh-fwtriage·pweh-sigrok, `image_path`·`imaging_log_path` 와 `case_hash_file`·`case_register_artifact` 의 파일 — 중간 디렉터리를 바꿔치기하면 FIFO·장치를 열 수 있다. fstat 대조로 거부하지만 여는 부수효과는 남는다),
-    하드 링크, 추출물·목록 파일을 쓴 뒤 보관 기록에 남기기 전의 이름 바꿔치기, 출처 원장이 접수 기록을 경로로 다시 읽는 것, 쉼 없는 덧붙이기로 보관 기록 읽기를 굶기는 것은 막지 못한다.
+  - 같은 계정 프로세스: 증거 입구의 부모 디렉터리 고정·하드링크 거부, 출처 기록의 같은 fd 읽기, 출력의 커밋 전 신원 확인을 적용한다. pweh-fwtriage·pweh-sigrok의 경로 재열기,
+    마지막 확인 뒤의 변경, 파일을 복사해 출처를 숨기는 행위, 쉼 없는 덧붙이기로 보관 기록 읽기를 굶기는 한계는 남는다. 세부 범위는 safety.md §3.6을 본다.
   - 해석: 일부러 엄격한 검증(FAT 속성 0x40·0x80, 하위 디렉터리의 볼륨 레이블, LFN 이상, exFAT 필드)은 fsck 가 받는 디렉터리도 `unvalidated_dirs`(살아 있으면 `dir_unvalidated`)로 뺀다.
-    FAT12/16 의 교차 연결 검사는 파일의 첫 클러스터로 이어진 디렉터리 체인을 보지 못하고 FAT32 에는 그 검사가 없다. 아주 큰 exFAT 루트는 열 때와 순회 때 두 번 읽어 작은 `max_seconds` 로는 0개를 나열하고 `time` 으로 잘릴 수 있다.
+    FAT12/16/32의 역방향 FAT·시작 클러스터 색인 검사가 불완전하면 unknown/partial을 표시한다. 지워졌거나 검증하지 못한 항목은 완전 탐지를 보장하지 않는다. 아주 큰 exFAT 루트는 열 때와 순회 때 두 번 읽어 작은 `max_seconds` 로는 0개를 나열하고 `time` 으로 잘릴 수 있다.
     잘린 이미지·파티션 표보다 큰 파일 시스템·손상된 살아 있는 디렉터리는 사유(§3.1)로 보고하고 읽을 수 있는 범위의 끝을 넘는 살아 있는 파일은 `complete=false`·`bytes_beyond_image` 로 짧게 추출한다 — 삭제된 디렉터리는 최선 노력이다.
-  - 운영: 동기 도구(`forensics_partitions`·`forensics_image_check`·`forensics_fs_list`)는 클라이언트가 취소해도 예산까지 돌고, fs_list 는 그래도 목록 파일과 보관 기록 `list` 를 남긴다.
-    강제 종료(SIGKILL)된 서버의 job 기록은 `running` 으로 남고 새 서버는 그 job 을 보지 못한다. 목록 파일 크기는 경로 글자 수 상한으로만 묶인다(깊고 긴 경로면 수백 MB 이상).
+  - 운영: 동기 도구는 요청 취소를 엔진·직렬화·커밋 직전에서 확인하고 작업 스레드가 fd와 커밋 전 출력을 정리한다. OS 호출 자체를 강제 중단하지는 못한다. 목록 JSON은 최대 256 MiB이며 초과하면 `output_limit`로 실패한다.
+    강제 종료(SIGKILL) 뒤에는 job 조회·목록에 `case_id`를 지정해 저장 기록을 확인한다. 소유 서버 종료가 확실한 활성 기록만 failed로 정리하고, 옛 owner 없는 기록 등은 상태를 보존하며 unknown으로 표시한다. 접수 커밋·증거 무결성 여부는 이 정리로 판정하지 않는다.
 
 ## 9. 테스트
 

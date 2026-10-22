@@ -776,9 +776,11 @@ async def test_intake_post_commit_failures_return_committed_result(fcase, image,
     real_hash = S.safeio.hash_fd
     real_append = E.CustodyLog.append
 
-    def corrupt_verify(fd, size, **kw):  # 사본 재해시(out_fd 없음)만 다른 값을 낸다
+    def corrupt_verify(fd, size, **kw):  # 이미지 사본 재해시만 다른 값을 낸다(접수 기록 해시에는 영향 없음)
         out = real_hash(fd, size, **kw)
-        return out if kw.get("out_fd") is not None else {a: "0" * len(h) for a, h in out.items()}
+        if kw.get("out_fd") is None and size == image.stat().st_size:
+            return {a: "0" * len(h) for a, h in out.items()}
+        return out
 
     def no_space_for_integrity(self, event, **kw):
         if event == "integrity-failed":

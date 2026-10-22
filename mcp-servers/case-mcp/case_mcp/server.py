@@ -61,7 +61,7 @@ def _open_case_regular(case, p: Path, refuse_what: str, verb: str) -> tuple[int,
 
     보호 폴더(forensics/·emu/) 여부는 실제로 연 객체의 경로로 다시 본다(확인한 뒤 바꿔치기한 링크 대비)."""
     try:
-        fd, st = safeio.open_regular(p, what="파일")
+        fd, st = safeio.open_regular(p, what="파일", reject_hardlinks=True)
     except FileNotFoundError:
         raise NotFound(f"파일이 없습니다: {case.rel(p)}") from None
     except safeio.UnsafeFile as exc:
@@ -123,7 +123,7 @@ async def case_image_hints(case_id: str, path: str, ocr: bool = True, ocr_lang: 
         rel = p.relative_to(case.dir.resolve())
         dfd = safeio.open_dir_chain(case.dir, rel.parts[:-1])
         try:
-            fd, _ = safeio.open_regular(rel.name, dir_fd=dfd, what="정지이미지")
+            fd, _ = safeio.open_regular(rel.name, dir_fd=dfd, what="정지이미지", reject_hardlinks=True)
         finally:
             os.close(dfd)
         try:
@@ -373,8 +373,7 @@ def case_import_file(case_id: str, source_path: str, kind: str = "firmware-image
         raise ValidationFailed(f"허용되지 않은 dest_subdir: {dest_subdir}")
     # 보호 상태(승인·증명·출처 원장·솔트·감사 로그)와 케이스의 보호 폴더(forensics/·emu/)를 케이스로 복사해 읽어 내지 못하게 한다.
     # 링크를 푼 경로(src)와 풀기 전 경로(raw)를 모두 본다 — 보호 폴더 자체가 다른 곳을 가리키는 링크여도 그 아래 경로로 부르면 막는다.
-    # 한계: case.import_file 은 확인한 뒤 경로로 다시 열어 복사한다. 확인과 복사 사이에 같은 계정의 다른 프로세스가 이름을 바꾸면
-    # 막지 못한다(docs/safety.md — 같은 계정의 프로세스는 경로 확인을 우회할 수 있다).
+    # 실제로 연 fd 의 경로도 다시 검사한 뒤 그 fd 를 복사한다. 확인 뒤 이름이 바뀌어도 다른 원본을 다시 열지 않는다.
     raw = Path(os.path.abspath(Path(source_path).expanduser()))
     src = raw.resolve()
     if is_within(rt().config.state_dir, src):
@@ -394,7 +393,22 @@ def case_import_file(case_id: str, source_path: str, kind: str = "firmware-image
             "케이스의 증거 폴더(forensics/)에 있는 파일은 가져올 수 없습니다.",
             hint="카드 이미지·복구 파일은 pweh-forensics 도구(forensics_*)로만 다룬다. 원본 이미지를 새로 접수하려면 forensics_intake_start 를 쓴다.",
         )
-    art = case.import_file(src, dest_subdir, kind=kind, producer="case-mcp", description=description)
+    try:
+        fd, _ = safeio.open_regular(src, what="가져올 파일", reject_hardlinks=True)
+    except FileNotFoundError:
+        raise NotFound(f"가져올 파일이 없습니다: {src}") from None
+    except safeio.UnsafeFile as exc:
+        raise ValidationFailed(exc.message) from exc
+    try:
+        real = safeio.fd_real_path(fd)
+        if real is None:
+            raise ValidationFailed("실제로 연 원본 파일의 경로를 확인할 수 없어 가져오지 않습니다.")
+        if is_within(rt().config.state_dir, real):
+            raise ValidationFailed("보호 상태 디렉터리(state_dir)의 파일은 가져올 수 없습니다.")
+        _refuse_case_protected(real, "가져올 수 없습니다")
+        art = case.import_file(src, dest_subdir, kind=kind, producer="case-mcp", description=description, source_fd=fd)
+    finally:
+        os.close(fd)
     return {"ok": True, "artifact": art, "absolute_path": str(case.dir / art["path"]), "provenance": _record_import(case, art, kind)}
 
 

@@ -131,6 +131,22 @@ async def test_case_actual_fd_rechecks_protected_path(icase, png, worker, monkey
     assert not worker
 
 
+@pytest.mark.parametrize("protected", ["forensics", "emu"])
+async def test_case_image_refuses_hardlink_alias(icase, png, worker, protected):
+    from case_mcp.server import server
+
+    directory = icase.dir / protected
+    directory.mkdir()
+    original = directory / "source.png"
+    original.write_bytes(png)
+    os.link(original, icase.dir / "alias.png")
+    async with Client(server) as client:
+        result = await call(client, "case_image_hints", case_id=icase.id, path="alias.png")
+    assert "하드 링크" in result.get("_error", ""), result
+    assert not worker
+    assert list((icase.dir / "analysis").iterdir()) == []
+
+
 async def test_evidence_image_custody_and_preview_tampering(icase, png, worker, tmp_path):
     from forensics_mcp.server import custody, server
 
