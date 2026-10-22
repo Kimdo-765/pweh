@@ -186,6 +186,7 @@ fw_sd_surface(case_id="<id>", rootfs_dir="extract/rootfs-001", image_path="dumps
   rootfs 만 주면 U-Boot 쪽 점검(SD-02 일부·SD-03)은 unknown 이다 — 플래시 덤프(`image_path`)를 함께 준다.
 - found 항목은 6단계에서 REA 로 실행 경로를 확인한 뒤 발견사항으로 기록한다(SD-05 는 카드 값이 system()/popen 으로 가는지 — cctv-auth-bypass-hunt AH-04 와 교차).
   업데이트 경로(SD-02·SD-03)는 cctv-auth-bypass-hunt 의 AH-10 판정에 넣는다.
+- `fit_security`는 비압축 FDT v17의 서명 선언·control-DTB 형태 키 후보와 검사 한계를 보여 준다. complete는 제한 관찰 완료일 뿐 서명 유효성·키 신뢰·부팅 강제·SD 경로 연결의 증명이 아니다. partial·unknown을 부재로 바꾸지 않고 기존 SD 위험 판정과 구분한다. `verify=n`도 환경값 관찰이므로 실제 빌드/부팅 경로를 추가 확인한다([계약](../../docs/references/fit-security-structure.md)).
 - `sd_paths_referenced`(펌웨어가 실행·읽기·플래시하는 카드 경로, `card_relative` = 카드 루트 기준 경로)는 SD 카드 포렌식에서 카드 파일과 대조할 목록이다.
 - 동적 확인은 부팅 로그 관찰까지만 한다: 사람 동의를 받아 **새 빈 시험 카드**를 넣고 `uart_capture_boot` 의 `sd_events` 를 본다. 증거 카드는 기기에 다시 넣지 않는다.
   카드에 넣을 스크립트·업데이트 파일·트리거 파일은 만들지 않는다.

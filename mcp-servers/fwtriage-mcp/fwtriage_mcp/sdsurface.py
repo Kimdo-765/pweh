@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from .common import Ctl, clip, hexs, mask_secret, severity_key
+from .fit_security import not_examined_fit_security, scan_fit_security
 from .fswalk import is_text, read_in_root, resolve_in_root
 from .hunt import OVERLAP, HuntState, scan_buffer
 from .patterns import PatternSet, StringHeuristic, required_literals
@@ -81,8 +82,9 @@ CHECKS: dict[str, dict[str, Any]] = {
     "SD-03": {
         "title": "U-Boot 의 mmc 부팅·카드 스크립트/환경", "category": "insecure-default", "baseline": "medium", "found_means": "risk", "needs": ("image",),
         "references": [], "examples": ["메인라인 distro boot"],
-        "rationale": "U-Boot 가 mmc 에서 커널·boot.scr·uEnv.txt·env 를 읽거나 mmc 를 플래시보다 먼저 부팅하면 카드(또는 eMMC)의 내용이 부팅을 정한다. verify=n 이면 이미지 검증"
-                     "(FIT 서명 포함)이 꺼진다. CRC 가 맞는 env 가 플래시에 있으면 saveenv 로, /etc/fw_env.config + fw_setenv 가 있으면 사용자 공간에서 env 를 바꿀 수 있다. "
+        "rationale": "U-Boot 가 mmc 에서 커널·boot.scr·uEnv.txt·env 를 읽거나 mmc 를 플래시보다 먼저 부팅하면 카드(또는 eMMC)의 내용이 부팅을 정한다. verify=n 은 verify 환경값이 비활성으로 설정된 관찰이다. "
+                     "실제 해시·서명 검증의 적용/강제 여부는 U-Boot 빌드, 부팅 경로와 신뢰 키를 추가 확인해야 한다. CRC 가 맞는 env 가 플래시에 있으면 saveenv 로, "
+                     "/etc/fw_env.config + fw_setenv 가 있으면 사용자 공간에서 env 를 바꿀 수 있다. "
                      "mmc 장치 번호만으로는 SD 슬롯과 eMMC 를 구분할 수 없다.",
         "next_steps": ["UART printenv 결과와 대조하고, bootcmd 의 mmc 장치가 SD 슬롯인지 eMMC 인지 보드에서 확인",
                        "부팅 로그 수동 관찰: uart_capture_boot 의 sd_events (카드 없음 vs 사람이 동의한 새 빈 시험 카드)"],
@@ -714,9 +716,9 @@ def _in_cmd_subst(inner: str) -> bool:
 
 
 def _verify_off(raw: str | None) -> bool:
-    """U-Boot verify 가 '끔'인지 — env_get_yesno 기준: 값이 있고 첫 글자가 1/y/Y/t/T 가 아니면 '아니오'(이미지 검증 끔), 없으면 기본(검증 켬).
+    """verify 환경값의 비활성 관찰 — env_get_yesno 기준 첫 글자가 1/y/Y/t/T 가 아니면 '아니오', 없으면 기본값.
 
-    오래된 U-Boot(env_get_yesno 이전)는 첫 글자 'n' 만 끔으로 본다 — notes 에 적는다."""
+    실제 검증 강제는 별도 확인한다. 오래된 U-Boot(env_get_yesno 이전)는 첫 글자 'n' 만 끔으로 본다 — notes 에 적는다."""
     return raw is not None and raw[:1] not in ("1", "y", "Y", "t", "T")
 
 
@@ -1525,9 +1527,10 @@ def sd_boot_analysis(env: dict[str, str], *, storage: str, scan: dict[str, Any] 
     if mmc_boot:
         notes.append("mmc 장치 번호만으로는 SD 슬롯과 eMMC 를 구분할 수 없다 (보드·부팅 로그로 확인).")
     if verify is None:
-        notes.append("verify 변수 없음 — U-Boot 기본은 이미지 검사(yes).")
+        notes.append("verify 변수 없음 — 일반 U-Boot 경로의 기본값은 yes다. 실제 해시·서명 검증의 적용/강제 여부는 U-Boot 빌드, 부팅 경로와 신뢰 키를 추가 확인해야 한다.")
     elif verify_off:
-        notes.append(f"verify={clip(verify, 40)!r}: env_get_yesno 기준 '아니오'(첫 글자가 1/y/Y/t/T 가 아님) → 이미지 검증(FIT 서명 포함)이 꺼진다. "
+        notes.append(f"verify={clip(verify, 40)!r}: env_get_yesno 기준 '아니오'(첫 글자가 1/y/Y/t/T 가 아님) — verify 환경값이 비활성으로 설정됨. "
+                     "실제 해시·서명 검증의 적용/강제 여부는 U-Boot 빌드, 부팅 경로와 신뢰 키를 추가 확인해야 한다. "
                      "오래된 U-Boot(env_get_yesno 이전)는 첫 글자 'n' 만 끔으로 본다.")
     if expand_truncated:
         notes.append("run 펼침 예산(변수당 16 KiB·env 전체 2 MiB·스캔 전체 4 MiB·run 대상 64개·깊이 4) 또는 시간 예산을 넘어 일부만 펼쳤다 — "
@@ -2169,6 +2172,7 @@ class SdSurface:
         self.max_binary_file = max_binary_file
         self.binary_budget = binary_budget
         self.image_budget = image_budget
+        self.fit_security = not_examined_fit_security()
         self.ev: dict[str, list[dict[str, Any]]] = {c: [] for c in CHECK_IDS}
         self.ev_total: dict[str, int] = {c: 0 for c in CHECK_IDS}
         self._ev_keys: set[tuple[Any, ...]] = set()
@@ -3514,7 +3518,7 @@ class SdSurface:
 
     # -- 이미지 ---------------------------------------------------------------
     def scan_image(self, buf: Any, size: int, image_rel: str, scan: dict[str, Any]) -> None:
-        """플래시 덤프·U-Boot 파티션: env_scan 결과(sd_boot 포함)와 문자열(YAML sd-* + 보조 패턴)."""
+        """env·문자열을 먼저 점검한 뒤 같은 잔여 예산으로 비압축 FDT의 서명 선언 구조를 관찰한다."""
         if "sd_boot_summary" not in scan:
             scan["sd_boot_summary"] = attach_sd_boot(scan, self.ctl)
         self.env_found = bool(scan.get("envs") or scan.get("embedded_default_envs"))
@@ -3591,6 +3595,8 @@ class SdSurface:
         if "fit_signature_keys" not in self.context["SD-02"]:
             self.context["SD-02"]["fit_signature_keys"] = False if complete else None
             self.context["SD-03"]["fit_signature_keys"] = self.context["SD-02"]["fit_signature_keys"]
+        # 구조 관찰의 불완전성은 별도 coverage에만 남긴다. 기존 위험 phase·문자열 표지는 바꾸지 않는다.
+        self.fit_security = scan_fit_security(buf, size, ctl=self.ctl, max_scan_bytes=self.image_budget)
 
     # -- 결과 -----------------------------------------------------------------
     def _status(self, cid: str, given: dict[str, bool]) -> tuple[str, str | None]:
@@ -3742,11 +3748,12 @@ class SdSurface:
             "phases": dict(self.phases),
             "stats": {**self.stats, "skipped_large": self.stats["skipped_large"][:20]},
             "limitations": list(self.limitations),
+            "fit_security": self.fit_security,
         }
 
 
 def compact_result(res: dict[str, Any], max_results: int) -> dict[str, Any]:
-    """응답용 요약: 점검마다 근거 앞 3개(발췌 포함), 마운트 지점·sd_paths 는 max_results 개."""
+    """근거 앞 3개·마운트와 sd_paths만 축약한다. 별도 64 KiB 상한의 FIT metadata는 전부 보존한다."""
     n = max(0, int(max_results))
     checks = []
     for c in res["checks"]:
@@ -3772,4 +3779,5 @@ def compact_result(res: dict[str, Any], max_results: int) -> dict[str, Any]:
         "sd_paths_truncated": res.get("sd_paths_truncated", False),
         "truncated": len(res["mount_points"]) > n or res["sd_paths_total"] > n,
         "limitations": res["limitations"][:10],
+        "fit_security": res["fit_security"],
     }

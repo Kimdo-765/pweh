@@ -60,7 +60,7 @@
 ## 3. 보안 분석 세부
 
 **`fw_sd_surface` 응답**: `result_path`, `input`, `counts{found, not-found, unknown}`, `risk_found`, `checks[{id, title, status, severity_hint, category, found_means, evidence_total, evidence[≤3], unknown_reason, next_steps, severity_reason}]`,
-`mount_points`·`mount_points_total`, `sd_paths_referenced[{path, card_relative, actions, checks}]`·`sd_paths_total`·`sd_paths_truncated`, `truncated`, `limitations`, `uboot`, `next_steps`.
+`mount_points`·`mount_points_total`, `sd_paths_referenced[{path, card_relative, actions, checks}]`·`sd_paths_total`·`sd_paths_truncated`, `truncated`, `limitations`, `uboot`, `fit_security`, `next_steps`.
 결과 파일에만 근거 전체, 마운트 명령의 옵션, 핫플러그 처리기, `phases`(complete/truncated)가 있다. 오래 걸리면 `background=true` 와 `fwtriage_job_status`.
 
 | 점검 | 내용 | category |
@@ -77,6 +77,7 @@
 
 - `fw_rootfs_audit(case_id="<id>", rootfs_dir="extract/rootfs-001", sd_surface=true)`: rootfs 쪽만 본다. U-Boot 쪽 근거가 없으므로 SD-02·SD-03 은 unknown 이다 — U-Boot 쪽은 `fw_sd_surface` 의 image_path 로 본다.
 - `fw_uboot_env(case_id="<id>", path="dumps/flash-full.bin")` 의 env 마다 `sd_boot`: fatload/ext4load/load mmc, mmc 에서 읽는 boot.scr·uEnv.txt·env import, distro boot, mmc 를 플래시보다 먼저 시도하는지, verify 꺼짐, SD 업데이트, CRC 유효 env 의 saveenv 쓰기 가능성. mmc 장치 번호로는 SD 와 eMMC 를 구분하지 못한다.
+- `fit_security`는 비압축 FDT v17의 이미지/설정 서명 선언과 control-DTB 형태 키 후보를 구조로 관찰한다. `complete/partial/not-examined`와 검색/구조/출력 완료도를 구분하고, 선언의 존재·부재를 서명 유효성·키 신뢰·부팅 강제·SD 경로 증명으로 쓰지 않는다. `verify_off`도 환경값 관찰이며 실제 적용은 추가 근거가 필요하다. [상세 계약](../../docs/references/fit-security-structure.md).
 - `discard`·fstrim 이 있으면 지운 데이터가 카드에서 사라졌을 수 있다 → evidence 의 삭제 파일 복구는 "복구 가능성 조건부" 로 notes 에 적는다.
 - 펌웨어의 `tz=`·`time_offset=` 마운트 옵션이나 init 스크립트 TZ 는 device_timezone 의 근거가 된다(가정으로만 — 사용자가 장치 설정을 바꿨을 수 있다).
 - **부팅 로그**: `uart_capture_boot` 의 `sd_events[{line, kind, also, text}]` kind 는 card-detected·card-removed·card-absent·block-device·partition·fs-mount·fs-error·uboot-mmc·uboot-script(boot.scr·uEnv.txt 읽기)·update·script·card-other 다.

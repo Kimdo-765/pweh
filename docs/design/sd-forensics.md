@@ -126,8 +126,8 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 | 점검 | 내용 | 실제 사례(예) |
 |---|---|---|
 | SD-01 | 부팅·핫플러그 때 카드 내용 실행(rcS·init.d·mdev.conf `@/$/*`·udev RUN+=·hotplug, 바이너리 문자열 + REA 교차 참조, 복호화 후 실행) | Tenda CP3 iu.sh(CVE-2023-30356), Victure PC420 enable_telnetd.dat→autoexec.sh(CVE-2023-41612), Sonix snx_autorun.sh, CVE-2019-16398, CVE-2024-13893 |
-| SD-02 | 카드에서 서명 없는 펌웨어 업데이트(U-Boot `do_auto_update`·`sdupdate`·`au_check_cksum_valid`, FIT 서명 노드 없음, 사용자 공간 SD→/dev/mtd), 다운그레이드·키 파일 없을 때 검사 생략 | Ingenic sdupdate·HiSilicon hiupdate(CRC 만), Dafang/Wyze demo.bin, ezviz.dav(CVE-2018-12258), upgrade.sh(CVE-2018-10988), CVE-2025-65397 |
-| SD-03 | U-Boot 가 mmc 를 먼저 부팅하거나 카드의 스크립트·환경을 읽음(boot.scr, uEnv, `env import`, `fatload mmc`), **`verify=n`**(FIT 서명 검사 꺼짐), 환경 쓰기 가능 여부 | 메인라인 distro boot |
+| SD-02 | 카드에서 서명 없는 펌웨어 업데이트(U-Boot `do_auto_update`·`sdupdate`·`au_check_cksum_valid`, 사용자 공간 SD→/dev/mtd; FIT 서명 선언 유무는 별도 구조 관찰이며 단독 판정 근거가 아님), 다운그레이드·키 파일 없을 때 검사 생략 | Ingenic sdupdate·HiSilicon hiupdate(CRC 만), Dafang/Wyze demo.bin, ezviz.dav(CVE-2018-12258), upgrade.sh(CVE-2018-10988), CVE-2025-65397 |
+| SD-03 | U-Boot 가 mmc 를 먼저 부팅하거나 카드의 스크립트·환경을 읽음(boot.scr, uEnv, `env import`, `fatload mmc`), **`verify=n`**(비활성 환경값; 실제 검증 강제는 빌드·부팅 경로·신뢰 키 확인 필요), 환경 쓰기 가능 여부 | 메인라인 distro boot |
 | SD-04/05 | 카드 삽입 시 자동 실행, 카드에서 설정 가져오기(값이 system() 으로 흐르는지 AH-04 와 교차) | CVE-2020-27540, CVE-2025-65397, CVE-2020-19642 |
 | SD-06/07 | 카드에 민감 정보 기록(syslogd -O, 로그 경로, core_pattern), 녹화 경로의 암호화 API 사용 여부 | Wyze 카드 로그의 UID·enr(0x90 XOR), CVE-2025-30124, CVE-2025-64305 |
 | SD-08 | 약한 마운트 옵션(noexec/nosuid/nodev 없음, umask=000), `discard`·fstrim(복구 가능성) | — |
@@ -140,7 +140,8 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 - Skill 연결: firmware-static-analysis 4b 단계, cctv-auth-bypass-hunt 의 AH-10(업데이트) 확장과 SD 점검 항목.
 
 > **구현 상태 (I3a, 2026-10-20)**: `fw_sd_surface`(SD-01~09 — found/not-found/unknown, `not-found` 는 필요한 입력을 끝까지 본 경우만, SD-07 은 found = 암호화 근거), `fw_rootfs_audit(sd_surface=True)`, `fw_uboot_env` 의 `sd_boot`, `sd-*` 휴리스틱 7개, rootfs 빈틈 수정(마운트 정규식·mdev/udev/hotplug 따라가기), `uart_capture_boot` 의 `sd_events`·`sd_summary`, firmware-static-analysis 4b·AH-10 문구(architecture §6.2·§6.6).
-> 남음: FIT 서명 노드의 구조 해석(지금은 `key-name-hint` 문자열 표지만 본다), REA 교차 참조 자동화. 카드에 넣을 파일은 만들지 않는다(§1).
+> FIT 구조 관찰 구현: `fw_sd_surface(image_path)`의 `fit_security`가 비압축 FDT v17에서 이미지/설정 서명 선언과 control-DTB 형태의 키 후보를 구분한다. 검사 범위·완료도·한도를 별도로 보존하며 서명 수학 검증·키 신뢰·부팅 강제·SD 경로 연결은 확인하지 않는다. 기존 `key-name-hint` 문자열 표지와 SD 위험 판정은 별개다. [계약](../references/fit-security-structure.md).
+> 남음: REA 교차 참조 자동화와 실제 검증/부팅 경로 확인. 카드에 넣을 파일은 만들지 않는다(§1).
 
 ### 5.2 카드 쪽 (pweh-forensics)
 

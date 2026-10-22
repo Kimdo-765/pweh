@@ -287,8 +287,253 @@ class FdtError(Exception):
     pass
 
 
-def parse_fdt_tree(buf: Any, base: int, limit: int, *, max_nodes: int = 8192, max_depth: int = 32) -> dict[str, Any]:
+class FdtStrictError(FdtError):
+    """새 구조 관찰의 고정 실패 이유. 입력의 이름·값·예외 원문을 싣지 않는다."""
+
+    _REASONS = frozenset({
+        "malformed_fdt", "unsupported_fdt", "token_limit", "node_limit",
+        "property_limit", "depth_limit", "owned_bytes_limit", "field_limit", "time_limit",
+    })
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason if type(reason) is str and reason in self._REASONS else "malformed_fdt"
+        super().__init__("FDT 구조 검사를 완료하지 못했습니다.")
+
+
+class FdtParseBudget:
+    """한 스캔에서 공유하는 구조 토큰·보유 바이트 예산. 실패 비용도 환급하지 않는다.
+
+    운영 상한은 inventory가 정한다. 이 객체는 전달된 상한을 집행하며 동일 Ctl을
+    참조한다. 후보별 카운터만 parser 진입 시 초기화하고 동시에 사용하지 않는다.
+    """
+
+    def __init__(
+        self, ctl: Ctl, *, max_blob_bytes: int, max_strings_bytes: int,
+        max_properties: int, max_tokens: int, max_total_tokens: int,
+        max_owned_bytes: int, max_reservations: int,
+    ) -> None:
+        caps = (max_blob_bytes, max_strings_bytes, max_properties, max_tokens,
+                max_total_tokens, max_owned_bytes, max_reservations)
+        if any(type(n) is not int or n <= 0 for n in caps):
+            raise FdtStrictError("field_limit")
+        self._ctl = ctl
+        (self._max_blob_bytes, self._max_strings_bytes, self._max_properties,
+         self._max_tokens, self._max_total_tokens, self._max_owned_bytes,
+         self._max_reservations) = caps
+        self._total_tokens = self._owned_bytes = 0
+        self._begin_blob()
+
+    @property
+    def total_tokens(self) -> int:
+        return self._total_tokens
+
+    @property
+    def owned_bytes(self) -> int:
+        return self._owned_bytes
+
+    @property
+    def blob_tokens(self) -> int:
+        return self._blob_tokens
+
+    @property
+    def blob_nodes(self) -> int:
+        return self._blob_nodes
+
+    @property
+    def blob_properties(self) -> int:
+        return self._blob_properties
+
+    @property
+    def blob_reservations(self) -> int:
+        return self._blob_reservations
+
+    def check(self) -> None:
+        """같은 Ctl의 취소를 전달하고 기존 마감 만료를 고정 이유로 알린다."""
+        if self._ctl.expired():
+            raise FdtStrictError("time_limit")
+
+    def charge_owned(self, n: int) -> None:
+        """이름·작은 값·추가 선언 목록을 복사하기 전에 누적 바이트를 예약한다."""
+        self.check()
+        if type(n) is not int or n < 0:
+            raise FdtStrictError("field_limit")
+        if n > self._max_owned_bytes - self._owned_bytes:
+            raise FdtStrictError("owned_bytes_limit")
+        self._owned_bytes += n
+
+    def _begin_blob(self) -> None:
+        self._blob_tokens = self._blob_nodes = self._blob_properties = self._blob_reservations = 0
+
+    def _token(self) -> None:
+        self.check()
+        if self._blob_tokens >= self._max_tokens or self._total_tokens >= self._max_total_tokens:
+            raise FdtStrictError("token_limit")
+        self._blob_tokens += 1
+        self._total_tokens += 1
+
+
+def _parse_fdt_strict(
+    buf: Any, base: int, limit: int, *, max_nodes: int, max_depth: int, budget: FdtParseBudget,
+) -> dict[str, Any]:
+    """v17 구조만 엄격하게 관찰한다. 실패한 tree나 원문 오류를 반환하지 않는다."""
+    budget._begin_blob()
+    budget.check()
+    if any(type(n) is not int or n <= 0 for n in (max_nodes, max_depth)):
+        raise FdtStrictError("field_limit")
+    if type(base) is not int or type(limit) is not int or not 0 <= base < limit <= len(buf):
+        raise FdtStrictError("malformed_fdt")
+
+    def malformed() -> None:
+        raise FdtStrictError("malformed_fdt")
+
+    def read(start: int, length: int, end: int) -> bytes:
+        if start < base or length < 0 or start + length > end:
+            malformed()
+        data = bytes(buf[start:start + length])
+        if len(data) != length:
+            malformed()
+        return data
+
+    def overlaps(start: int, end: int, other_start: int, other_end: int) -> bool:
+        return start < end and other_start < other_end and start < other_end and other_start < end
+
+    hdr = read(base, 40, limit)
+    (magic, totalsize, off_struct, off_strings, off_rsvmap, version, last_comp,
+     cpuid, size_strings, size_struct) = struct.unpack(">10I", hdr)
+    if magic != 0xD00DFEED:
+        malformed()
+    if version != 17:
+        raise FdtStrictError("unsupported_fdt")
+    if not 16 <= last_comp <= version:
+        malformed()
+    if totalsize < 40 or base + totalsize > limit:
+        malformed()
+    if min(off_struct, off_strings, off_rsvmap) < 40 or off_struct % 4 or off_rsvmap % 8:
+        malformed()
+    if size_struct == 0 or size_struct % 4:
+        malformed()
+    if off_struct + size_struct > totalsize or off_strings + size_strings > totalsize or off_rsvmap >= totalsize:
+        malformed()
+    if totalsize > budget._max_blob_bytes or size_strings > budget._max_strings_bytes:
+        raise FdtStrictError("field_limit")
+    struct_start, struct_end = base + off_struct, base + off_struct + size_struct
+    str_start, str_end = base + off_strings, base + off_strings + size_strings
+    blob_end = base + totalsize
+    if overlaps(struct_start, struct_end, str_start, str_end):
+        malformed()
+    budget.check()
+
+    # 예약 표는 종결까지 제한해서 읽고 다른 블록 안의 바이트를 표로 해석하지 않는다.
+    p = base + off_rsvmap
+    while True:
+        budget.check()
+        if overlaps(p, p + 16, struct_start, struct_end) or overlaps(p, p + 16, str_start, str_end):
+            malformed()
+        address, length = struct.unpack(">QQ", read(p, 16, blob_end))
+        p += 16
+        if address == 0 and length == 0:
+            break
+        if budget._blob_reservations >= budget._max_reservations:
+            raise FdtStrictError("field_limit")
+        budget._blob_reservations += 1
+
+    def name_at(start: int, end: int, maximum: int) -> tuple[str, int]:
+        budget.check()
+        stop = buf.find(b"\0", start, min(end, start + maximum + 1))
+        if not start <= stop < min(end, start + maximum + 1):
+            malformed()
+        budget.charge_owned(stop - start)
+        return read(start, stop - start, end).decode("latin-1"), stop + 1
+
+    p = struct_start
+    root: dict[str, Any] | None = None
+    # 각 열린 노드의 형제 이름 집합은 같은 이름 객체를 참조하며 문자열을 복제하지 않는다.
+    stack: list[tuple[dict[str, Any], set[str]]] = []
+    ended = False
+    while p < struct_end:
+        budget._token()
+        token_offset = p
+        tok = struct.unpack(">I", read(p, 4, struct_end))[0]
+        p += 4
+        if tok == FDT_BEGIN_NODE:
+            if budget._blob_nodes >= max_nodes:
+                raise FdtStrictError("node_limit")
+            if len(stack) > max_depth:
+                raise FdtStrictError("depth_limit")
+            name, name_end = name_at(p, struct_end, 255)
+            p = base + _align(name_end - base, 4)
+            if p > struct_end:
+                malformed()
+            if not stack:
+                if root is not None or name != "":
+                    malformed()
+            elif not name or name in stack[-1][1]:
+                malformed()
+            node = {"name": name, "props": {}, "children": [], "_offset": token_offset}
+            budget._blob_nodes += 1
+            if stack:
+                stack[-1][1].add(name)
+                stack[-1][0]["children"].append(node)
+            else:
+                root = node
+            stack.append((node, set()))
+        elif tok == FDT_END_NODE:
+            if not stack:
+                malformed()
+            stack.pop()
+        elif tok == FDT_PROP:
+            if not stack or stack[-1][0]["children"]:
+                malformed()
+            if budget._blob_properties >= budget._max_properties:
+                raise FdtStrictError("property_limit")
+            budget._blob_properties += 1
+            length, nameoff = struct.unpack(">II", read(p, 8, struct_end))
+            p += 8
+            value_end = p + length
+            aligned_end = base + _align(value_end - base, 4)
+            if aligned_end > struct_end or nameoff >= size_strings:
+                malformed()
+            name, _ = name_at(str_start + nameoff, str_end, 128)
+            props = stack[-1][0]["props"]
+            if not name or name in props:
+                malformed()
+            if length <= 1024 and name not in {"data", "value"} and not name.startswith(("rsa,", "ecdsa,")):
+                budget.charge_owned(length)
+                props[name] = read(p, length, struct_end)
+            else:
+                props[name] = ("<blob>", p - base, length)
+            p = aligned_end
+        elif tok == FDT_NOP:
+            continue
+        elif tok == FDT_END:
+            if root is None or stack or p != struct_end:
+                malformed()
+            ended = True
+            break
+        else:
+            malformed()
+    if not ended:
+        malformed()
+    budget.check()
+    return {
+        "totalsize": totalsize, "version": version, "last_comp_version": last_comp,
+        "boot_cpuid": cpuid, "root": root,
+        "strings_offset": str_start, "strings_size": size_strings,
+    }
+
+
+def parse_fdt_tree(
+    buf: Any, base: int, limit: int, *, max_nodes: int = 8192, max_depth: int = 32,
+    budget: FdtParseBudget | None = None,
+) -> dict[str, Any]:
     """FDT 헤더 + 구조 블록을 제자리(buf 의 오프셋)에서 파싱. 큰 data 속성은 복사하지 않고 길이/오프셋만 기록."""
+    if budget is not None:
+        if not isinstance(budget, FdtParseBudget):
+            raise FdtStrictError("field_limit")
+        try:
+            return _parse_fdt_strict(buf, base, limit, max_nodes=max_nodes, max_depth=max_depth, budget=budget)
+        except (IndexError, ValueError, TypeError, OverflowError, struct.error, BufferError, OSError, AttributeError):
+            raise FdtStrictError("malformed_fdt") from None
     hdr = _rd(buf, base, 40, limit)
     if hdr is None:
         raise FdtError("헤더가 잘림")
