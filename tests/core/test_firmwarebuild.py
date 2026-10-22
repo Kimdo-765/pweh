@@ -10,6 +10,7 @@ import os
 import subprocess
 import tarfile
 import io
+import time
 
 import pytest
 from pweh import firmwarebuild as F
@@ -219,12 +220,20 @@ def test_bounded_runner_kills_child_after_leader_exits(tmp_path):
     with pytest.raises(F.BuildError, match="시간"):
         F.bounded_run([sys.executable, "-c", code], timeout=.15)
     pid = int(child_pid.read_text())
-    # orphan의 짧은 zombie 상태는 실행이 끝난 상태다. 실제 살아 있는 sleep이면 실패한다.
+    # SIGKILL 전송 뒤 wait는 leader만 거둔다. orphan의 신호 처리까지는 비동기이므로
+    # 짧은 관찰 예산 안에 zombie/부재가 되어야 한다. 계속 살아 있는 sleep은 실패한다.
     stat_path = Path(f"/proc/{pid}/stat")
-    try:
-        assert stat_path.read_text().split()[2] in {"Z", "X"}
-    except (FileNotFoundError, ProcessLookupError):
-        pass
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            state = stat_path.read_text().rpartition(")")[2].split()[0]
+        except (FileNotFoundError, ProcessLookupError):
+            break
+        if state in {"Z", "X"}:
+            break
+        remaining = deadline - time.monotonic()
+        assert remaining > 0, f"합성 orphan 종료 미확인: {state}"
+        time.sleep(min(.01, remaining))
 
 
 def cli_module():
