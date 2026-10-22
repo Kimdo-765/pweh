@@ -564,12 +564,13 @@ if not decision.allowed:
 경로 인자는 케이스 상대 경로(`signals/x.sr`, `signals/` 는 생략 가능)이며 케이스 밖 경로는 거부한다. 어느 케이스의 `forensics/`(SD 카드 증거)·`emu/`(원시 콘솔) 아래 `input_path` 도 `validation_failed` 다(§4 'SD 카드 증거').
 `sigrok_scan` 은 예외로 `case_id` 가 선택이다(시리얼/네트워크 `conn` 을 줄 때만 필수).
 명시적 직렬 `conn`에는 공용 route·승인 지문·lease를 적용한다. 그 결과와 job metadata에 route를 남기고 child 종료 확인까지 lease를 유지한다. USB 자동 탐지/libusb 경로는 P1 잠금 통합 범위 밖이며 COM conn은 P3 전까지 거부한다.
+`sigrok_version`·`sigrok_list`에만 명시 `backend="windows"`를 지원한다. 등록 번들의 전체 고유 사본에서 고정 버전·목록 명령을 실행하고 Windows 프로세스와 wrapper 종료·사본 재검증 뒤 반환한다. 기본 Linux·캐시는 유지한다. 버전 뒤 목록의 확인된 decoder-only 오류는 `status="partial"`, `counts=null`, `list_complete=false`이며 Windows 목록 도구는 모든 kind에서 오류로 끝난다. 취소·상한·비0 종료·정리 미확인은 partial로 바꾸지 않는다. Windows 장치·COM·캡처 지원과 구분하며 상세 반환·수명은 [정보 조회 계약](references/windows-sigrok-info.md)에 있다.
 시그니처의 `…` 는 생략한 선택 인자다(전체 목록: `docs/references/pweh-mcp-tools.md`).
 
 | 도구 | 설명 / 반환 |
 |---|---|
-| `sigrok_version()` | sigrok-cli·libsigrok·libsigrokdecode 버전, 실행 파일 `path`, 드라이버·디코더 수 `counts`. sigrok-cli 가 없으면 `tool_missing` 오류 + 설치 힌트 |
-| `sigrok_list(kind="drivers", query=None)` | kind: `drivers`, `decoders`, `input-formats`, `output-formats`, `transforms`, `all` → `items`, `count`. `query` 는 id/설명 부분 문자열 필터. drivers 항목에는 이 서버의 캡처 정책(`capture_allowed`, `output_capable`, `reason`)이 붙는다 |
+| `sigrok_version(backend="linux")` | sigrok-cli·libsigrok·libsigrokdecode 버전, 실행 파일 `path`, 드라이버·디코더 수 `counts`. sigrok-cli 가 없으면 `tool_missing` 오류 + 설치 힌트 |
+| `sigrok_list(kind="drivers", query=None, backend="linux")` | kind: `drivers`, `decoders`, `input-formats`, `output-formats`, `transforms`, `all` → `items`, `count`. `query` 는 id/설명 부분 문자열 필터. drivers 항목에는 이 서버의 캡처 정책(`capture_allowed`, `output_capable`, `reason`)이 붙는다 |
 | `sigrok_decoder_help(decoder)` | 디코더의 필수/선택 채널, 옵션(값 목록·기본값), annotation 클래스/행, 바이너리 클래스, 문서, `example_stack`. 이름이 libsigrokdecode 버전마다 다르므로 `sigrok_decode` 의 스택·annotation 문자열은 하드코딩하지 말고 여기서 확인한다 |
 | `sigrok_scan(driver=None, conn=None, case_id=None, timeout_s=None)` | 연결된 장치 `devices[{driver, conn, description, channels, capture_allowed, …}]`, `count`. 인자가 없으면 모든 드라이버로 USB 등을 자동 탐지한다(OBSERVE). 시리얼/네트워크 `conn` 은 드라이버가 그 포트로 식별 바이트를 보내므로 INTERACT 이고 `case_id` 가 필요하며, 다른 프로세스(예: uart-mcp 콘솔 세션)가 포트를 열고 있으면 `Busy` |
 | `sigrok_device_info(case_id, driver, conn=None, timeout_s=None)` *(추가)* | `--show` 파싱: `driver_functions`, `channel_groups`, `samplerates` 또는 `samplerate_range`, `triggers`(지원 트리거 문자), `max_samples`, `capture_allowed`. 장치를 열기만 하고 설정은 바꾸지 않는다. 캡처 전에 samplerate 를 고를 때 쓴다 |

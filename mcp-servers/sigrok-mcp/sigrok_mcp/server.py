@@ -428,11 +428,19 @@ def _display_argv(argv: list[str]) -> list[str]:
 
 
 @server.tool(
-    description="sigrok-cli / libsigrok / libsigrokdecode 버전, 실행 파일 경로, 지원 드라이버·디코더 수. sigrok-cli 가 없으면 설치 힌트와 함께 tool_missing 오류.",
+    description=("sigrok-cli / libsigrok / libsigrokdecode 버전, 실행 파일 경로, 지원 드라이버·디코더 수. "
+        "backend 기본 linux; windows는 등록 번들·WSL interop의 무장치 정보 조회만 사용하며 Linux로 대체하지 않는다. "
+        "Windows 버전 확인 뒤 목록에 decoder 로드 오류만 있으면 status=partial, counts=null이며 원시 traceback은 반환하지 않는다. "
+        "정리·취소·시간·출력 상한 실패는 partial로 바꾸지 않는다. Linux sigrok-cli가 없으면 tool_missing 오류."),
     annotations=ANN_READ_ONLY,
 )
 @safe_tool
-async def sigrok_version() -> dict[str, Any]:
+async def sigrok_version(backend: str = "linux") -> dict[str, Any]:
+    if backend not in ("linux", "windows"):
+        raise ValidationFailed("backend는 linux 또는 windows여야 합니다.")
+    if backend == "windows":
+        from .windows_info import run_info
+        return await _run_cancellable(run_info, "version", rt().config)
     cli = _cli()
     info = await _offload(cli.version)
     out: dict[str, Any] = {"ok": True, "path": cli.path}
@@ -456,20 +464,32 @@ async def sigrok_version() -> dict[str, Any]:
 @server.tool(
     description=(
         "sigrok 지원 목록. kind: drivers | decoders | input-formats | output-formats | transforms | all. "
-        "query 로 id/설명 부분 문자열 필터. drivers 에는 이 서버의 캡처 정책(capture_allowed, output_capable, reason)이 붙는다."
+        "query 로 id/설명 부분 문자열 필터. drivers 에는 이 서버의 캡처 정책(capture_allowed, output_capable, reason)이 붙는다. "
+        "backend 기본 linux; windows는 등록 번들·WSL interop의 지원 목록 정보만 조회한다(COM/USB/캡처 미지원). "
+        "Windows decoder 로드 오류는 kind와 관계없이 고정 오류이며 불완전 목록을 반환·캐시하지 않는다."
     ),
     annotations=ANN_READ_ONLY,
 )
 @safe_tool
-async def sigrok_list(kind: str = "drivers", query: str | None = None) -> dict[str, Any]:
+async def sigrok_list(kind: str = "drivers", query: str | None = None, backend: str = "linux") -> dict[str, Any]:
+    if backend not in ("linux", "windows"):
+        raise ValidationFailed("backend는 linux 또는 windows여야 합니다.")
     alias = {"drivers": "drivers", "hardware": "drivers", "decoders": "decoders", "protocol-decoders": "decoders",
              "input-formats": "input_formats", "input_formats": "input_formats", "output-formats": "output_formats",
              "output_formats": "output_formats", "transforms": "transforms", "all": "all"}
     k = alias.get((kind or "").strip().lower())
     if not k:
         raise ValidationFailed(f"알 수 없는 kind: {kind!r}", hint="drivers | decoders | input-formats | output-formats | transforms | all")
-    cli = _cli()
-    sup = await _offload(cli.supported)
+    extra = {}
+    if backend == "windows":
+        from .windows_info import run_info
+        result = await _run_cancellable(run_info, "list", rt().config)
+        sup = result["supported"]
+        extra = {key: value for key, value in result.items() if key != "supported"}
+        extra["note"] = "Windows backend는 버전·목록 정보만 연결했습니다. capture_allowed는 정책 설명이며 Windows 캡처 지원을 뜻하지 않습니다."
+    else:
+        cli = _cli()
+        sup = await _offload(cli.supported)
     pol = _policy()
     q = (query or "").strip().lower()
 
@@ -486,12 +506,13 @@ async def sigrok_list(kind: str = "drivers", query: str | None = None) -> dict[s
     if k == "all":
         return {"ok": True, "kind": "all", "drivers": drivers(), "decoders": filt(sup["decoders"]),
                 "input_formats": filt(sup["input_formats"]), "output_formats": filt(sup["output_formats"]),
-                "transforms": filt(sup["transforms"])}
+                "transforms": filt(sup["transforms"]), **extra}
     items = drivers() if k == "drivers" else filt(sup[k])
     out: dict[str, Any] = {"ok": True, "kind": k.replace("_", "-"), "count": len(items), "items": items}
     if k == "drivers":
         out["note"] = ("capture_allowed=false 인 드라이버는 sigrok_capture/scan/device_info 에서 거부된다. "
                        "출력 가능 장치(전원공급기·전자부하·신호발생기·릴레이)는 설정으로도 허용할 수 없다.")
+    out.update(extra)
     return out
 
 

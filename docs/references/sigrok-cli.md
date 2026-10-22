@@ -121,6 +121,10 @@ PE import에 필요한 `MSVCR100.dll`은 추출 트리에 없으며, 이번 두 
 `sqlite3.dll`·`tcl86t.dll`·`tk86t.dll`은 `python34.zip` 내부에서만 확인했다.
 `COPYING`은 GPLv3 원문이며, 이 파일만으로 정적 링크된 모든 의존성의 라이선스 확인을 완료했다고 볼 수 없다.
 
+### 1.5 PWEH Windows 정보 소비자
+
+`sigrok_version`·`sigrok_list`의 명시 `backend="windows"`는 등록 번들의 고유 전체 사본과 실제 Windows 종료 확인을 사용한다. 기본 Linux 경로·캐시는 유지하며 Windows 장치 스캔·캡처는 연결하지 않는다. §1.4의 알려진 오류는 숨기지 않는다. 정상 버전 뒤 확인된 decoder-only 목록 오류일 때 version은 partial/counts=null이고, list는 모든 kind에서 오류다. 설치 선택·고정 실행 범위·취소·사본 정리는 [Windows 정보 조회 계약](windows-sigrok-info.md)에 있다.
+
 ---
 
 ## 2. 명령행 개요

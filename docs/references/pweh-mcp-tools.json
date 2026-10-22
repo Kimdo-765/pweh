@@ -2557,8 +2557,15 @@
   "tools": [
    {
     "name": "sigrok_version",
-    "description": "sigrok-cli / libsigrok / libsigrokdecode 버전, 실행 파일 경로, 지원 드라이버·디코더 수. sigrok-cli 가 없으면 설치 힌트와 함께 tool_missing 오류.",
-    "params": [],
+    "description": "sigrok-cli / libsigrok / libsigrokdecode 버전, 실행 파일 경로, 지원 드라이버·디코더 수. backend 기본 linux; windows는 등록 번들·WSL interop의 무장치 정보 조회만 사용하며 Linux로 대체하지 않는다. Windows 버전 확인 뒤 목록에 decoder 로드 오류만 있으면 status=partial, counts=null이며 원시 traceback은 반환하지 않는다. 정리·취소·시간·출력 상한 실패는 partial로 바꾸지 않는다. Linux sigrok-cli가 없으면 tool_missing 오류.",
+    "params": [
+     {
+      "name": "backend",
+      "type": "string",
+      "required": false,
+      "default": "linux"
+     }
+    ],
     "annotations": {
      "readOnlyHint": true,
      "destructiveHint": false,
@@ -2569,7 +2576,7 @@
    },
    {
     "name": "sigrok_list",
-    "description": "sigrok 지원 목록. kind: drivers | decoders | input-formats | output-formats | transforms | all. query 로 id/설명 부분 문자열 필터. drivers 에는 이 서버의 캡처 정책(capture_allowed, output_capable, reason)이 붙는다.",
+    "description": "sigrok 지원 목록. kind: drivers | decoders | input-formats | output-formats | transforms | all. query 로 id/설명 부분 문자열 필터. drivers 에는 이 서버의 캡처 정책(capture_allowed, output_capable, reason)이 붙는다. backend 기본 linux; windows는 등록 번들·WSL interop의 지원 목록 정보만 조회한다(COM/USB/캡처 미지원). Windows decoder 로드 오류는 kind와 관계없이 고정 오류이며 불완전 목록을 반환·캐시하지 않는다.",
     "params": [
      {
       "name": "kind",
@@ -2582,6 +2589,12 @@
       "type": "string/null",
       "required": false,
       "default": null
+     },
+     {
+      "name": "backend",
+      "type": "string",
+      "required": false,
+      "default": "linux"
      }
     ],
     "annotations": {

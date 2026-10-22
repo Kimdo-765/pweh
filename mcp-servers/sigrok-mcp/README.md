@@ -19,9 +19,9 @@ REA 의 `decode_signal_recording` / `inspect_signal_decoders` 는 이미 녹화�
 
 | 도구 | 설명 / 주요 반환 |
 |---|---|
-| `sigrok_version()` | sigrok-cli·libsigrok·libsigrokdecode 버전, 실행 파일 `path`, 드라이버·디코더 수(`counts`) |
+| `sigrok_version(backend="linux")` | sigrok-cli·libsigrok·libsigrokdecode 버전, 실행 파일 `path`, 드라이버·디코더 수(`counts`) |
 | `sigrok_scan(driver=None, conn=None, case_id=None)` | 연결된 장치 `devices[{driver, conn, description, serial_number, channels, capture_allowed, ...}]`. 시리얼/네트워크 `conn` 을 쓰면 `case_id` 가 필요하다 |
-| `sigrok_list(kind="drivers"\|"decoders"\|"input-formats"\|"output-formats"\|"transforms"\|"all", query=None)` | 지원 목록. drivers 항목에는 캡처 정책(`capture_allowed`, `output_capable`, `reason`)이 붙는다 |
+| `sigrok_list(kind="drivers"\|"decoders"\|"input-formats"\|"output-formats"\|"transforms"\|"all", query=None, backend="linux")` | 지원 목록. drivers 항목에는 캡처 정책(`capture_allowed`, `output_capable`, `reason`)이 붙는다 |
 | `sigrok_decoder_help(decoder)` | 디코더의 채널, 옵션(값 목록·기본값), annotation 클래스와 행, 바이너리 클래스, 문서, `example_stack` |
 | `sigrok_device_info(case_id, driver, conn=None)` *(추가)* | 드라이버 기능, 채널 그룹, 지원 samplerate 목록 또는 범위, 트리거 문자, 최대 샘플 수 |
 | `sigrok_capture(case_id, driver, samplerate="1m", duration_ms=None, samples=None, channels=None, triggers=None, output_name=None, conn=None, capture_ratio=None, background=None, timeout_s=None)` | `duration_ms` 와 `samples` 중 **정확히 하나**를 준다(둘 다 없거나 둘 다 주면 `validation_failed`). `signals/<name>.sr` 를 만들고 아티팩트로 등록한다. `path`, `samples`, `samplerate`, `channels`, 채널별 `activity`, `next_steps` 를 돌려준다. 예상 시간이 20초를 넘거나 트리거를 쓰면 job 으로 돌고 `job_id` 를 반환한다 |
@@ -42,6 +42,12 @@ REA 의 `decode_signal_recording` / `inspect_signal_decoders` 는 이미 녹화�
 
 경로 인자는 케이스 상대 경로(`signals/x.sr`)를 쓴다. `signals/` 는 생략해도 된다. 케이스 밖 경로는 거부한다.
 `channel` 에는 이름(`D0`, `RX`)이나 인덱스를 쓸 수 있다. srzip 의 인덱스는 비트 위치이고, VCD 의 인덱스는 선언 순서다.
+
+## Windows 무장치 정보 조회
+
+`sigrok_version(backend="windows")`와 `sigrok_list(backend="windows")`는 등록 Windows 번들의 버전·지원 목록만 조회한다. 요청별 전체 사본을 사용하고 실제 Windows 프로세스·wrapper 종료와 사본 검증을 마친 뒤 반환한다. 기본 Linux 경로와 캐시는 유지한다. Windows scan/COM/USB/capture/decode는 지원하지 않는다.
+
+동봉 Python 3.4.4의 `signature` 디코더 오류가 재현되면 version은 `status="partial"`, `counts=null`, `list_complete=false`를 반환하고 list는 모든 kind에서 오류로 끝난다. 설치 선택·고정 명령·오류·취소/정리 계약은 [Windows 정보 조회](../../docs/references/windows-sigrok-info.md)를 본다.
 
 ## 안전 정책
 

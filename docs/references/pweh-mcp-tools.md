@@ -153,10 +153,10 @@
 
 ## pweh-sigrok
 
-- **`sigrok_version()`** — [읽기전용]  
-  sigrok-cli / libsigrok / libsigrokdecode 버전, 실행 파일 경로, 지원 드라이버·디코더 수. sigrok-cli 가 없으면 설치 힌트와 함께 tool_missing 오류.
-- **`sigrok_list(kind?, query?)`** — [읽기전용]  
-  sigrok 지원 목록. kind: drivers | decoders | input-formats | output-formats | transforms | all. query 로 id/설명 부분 문자열 필터. drivers 에는 이 서버의 캡처 정책(capture_allowed, output_capable, reason)이 붙는다.
+- **`sigrok_version(backend?)`** — [읽기전용]  
+  sigrok-cli / libsigrok / libsigrokdecode 버전, 실행 파일 경로, 지원 드라이버·디코더 수. backend 기본 linux; windows는 등록 번들·WSL interop의 무장치 정보 조회만 사용하며 Linux로 대체하지 않는다. Windows 버전 확인 뒤 목록에 decoder 로드 오류만 있으면 status=partial, counts=null이며 원시
+- **`sigrok_list(kind?, query?, backend?)`** — [읽기전용]  
+  sigrok 지원 목록. kind: drivers | decoders | input-formats | output-formats | transforms | all. query 로 id/설명 부분 문자열 필터. drivers 에는 이 서버의 캡처 정책(capture_allowed, output_capable, reason)이 붙는다. backend 기본 linux; windows는 등록 번들·
 - **`sigrok_decoder_help(decoder)`** — [읽기전용]  
   프로토콜 디코더 상세(sigrok-cli -P <id> --show 파싱): 필수/선택 채널, 옵션(값 목록·기본값), annotation 클래스/행, 바이너리 클래스, 문서. sigrok_decode 의 -P/-A 문자열을 만들 때 사용 (libsigrokdecode 버전마다 이름이 다르므로 하드코딩 금지).
 - **`sigrok_scan(driver?, conn?, case_id?, timeout_s?)`**  
