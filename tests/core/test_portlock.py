@@ -157,3 +157,82 @@ def test_role_unknown_denies_and_separate_from_instrument_tags(manager):
     path.write_text("{}")
     with pytest.raises(PwehError, match="port_role_unknown"):
         store.assert_probe_allowed(route())
+
+
+def usb_scope():
+    import copy
+    import time
+    from pweh.usb_binding import parse_windows_usb_scope
+    parent = r'USB\VID_0403&PID_6010\SYNTHETIC'
+    mi = r'USB\VID_0403&PID_6010&MI_01\SYNTHETIC-B'
+    nodes = [dict(instance_id=parent, parent=r'HTREE\ROOT\0', parent_state='ok', com=None, pnp_class='USB'),
+             dict(instance_id=mi, parent=parent, parent_state='ok', com='COM32', pnp_class='Ports')]
+    snap = dict(present_count=2, nodes=nodes, errors=[])
+    raw = json.dumps(dict(schema='pweh.pnp-usb-scope/v1', snapshots=[snap, copy.deepcopy(snap)])).encode()
+    return parse_windows_usb_scope(raw, vid='0403', pid='6010', deadline=time.monotonic() + 5)
+
+
+def role_record():
+    return dict(schema='pweh.port-role/v1', role='target', lock_key='win:COM99', device_id=None,
+                identity=dict(status='known', serial='synthetic-old'), case_id='synthetic', server='uart')
+
+
+def put_role(store, rec):
+    store._records.put(L.PortLockManager._name('synthetic-role'), rec)
+
+
+@pytest.mark.parametrize('match', ['com', 'interface', 'device_id', 'parent_instance',
+                                   'usb_ancestor', 'device_instance'])
+@pytest.mark.parametrize('role', ['target', 'bridge'])
+def test_usb_role_whole_scope_matches_every_alias_and_parent(manager, match, role):
+    store = L.PortRoleStore(runtime_root=manager.runtime_root)
+    scope, rec = usb_scope(), role_record()
+    rec['role'] = role
+    if match == 'com': rec['lock_key'] = 'win:com32'
+    elif match == 'interface': rec['lock_key'] = next(key.lower() for key in scope.claim_keys if '&MI_' in key)
+    elif match == 'device_id': rec['device_id'] = 'win-pnp:' + scope.usb_parent.lower() + '/MI_00'
+    else: rec['identity'][match] = scope.usb_parent.lower()
+    put_role(store, rec)
+    with pytest.raises(PwehError) as exc:
+        store.assert_usb_scope_allowed(scope)
+    assert exc.value.code == 'port_role_conflict' and exc.value.data == {'role': role}
+
+
+def test_usb_role_other_parent_allowed_and_no_records_created(manager):
+    store = L.PortRoleStore(runtime_root=manager.runtime_root)
+    scope = usb_scope()
+    store.assert_usb_scope_allowed(scope)
+    assert not manager.runtime_root.exists()
+    rec = role_record()
+    rec['identity']['parent_instance'] = r'USB\VID_1234&PID_5678\SYNTHETIC-OTHER'
+    rec['device_id'] = 'win-pnp:' + rec['identity']['parent_instance'] + '/-'
+    put_role(store, rec)
+    store.assert_usb_scope_allowed(scope)
+    assert not (manager.runtime_root / 'tags').exists()
+
+
+@pytest.mark.parametrize('fault', ['root', 'identity', 'status', 'role', 'key', 'device_id', 'parent', 'serial', 'mode'])
+def test_usb_role_malformed_records_fail_closed(manager, fault):
+    store = L.PortRoleStore(runtime_root=manager.runtime_root)
+    rec = role_record()
+    if fault == 'root': rec = []
+    elif fault == 'identity': rec['identity'] = []
+    elif fault == 'status': rec['identity']['status'] = 'present'
+    elif fault == 'role': rec['role'] = 'allow'
+    elif fault == 'key': rec['lock_key'] = ''
+    elif fault == 'device_id': rec['device_id'] = 42
+    elif fault == 'parent': rec['identity']['parent_instance'] = ['private']
+    elif fault == 'serial': rec['identity']['serial'] = 42
+    put_role(store, rec)
+    if fault == 'mode': next((manager.runtime_root / 'port-roles').iterdir()).chmod(0o644)
+    with pytest.raises(PwehError) as exc:
+        store.assert_usb_scope_allowed(usb_scope())
+    assert exc.value.code == 'port_role_unknown'
+    assert exc.value.__suppress_context__
+
+
+def test_usb_role_rejects_non_scope_without_creating_runtime(manager):
+    store = L.PortRoleStore(runtime_root=manager.runtime_root)
+    with pytest.raises(PwehError, match='port_role_unknown'):
+        store.assert_usb_scope_allowed(object())
+    assert not manager.runtime_root.exists()

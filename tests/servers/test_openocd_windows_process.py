@@ -14,6 +14,7 @@ import pytest
 
 from openocd_mcp import process_windows as W, windows_plan as P
 from openocd_mcp.dummy_profile import DUMMY_PROFILE
+from openocd_mcp.tigard_profile import TIGARD_PROFILE
 from pweh import windows_bundle as B, wininterop as WI
 
 pytestmark = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux 합성 interop wrapper")
@@ -48,9 +49,14 @@ class Lifecycle:
 
 
 @pytest.fixture
-def setup(tmp_path, monkeypatch):
-    rid = DUMMY_PROFILE.release_id
-    data = {"bin/openocd.exe": b"SYNTHETIC NONEXECUTABLE", "openocd/scripts/interface/dummy.cfg": CFG}
+def setup(tmp_path, monkeypatch, request):
+    profile = TIGARD_PROFILE if getattr(request, "param", None) == "tigard" else DUMMY_PROFILE
+    cfg = CFG
+    if profile is TIGARD_PROFILE:
+        from .test_openocd_tigard_profile import INTERFACE_BYTES
+        cfg = INTERFACE_BYTES
+    rid = profile.release_id
+    data = {"bin/openocd.exe": b"SYNTHETIC NONEXECUTABLE", profile.interface_relative_path: cfg}
     doc = {"schema_version": 1, "tool": "openocd", "release_id": rid, "platform": "windows-amd64",
            "source": {"artifact_url": "https://example.invalid/synthetic.zip", "artifact_name": "synthetic.zip",
                       "artifact_size": 1, "artifact_sha256": "a" * 64, "digest_basis": "supplier-checksum",
@@ -89,9 +95,10 @@ def setup(tmp_path, monkeypatch):
         layout = W.prepare_windows_run(tmp_path, deadline=end())
         layouts.append(layout)
         inputs = P.PipeStartInputs(P.observe_file(bundle.entrypoint, max_bytes=P.MAX_FILE_BYTES, deadline=end()), bundle.search_dirs,
-                    P.CfgInput("standard", P.observe_file(bundle.root / DUMMY_PROFILE.interface_relative_path, max_bytes=P.MAX_CFG_BYTES, deadline=end())),
-                    targets=(), extras=(), extra_commands=(), transport="jtag", adapter_speed_khz=1000)
-        return P.build_dummy_plan(inputs, layout, ambient_env=(), path_converter=converter, deadline=end())
+                    P.CfgInput("standard", P.observe_file(bundle.root / profile.interface_relative_path, max_bytes=P.MAX_CFG_BYTES, deadline=end())),
+                    targets=(), extras=(), extra_commands=(), transport="jtag", adapter_speed_khz=profile.adapter_speed_khz)
+        builder = P.build_tigard_plan if profile is TIGARD_PROFILE else P.build_dummy_plan
+        return builder(inputs, layout, ambient_env=(), path_converter=converter, deadline=end())
     def spawn(mode="ready", *, supplied_plan=None, **updates):
         p = supplied_plan or plan()
         def factory(argv, **kwargs):
@@ -108,7 +115,7 @@ def setup(tmp_path, monkeypatch):
             raise
         owners.append(owner)
         return owner
-    fixture = SimpleNamespace(bundle=bundle, plan=plan, spawn=spawn, life=life, converter=converter,
+    fixture = SimpleNamespace(bundle=bundle, plan=plan, spawn=spawn, life=life, converter=converter, profile=profile,
                               owners=owners, layouts=layouts, spawns=spawns, tmp=tmp_path)
     yield fixture
     life.unknown = False
@@ -241,6 +248,131 @@ def test_plan_mutation_is_spawn_zero(setup):
     with pytest.raises(W.WindowsSpawnError):
         setup.spawn(supplied_plan=replace(p, argv=(*p.argv, "-c", "PRIVATE")))
     assert not setup.spawns
+
+
+@pytest.mark.parametrize("setup", ["tigard"], indirect=True)
+def test_tigard_fixed_builder_last_callback_and_same_pipe(setup, monkeypatch):
+    events = []
+    revalidate = B.revalidate_bundle
+    builder = P.build_tigard_plan
+    def checked_bundle(*args, **kwargs):
+        assert "callback" not in events
+        events.append("bundle")
+        return revalidate(*args, **kwargs)
+    def checked_builder(*args, **kwargs):
+        assert "callback" not in events
+        events.append("plan")
+        return builder(*args, **kwargs)
+    def callback():
+        assert events[-2:] == ["bundle", "plan"] and not setup.spawns
+        events.append("callback")
+    monkeypatch.setattr(B, "revalidate_bundle", checked_bundle)
+    monkeypatch.setattr(P, "build_tigard_plan", checked_builder)
+    owner = setup.spawn(profile_id=TIGARD_PROFILE.profile_id, before_spawn=callback)
+    assert events[-1] == "callback" and len(setup.spawns) == 1
+    argv = setup.spawns[0][0]
+    assert "init" in argv and "noinit" not in argv
+    assert "if {[catch {adapter speed 100}]} {adapter_khz 100}" in argv
+    client = owner.client
+    assert owner.wait_ready(timeout=3).ready
+    assert owner.wait_ready(timeout=3).ready and owner.client is client
+    assert (setup.tmp / "requests").read_bytes() == b"request\n"
+    assert owner.close(timeout=3).confirmed
+    assert setup.life.calls == ["observe", "terminate"]
+
+
+@pytest.mark.parametrize("profile_id", [None, True, "PRIVATE-profile", "tigard-jtag-v1"])
+def test_closed_profile_cannot_reinterpret_dummy_plan(setup, profile_id):
+    with pytest.raises(W.WindowsSpawnError) as caught:
+        setup.spawn(profile_id=profile_id, before_spawn=lambda: None)
+    assert not setup.spawns
+    assert caught.value.owner.close(timeout=1).confirmed
+
+
+@pytest.mark.parametrize("setup", ["tigard"], indirect=True)
+@pytest.mark.parametrize("callback", [None, 1, lambda: True, lambda: False, lambda: "PRIVATE"])
+def test_tigard_requires_callable_none_result(setup, callback):
+    with pytest.raises(W.WindowsSpawnError) as caught:
+        setup.spawn(profile_id=TIGARD_PROFILE.profile_id, before_spawn=callback)
+    assert not setup.spawns and caught.value.owner.close(timeout=1).confirmed
+    assert setup.life.calls == []
+
+
+@pytest.mark.parametrize("setup", ["tigard"], indirect=True)
+@pytest.mark.parametrize("error", [ValueError("PRIVATE callback"), KeyboardInterrupt("PRIVATE cancel")])
+def test_tigard_callback_failure_keeps_owner_without_raw_error(setup, error):
+    import traceback
+    def fail():
+        raise error
+    with pytest.raises(W.WindowsSpawnError) as caught:
+        setup.spawn(profile_id=TIGARD_PROFILE.profile_id, before_spawn=fail)
+    assert not setup.spawns and W._OWNED[caught.value.owner.token] is caught.value.owner
+    assert "PRIVATE" not in "".join(traceback.format_exception(caught.value))
+    assert caught.value.owner.close(timeout=1).confirmed
+
+
+@pytest.mark.parametrize("setup", ["tigard"], indirect=True)
+def test_tigard_callback_then_cancel_is_spawn_zero(setup):
+    cancelled = False
+    def callback():
+        nonlocal cancelled
+        cancelled = True
+    with pytest.raises(W.WindowsSpawnError):
+        setup.spawn(profile_id=TIGARD_PROFILE.profile_id, before_spawn=callback,
+                    cancel_check=lambda: cancelled)
+    assert not setup.spawns
+
+
+@pytest.mark.parametrize("setup", ["tigard"], indirect=True)
+def test_tigard_callback_then_deadline_is_spawn_zero(setup, monkeypatch):
+    clock = [100.0]
+    def callback():
+        clock[0] = 110.0
+    with monkeypatch.context() as m:
+        m.setattr(W.time, "monotonic", lambda: clock[0])
+        with pytest.raises(W.WindowsSpawnError):
+            setup.spawn(profile_id=TIGARD_PROFILE.profile_id, before_spawn=callback, deadline=110.0)
+    assert not setup.spawns
+
+
+@pytest.mark.parametrize("setup", ["tigard"], indirect=True)
+def test_tigard_wrong_release_never_calls_scope_callback(setup):
+    calls = []
+    with pytest.raises(W.WindowsSpawnError):
+        setup.spawn(profile_id=TIGARD_PROFILE.profile_id, before_spawn=lambda: calls.append(1),
+                    bundle=replace(setup.bundle, release_id="PRIVATE-release"))
+    assert calls == [] and setup.spawns == []
+
+
+@pytest.mark.parametrize("setup", ["tigard"], indirect=True)
+def test_tigard_source_mutation_precedes_callback_rejection(setup):
+    plan = setup.plan()
+    cfg = setup.bundle.root / TIGARD_PROFILE.interface_relative_path
+    content = cfg.read_bytes()
+    cfg.chmod(0o644)
+    cfg.write_bytes(content + b"\n")
+    calls = []
+    try:
+        with pytest.raises(W.WindowsSpawnError):
+            setup.spawn(supplied_plan=plan, profile_id=TIGARD_PROFILE.profile_id,
+                        before_spawn=lambda: calls.append(1))
+        assert calls == [] and setup.spawns == []
+    finally:
+        cfg.write_bytes(content)
+        cfg.chmod(0o444)
+
+
+@pytest.mark.parametrize("setup", ["tigard"], indirect=True)
+def test_tigard_unknown_cleanup_keeps_original_launch_and_run(setup):
+    owner = setup.spawn(profile_id=TIGARD_PROFILE.profile_id, before_spawn=lambda: None)
+    assert owner.wait_ready(timeout=3).ready
+    launch = owner.plan.launch
+    setup.life.unknown = True
+    assert not owner.close(timeout=3).confirmed
+    assert not owner.release_run(deadline=end()) and owner.plan.layout.root.exists()
+    assert W._OWNED[owner.token] is owner and owner.plan.launch is launch
+    setup.life.unknown = False
+    assert owner.close(timeout=3).confirmed and owner.release_run(deadline=end())
 
 
 def test_run_cannot_be_double_claimed_or_released_while_owner_active(setup):

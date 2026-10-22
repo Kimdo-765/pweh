@@ -1,4 +1,4 @@
-"""고정 Windows dummy 실행의 pipe·제어 호출·일회 run 소유권.
+"""고정 Windows OpenOCD profile 실행의 pipe·제어 호출·일회 run 소유권.
 
 POSIX wrapper 정리는 Windows 종료 확인과 별개다. 미확인 owner는 강한 참조로
 보존하며, import만으로 Windows나 파일 시스템을 조회하지 않는다.
@@ -373,7 +373,7 @@ class WindowsSpawnError(WindowsOwnerError):
     code = "windows_spawn_failed"
 
     def __init__(self, owner):
-        super().__init__("Windows dummy 실행 준비에 실패했습니다.")
+        super().__init__("Windows OpenOCD 실행 준비에 실패했습니다.")
         self.owner = owner
 
 
@@ -491,8 +491,9 @@ class WindowsOpenOcdOwner:
 
 
 def spawn_windows(plan, *, bundle, log_path: Path, deadline: float, cancel_check=None,
+                  profile_id="dummy-noinit-v1", before_spawn=None,
                   process_factory=None, lifecycle=None, path_converter=None):
-    """고정 dummy 계획만 fresh 확인하고 worker의 run 소유권을 인계받는다."""
+    """두 고정 profile의 계획만 재확인하고 마지막 callback 뒤 즉시 실행한다."""
     end = _end(deadline)
     if not sys.platform.startswith("linux"):
         _fail("windows_wrapper_platform")
@@ -509,15 +510,28 @@ def spawn_windows(plan, *, bundle, log_path: Path, deadline: float, cancel_check
     owner = WindowsOpenOcdOwner(plan, bundle, run, lifecycle, runner)
     try:
         from .dummy_profile import DUMMY_PROFILE
+        from .tigard_profile import TIGARD_PROFILE
+        if type(profile_id) is not str:
+            _fail("windows_profile_invalid")
+        if profile_id == DUMMY_PROFILE.profile_id:
+            profile, builder = DUMMY_PROFILE, WP.build_dummy_plan
+        elif profile_id == TIGARD_PROFILE.profile_id:
+            profile, builder = TIGARD_PROFILE, WP.build_tigard_plan
+            if not callable(before_spawn):
+                _fail("windows_before_spawn_invalid")
+        else:
+            _fail("windows_profile_invalid")
+        if before_spawn is not None and not callable(before_spawn):
+            _fail("windows_before_spawn_invalid")
         _tick(end, cancel_check)
         if (bundle.tool != "openocd" or bundle.release_root is None
-                or bundle.release_id != DUMMY_PROFILE.release_id):
+                or bundle.release_id != profile.release_id):
             _fail("windows_bundle_invalid")
         if plan.inputs.executable.path != bundle.entrypoint or plan.inputs.search_dirs != bundle.search_dirs:
             _fail("windows_bundle_invalid")
         WB.revalidate_bundle(bundle, deadline=end, cancel=cancel_check)
-        fresh = WP.build_dummy_plan(plan.inputs, plan.layout, ambient_env=plan.env_items,
-                                   path_converter=converter, deadline=end)
+        fresh = builder(plan.inputs, plan.layout, ambient_env=plan.env_items,
+                        path_converter=converter, deadline=end)
         if fresh != plan:
             _fail("windows_plan_changed")
         _tick(end, cancel_check)
@@ -529,6 +543,9 @@ def spawn_windows(plan, *, bundle, log_path: Path, deadline: float, cancel_check
         owner._pipe = pipe
         pipe._log = PP._open_log(Path(log_path))
         factory = process_factory or subprocess.Popen
+        # 긴 재해시·경로 변환을 모두 끝낸 뒤 소비자가 scope/lease/guard를 마지막으로 확인한다.
+        if before_spawn is not None and before_spawn() is not None:
+            _fail("windows_before_spawn_invalid")
         _tick(end, cancel_check)
         owner._spawn_attempted = True
         pipe._proc = factory(list(plan.argv), env=dict(plan.env_items), cwd=plan.cwd,

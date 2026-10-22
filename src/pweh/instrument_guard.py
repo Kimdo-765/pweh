@@ -193,6 +193,34 @@ def guard_target_port(runtime: Any, endpoint: str | None, *, consumer: str, phas
     return snapshot
 
 
+def guard_target_usb_scope(runtime: Any, scope: Any, *, consumer: str,
+                           phase: str = "preflight") -> PortIdentity | None:
+    """검증된 USB 관찰을 기존 거부 판정에 전달한다. pin0은 scope/tag도 읽지 않는다."""
+    inventory = load_pins(runtime.attestations)
+    if inventory.state == "empty":
+        return None
+    if inventory.state != "active":
+        _raise(GuardDecision("deny", "instrument_identity_unknown",
+                             reasons=("instrument_pins_unreadable",)), consumer, phase)
+    from .usb_binding import WindowsUsbScope
+    try:
+        if type(scope) is not WindowsUsbScope:
+            raise ValueError("usb_scope_invalid")
+        # PnP tail은 descriptor serial이 아니다. active pin의 미확인 거부를 유지한다.
+        snapshot = PortIdentity("winif:" + scope.usb_parent, "known", kind="usb", present=True,
+                                backend="windows", device_instance=scope.usb_parent,
+                                parent_instance=scope.usb_parent, usb_ancestor=scope.usb_parent,
+                                vid=scope.vid, pid=scope.pid, reasons=("usb_serial_unobserved",))
+        tags = InstrumentTagStore().read()
+        decision = classify_instrument(snapshot, inventory, tags)
+    except (OSError, ValueError, TypeError, AttributeError, PwehError):
+        decision = GuardDecision("deny", "instrument_identity_unknown",
+                                 reasons=("usb_scope_or_tags_unreadable",))
+    if decision.action != "pass":
+        _raise(decision, consumer, phase)
+    return snapshot
+
+
 def guard_observed_mac(runtime: Any, value: Any, *, consumer: str) -> None:
     """이미 얻은 MAC의 보조 확인. 장치 접촉 전 PnP guard를 대신하지 않는다."""
     inventory = load_pins(runtime.attestations)

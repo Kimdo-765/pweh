@@ -32,4 +32,5 @@ disable-model-invocation: true
    `uart-shell-acquisition`, `logic-analyzer-protocol-decode`, `firmware-dump-via-uart`, `esp32-flash-dump`(ESP32 계열 MCU), `firmware-static-analysis`, `cctv-auth-bypass-hunt`,
    `game-save-unlock-analysis`(게임 콘솔 — 세이브·해금 오프라인 분석), `sd-card-forensics`(SD 카드 — 카드 이미지 증거 분석·펌웨어 SD 공격 표면 요약).
    `firmware-emulation`(확보한 MCU 펌웨어의 로컬 실행과 마스킹 콘솔), `image-hints-analysis`(정지 그림·OCR·QR·메타데이터와 시각 단서).
+   Windows OpenOCD는 고정 dummy 진단과 `tigard-jtag-v1`의 어댑터 초기화·제한 조회만 지원한다. Tigard 실기 사용은 모델·소유/허가·배선·전압 확인 뒤 master-prompt §4와 `docs/references/windows-openocd-tigard.md`를 따른다. 타깃·메모리·덤프에는 기본 Linux 경로를 쓴다.
    준비 중인 목표(RF·하드웨어)의 전용 Skill 은 아직 없다. 없는 Skill 이름을 지어 쓰지 않는다.

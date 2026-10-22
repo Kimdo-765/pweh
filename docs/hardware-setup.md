@@ -192,6 +192,8 @@ lsusb                                # 로직 애널라이저/JTAG 프로브
 | CMSIS-DAP | `interface/cmsis-dap.cfg` |
 | Raspberry Pi GPIO | `interface/raspberrypi-native.cfg` (bcm2835gpio 드라이버). 또는 `-c "adapter driver linuxgpiod"` + `interface/raspberrypi-gpio-connector.cfg` (핀 매핑만 정의: TCK=GPIO11, TMS=GPIO8, TDI=GPIO10 …) |
 
+WSL에서 명시 Windows 경로를 쓸 때는 [고정 Tigard 계약](references/windows-openocd-tigard.md)의 어댑터 초기화·제한 조회만 지원한다. 고정 cfg는 Tigard V1.1·FTDI channel 1용이며 일반 FT2232 보드에 대신 적용하지 않는다. 실기 사용 전에 모델·배선·전압·해당 인터페이스의 드라이버를 사람이 확인한다. 드라이버를 자동 설치하지 않으며 타깃·메모리·덤프는 Linux 경로를 사용한다.
+
 자세한 내용은 `docs/references/openocd-tcl-rpc.md` 와 `mcp-servers/openocd-mcp/README.md` 를 본다.
 
 ## 6. SPI 플래시 직접 읽기 (사람이 수행)

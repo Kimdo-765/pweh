@@ -1,6 +1,6 @@
 # Windows OpenOCD 무장치 진단 세션
 
-WSL에서 등록된 xPack OpenOCD Windows 번들로 `dummy-noinit-v1` 세션을 시작하고, pipe RPC 조회와 종료를 확인한다. 기본 `backend="linux"`의 TCP·실제 프로브 동작은 유지한다. Windows 프로필은 이 진단용 한 개이며 USB 프로브·메모리·플래시·덤프 작업은 지원하지 않는다.
+WSL에서 등록된 xPack OpenOCD Windows 번들로 `dummy-noinit-v1` 세션을 시작하고, pipe RPC 조회와 종료를 확인한다. 기본 `backend="linux"`의 TCP·실제 프로브 동작은 유지한다. 이 진단 프로필은 USB 프로브·메모리·플래시·덤프 작업을 지원하지 않는다. 별도의 [Tigard 고정 프로필](windows-openocd-tigard.md)은 어댑터 초기화와 제한된 조회를 제공한다.
 
 ## 시작과 조회
 

@@ -458,6 +458,53 @@ class PortRoleStore:
             if fd is not None:
                 os.close(fd)
 
+    def assert_usb_scope_allowed(self, scope: Any) -> None:
+        """전체 USB 키·부모·별명의 target/bridge 표지를 한 번 읽어 대조한다."""
+        from .usb_binding import WindowsUsbScope
+        fd = None
+        try:
+            if type(scope) is not WindowsUsbScope:
+                raise ValueError("usb_scope_invalid")
+            keys = {key.casefold() for key in scope.claim_keys}
+            nodes = {row[0].casefold() for row in scope.binding_nodes}
+            fd = self._records.directory()
+            if fd is None:
+                return
+            for name in self._records.names(fd):
+                if not name.endswith(".json"):
+                    continue
+                rec = self._records.read_at(fd, name)
+                if (not isinstance(rec, dict) or rec.get("schema") != "pweh.port-role/v1"
+                        or rec.get("role") not in ("target", "bridge")
+                        or not isinstance(rec.get("identity"), dict)):
+                    raise ValueError("port_role_schema")
+                key, device_id, ident = rec.get("lock_key"), rec.get("device_id"), rec["identity"]
+                if ident.get("status") not in ("known", "unknown"):
+                    raise ValueError("port_role_schema")
+                for value, required in ((key, True), (device_id, False),
+                                        *((ident.get(field), False) for field in
+                                          ("serial", "parent_instance", "usb_ancestor", "device_instance"))):
+                    if value is None and not required:
+                        continue
+                    if (not isinstance(value, str) or not value or len(value) > 4096
+                            or any(ord(char) < 32 for char in value)):
+                        raise ValueError("port_role_schema")
+                same = key.casefold() in keys or any(
+                    ident.get(field) and ident[field].casefold() in nodes
+                    for field in ("parent_instance", "usb_ancestor", "device_instance"))
+                if device_id and device_id.casefold().startswith("win-pnp:"):
+                    same |= device_id[8:].rsplit("/", 1)[0].casefold() in nodes
+                # 새 관찰에 descriptor serial이 없으므로 distinct 예외를 만들지 않는다.
+                if same:
+                    raise PwehError("대상 콘솔/브리지 표지가 있는 USB 장치를 초기화하지 않습니다.",
+                                    code="port_role_conflict", data={"role": rec["role"]})
+        except (OSError, ValueError, TypeError, AttributeError):
+            raise PwehError("USB 범위의 포트 역할 표지를 완전히 확인하지 못했습니다.",
+                            code="port_role_unknown") from None
+        finally:
+            if fd is not None:
+                os.close(fd)
+
 
 _manager: PortLockManager | None = None
 _roles: PortRoleStore | None = None

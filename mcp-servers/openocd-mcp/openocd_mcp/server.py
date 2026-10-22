@@ -189,8 +189,6 @@ async def _authorize(case_id: str, tool: str, commands: list[str], *, ctx: Any, 
 
 
 async def _call(sess: OcdSession, cmd: str, *, timeout: float = DEFAULT_TIMEOUT, raw: bool = False) -> TclReply:
-    if sess.windows:
-        return await windows_start.call_session(sess, cmd, timeout=timeout, raw=raw)
     if sess.semihosting_check_pending:
         # 이전 명령이 시간 초과 등으로 끝을 확인하지 못했다 → 새 명령을 보내기 전에 semihosting 부터 다시 확인한다
         res = await _semihosting_enforce(sess, trigger="pending")
@@ -202,6 +200,9 @@ async def _call(sess: OcdSession, cmd: str, *, timeout: float = DEFAULT_TIMEOUT,
                 hint="잠시 뒤 다시 호출하세요. 계속되면 openocd_status 로 확인하고 openocd_stop 으로 정리하세요.",
                 data={"semihosting_check": res},
             )
+
+    if sess.windows:
+        return await windows_start.call_session(sess, cmd, timeout=timeout, raw=raw)
 
     def run() -> TclReply:
         try:
@@ -259,7 +260,11 @@ async def _semihosting_failsafe(sess: OcdSession, problems: list[str], report: d
     method = "not-owned"
     if sess.owned and sess.proc is not None:
         method = await run_blocking(sess.proc.terminate, 2.0) if sess.proc.alive else "already-exited"
-    sess.client.close()
+    if sess.windows:
+        cleanup = await run_blocking(windows_start.close_session, sess)
+        method = "windows-confirmed" if cleanup["ok"] else "windows-cleanup-pending"
+    else:
+        sess.client.close()
     fs = {"at": utcnow_iso(), "trigger": trigger, "reasons": problems, "stop_method": method,
           "targets": report.get("targets") or {}, "process": sess.process_info()}
     sess.semihosting_failsafe = fs
@@ -291,8 +296,11 @@ async def _semihosting_enforce(sess: OcdSession, *, trigger: str) -> dict[str, A
     phase = "status" if readonly else "check"
     sess.semihosting_check_pending = True
     try:
-        reply = await run_blocking(sess.client.call, semihosting.STATUS_CALL if readonly else semihosting.CHECK_CALL,
-                                   timeout=SEMIHOSTING_CHECK_TIMEOUT)
+        command = semihosting.STATUS_CALL if readonly else semihosting.CHECK_CALL
+        if sess.windows:
+            reply = await windows_start.call_session(sess, command, timeout=SEMIHOSTING_CHECK_TIMEOUT, internal=True)
+        else:
+            reply = await run_blocking(sess.client.call, command, timeout=SEMIHOSTING_CHECK_TIMEOUT)
     except TclConnectionClosed as exc:
         if await run_blocking(sess.died_after_disconnect):
             sess.semihosting_check_pending = False
@@ -303,6 +311,8 @@ async def _semihosting_enforce(sess: OcdSession, *, trigger: str) -> dict[str, A
     report = semihosting.parse_report(reply.output if reply.ok else "", required=(phase,), startup_only=False)
     problems = [] if reply.ok else [f"semihosting 가드 호출 실패: {(reply.error_text or '(오류 메시지 없음)')[:200]}"]
     problems += semihosting.verification_problems(report, (phase,)) if reply.ok else []
+    if sess.windows and report["targets"]:
+        problems.append("고정 adapter 프로필에 예상하지 않은 target이 있습니다.")
     if report["procs"]:
         sess.semihost_procs = frozenset(report["procs"])
     now = utcnow_iso()
@@ -535,9 +545,13 @@ def _write_session_state(sess: OcdSession, case, **extra: Any) -> None:
         "케이스 밖 사용자 cfg 파일은 내용을 위험도 분류기로 검사한다. 로그는 jtag/openocd-<n>.log. "
         "반환: tcl_port, version, startup(TAP 검출, 오류/경고), diagnosis(배선/전원 힌트), scan_chain, targets, health. "
         "backend 기본 linux. windows는 등록 번들과 WSL interop에서 windows_profile='dummy-noinit-v1', "
-        "interface_cfg='interface/dummy.cfg', tcl_port=0으로만 사용한다. USB·하드웨어 초기화 없이 고정 조회와 상태·종료만 "
-        "지원하며 메모리·레지스터·flash·덤프 작업·수정은 거부한다. ready_timeout은 0초 초과 30초 이하. "
-        "Windows 반환 transport='windows-pipe', tcl_port=null, hardware_initialized=false."
+        "interface_cfg='interface/dummy.cfg', tcl_port=0이면 USB 초기화 없이 조회한다. "
+        "windows_profile='tigard-jtag-v1', interface_cfg='interface/ftdi/tigard.cfg', tcl_port=0은 "
+        "유일한 0403:6010 전체 USB 범위를 잠그고 JTAG 100kHz 초기화·자동 TAP 탐색을 수행한다(MODIFY). "
+        "Tigard는 target/추가 cfg·명령 없이 version/scan_chain/targets와 상태·종료만 지원한다. "
+        "hardware_initialized=true는 adapter 초기화만 뜻하며 target_communication_verified=false이다. "
+        "Windows 메모리·레지스터·flash·덤프 작업·수정은 거부한다. ready_timeout은 0초 초과 30초 이하. "
+        "Windows 반환 transport='windows-pipe', tcl_port=null이며 초기화 경고와 degraded health를 보존한다."
     ),
     annotations=ANN_DEVICE,
 )
@@ -1114,11 +1128,17 @@ async def openocd_status(case_id: str, ctx: Context, log_lines: int = 40) -> dic
     if sess.windows:
         out["semihosting"] = dict(sess.semihosting)
         out["active_jobs"] = []
+        if sess.startup:
+            out.update(startup=sess.startup.get("summary"), diagnosis=sess.startup.get("diagnosis"),
+                       health=sess.startup.get("health"))
         out["diagnostics"] = sess.windows_owner.diagnostics() if sess.windows_owner else {}
         if sess.log_path:
             out["log_path"] = case.rel(sess.log_path)
         if not (sess.starting or sess.closing or sess.cleanup_pending) and sess.client and sess.client.connected:
-            targets = await _query_targets(case_id, sess, ctx, timeout=5.0)
+            if sess.semihosting_managed:
+                out.update(await _semihosting_live(sess))
+                out["semihosting"] = dict(sess.semihosting)
+            targets = None if sess.closing else await _query_targets(case_id, sess, ctx, timeout=5.0)
             out["targets"] = targets
             out["target_state"] = _target_state(targets)
         return out
@@ -1169,7 +1189,10 @@ async def _semihosting_live(sess: OcdSession) -> dict[str, Any]:
         res = await _semihosting_enforce(sess, trigger="openocd_status")
         return {"semihosting_live": res, **_semihosting_fields(res)}
     try:
-        reply = await run_blocking(sess.client.call, semihosting.STATUS_CALL, timeout=10.0)
+        if sess.windows:
+            reply = await windows_start.call_session(sess, semihosting.STATUS_CALL, timeout=10.0, internal=True)
+        else:
+            reply = await run_blocking(sess.client.call, semihosting.STATUS_CALL, timeout=10.0)
     except PwehError as exc:
         return {"semihosting_live": {"status": "unavailable", "error": str(exc)}}
     if not reply.ok:
@@ -1179,7 +1202,8 @@ async def _semihosting_live(sess: OcdSession) -> dict[str, Any]:
     live = {"status": "reported", "targets": report["targets"], "unwrapped": report["unwrapped"],
             "problems": semihosting.verification_problems(report, ("status",))}
     violated = sess.semihosting_policy == "disabled" and (
-        any(v == "enabled" for v in report["targets"].values()) or report["unwrapped"] or live["problems"])
+        any(v == "enabled" for v in report["targets"].values()) or report["unwrapped"] or live["problems"]
+        or (sess.windows and bool(report["targets"])))
     if violated:
         res = await _semihosting_enforce(sess, trigger="openocd_status")
         return {"semihosting_live": live, **_semihosting_fields(res)}
@@ -1210,7 +1234,7 @@ async def openocd_command(
     case = r.case(case_id, hardware=True)
     sess = _session(case_id)
     if sess.windows:
-        windows_start.require_query(command)
+        windows_start.require_query(command, sess)
     if not isinstance(command, str) or not command.strip():
         raise ValidationFailed("command 가 비었습니다")
     if len(command) > 65536:

@@ -94,8 +94,30 @@ $out+=@{port=([regex]::Match($d.FriendlyName,'\((COM[1-9][0-9]{0,3})\)$').Groups
 ConvertTo-Json -InputObject $out -Depth 6 -Compress"""
 
 
-def _windows_output(config: Any = None, *, script: str | None = None) -> bytes:
-    """검증된 System32 PowerShell로 고정 읽기 스크립트만 실행한다. 출력·시간 상한을 넘기면 실패."""
+def _windows_output(config: Any = None, *, script: str | None = None,
+                    deadline: float | None = None, cancel: Callable[[], bool] | None = None) -> bytes:
+    """고정 읽기 질의만 실행한다. caller 예산은 늘리지 않고 wrapper 수거는 별도 최대 2초다."""
+    end = _windows_scope_deadline(time.monotonic() + PNP_TIMEOUT_S if deadline is None else deadline)
+    if cancel is not None and not callable(cancel):
+        raise ValueError("pnp_query_callback_failed")
+
+    def tick():
+        if time.monotonic() >= end:
+            # POSIX wrapper 수거는 실제 Windows 질의 자식 종료의 증거가 아니다.
+            raise ValueError("pnp_timeout_windows_child_unverified")
+        if cancel is not None:
+            try:
+                stopped = cancel()
+                if type(stopped) is not bool:
+                    raise ValueError()
+            except Exception:
+                raise ValueError("pnp_query_callback_failed") from None
+            if stopped:
+                raise ValueError("pnp_query_cancelled")
+            if time.monotonic() >= end:
+                raise ValueError("pnp_timeout_windows_child_unverified")
+
+    tick()
     from . import hostenv
     if hostenv.disabled_keys(config) & {"interop", "windows_tools", "serial_helper"}:
         raise ValueError("hostenv_disabled")
@@ -110,20 +132,18 @@ def _windows_output(config: Any = None, *, script: str | None = None) -> bytes:
     script = PS_IDENTITIES if script is None else script
     if script not in (PS_IDENTITIES, PS_USB_SCOPE):
         raise ValueError("pnp_script_not_allowed")
+    tick()
     p = subprocess.Popen([exe, "-NoProfile", "-NonInteractive", "-Command", script],
                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                          env=env, cwd="/", start_new_session=True, bufsize=0)
     assert p.stdout is not None
-    fd = p.stdout.fileno()
-    os.set_blocking(fd, False)
     chunks = bytearray()
-    deadline = time.monotonic() + PNP_TIMEOUT_S
     try:
+        fd = p.stdout.fileno()
+        os.set_blocking(fd, False)
         while True:
-            left = deadline - time.monotonic()
-            if left <= 0:
-                # interop 자식의 Windows 쪽 수명까지 보장하지 않는다. 다음 도구는 unknown으로 거부한다.
-                raise ValueError("pnp_timeout_windows_child_unverified")
+            tick()
+            left = end - time.monotonic()
             if not select.select([fd], [], [], min(left, 0.1))[0]:
                 continue
             try:
@@ -135,7 +155,16 @@ def _windows_output(config: Any = None, *, script: str | None = None) -> bytes:
             chunks.extend(data)
             if len(chunks) > MAX_OUTPUT:
                 raise ValueError("pnp_output_limit")
-        if p.wait(timeout=max(0.01, deadline - time.monotonic())) != 0:
+        # stdout EOF 뒤에도 같은 deadline/취소를 확인하며 leader 완료를 기다린다.
+        while True:
+            tick()
+            try:
+                rc = p.wait(timeout=max(0.0, min(0.1, end - time.monotonic())))
+                break
+            except subprocess.TimeoutExpired:
+                continue
+        tick()
+        if rc != 0:
             raise ValueError("pnp_query_failed")
         return bytes(chunks)
     finally:

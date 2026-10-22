@@ -379,6 +379,29 @@ def build_dummy_plan(inputs: PipeStartInputs, layout: RunLayout, *, ambient_env:
                        deadline=deadline, dummy=True)
 
 
+def build_tigard_plan(inputs: PipeStartInputs, layout: RunLayout, *, ambient_env: tuple[tuple[str, str], ...],
+                      path_converter: Callable[[Path, float], str | bytes], deadline: float) -> OpenOcdWindowsPlan:
+    """고정 Tigard 입력만 기존 EARLY/PRE/init/POST 계획에 연결한다. 승인·실행은 하지 않는다."""
+    _tick(deadline)
+    _inputs(inputs)
+    _tigard_inputs(inputs)
+    return build_plan(inputs, layout, ambient_env=ambient_env, path_converter=path_converter,
+                      deadline=deadline)
+
+
+def _tigard_inputs(inputs: PipeStartInputs) -> None:
+    """타입 검사 뒤 고정 cfg·JTAG 100kHz·빈 추가 입력을 확인한다. bundle 결속은 실행자 책임이다."""
+    from .tigard_profile import TIGARD_PROFILE as profile
+
+    cfg = inputs.interface
+    if (len(inputs.search_dirs) != 1 or cfg.kind != "standard"
+            or cfg.file.path != inputs.search_dirs[0] / profile.interface_ref
+            or cfg.file.sha256 != profile.interface_sha256 or cfg.file.size != profile.interface_size
+            or inputs.targets or inputs.extras or inputs.extra_commands
+            or inputs.transport != profile.transport or inputs.adapter_speed_khz != profile.adapter_speed_khz):
+        raise _fail()
+
+
 def _dummy_inputs(inputs: PipeStartInputs) -> None:
     """기존 타입 검사 뒤 고정 profile의 입력을 대조한다. bundle 결속은 실행자의 책임이다."""
     from .dummy_profile import DUMMY_PROFILE as profile

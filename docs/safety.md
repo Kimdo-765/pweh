@@ -172,6 +172,7 @@ pweh-emu 의 고정 argv 허용 목록 위반도 `gate.via: "emu-policy"`, `stat
   - 우리 입력의 에코와 보낸 텍스트를 되풀이한 출력(U-Boot `echo Linux version 9.9`)은 문맥 증거로 쓰지 않는다. U-Boot 로 본 프롬프트는 리눅스 증거만으로 linux-shell 이 되지 않는다.
   - 승인은 줄과 함께 실행 의미에 묶인다(`env_refs`, `repeat_of`). `run x` 를 승인받은 뒤 `setenv x …` 로 내용을 바꾸면 그 승인은 맞지 않는다.
 - **OpenOCD TCL**
+  - Windows `tigard-jtag-v1`은 고정 cfg·JTAG 100 kHz의 어댑터 init으로 MODIFY다. 유일 USB 부모의 전체 키를 승인 전부터 잠그고 target/bridge 역할과 active 계측기 pin을 확인한다. descriptor serial이 없는 관찰은 active pin에서 미확인으로 거부하며 PnP tail을 serial로 쓰지 않는다. spawn 직전·조회 전 fresh/lease/guard를 다시 확인한다. 정확한 `version`·`scan_chain`·`targets`와 status·stop만 지원하며, 초기화 성공은 타깃 통신의 증거가 아니다. 실제 Windows·wrapper·worker 종료와 run 신원 정리를 확인한 뒤 lease를 해제한다. 정리 미확인은 owner·세션·lease를 보존하고 stop으로 재시도한다([계약](references/windows-openocd-tigard.md)).
   - 중괄호·대괄호 안의 명령까지 검사한다. 코어 분류기만으로는 Jim Tcl 의 실행 경로를 다 다루지 못하므로, Tcl 파서를 가진 `openocd_mcp.guard` 가 문장마다 코어 분류를 다시 하고 더 엄격한 쪽을 쓴다.
   - `eval`/`source`/`proc` 같은 메타 명령과, 호스트 임의 경로에 쓰는 `dump_image`/`flash read_bank` 원시 호출을 막는다.
     전용 도구는 케이스 경로로만 쓴다. 호스트 파일을 쓰는 `profile <초> <파일>`(gmon 출력, 예전에는 MODIFY), 트레이스 출력 `<tpiu|swo> create|configure … -output <파일|:포트>`(`openocd.trace.output`),
@@ -318,7 +319,7 @@ pweh-emu 의 고정 argv 허용 목록 위반도 `gate.via: "emu-policy"`, `stat
     init 조기 실행 검사는 init 을 실행한 그 cfg 파일·그 `extra_commands` 항목이 끝난 뒤에 돈다. 그래서 init 을 실행한 신뢰 cfg 파일의 나머지 줄(신뢰 경계 안)과,
     init 을 실행한 `extra_commands` 항목 하나의 나머지(같은 `-c` 안 `;` 뒤 — 정적 검사를 피하고, DESTRUCTIVE 면 사람 승인까지 받은 경우만)는 semihosting 이 켜진 채 실행될 수 있다.
   - pweh-esp: 분류기는 argv 만 본다. 실행 파일은 설정(`tools.esptool`, `tools.esptool_win`)이 가리키는 것을 믿는다(이름이 espefuse·espsecure 면 거부).
-    공용 포트 잠금은 같은 OS namespace의 참여 서버 사이에서 유효하다. 다른 netns·Windows 외부 프로그램·미통합 libusb/OpenOCD까지 보호하지 않는다.
+    공용 포트 잠금은 같은 OS namespace의 참여 서버 사이에서 유효하다. 다른 netns·Windows 외부 프로그램·미통합 libusb/OpenOCD 경로까지 보호하지 않는다. 고정 Windows Tigard 경로만 현재 전체 USB lease에 참여한다.
     리눅스 tty 를 연 다른 프로세스는 `/proc` 를 훑어 찾으므로(최선 노력) 다른 계정의 프로세스는 보이지 않을 수 있다.
     Windows COM 포트는 그 포트를 인자로 받은 esptool.exe 만 미리 찾는다(Windows 프로세스 명령줄). 다른 프로그램이 잡고 있으면 esptool 이 `esp_port_busy` 로 실패한다.
     Windows 보유자 조회가 실패하면 거부하며, 취소 뒤 남은 프로세스나 종료 검사 실패가 있으면 lease·Windows 소유 토큰·예약을 유지한다.

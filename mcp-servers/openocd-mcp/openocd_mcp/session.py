@@ -54,12 +54,16 @@ class OcdSession:
     semihosting_check_pending: bool = False
     # semihosting 을 끄지 못해 서버가 OpenOCD 를 종료한 경우의 기록
     semihosting_failsafe: dict[str, Any] | None = None
-    # Windows dummy는 단일 pipe를 빌려 쓰며 종료 확인 전 registry에서 제거하지 않는다.
+    # Windows 고정 프로필은 단일 pipe를 빌려 쓰며 종료 확인 전 registry에서 제거하지 않는다.
     transport: str = "tcp"
     windows_owner: Any = None
     windows_layout: Any = None
     windows_bundle: Any = None
     windows_profile: str | None = None
+    windows_scope: Any = None
+    windows_lease: Any = None
+    windows_runtime: Any = None
+    hardware_initialized: bool = False
     starting: bool = False
     closing: bool = False
     cleanup_pending: bool = False
@@ -107,7 +111,7 @@ class OcdSession:
     def new_client(self, name: str) -> TclRpcClient:
         """백그라운드 작업용 별도 연결 (OpenOCD 는 다중 TCL 연결을 받는다)."""
         if self.windows:
-            raise DeviceError("Windows dummy는 작업용 연결을 지원하지 않습니다.", code="openocd_windows_unsupported")
+            raise DeviceError("Windows 고정 프로필은 작업용 연결을 지원하지 않습니다.", code="openocd_windows_unsupported")
         return TclRpcClient(self.host, self.port, name=name)
 
     def process_info(self) -> dict[str, Any] | None:
@@ -162,7 +166,11 @@ class OcdSession:
         if self.windows:
             out.update(transport=self.transport, backend="windows", windows_profile=self.windows_profile,
                        starting=self.starting, closing=self.closing, cleanup_pending=self.cleanup_pending,
-                       cleanup_reason=self.cleanup_reason, hardware_initialized=False, usb_scope="not-applicable")
+                       cleanup_reason=self.cleanup_reason, hardware_initialized=self.hardware_initialized,
+                       usb_scope="whole-device" if self.windows_scope is not None else "not-applicable")
+            if self.windows_scope is not None:
+                out.update(target_configured=False, target_communication_verified=False,
+                           health=self.startup.get("health", "unverified"))
             if self.windows_bundle is not None:
                 out["bundle"] = {"release_id": self.windows_bundle.release_id,
                                  "manifest_sha256": self.windows_bundle.manifest_sha256}

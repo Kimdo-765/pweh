@@ -57,7 +57,7 @@ revalidate_windows_usb_scope(previous: WindowsUsbScope, raw: bytes, *,
 
 complete graph는 제한된 OS 관찰의 완결성이다. 실제 OpenOCD/libusb의 후보 선택·claim 성공, 드라이버 설치 상태, reset의 전기적 영향, 외부 프로그램의 배타, 관찰 뒤 hotplug 원자성 또는 대상 기기의 소유·허가를 증명하지 않는다. PWEH lease도 이를 대신하지 않는다.
 
-이 코어는 role store나 instrument guard를 호출하거나 허용 기준을 바꾸지 않는다. 향후 USB 실행 소비자는 전체 별명의 역할 확인, active instrument pin 검사, 분류·승인 지문, spawn 직전 fresh 대조와 실제 child 종료 확인까지 별도로 연결해야 한다. pin0의 빠른 반환과 active pin의 미확인 거부를 PnP tail로 우회하지 않는다. 실제 모델·배선의 확인은 실기 사용에 필요하며, 순수 코어와 합성 통합시험의 완료 조건과 구분한다.
+이 코어는 role store나 instrument guard를 호출하거나 허용 기준을 바꾸지 않는다. [Tigard 소비자](windows-openocd-tigard.md)는 별도로 전체 별명의 역할 확인, active instrument pin 검사, 분류·승인 지문, spawn 직전 fresh 대조와 실제 child 종료 확인을 연결한다. `PortRoleStore.assert_usb_scope_allowed`는 전체 잠금 키와 부모·하위 노드의 target/bridge 표지를 확인한다. `guard_target_usb_scope`는 pin0이면 즉시 반환하고, active pin이면 descriptor serial이 없는 USB 관찰을 미확인으로 처리한다. PnP tail을 serial로 바꾸거나 다른 VID/PID만으로 허용하지 않는다. 실제 모델·배선의 확인은 실기 사용에 필요하며, 순수 코어와 합성 통합시험의 완료 조건과 구분한다.
 
 ## 5. 합성 검증 범위
 

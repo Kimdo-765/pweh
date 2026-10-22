@@ -117,7 +117,7 @@ RF·하드웨어 분석은 전용 Skill 이 아직 없는 **준비 중** 목표�
    - 이미 아는 것: UART 패드 위치, 공식 펌웨어 파일 경로, 웹 UI 접속 가능 여부.
    - 범위 (보안 분석): 셸 획득만 / 펌웨어 분석 / 인증 우회 탐색까지 (기본: 전체).
    - 실행 환경: `pipeline_environment()` 를 먼저 부른다(기기 미접촉 — `case_create` 전에 불러도 된다). `report.kind` 와 `routes`(장치별 `now` = 지금 되는 경로와 사람 단계 [관리자]·[root], `target` = 다음 단계)로 계획을 세운다.
-     WSL2+interop에서 ESP32는 방법 A(esptool.exe + COMn), UART·JTAGulator는 검증된 COM helper를 쓴다(attach 없음). OpenOCD·로직 애널라이저 또는 Linux tty 경로는 usbipd attach를 쓴다(네트워킹 모드별 routes.human_steps). `warnings`(High IL·bridged LAN 노출·AutoBind·brltty)는 사용자에게 알린다.
+     WSL2+interop에서 ESP32는 방법 A(esptool.exe + COMn), UART·JTAGulator는 검증된 COM helper를 쓴다(attach 없음). 일반 OpenOCD 타깃/덤프·로직 애널라이저 USB 또는 Linux tty 경로는 usbipd attach를 쓴다(네트워킹 모드별 routes.human_steps). `warnings`(High IL·bridged LAN 노출·AutoBind·brltty)는 사용자에게 알린다.
      Windows 관리자 권한 여부는 사용자에게 묻는다 — 보고서는 이것을 답하지 않는다(`windows.interop_elevated=true` 는 interop 으로 띄운 Windows 프로그램이 이미 관리자 권한으로 돈다는 경고, `false` 는 권한이 없다는 뜻이 아니다).
 2. `pipeline_profiles` 를 보고 가장 가까운 프로필을 고른다. 모르면 `generic-ipcam` 을 쓴다.
    `pipeline_safety_policy` 로 현재 정책을 확인한다 (기본: destructive=deny).
@@ -199,7 +199,8 @@ RF·하드웨어 분석은 전용 Skill 이 아직 없는 **준비 중** 목표�
   - `jtagulator_set_voltage` 는 DESTRUCTIVE 라 기본 정책에서 `status: denied` 다. 우회하지 않고 보고한다(§6 거부 보고).
     운영자가 직접 `safety.destructive_policy: approve` 로 바꾼 경우에만 `approval_required` + `operator_checklist` 가 온다. 체크리스트를 보여 주고 사람이 `pweh approve <id>` 한 뒤 같은 인자 + approval_id 로 1회 재시도한다.
   - 연결할 때마다 전압 상태가 초기화된다. 스캔이 `voltage_not_set` 이면 전압 설정부터 다시 한다(재측정·재승인).
-- **JTAG 순서** (전용 Skill 없음): `openocd_list_configs` → `openocd_start`(또는 사람이 띄운 OpenOCD 에 `openocd_attach`) → `openocd_scan_chain` → `openocd_flash_banks`.
+- **Windows 고정 JTAG 조회**: `openocd_start(backend="windows", windows_profile="tigard-jtag-v1", interface_cfg="interface/ftdi/tigard.cfg", tcl_port=0)`은 Tigard 어댑터 초기화와 `version`·`scan_chain`·`targets`, status·stop만 지원한다. JTAG 100 kHz이며 target cfg·추가 Tcl·메모리·덤프를 받지 않는다. 실제 모델·소유/허가·배선·전압과 드라이버 상태를 먼저 확인한다. 초기화 성공을 타깃 통신 확인으로 기록하지 않는다([계약](../docs/references/windows-openocd-tigard.md)).
+- **JTAG 순서** (기본 Linux backend, 전용 Skill 없음): `openocd_list_configs` → `openocd_start`(또는 사람이 띄운 OpenOCD 에 `openocd_attach`) → `openocd_scan_chain` → `openocd_flash_banks`.
   - 뱅크가 있으면 `openocd_halt`(MODIFY) → `openocd_flash_read_start`.
   - 뱅크가 비면(카메라 SoC 의 SPI NOR 는 OpenOCD 드라이버가 없는 경우가 많다) U-Boot 에서 `sf probe 0` → `sf read <RAM> <off> <len>`(`uart_send_command`, RAM 은 `uboot_info` 의 safe_ram_addr·ram_window 안) → `openocd_halt` → `openocd_dump_memory_start(address=<RAM>, length=<len>, kind="flash-dump")`.
   - `openocd_job_status` 로 폴링하고 끝나면 `openocd_stop`. 결과는 `dumps/<name>.bin` + `.json`(method `jtag-openocd`)이다.

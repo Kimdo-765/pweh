@@ -8,7 +8,7 @@ OpenOCD 프로세스를 띄우고 TCL RPC(기본 포트 6666)로 JTAG/SWD 디버
   `~/pweh-tools/INSTALL_REPORT.md` (xPack OpenOCD 0.12.0-7 로 실측)
 - 실행: `pweh-openocd-mcp` 또는 `python -m openocd_mcp` (stdio). 로그는 stderr (`pweh.openocd`).
 
-WSL의 명시 Windows backend는 `dummy-noinit-v1` 진단 세션을 제공한다. 등록 번들로 시작·조회·status·stop만 지원하며 실제 USB 프로브·메모리·덤프는 포함하지 않는다. 인자와 결과는 [Windows 무장치 계약](../../docs/references/windows-openocd-dummy.md)을 따른다. 아래 준비·배선·덤프 절차는 기본 Linux backend에 적용한다.
+WSL의 명시 Windows backend는 [dummy-noinit-v1 무장치 진단](../../docs/references/windows-openocd-dummy.md)과 [tigard-jtag-v1 고정 어댑터 조회](../../docs/references/windows-openocd-tigard.md)를 제공한다. Tigard는 JTAG 100 kHz·전체 USB lease·가드가 적용된 init과 version/scan_chain/targets·status·stop만 지원하며, 타깃 설정·메모리·덤프는 포함하지 않는다. Tigard 실기 검증은 남아 있다. 아래 준비·배선·덤프 절차는 기본 Linux backend에 적용한다.
 
 ## 1. 준비
 

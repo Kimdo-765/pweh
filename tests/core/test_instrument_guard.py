@@ -204,3 +204,78 @@ def test_observed_mac_secondary_denial(env):
     pin(st)
     with pytest.raises(PwehError, match='instrument_port'):
         G.guard_observed_mac(rt, '02:00:00:00:00:01', consumer='esp')
+
+
+def usb_scope():
+    """관찰값에는 descriptor serial이 없으며 OS 질의는 하지 않는다."""
+    import copy
+    import json
+    import time
+    from pweh.usb_binding import parse_windows_usb_scope
+    parent = r'USB\VID_0403&PID_6010\SYNTHETIC'
+    row = {'instance_id': parent, 'parent': r'HTREE\ROOT\0', 'parent_state': 'ok',
+           'com': None, 'pnp_class': 'USB'}
+    snapshot = {'present_count': 1, 'nodes': [row], 'errors': []}
+    raw = json.dumps({'schema': 'pweh.pnp-usb-scope/v1',
+                      'snapshots': [snapshot, copy.deepcopy(snapshot)]}).encode()
+    return parse_windows_usb_scope(raw, vid='0403', pid='6010', deadline=time.monotonic() + 5)
+
+
+def test_usb_empty_pin_reads_neither_scope_nor_tags(env, monkeypatch):
+    rt, _, _ = env
+    def forbidden():
+        pytest.fail('pin0에서 tag 저장소 접근 금지')
+    monkeypatch.setattr(G, 'InstrumentTagStore', forbidden)
+    assert G.guard_target_usb_scope(rt, object(), consumer='openocd') is None
+
+
+def test_usb_other_vidpid_without_descriptor_serial_still_denied(env, monkeypatch):
+    rt, store, _ = env
+    pin(store)
+    seen = []
+    classifier = G.classify_instrument
+    def capture(snapshot, *args):
+        seen.append(snapshot)
+        return classifier(snapshot, *args)
+    monkeypatch.setattr(G, 'classify_instrument', capture)
+    with pytest.raises(PwehError) as exc:
+        G.guard_target_usb_scope(rt, usb_scope(), consumer='openocd', phase='pre-spawn')
+    assert exc.value.code == 'instrument_identity_unknown'
+    assert exc.value.data['phase'] == 'pre-spawn'
+    assert seen[0].serial is None and seen[0].serial_basis is None
+    assert seen[0].kind == 'usb' and seen[0].endpoint_key.startswith('winif:')
+    assert seen[0].reasons == ('usb_serial_unobserved',)
+
+
+def test_usb_parent_pin_match_retains_instrument_denial(env):
+    rt, store, _ = env
+    scope = usb_scope()
+    rec = pin(store, subject={'schema': G.PIN_SCHEMA, 'base_mac': MAC,
+                             'native_usb': {'serial': MAC, 'parent_instance': scope.usb_parent.lower()}})
+    with pytest.raises(PwehError) as exc:
+        G.guard_target_usb_scope(rt, scope, consumer='openocd')
+    assert exc.value.code == 'instrument_port'
+    assert exc.value.data['matched_by'] == 'usb-parent'
+    assert exc.value.data['pin_ids'] == [rec['id']]
+
+
+@pytest.mark.parametrize('fault', ['inventory', 'scope', 'tags'])
+def test_usb_incomplete_guard_is_closed_without_exception_text(env, monkeypatch, fault):
+    import traceback
+    rt, store, _ = env
+    pin(store, subject={'base_mac': MAC} if fault == 'inventory' else None)
+    def failed():
+        raise OSError('SYNTHETIC_PRIVATE_TAG_PATH')
+    if fault == 'tags':
+        monkeypatch.setattr(G, 'InstrumentTagStore', failed)
+    with pytest.raises(PwehError) as exc:
+        G.guard_target_usb_scope(rt, object() if fault == 'scope' else usb_scope(), consumer='openocd')
+    assert exc.value.code == 'instrument_identity_unknown'
+    assert 'SYNTHETIC_PRIVATE_TAG_PATH' not in ''.join(traceback.format_exception(exc.value))
+
+
+def test_usb_revoked_pin_retains_zero_observation_shortcut(env):
+    rt, store, _ = env
+    rec = pin(store)
+    store.revoke(rec['id'], by='synthetic')
+    assert G.guard_target_usb_scope(rt, object(), consumer='openocd') is None

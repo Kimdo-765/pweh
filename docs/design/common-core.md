@@ -11,11 +11,11 @@
 |---|---|---|
 | `src/pweh/hostenv.py` | 실행 환경 감지(WSL1/WSL2/리눅스/macOS/Windows/컨테이너, interop·네트워킹 모드·usbipd), 장치 종류별 경로 추천 | I4(P0) 구현. `pweh env`·doctor·`pipeline_environment`·esp가 사용 — §2 |
 | `src/pweh/ports.py`, `portidentity.py`, `serialtransport.py`, `data/usb-ids.yaml` | 포트 문법·불변 route·열거·식별·전체 USB 범위, open 전 검증과 TIOCEXCL transport | P1: 기존 UART/JTAGulator·ESP·sigrok 직렬 conn에 적용. WSL COM helper도 P2에 연결. 일반 libusb는 P3 후속 |
-| `src/pweh/wininterop.py` | 제한 Windows 경로·명령줄·완전한 프로세스 조회 응답 검사, 고정 OpenOCD 신원 조회/종료 계약 | P3-B 내부 기반. 실행기는 필수 주입이며 고정 Windows dummy 소비자가 기본 실행기를 별도로 연결한다. [계획 계약](../references/windows-openocd-plan.md). 기존 ESP/P2 구현은 유지 |
+| `src/pweh/wininterop.py` | 제한 Windows 경로·명령줄·완전한 프로세스 조회 응답 검사, 고정 OpenOCD 신원 조회/종료 계약 | P3-B 내부 기반. 실행기는 필수 주입이며 고정 Windows dummy/Tigard 소비자가 기본 실행기를 별도로 연결한다. [계획 계약](../references/windows-openocd-plan.md). 기존 ESP/P2 구현은 유지 |
 | `src/pweh/wininterop_sigrok.py` | 고정 sigrok image·argv·생성 시각과 완전한 프로세스 조회/종료 계약 | Windows 버전·목록 전용 owner가 사용. OpenOCD 신원 제약은 유지한다. OLS COM 조회는 별도 `sigrok_com.py`·`wininterop_sigrok_com.py`를 사용한다. 캡처는 `sigrok_capture.py`·`wininterop_sigrok_capture.py`의 별도 고정 tail/owner와 `sigrok_srzip.py`의 bounded fd 검사를 사용한다. [정보 조회 계약](../references/windows-sigrok-info.md) |
 | `src/pweh/winserial/` + `pweh-serial-helper.exe` | WSL 에서 Windows COM 포트 사용: stdio 프레임 프로토콜 헬퍼(정수 COM1–COM4096 만, 소켓 없음, sha256 고정) + `HelperSerial(serial.SerialBase)`. `pweh.ports.open_serial` 이 직접 만든다(pyserial URL 처리기 등록 없음) | P2 구현 — §2, 실기 관문 별도 |
 | `src/pweh/portlock.py` | OS 객체 키의 open 전 lease와 target/bridge 표지. I5 instrument/auxiliary tags와 분리 | P1: 같은 namespace의 abstract 소켓, 미지원 때만 flock. 승인 대기·실제 worker 종료·disconnected close까지 유지. 다른 netns와 비참여 소비자는 범위 밖 |
-| `src/pweh/windows_bundle.py`, `src/pweh/data/windows-bundles*` | 고정 등록 manifest와 정확한 파일 집합·신원 검증 | 명시 로컬 installer·정적 doctor에 연결. 설치/doctor는 Windows를 실행하지 않으며 OpenOCD dummy와 sigrok 정보 소비자가 검증 결과를 사용한다. [번들 계약](../references/windows-bundles.md) |
+| `src/pweh/windows_bundle.py`, `src/pweh/data/windows-bundles*` | 고정 등록 manifest와 정확한 파일 집합·신원 검증 | 명시 로컬 installer·정적 doctor에 연결. 설치/doctor는 Windows를 실행하지 않으며 OpenOCD dummy/Tigard와 sigrok 소비자가 검증 결과를 사용한다. [번들 계약](../references/windows-bundles.md) |
 | `src/pweh/procutil.py` | 프로세스 신원·생존 확인, pidfd·그룹 종료, 소유자 기록 | 증분 B에서 공용화. P3-A는 신원을 확인한 그룹 신호와 호출자 deadline을 받는 그룹 부재 관찰을 더해 내부 Linux pipe 자식 owner에서 사용. 기존 종료 함수의 계약은 유지 |
 | `src/pweh/espfmt.py` | ESP 파티션·앱·NVS 해석 | 증분 B: fwtriage 에서 코어로 이동, 기존 경로는 재노출 shim. fwtriage·emu 가 함께 사용 |
 | `src/pweh/console.py`, `src/pweh/safety/redact.py` | 줄 경계 커서·반복 접기·열린 프롬프트, 공용 자격증명 패턴·알려진 비밀값 마스킹 | 증분 B: emu 콘솔에 사용, fwtriage 는 공용 패턴을 가져옴 |
@@ -35,11 +35,11 @@
 ## 2. 환경 감지와 물리 연결 라우팅
 
 > 전체 설계(감지 결정 트리, 장치 종류 × 플랫폼 라우팅 표 R1–R18, 현재 코드의 빈틈 G1–G16, 단계·시험·결정 D1–D8)는 [port-routing.md](port-routing.md). 여기에는 다른 문서가 기대는 결론만 둔다.
-> P0 감지·P1 통합 라우팅과 잠금·P2 Windows COM helper를 구현했다. P3-A의 내부 OpenOCD pipe와 P3-B의 Windows 실행 계획·신원 확인 기반, 고정 번들의 로컬 설치·정적 doctor를 구현했고, 고정 Windows OpenOCD dummy와 sigrok 버전·목록 소비자를 연결했다. 고정 OLS COM scan/show·유한 캡처와 job도 합성 시험으로 연결했다. 실제 USB/libusb와 실기 검증은 후속이다. I5의 고정 계측기 거부는 별도 경계다.
+> P0 감지·P1 통합 라우팅과 잠금·P2 Windows COM helper를 구현했다. P3-A의 내부 OpenOCD pipe와 P3-B의 Windows 실행 계획·신원 확인 기반, 고정 번들의 로컬 설치·정적 doctor를 구현했고, 고정 Windows OpenOCD dummy와 sigrok 버전·목록 소비자를 연결했다. 고정 OLS COM scan/show·유한 캡처와 job도 합성 시험으로 연결했다. Tigard 고정 USB 소비자의 전체 범위 잠금·제한 조회도 합성 시험으로 연결했다. 다른 USB 프로필과 실기 검증은 후속이다. I5의 고정 계측기 거부는 별도 경계다.
 
 - **검증 기준 환경**: WSL2(interop 켜짐), usbipd 없음. ESP 방법 A(esptool.exe + COMn)와 UART·JTAGulator의 COM helper가 이 경로를 사용한다.
 - **WSL2+interop 의 기본 경로**: 장치는 Windows 에 두고 Windows 쪽 프로세스가 연다.
-  직렬은 `pweh-serial-helper.exe`(stdio 프레임, 소켓 없음), 도구형은 esptool.exe를 사용한다. Windows OpenOCD·sigrok·ffmpeg·rtl_*는 후속이다.
+  직렬은 `pweh-serial-helper.exe`(stdio 프레임, 소켓 없음), 도구형은 esptool.exe를 사용한다. Windows OpenOCD·sigrok은 위 고정 프로필만 지원하며 ffmpeg·rtl_*는 후속이다.
   usbipd 는 사람이 고르는 대체 경로다(모든 네트워킹 모드에서 세션 동안만 bind, AutoBind 정책 금지, attach 의 `--host-ip` 는 모드별).
 - **감지**(`pweh.hostenv`): 컨테이너를 WSL 보다 먼저 본다. WSL1/2 는 osrelease, 안 되면 `wslinfo --networking-mode`(`wsl1` = WSL1).
   interop 은 WSLInterop 항목 + `/init` + `wslpath` + smoke 로 판정한다(binfmt `status` 는 참고 값). 결과는 `pweh env`·doctor·`pipeline_environment()` 로 보여 준다.

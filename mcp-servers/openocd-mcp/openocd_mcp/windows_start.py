@@ -1,4 +1,4 @@
-"""고정 Windows dummy의 승인·시작·단일 pipe 사용권. 실제 USB 및 작업은 지원하지 않는다."""
+"""고정 Windows 프로필의 승인·시작·단일 pipe 사용권. 덤프 작업은 지원하지 않는다."""
 from __future__ import annotations
 
 import math
@@ -10,7 +10,7 @@ import time
 from anyio import CancelScope
 
 from pweh import hostenv, toolsdir, windows_bundle
-from pweh.errors import DeviceError, PwehError, ValidationFailed
+from pweh.errors import DeviceError, PwehError, TimeoutExpired, ValidationFailed
 from pweh.fsutil import utcnow_iso
 from pweh.mcpkit import gate_response, run_blocking, run_blocking_cancellable
 from pweh.portlock import LeaseHandoff
@@ -24,20 +24,25 @@ SEMIHOSTING = {'mode': 'fixed-dummy-noinit', 'hardware_initialized': False, 'ver
 
 
 def unsupported() -> DeviceError:
-    return DeviceError('Windows dummy는 이 동작을 지원하지 않습니다.', code='openocd_windows_unsupported')
+    return DeviceError('Windows 고정 프로필은 이 동작을 지원하지 않습니다.', code='openocd_windows_unsupported')
 
 
-def require_query(command: str) -> None:
-    if type(command) is not str or command not in QUERIES:
+def require_query(command: str, sess=None) -> None:
+    allowed = QUERIES if sess is None or sess.windows_profile != "tigard-jtag-v1" else {"version", "scan_chain", "targets"}
+    if type(command) is not str or command not in allowed:
         raise unsupported()
 
 
 def action_fields(sess: OcdSession) -> dict:
     if not sess.windows:
         return {}
-    return {'backend': 'windows', 'windows_profile': sess.windows_profile,
-            'bundle_release_id': sess.windows_bundle.release_id,
-            'bundle_manifest_sha256': sess.windows_bundle.manifest_sha256}
+    fields = {'backend': 'windows', 'windows_profile': sess.windows_profile,
+              'bundle_release_id': sess.windows_bundle.release_id,
+              'bundle_manifest_sha256': sess.windows_bundle.manifest_sha256}
+    if sess.windows_scope is not None:
+        from .windows_tigard import scope_fields
+        fields.update(scope_fields(sess.windows_scope))
+    return fields
 
 
 def _environment(config):
@@ -64,10 +69,10 @@ def _resolve_bundle(config, deadline):
 
 def _inputs(bundle, profile, deadline):
     if bundle.release_id != profile.release_id or len(bundle.search_dirs) != 1:
-        raise DeviceError('Windows dummy에 맞는 등록 번들이 아닙니다.', code='openocd_windows_bundle_mismatch')
+        raise DeviceError('Windows 고정 프로필에 맞는 등록 번들이 아닙니다.', code='openocd_windows_bundle_mismatch')
     cfg = WP.observe_file(bundle.root / profile.interface_relative_path, max_bytes=profile.interface_size, deadline=deadline)
     if cfg.sha256 != profile.interface_sha256 or cfg.size != profile.interface_size:
-        raise DeviceError('Windows dummy 설정의 지문이 맞지 않습니다.', code='openocd_windows_bundle_mismatch')
+        raise DeviceError('Windows 고정 프로필 설정의 지문이 맞지 않습니다.', code='openocd_windows_bundle_mismatch')
     return WP.PipeStartInputs(WP.observe_file(bundle.entrypoint, max_bytes=WP.MAX_FILE_BYTES, deadline=deadline), tuple(bundle.search_dirs),
                              WP.CfgInput('standard', cfg), (), (), profile.transport, profile.adapter_speed_khz, ())
 
@@ -94,6 +99,9 @@ def close_session(sess: OcdSession, *, timeout: float = 10.0) -> dict:
     confirmed = False
     reason = 'cleanup_unknown'
     try:
+        if sess.cleanup_reason == 'confirmed' and not sess.cleanup_pending:
+            return {'ok': True, 'stopped': True, 'backend': 'windows', 'transport': 'windows-pipe',
+                    'windows_profile': sess.windows_profile, 'cleanup_pending': False, 'reason': 'confirmed'}
         # 시작 worker가 owner를 게시하기 전에 run을 정리하지 않는다.
         if sess.starting and not sess.wait_unused(end):
             reason = 'worker_pending'
@@ -112,9 +120,14 @@ def close_session(sess: OcdSession, *, timeout: float = 10.0) -> dict:
                     confirmed = PW.release_prepared_run(sess.windows_layout, deadline=end)
                 else:
                     confirmed = True
+                if confirmed and sess.windows_lease is not None:
+                    sess.windows_lease.close()
+                    confirmed = sess.windows_lease.closed
                 reason = 'confirmed' if confirmed else 'run_cleanup_unknown'
             elif not unused:
                 reason = 'worker_pending'
+        if not confirmed and sess.windows_lease is not None and not sess.windows_lease.closed:
+            sess.windows_lease.set_state('orphan')
         sess.cleanup_pending = not confirmed
         sess.cleanup_reason = reason
         _save(sess, cleanup_confirmed=confirmed, **({'stopped_at': utcnow_iso()} if confirmed else {}))
@@ -131,8 +144,13 @@ def close_session(sess: OcdSession, *, timeout: float = 10.0) -> dict:
         sess.close_lock.release()
 
 
-async def call_session(sess, command, *, timeout, raw=False):
-    require_query(command)
+async def call_session(sess, command, *, timeout, raw=False, internal=False):
+    if internal:
+        from . import semihosting
+        if sess.windows_profile != 'tigard-jtag-v1' or command not in (semihosting.CHECK_CALL, semihosting.STATUS_CALL):
+            raise unsupported()
+    else:
+        require_query(command, sess)
     sess.reserve_use()
     handoff = LeaseHandoff()
     cancel = threading.Event()
@@ -141,8 +159,17 @@ async def call_session(sess, command, *, timeout, raw=False):
         if not handoff.claim_worker():
             raise DeviceError('Windows 조회가 취소되었습니다.', code='cancelled')
         try:
+            end = time.monotonic() + timeout
+            if sess.windows_scope is not None:
+                from .windows_tigard import fresh
+                fresh(sess, deadline=end, cancel=cancel.is_set, phase='rpc')
+            if cancel.is_set() or sess.closing:
+                raise DeviceError('Windows 조회가 취소되었습니다.', code='cancelled')
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutExpired('Windows 조회 준비 시간이 초과되었습니다.')
             method = sess.client.call_raw if raw else sess.client.call
-            return method(command, timeout=timeout, cancel_check=cancel.is_set)
+            return method(command, timeout=remaining, cancel_check=cancel.is_set)
         finally:
             sess.finish_use()
 
@@ -156,6 +183,9 @@ async def call_session(sess, command, *, timeout, raw=False):
 
 async def start(r, case, *, ctx, approval_id, ready_timeout, **args):
     from . import server as S
+    if args.get('windows_profile') == 'tigard-jtag-v1':
+        from .windows_tigard import start as start_tigard
+        return await start_tigard(r, case, ctx=ctx, approval_id=approval_id, ready_timeout=ready_timeout, **args)
     profile = validate_dummy_start(**args)
     if (type(ready_timeout) not in (int, float) or abs(ready_timeout) > 30
             or not math.isfinite(ready_timeout) or ready_timeout <= 0):
@@ -206,7 +236,10 @@ async def start(r, case, *, ctx, approval_id, ready_timeout, **args):
                 raise
             sess.windows_owner = owner
             sess.client = owner.client
-            result = owner.wait_ready(timeout=max(.001, end-time.monotonic()), cancel_check=sess.cancel_start.is_set)
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutExpired('Windows 시작 준비 시간이 초과되었습니다.')
+            result = owner.wait_ready(timeout=remaining, cancel_check=sess.cancel_start.is_set)
             if not result.ready or sess.cancel_start.is_set():
                 raise DeviceError('Windows dummy 준비를 확인하지 못했습니다.', code='openocd_windows_start_failed')
             sess.version = result.version or {}
