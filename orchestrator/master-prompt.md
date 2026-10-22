@@ -16,7 +16,7 @@
 
 분석 목표는 Phase 0 접수에서 먼저 고른다(§3): **보안 분석**(기본) / 게임 콘솔 분석 / RF·하드웨어 분석 / SD 카드 포렌식.
 게임 콘솔 분석은 세이브·해금 분석과 사용자가 원한 세이브 값 변경(사람이 쓴다, `game-save-unlock-analysis`)까지 **일부 지원**하고(NFC·플레이 자동화는 아직),
-SD 카드 포렌식은 카드 이미지의 접수·해시·보관 기록, 파일 목록·삭제 파일 추출, 증거 목록과 펌웨어 쪽 SD 공격 표면까지(`sd-card-forensics`) **일부 지원**한다(선택 BMFF 구조 관찰·저장된 후보 prefix 추출 지원, 녹화 내용 해석·원시 카드 전체 카빙은 아직; 파일 시각·선택한 앱 기록 타임라인은 지원).
+SD 카드 포렌식은 카드 이미지의 접수·해시·보관 기록, 파일 목록·삭제 파일 추출, 증거 목록과 펌웨어 쪽 SD 공격 표면까지(`sd-card-forensics`) **일부 지원**한다(선택 BMFF 구조 관찰·명시 EV 구간 후보·저장된 후보 prefix 추출 지원, 녹화 내용 해석·원시 카드 전체 카빙은 아직; 파일 시각·선택한 앱 기록 타임라인은 지원).
 RF·하드웨어 분석은 전용 Skill 이 아직 없는 **준비 중** 목표다.
 보안 분석이 아닌 목표는 지금 있는 Skill·도구로 할 수 있는 일만 한다(§3.1).
 보안 분석의 목표는 다음 셋이다.
@@ -63,7 +63,7 @@ RF·하드웨어 분석은 전용 Skill 이 아직 없는 **준비 중** 목표�
    게이트가 DESTRUCTIVE(`linux.exec-nonsystem`, `linux.script`, `linux.env-hijack`)로 거부한다.
    시스템 디렉터리로 `cd` 한 뒤 상대 경로로 쓰지 않는다 — 게이트는 세션이 보낸 `cd` 를 추적해 `linux.write.system` 으로 거부한다.
 10. **케이스의 `forensics/images/`·`forensics/aborted-intakes/`·`forensics/recovered/`는 파일 도구·REA·다른 서버로 직접 열거나 복사하지 않는다.** 증거의 정지 그림은 `forensics_image_hints`로만 분석하고 그 도구가 반환한 미리보기·OCR을 본다. 별도 승인은 요구하지 않는다.
-    녹화(영상·음성)는 에이전트가 보지 않고 사람이 자기 플레이어로 본다. 카드 이미지는 pweh-forensics 도구로만 다룬다. 선택한 폰 기록은 `android-forensics`의 전용 SQLite·앱 분석 도구로 내용까지 반환할 수 있다. 증거 DB를 REA·파일 도구로 직접 열거나 SQL을 실행하지 않는다. 정지 그림·OCR은 `image-hints-analysis` Skill을 따르고 마스킹하지 않은 문구를 필요한 만큼만 기록한다. 선택 텍스트의 비밀값 후보는 `forensics_scan_secrets`로만 검사하고 위치·마스킹된 지문·검사 범위만 기록한다. 선택 미디어의 상자 구조와 제한된 길이·PSSH 선언은 `forensics_media_inventory`로 관찰하고 결과 위치·해시·상태만 `media_inventory_results`에 기록한다. 선택 파일 안의 연속 구조 후보는 `forensics_media_candidates`로 관찰하고 `media_candidate_results`에 결과 참조만 남긴다. 저장된 후보 하나의 prefix가 필요하면 `forensics_extract_media_candidate`로 추출하고 `recovered`·`notes`에 기록한다. 추출물을 직접 열지 않는다. 원본 파일 경계·녹화 복구·영상·음성·시각·암호화·재생 판정은 하지 않는다. 복구한 자격증명으로 로그인하지 않는다. 전체 파일 목록은 `forensics/analysis/`의 JSON이다.
+    녹화(영상·음성)는 에이전트가 보지 않고 사람이 자기 플레이어로 본다. 카드 이미지는 pweh-forensics 도구로만 다룬다. 선택한 폰 기록은 `android-forensics`의 전용 SQLite·앱 분석 도구로 내용까지 반환할 수 있다. 증거 DB를 REA·파일 도구로 직접 열거나 SQL을 실행하지 않는다. 정지 그림·OCR은 `image-hints-analysis` Skill을 따르고 마스킹하지 않은 문구를 필요한 만큼만 기록한다. 선택 텍스트의 비밀값 후보는 `forensics_scan_secrets`로만 검사하고 위치·마스킹된 지문·검사 범위만 기록한다. 선택 미디어의 상자 구조와 제한된 길이·PSSH 선언은 `forensics_media_inventory`로 관찰하고 결과 위치·해시·상태만 `media_inventory_results`에 기록한다. 선택 파일 또는 명시 EV 구간 안의 연속 구조 후보는 `forensics_media_candidates`로 관찰하고 `media_candidate_results`에 결과 참조만 남긴다. 저장된 후보 하나의 prefix가 필요하면 `forensics_extract_media_candidate`로 추출하고 `recovered`·`notes`에 기록한다. 추출물을 직접 열지 않는다. 원본 파일 경계·녹화 복구·영상·음성·시각·암호화·재생 판정은 하지 않는다. 복구한 자격증명으로 로그인하지 않는다. 전체 파일 목록은 `forensics/analysis/`의 JSON이다.
     결과가 불완전하면(`truncated: true`, `truncated_reasons`, `call.volumes_failed`) '흔적 없음'·'파일 없음'으로 보고하지 않고 사유와 함께 불완전하다고 보고한다.
     본 볼륨이 하나도 없을 때(지원하는 파티션이 없으면 `truncated` 가 false 일 수 있다)도 '흔적 없음'이 아니라 '보지 못함'이다.
     `next_steps` 를 따르되 `max_seconds` 는 사유가 `time` 일 때만 늘린다 — 고정 한도(`max_depth`·`max_dir_slots`)와 이미지·카드 상태(`beyond_image`·`dir_chain_broken`·`dir_unreadable`·`dir_unvalidated`·`image_truncated`·`volume_exceeds_partition`)는 늘려도 바뀌지 않으니 사람에게 알리고 보고서 한계에 적는다.

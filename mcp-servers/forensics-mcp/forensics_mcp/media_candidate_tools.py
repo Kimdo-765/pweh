@@ -20,7 +20,7 @@ from pweh import evidence as E, schemas
 from pweh.errors import PwehError, ValidationFailed
 from pweh.mcpkit import ANN_LOCAL_WRITE, run_blocking_cancellable, safe_tool
 
-from . import fsops
+from . import fsops, media_candidate_selection as selection
 from .media_tools import _source
 
 MAX_FILE_BYTES = 64 << 20
@@ -64,7 +64,7 @@ def _check(cancelled: threading.Event, deadline: float, *, time_limit: bool = Tr
 
 
 def _arguments(evidence_id: Any, partition: Any, ref: Any, path: Any,
-               method: Any, max_seconds: Any) -> float:
+               method: Any, max_seconds: Any, *, offset: Any = None, length: Any = None) -> float:
     """원시 선택자를 오류에 복사하지 않고 공통 시간 한도를 만든다."""
     invalid = _ERRORS["validation_failed"]
     if not isinstance(evidence_id, str) or re.fullmatch(r"EV-[0-9]{4,6}", evidence_id) is None:
@@ -83,6 +83,12 @@ def _arguments(evidence_id: Any, partition: Any, ref: Any, path: Any,
         raise ValidationFailed(invalid)
     if ref is None and path is None and (partition is not None or method != "auto"):
         raise ValidationFailed(invalid)
+    if offset is not None or length is not None:
+        if (type(offset) is not int or type(length) is not int
+                or any(value is not None for value in (partition, ref, path)) or method != "auto"
+                or not 0 <= offset <= selection.MAX_RANGE_END or not 1 <= length <= MAX_FILE_BYTES
+                or length > selection.MAX_RANGE_END - offset):
+            raise ValidationFailed(invalid)
     if type(max_seconds) not in (int, float) or not 0 < max_seconds <= 45 or not math.isfinite(max_seconds):
         raise ValidationFailed(invalid)
     return time.monotonic() + max_seconds
@@ -143,6 +149,10 @@ def _fixed_error(exc: Exception) -> PwehError:
         code = "invalid_selection"
     elif reason in ("bad_ref", "not_found", "ambiguous_path", "refs_unverifiable"):
         code = "selection_failed"
+    elif code in ("media_prefix_input_invalid", "media_prefix_input_changed"):
+        code = "invalid_selection"
+    elif code == "media_prefix_input_limit":
+        code = "input_too_large"
     if not isinstance(code, str) or code not in _ERRORS:
         code = "media_candidates_failed"
     return PwehError(_ERRORS[code], code=code)
@@ -150,10 +160,11 @@ def _fixed_error(exc: Exception) -> PwehError:
 
 async def _candidates_run(S: _ServerAPI, *, case_id: str, evidence_id: str,
                          partition: int | None, ref: str | None, path: str | None,
-                         method: str, max_seconds: float) -> dict:
+                         method: str, max_seconds: float, offset: int | None = None,
+                         length: int | None = None) -> dict:
     cancelled = threading.Event()
     try:
-        deadline = _arguments(evidence_id, partition, ref, path, method, max_seconds)
+        deadline = _arguments(evidence_id, partition, ref, path, method, max_seconds, offset=offset, length=length)
         case = await S._case(case_id)
 
         def work_body() -> dict:
@@ -163,16 +174,30 @@ async def _candidates_run(S: _ServerAPI, *, case_id: str, evidence_id: str,
             entries = S.custody(case).entries()
             try:
                 with E.open_checked(case, evidence_id, entries, reference_roots=S._reference_roots()) as opened:
-                    data, member = fsops.read_selected_file(
-                        opened.fd, partition=partition, ref=ref, path=path, method=method,
-                        max_bytes=MAX_FILE_BYTES, deadline=deadline, cancel=cancelled.is_set,
-                        allow_empty=True)
-                    _check(cancelled, deadline)
-                    source = _source(opened, evidence_id, member, data)
+                    if offset is None:
+                        data, member = fsops.read_selected_file(
+                            opened.fd, partition=partition, ref=ref, path=path, method=method,
+                            max_bytes=MAX_FILE_BYTES, deadline=deadline, cancel=cancelled.is_set,
+                            allow_empty=True)
+                        _check(cancelled, deadline)
+                        source = _source(opened, evidence_id, member, data)
+                    else:
+                        data, source = selection.read_candidate_range(
+                            opened, offset, length, deadline=deadline, cancel=cancelled.is_set)
+                        _check(cancelled, deadline)
                     limits = dataclasses.replace(BmffCandidateLimits(), max_output_bytes=MAX_REPORT_BYTES - (16 << 10))
                     report = scan_bmff_candidates(data, limits=limits, deadline=deadline, cancel=cancelled.is_set)
                     report["source"] = source
                     report["params"] = {"partition": partition, "method": method, "max_seconds": max_seconds}
+                    if offset is not None:
+                        # 순수 scanner의 좌표는 그대로다. 명시 구간의 출처·한계만 별도 profile로 닫는다.
+                        report["profile"] = selection.RANGE_PROFILE
+                        report["limitations"] = [*report["limitations"], *selection.RANGE_LIMITATIONS]
+                        report["params"].update(offset=offset, length=length)
+                        if (type(source["offset"]) is not int or source["offset"] != offset
+                                or type(source["selected_size"]) is not int or source["selected_size"] != length
+                                or source["selected_size"] != len(data)):
+                            raise ValidationFailed(_ERRORS["validation_failed"])
                     _selection_coverage(report, source)
                     if (report["coverage"]["input_bytes"] != len(data)
                             or report["summary"]["candidates_reported"] != len(report["candidates"])):
@@ -181,11 +206,19 @@ async def _candidates_run(S: _ServerAPI, *, case_id: str, evidence_id: str,
                     raw = json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
                     if len(raw.encode("utf-8")) + 1 > MAX_REPORT_BYTES:
                         raise ValidationFailed(_ERRORS["validation_failed"])
-                    _check(cancelled, deadline, time_limit=False)
+
+                    def final_check() -> None:
+                        # scanner가 만료로 반환한 partial도 기록하지만 취소·같은 fd seal은 끝까지 확인한다.
+                        _check(cancelled, deadline, time_limit=False)
+                        if offset is not None:
+                            selection.check_candidate_range(opened, source, deadline=deadline,
+                                                            cancel=cancelled.is_set, time_limit=False)
+
+                    final_check()
                     return E.store_analysis(
                         case, opened, report, event="media-candidates", custody_log=S.custody(case),
                         reference_roots=lambda: S._reference_roots(),
-                        check=lambda: _check(cancelled, deadline, time_limit=False),
+                        check=final_check,
                         on_commit=lambda entry: _audit_commit(S, case, entry))
             except E.IntegrityProblem as exc:
                 _record_integrity(S, case, evidence_id, exc)
@@ -208,11 +241,15 @@ def register_media_candidate_tools(server: Any, namespace: dict[str, Any]) -> No
 
     @server.tool(
         description=(
-            "증거에서 선택한 파일 1개의 완전한 바이트에서 ftyp 기반 ISO BMFF 연속 최상위 상자 prefix 후보를 찾는다. "
+            "증거에서 선택한 파일 1개의 완전한 바이트 또는 EV의 명시 구간에서 ftyp 기반 ISO BMFF 연속 최상위 상자 prefix 후보를 찾는다. "
             "소유/허가·보관 기록·무결성 확인 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택한다. "
-            "둘 다 없으면 EV 전체를 선택한다. 최대 64 MiB, max_seconds는 0 초 초과·최대 45초이며 "
+            "ref/path와 offset/length가 모두 없으면 EV 전체를 선택한다. offset/length는 exact int를 함께 지정하며 "
+            "EV 안의 양수 길이 구간만 허용한다(offset>=0). ref/path/partition과 혼용할 수 없고 method='auto'여야 한다. "
+            "선택 파일·구간 최대 64 MiB, max_seconds는 0 초 초과·최대 45초이며 "
             "선택·읽기·후보 검색에 같은 시간 예산을 쓴다. 후보는 최대 128개로 고정된다. "
             "선택 바이트 기준 offset·검증한 prefix 길이·고정 상자 종류·반환 후보 사이 관계와 미검사 범위를 기록한다. "
+            "구간은 별도 profile에 EV 전체 크기·시작·길이·구간 SHA를 결속하며 밖의 바이트는 검사하지 않는다. "
+            "구간 모드에서만 source.offset+candidate.offset이 EV 내 위치이며 complete는 요청 구간을 전부 읽었다는 뜻이다. "
             "원본 파일 경계·전체 녹화·미디어 형식 적합성·재생·녹화 시각·암호화는 확인하지 않는다. "
             "삭제·복구·부모 미확인 또는 잘린 컨테이너 출처는 후보 0개여도 partial로 표시한다. "
             "전체 카드 자동 검색·residual 검색·물리 카빙·파일 추출·프레임·음성 해독은 하지 않는다. "
@@ -226,9 +263,11 @@ def register_media_candidate_tools(server: Any, namespace: dict[str, Any]) -> No
         case_id: str, evidence_id: str, partition: StrictInt | None = None,
         ref: str | None = None, path: str | None = None, method: str = "auto",
         max_seconds: StrictFloat | StrictInt = 45,
+        offset: StrictInt | None = None, length: StrictInt | None = None,
     ) -> dict:
         return await _candidates_run(S, case_id=case_id, evidence_id=evidence_id, partition=partition,
-                                    ref=ref, path=path, method=method, max_seconds=max_seconds)
+                                    ref=ref, path=path, method=method, max_seconds=max_seconds,
+                                    offset=offset, length=length)
 
     namespace["forensics_media_candidates"] = forensics_media_candidates
     try:

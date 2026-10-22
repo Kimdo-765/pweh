@@ -62,7 +62,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
 - **게임 콘솔 분석** — `game-save-unlock-analysis`: 세이브·해금 오프라인 분석과 사용자가 원한 세이브 값 변경(기기에는 사람이 쓴다). ESP32 기기는 `esp32-flash-dump` 로 먼저 덤프한다.
 - **SD 카드 포렌식** — `sd-card-forensics`: 사람이 하드웨어 쓰기 방지 장치를 거쳐 만든 카드 이미지를 pweh-forensics 로 접수하고(해시·보관 기록·쓰기 방지 장치 사람 증명),
   파티션·FAT/exFAT 파일 목록·시각·호스트 오염 흔적, 필요한 파일만 삭제 파일까지 추출, 해시값 확인서가 붙은 증거 목록을 만든다. 영상·음성 내용은 열지 않는다. 정지 그림의 미리보기·OCR·QR은 `image-hints-analysis`로 분석한다.
-  카메라 펌웨어가 SD 카드를 다루는 방식(SD-01~09)과 제한된 FIT 서명 선언 구조는 `firmware-static-analysis` 4b 단계에서 본다(실제 서명 검증·부팅 강제 판정 아님). 기존 펌웨어 보고서와 카드 목록은 `forensics_sd_ioc_scan`으로 이름 후보·검사 한계를 대조한다(실행·침해 증명 아님). 선택 파일의 BMFF 상자 구조와 제한된 길이·PSSH 선언은 `forensics_media_inventory`로 관찰한다(영상/음성 해독·녹화 시각/암호화 판정 없음). 같은 선택 파일의 연속 구조 후보는 `forensics_media_candidates`로 찾는다(원본 경계·녹화 복구 검증 아님). 저장한 후보 하나의 검증된 앞부분은 `forensics_extract_media_candidate`로 추출한다([계약](docs/references/media-prefix-extract.md)). 원시 카드 전체 카빙·녹화 인덱스·녹화 타임라인·ext4 는 아직 없다.
+  카메라 펌웨어가 SD 카드를 다루는 방식(SD-01~09)과 제한된 FIT 서명 선언 구조는 `firmware-static-analysis` 4b 단계에서 본다(실제 서명 검증·부팅 강제 판정 아님). 기존 펌웨어 보고서와 카드 목록은 `forensics_sd_ioc_scan`으로 이름 후보·검사 한계를 대조한다(실행·침해 증명 아님). 선택 파일의 BMFF 상자 구조와 제한된 길이·PSSH 선언은 `forensics_media_inventory`로 관찰한다(영상/음성 해독·녹화 시각/암호화 판정 없음). 선택 파일 또는 [명시 EV 구간](docs/references/media-evidence-range.md)의 연속 구조 후보는 `forensics_media_candidates`로 찾는다(원본 경계·녹화 복구 검증 아님). 저장한 후보 하나의 검증된 앞부분은 `forensics_extract_media_candidate`로 추출한다([계약](docs/references/media-prefix-extract.md)). 원시 카드 전체 카빙·녹화 인덱스·녹화 타임라인·ext4 는 아직 없다.
   알려진 한계(잘린 이미지·손상된 카드, 같은 계정 프로세스의 경합 창 등)는 [안전 가이드](docs/safety.md) §3.6 에 있다.
 - **RF·하드웨어 분석** — 준비 중. 지금은 기존 Skill 로 보드 단위 콘솔·신호·덤프만 한다.
 

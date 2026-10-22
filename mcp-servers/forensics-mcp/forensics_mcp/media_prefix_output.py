@@ -133,6 +133,15 @@ def _validate_source(opened: E.OpenedEvidence, data: bytes, manifest: dict,
             or manifest["evidence_sha256"] != sha or source["evidence_sha256"] != sha
             or source["selected_size"] != len(data)):
         raise _error("media_prefix_input_invalid")
+    if source["method"] == "byte-range":
+        offset, evidence_size = source["offset"], source["evidence_size"]
+        if (any(type(v) is not int for v in (offset, evidence_size, source["selected_size"],
+                                             opened.intake.get("size")))
+                or not 0 <= offset <= (1 << 63) - 1 or not 0 < evidence_size <= (1 << 63) - 1
+                or offset + len(data) > evidence_size
+                or evidence_size != opened.intake["size"] or evidence_size != opened.st.st_size
+                or evidence_size != os.fstat(opened.fd).st_size):
+            raise _error("media_prefix_input_invalid")
     index, start, size = candidate["index"], candidate["offset"], candidate["validated_prefix_length"]
     if (any(type(n) is not int for n in (index, start, size)) or not 0 <= index <= 127
             or start < 0 or size < 16 or start + size > len(data)

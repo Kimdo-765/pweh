@@ -110,11 +110,11 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 > 저장은 `storage="copy"`가 기본이다. D의 `storage="reference"`는 비안전 설정 `forensics.reference_roots` 아래 실제 읽기 전용 마운트의 일반 파일만 제자리 참조하며 매번 정책·마운트를 재확인한다. 증거 목록의 전체 재해시가 끝나야 참조 EV의 성공 확인서를 만든다(§10 결정 2).
 > `case.json` 의 `evidence[]` 색인 대신 보관 기록(`intake` 사건이 해시·크기·지문의 권위 값)을 다시 읽어 상태를 정하고 접수 기록 파일은 그것과 대조한다.
 > 접수 아티팩트 kind는 사본의 `evidence-image`와 참조 기록의 `evidence-reference`다(추출물은 매니페스트로 센다). 발견사항 카테고리 `insecure-storage`·`privacy` 는 아직 없다. D의 `pweh-fwtriage` raw GPT 분할은 `pweh.fs`의 파티션 파서를 재사용한다(증거 파일 시스템 접근은 아님).
-> - **저장된 후보 추출**: `forensics_extract_media_candidate`가 같은 EV의 후보 보고서·선택 파일을 다시 검증하고 지정 후보의 앞부분 하나를 파생 파일로 쓴다. 녹화 전체 복구·재생을 판정하지 않는다. [입출력·보관 기록 계약](../references/media-prefix-extract.md).
-> - **선택 연속 구조 후보**: `forensics_media_candidates`는 같은 완전 선택 파일 안에서 ftyp·연속 최상위 상자 prefix 후보와 검색/검사/목록/관계 완료도를 기록한다. 원본 파일 경계·녹화 복구·물리 카빙 검증은 아니며 계약은 architecture §6.8이다.
+> - **저장된 후보 추출**: `forensics_extract_media_candidate`가 같은 EV의 후보 보고서·선택 파일 또는 명시 구간을 다시 검증하고 지정 후보의 앞부분 하나를 파생 파일로 쓴다. 녹화 전체 복구·재생을 판정하지 않는다. [입출력·보관 기록 계약](../references/media-prefix-extract.md).
+> - **선택 연속 구조 후보**: `forensics_media_candidates`는 완전한 선택 파일 또는 명시 EV 구간(최대64 MiB)에서 ftyp·연속 최상위 상자 prefix 후보와 검색/검사/목록/관계 완료도를 기록한다. 구간은 offset/length·EV 크기·구간 SHA를 결속하며 [구간 계약](../references/media-evidence-range.md)을 따른다. 원본 파일 경계·녹화 복구·물리 카빙 검증은 아니며 계약은 architecture §6.8이다.
 > - **선택 미디어 구조**: `forensics_media_inventory`는 완전한64 MiB 이하 선택 파일의 ISO-BMFF 상자 경계·고정 brand, 제한된 mvhd/mdhd 시간 단위·길이 선언과 pssh 구조, 검사/opaque/미검사 범위를 관찰한다. 생성/수정 시각은 zero/nonzero/unread 상태만 남긴다. [선언 계약](../references/media-declarations.md)에 따라 프레임·음성·촬영 시각·codec·암호화·표준 적합성·재생을 검증하지 않으며 카빙/벤더 인덱스 지원으로 세지 않는다. 출처·취소·저장 계약은 architecture §6.8이다.
 >
-> 남음: F2 — CCTV 형식(프레임 카버·인덱스·이름 규칙), 카빙, 녹화 인덱스 타임라인, §5.2의 카드 전체 비밀값 자동 탐색·암호화 판정·카드 내용의 침해 판정(기존 보고서 이름 대조·선택 BMFF 구조 관찰은 구현), E01·외부 도구(TSK·PhotoRec·ewf·ffprobe).
+> 남음: F2 — CCTV 형식(프레임 카버·인덱스·이름 규칙), 전체 카빙·조각 재조립, 녹화 인덱스 타임라인, §5.2의 카드 전체 비밀값 자동 탐색·암호화 판정·카드 내용의 침해 판정(기존 보고서 이름 대조·선택 BMFF 구조 관찰은 구현), E01·외부 도구(TSK·PhotoRec·ewf·ffprobe).
 > F3 — ext4(NTFS 목록도 없음), Windows 원시 읽기 헬퍼, 영상 내보내기. 장치에서 카드 식별 정보 읽기(sysfs cid/csd)도 아직 없다.
 > 유지보수 보강 구현: 출력 커밋 전 신원 재확인, `pweh.safeio`의 중간 디렉터리 고정, 출처 원장의 안전한 접수 기록 읽기, 지정 케이스의 종료된 job 기록 정리,
 > 동기 해석의 요청 취소, 증거 경계의 하드링크 거부, FAT12/16/32 디렉터리 교차 연결 검사. 같은 계정 경합·부분 FAT 색인 등 남은 범위는 safety.md §3.6에 적는다.

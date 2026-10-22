@@ -25,6 +25,8 @@ from .sdioc_input import load_json
 
 MAX_REPORT_BYTES = 1 << 20
 MAX_SELECTED_BYTES = 64 << 20
+MAX_EVIDENCE_BYTES = (1 << 63) - 1
+RANGE_PROFILE = "ftyp-contiguous-ev-range-v1"
 _SHA = re.compile(r"[0-9a-f]{64}")
 _MESSAGES = {
     "media_prefix_input_invalid": "미디어 후보 보고서의 형식·출처 또는 선택 범위가 유효하지 않습니다.",
@@ -132,6 +134,25 @@ def _semantic(report: dict, index: int, opened: E.OpenedEvidence, event: dict) -
                 exact_numbers(child)
     for section in (source, coverage, rows, report["summary"]):
         exact_numbers(section)
+    if report["profile"] == RANGE_PROFILE:
+        params = report["params"]
+        offset, length, evidence_size = source["offset"], source["selected_size"], source["evidence_size"]
+        # params.max_seconds의 유한 float는 기존 계약이다. 구간 정수만 별도로 닫는다.
+        if (any(type(v) is not int for v in (offset, length, evidence_size,
+                                             params["offset"], params["length"], opened.intake.get("size")))
+                or source["method"] != "byte-range" or source["container"] != "file"
+                or source["member_selected"] is not False or source["confidence"] != "high"
+                or source["complete"] is not True or source["container_truncated_reasons"] != []
+                or any(source[key] is not None for key in (
+                    "partition", "ref", "deleted", "parent_deleted", "container_truncated"))
+                or params["partition"] is not None or params["method"] != "auto"
+                or offset != params["offset"] or length != params["length"]
+                or not 0 <= offset <= MAX_EVIDENCE_BYTES
+                or not 0 < evidence_size <= MAX_EVIDENCE_BYTES
+                or offset + length > evidence_size
+                or evidence_size != opened.intake["size"]
+                or evidence_size != opened.st.st_size or evidence_size != os.fstat(opened.fd).st_size):
+            raise input_error()
     for n, row in enumerate(rows):
         if (type(row["index"]) is not int or row["index"] != n
                 or type(row["offset"]) is not int or type(row["validated_prefix_length"]) is not int

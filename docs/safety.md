@@ -559,13 +559,13 @@ pweh-forensics 와 그 코어(`pweh.fs`·`pweh.evidence`·`pweh.safeio`)가 지�
 
 **선택 미디어 후보 탐색**
 
-- `forensics_media_candidates`는 완전한 선택 파일 안의 ftyp와 연속 최상위 상자 prefix 후보만 기록한다. payload 안의 우연한 ftyp도 후보가 될 수 있다. 모든 위치는 선택 bytes 기준이며 EV 절대주소나 원본 파일 경계로 환산하지 않는다.
+- `forensics_media_candidates`는 완전한 선택 파일 또는 명시 EV 구간(최대64 MiB) 안의 ftyp와 연속 최상위 상자 prefix 후보만 기록한다. payload 안의 우연한 ftyp도 후보가 될 수 있다. 모든 위치는 선택 bytes 기준이며 EV 구간에서만 source.offset을 더해 이미지 내 위치를 구한다. FS/삭제 복구/archive의 논리 위치를 물리 주소로 환산하지 않는다. 구간 밖은 미검사이고 구간 경계는 원본 파일 경계가 아니다([계약](references/media-evidence-range.md)).
 - size0·선택 끝·다음 ftyp를 원본 녹화 종료로 보지 않는다. 후보0건/unsupported도 미디어 부재를 증명하지 않는다. `complete_recording`·원본 경계·물리 카빙·재생·암호화 검증 값은 false다. 후보 JSON을 녹화 복구물로 부르지 않는다.
 - 검색 위치의 완료 prefix, 현재 미처리 anchor, 후보 목록 완료, 반환 후보 간 관계 완료를 각각 확인한다. 한도로 관계 계산이 잘렸으면 빈 배열이 겹침 없음의 근거가 아니다. 삭제/복구/부모 상태·컨테이너 목록 불확실성은 후보0건에도 partial로 남는다. 입력·시간·출력 및 동일 OS 계정 경합 한계는 위 구조 관찰과 같다.
 
 **저장된 후보 prefix 추출**
 
-- `forensics_extract_media_candidate`는 같은 EV의 보관 기록에 결속된 보고서와 원래 선택 파일 전체의 해시를 재검증한다. 보고서의 논리 offset·검증 prefix 길이만 쓰며 새 물리 범위를 지정하지 않는다. 원래 불확실성과 재선택의 불확실성을 함께 보존한다.
+- `forensics_extract_media_candidate`는 같은 EV의 보관 기록에 결속된 보고서와 원래 선택 파일 또는 EV 구간 전체의 해시를 재검증한다. 보고서의 논리 offset·검증 prefix 길이만 쓰며 새 물리 범위를 지정하지 않는다. 원래 불확실성과 재선택의 불확실성을 함께 보존한다.
 - 출력은 `recovered/media-prefix-NNN/`의 고정 이름 두 파일이다. 같은 custody 잠금 안에서 입력·사건·출력의 부모/이름/열린 fd·seal·전체 해시를 확인한다. 커밋 전 실패는 확인한 자기 inode만 정리하고, 교체물·모르는 파일은 보존한다. 커밋 뒤 늦은 취소·보조 오류는 기록한 출력을 지우지 않는다.
 - prefix 작성 완료는 원본 경계·완전한 녹화·재생 검증이 아니다. 추출 내용은 반환하거나 직접 열지 않는다. `derived.recorded`는 매니페스트와 사건의 결속이며 이후 바이너리 전체 재해시 보장이 아니다. 고정 한도와 같은 OS 계정의 최종 검사 뒤 변경 가능성은 [계약](references/media-prefix-extract.md)에 따른다.
 

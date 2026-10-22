@@ -80,7 +80,7 @@ PWEH 는 카드를 이미징하지 않고 원시 디스크를 열지 않는다 �
 | `forensics_scan_secrets` | 선택 텍스트 하나의 비밀값 후보·마스킹된 지문·검사/미검사 범위만 기록 |
 | `forensics_sd_ioc_scan` | 검증된 카드 목록과 기존 펌웨어 보고서의 이름 후보·검사 한계만 기록 |
 | `forensics_media_inventory` | 완전한 선택 파일 하나의 BMFF 상자 구조·검사/opaque/미검사 범위만 기록 |
-| `forensics_media_candidates` | 같은 선택 파일 안의 ftyp·연속 최상위 prefix 후보와 검색/검사/관계 한계만 기록 |
+| `forensics_media_candidates` | 선택 파일 또는 명시 EV 구간 안의 ftyp·연속 최상위 prefix 후보와 검색/검사/관계 한계만 기록 |
 | `forensics_extract_media_candidate` | 저장된 보고서·선택 파일을 재검증하고 후보 하나의 prefix를 추출(job). 추출물은 직접 열지 않음 |
 | `forensics_image_hints` | 선택한 정지 그림만 미리보기·OCR·QR·메타데이터 분석 → `image-hints-analysis` |
 | `forensics_verify_start`, `forensics_evidence_list` | 사본 전체 재해시(job), 증거 목록·보관 기록 검증·해시값 확인서 |
@@ -222,7 +222,7 @@ forensics_fs_list(case_id="<id>", evidence_id="EV-0001")
 
 ### 6b. 선택 미디어의 구조·후보가 필요한 경우
 
-`forensics_media_inventory(case_id="<id>", evidence_id="EV-0001", ref="<목록의 ref>")`로 완전한 파일 하나(최대64 MiB)의 BMFF 상자 경계와 제한된 길이·PSSH 선언을 관찰한다(촬영 시각·재생 길이·암호화 판정 아님). `forensics_media_candidates`는 같은 인자로 선택 파일 안의 연속 최상위 prefix 후보를 찾는다. ref/path 배타·직접 EV는 둘 다 생략하며 필요한 파티션만 명시한다. 원시 파일·복구물을 직접 열거나 프레임·음성을 해독하지 않는다.
+`forensics_media_inventory(case_id="<id>", evidence_id="EV-0001", ref="<목록의 ref>")`로 완전한 파일 하나(최대64 MiB)의 BMFF 상자 경계와 제한된 길이·PSSH 선언을 관찰한다(촬영 시각·재생 길이·암호화 판정 아님). `forensics_media_candidates`는 같은 인자로 선택 파일 안의 연속 최상위 prefix 후보를 찾는다. ref/path 배타·직접 EV는 둘 다 생략하며 필요한 파티션만 명시한다. 큰 EV의 후보 검색은 offset/length를 함께 지정해 최대64 MiB 한 구간만 선택할 수 있다(ref/path/partition 없이 method=auto, 구간 밖 미검사). 원시 파일·복구물을 직접 열거나 프레임·음성을 해독하지 않는다.
 - inventory는 [reference.md §12](reference.md#12-선택-미디어-구조-관찰)에 따라 `media_inventory_results`, 연속 후보는 [§13](reference.md#13-선택-미디어-연속-후보)에 따라 `media_candidate_results`에 결과 참조만 기록한다. 검색/검사/목록/관계 완료도를 각각 보고 원본 경계·녹화 복구·재생·시각·암호화·침해 여부를 판정하지 않는다. 저장된 후보의 앞부분이 승인된 목적에 필요하면 `forensics_extract_media_candidate(case_id="<id>", evidence_id="EV-0001", analysis_path="<응답의 analysis.path>", candidate_index=0)`를 쓴다. 번호는 보고서에 실제 존재하는 정수 하나만 고른다. 이 쓰기 도구는 `ask` 권한이며 기존 `forensics_job_status`로 완료를 확인한다. 원래 불확실성을 보존하고, [reference.md §14](reference.md#14-저장된-후보-prefix-추출)에 따라 `recovered`·`notes`와 증거 목록에 남긴다. `complete=true`는 prefix 작성 완료이며 녹화 전체 복구 성공이 아니다.
 
 ### 7. 필요한 것만 추출

@@ -255,7 +255,9 @@ opaque payload는 검사 바이트와 다르며 timing도20/32bytes prefix 외 �
 
 ## 13. 선택 미디어 연속 후보
 
-`forensics_media_candidates`는 EV 자체 또는 FAT/exFAT·TAR/ZIP의 완전한 선택 파일 하나(최대64 MiB)에서 ftyp와 연속 최상위 상자 prefix 후보를 찾는다. ref/path 중 하나를 지정하며 직접 EV는 둘 다 생략하고 partition 없이 method=auto다. 큰 입력의 앞부분·잔여 영역·미할당 공간·여러 파일 결합을 받지 않는다.
+`forensics_media_candidates`는 EV 자체 또는 FAT/exFAT·TAR/ZIP의 완전한 선택 파일 하나(최대64 MiB)에서 ftyp와 연속 최상위 상자 prefix 후보를 찾는다. ref/path 중 하나를 지정하며 직접 EV는 둘 다 생략하고 partition 없이 method=auto다. 큰 EV의 명시 구간은 정수 offset/length를 함께 지정하며 ref/path/partition을 생략하고 method=auto를 유지한다. 구간은 최대64 MiB, EV 안에 있어야 한다. 인자가 없는 큰 EV를 자동으로 잘라 읽거나 미할당/잔여 영역으로 판정하지 않는다.
+
+구간 profile은 ftyp-contiguous-ev-range-v1이며 source.evidence_size/offset/selected_size/selected_sha256에 EV 크기·구간 위치/길이·전체 구간 SHA를 기록한다. source.complete/high는 구간 읽기 신원이고 후보 확신이 아니다. 후보 위치는 구간 상대값이며 이 분기에서만 source.offset을 더해 EV 내 위치를 구한다. 구간 밖은 미검사다. old/new source·params를 섞지 않으며 [명시 구간 계약](../../docs/references/media-evidence-range.md)을 따른다.
 
 `report.status`는 ok/partial/unsupported다. 후보마다 선택 기준 offset과 검증 prefix 길이·고정 known brand·종료 사유를 기록한다. size0·selection_end·next_ftyp는 원본 파일 종료의 증거가 아니다. payload 내부에 우연히 들어 있는 ftyp도 후보가 될 수 있으며, confidence는 possible, complete_recording은 false다. 프레임·음성·시각·암호화·재생·물리 카빙을 검증하지 않는다.
 
@@ -269,7 +271,7 @@ opaque payload는 검사 바이트와 다르며 timing도20/32bytes prefix 외 �
 ## 14. 저장된 후보 prefix 추출
 
 `forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)`는 같은 EV의
-`media-candidates` 보관 기록에 결속된 보고서와 원래 선택 파일 전체의 해시를 다시 확인한다.
+`media-candidates` 보관 기록에 결속된 보고서와 원래 선택 파일 또는 EV 구간 전체의 해시를 다시 확인한다.
 실제 후보 번호 하나를 지정하고 기존 forensics job 조회·취소 도구를 사용한다. offset·length·
 복구 방법을 새로 입력하지 않는다. 출력은 `recovered/media-prefix-NNN/`의 고정 이름
 `candidate-000.bin`과 `manifest.json`이며 직접 열지 않는다.
