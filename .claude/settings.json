@@ -84,6 +84,7 @@
       "mcp__rea__inspect_native_load_image",
       "mcp__pweh-forensics__forensics_image_hints",
       "mcp__pweh-forensics__forensics_scan_secrets",
+      "mcp__pweh-forensics__forensics_scan_secrets_from_list",
       "mcp__pweh-forensics__forensics_sd_ioc_scan",
       "mcp__pweh-forensics__forensics_media_inventory",
       "mcp__pweh-forensics__forensics_media_candidates",

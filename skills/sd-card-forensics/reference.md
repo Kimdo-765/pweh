@@ -285,3 +285,9 @@ opaque payload는 검사 바이트와 다르며 timing도20/32bytes prefix 외 �
 기존 `recovered`의 files/bytes/manifests에 합산하고 partial·확인하지 못한 사항은 notes에 적는다.
 입력64 MiB·보고서1 MiB·매니페스트64 KiB·worker 공통45초와 정리/취소 계약은
 [미디어 후보 추출](../../docs/references/media-prefix-extract.md)을 따른다.
+
+## 15. 저장 목록의 자동 비밀값 검사
+
+`forensics_scan_secrets_from_list`에 같은 EV의 `forensics_fs_list` 전체 JSON 경로를 전달한다. 목록 안의 지원 FAT/exFAT 파일을 순서대로 자동 선정하며 최대32파일·합16 MiB·파일당4 MiB·총200후보를 검사한다. TAR/ZIP 또는 명시한 파일 하나는 기존 단일 도구를 쓴다.
+
+[상세 계약과 요약 필드 매핑](../../docs/references/secrets-survey.md#sd-요약)에 따라 `secret_survey_results`를 기록한다. 목록 완료·정책 분류 완료·eligible 검사 완료를 구분하고, 정책 제외·한도·읽기 실패를 notes에 남긴다. whole_card_examined와 privacy.secret_plaintext_returned는 false다. 원래 파일명·시각·키·본문을 요약에 넣지 않으며 후보0건은 비밀 없음/안전 판정이 아니다. `secrets-survey` 사건과 결과 SHA는 증거 목록 derived로 확인한다.

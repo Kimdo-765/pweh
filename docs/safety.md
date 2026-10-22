@@ -538,6 +538,10 @@ pweh-forensics 와 그 코어(`pweh.fs`·`pweh.evidence`·`pweh.safeio`)가 지�
   `forensics_image_check` 의 note 도 그때는 본 범위에서만 찾지 못했다는 것과 보지 못한 부분(사유, 해석하지 못한 볼륨)을 알린다(§7.1).
   본 볼륨이 하나도 없을 때도 '흔적 없음'이 아니다 — note 는 흔적을 '보지 못했다'고 하고, `truncated` 는 파티션이 이미지 끝 너머면(`image_truncated`) true, 지원하지 않는 파티션이 있으면 `unsupported_partitions`와 `call.partitions_unexamined`를 남기고 true다.
 
+**저장 목록의 비밀값 자동 검사**
+
+`forensics_scan_secrets_from_list`는 같은 EV의 보관 기록에 결속된 FAT/exFAT 목록에서 최대32파일·데이터 합16 MiB를 자동 선정하고 새 도달성·metadata 대조 뒤 기존 마스킹 scanner를 적용한다. 목록 누락·정책 제외·한도/읽기 실패와 실제 검사 범위를 구분한다. whole_card_examined는 항상false이며 접수 SHA 표시는 매번 EV 전체를 재해시했다는 뜻이 아니다. 원래 이름·경로·시각·키·값·본문은 새 결과/오류에 복사하지 않는다. 최종 custody 잠금 안의 bounded 목록 재해시는 검사 시간 만료 뒤에도 취소·신원 검사를 유지하며, 커밋 전 실패는 정리하고 이후 결과는 보존한다. [상세 상한과 한계](references/secrets-survey.md).
+
 **선택 텍스트의 비밀값 후보 검사**
 - `forensics_scan_secrets`는 완전히 읽은 파일 하나(최대4 MiB)의 UTF-8 지원 패턴만 본다. 영상·음성·바이너리·UTF-16은 지원하지 않고, 명시적 `xor_key=144` 외 키 탐색·복호·로그인은 없다. 확장자/매직 검사는 모든 미디어를 식별한다는 보장이 아니므로 엄격한 텍스트 검사도 적용한다.
 - 원문·계정·키 이름·URL·파일명·변환 평문 파일은 결과에 넣지 않는다. 경계가 완전한 후보만 케이스 솔트 지문을 남긴다. 기존 지문 형식은 SHA256(salt || value)의 앞16 hex이며 HMAC이 아니다. 같은 OS 계정의 공격이나 짧은 비밀값 추측을 막는 보장이 아니며 Python 메모리의 완전 소거도 보장하지 않는다. 지문이 같아도 자격증명의 유효성·현재 사용·침해를 확정하지 않는다.

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pweh.local/schemas/sd-forensics.schema.json",
   "title": "sd-card-forensics 요약 data",
-  "description": "카메라·블랙박스 SD 카드 이미지의 증거 분석(접수·해시·보관 기록·파일 시스템·삭제 파일)과 보안 분석(펌웨어의 SD 공격 표면·부팅 로그의 SD 이벤트) 요약. 영상·음성 내용은 열지 않는다. 정지 그림은 forensics_image_hints의 미리보기·OCR만 허용하며 image-hints-analysis 요약으로 기록한다. privacy의 기존 네 값은 false이고 정지 이미지 반환 여부를 별도 필드로 기록한다. 잘림·불완전(forensics_fs_list·forensics_image_check·forensics_extract 의 truncated·truncated_reasons, 해석하지 못한 볼륨 call.volumes_failed, 검증하지 못한 디렉터리 unvalidated_dirs)과 사람이 읽는 상태 표시(status_label)는 이 스키마에 필드가 없다 — notes 에 적는다(그때 filesystems·contamination·recovered 는 본 범위만의 값이다). 선택한 텍스트의 비밀값 후보 검사는 secret_scan_results에 원문 없이 기록한다. 보고서 이름 대조는 ioc_scan_results에 원시 경로·이름 없이 기록하며 실행·침해를 판정하지 않는다. 선택 미디어 구조는 media_inventory_results에 결과 참조만 기록하며 영상·음성을 해독하지 않는다. 저장된 후보의 prefix 추출은 recovered에 합산하고 부분 상태·한계를 notes에 적는다. prefix 작성 완료는 녹화 전체 복구가 아니다.",
+  "description": "카메라·블랙박스 SD 카드 이미지의 증거 분석(접수·해시·보관 기록·파일 시스템·삭제 파일)과 보안 분석(펌웨어의 SD 공격 표면·부팅 로그의 SD 이벤트) 요약. 영상·음성 내용은 열지 않는다. 정지 그림은 forensics_image_hints의 미리보기·OCR만 허용하며 image-hints-analysis 요약으로 기록한다. privacy의 기존 네 값은 false이고 정지 이미지 반환 여부를 별도 필드로 기록한다. 잘림·불완전(forensics_fs_list·forensics_image_check·forensics_extract 의 truncated·truncated_reasons, 해석하지 못한 볼륨 call.volumes_failed, 검증하지 못한 디렉터리 unvalidated_dirs)과 사람이 읽는 상태 표시(status_label)는 이 스키마에 필드가 없다 — notes 에 적는다(그때 filesystems·contamination·recovered 는 본 범위만의 값이다). 선택한 텍스트의 비밀값 후보 검사는 secret_scan_results에 원문 없이 기록한다. 보고서 이름 대조는 ioc_scan_results에 원시 경로·이름 없이 기록하며 실행·침해를 판정하지 않는다. 선택 미디어 구조는 media_inventory_results에 결과 참조만 기록하며 영상·음성을 해독하지 않는다. 저장된 후보의 prefix 추출은 recovered에 합산하고 부분 상태·한계를 notes에 적는다. prefix 작성 완료는 녹화 전체 복구가 아니다. 저장 목록 자동 비밀값 검사는 secret_survey_results에 원문 없이 참조하고, whole_card_examined=false와 미검사 수를 유지한다.",
   "type": "object",
   "required": [
     "mode",
@@ -653,6 +653,118 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 4096
+          }
+        }
+      }
+    },
+    "secret_survey_results": {
+      "type": "array",
+      "maxItems": 100,
+      "description": "같은 EV의 저장 FAT/exFAT 목록에서 자동 선정한 검사 보고서 참조. 예정·완전 읽기·eligible 미읽기 수를 구분하며, 파일 이름·본문·원문 키/값은 싣지 않는다. 목록 누락·정책 제외·세부 처리 범위는 결과 JSON을 따르고 whole_card_examined는 항상 false다.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_id",
+          "analysis_path",
+          "analysis_sha256",
+          "fs_list_path",
+          "status",
+          "files_scheduled",
+          "files_read_complete",
+          "eligible_files_unread",
+          "hits",
+          "scanned_bytes",
+          "unscanned_read_bytes",
+          "whole_card_examined",
+          "reasons"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^EV-[0-9]{4,6}$"
+          },
+          "analysis_path": {
+            "type": "string",
+            "pattern": "^forensics/analysis/secrets-survey-EV-[0-9]{4,6}-[0-9]{3,9}\\.json$",
+            "maxLength": 100
+          },
+          "analysis_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "fs_list_path": {
+            "type": "string",
+            "pattern": "^forensics/analysis/fs-list-EV-[0-9]{4,6}-[0-9]{3,9}\\.json$",
+            "maxLength": 100
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "partial",
+              "unsupported"
+            ]
+          },
+          "files_scheduled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32
+          },
+          "files_read_complete": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32
+          },
+          "eligible_files_unread": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 200000
+          },
+          "hits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 200
+          },
+          "scanned_bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16777216
+          },
+          "unscanned_read_bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 16777216
+          },
+          "whole_card_examined": {
+            "const": false
+          },
+          "reasons": {
+            "type": "array",
+            "maxItems": 32,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "listing_incomplete",
+                "listing_coverage_unknown",
+                "unsupported_volume",
+                "volume_failed",
+                "partitions_unexamined",
+                "cut_directories",
+                "unvalidated_directories",
+                "volume_incomplete",
+                "deleted_not_included",
+                "partition_restricted",
+                "file_limit",
+                "total_bytes_limit",
+                "hit_limit",
+                "time_limit",
+                "output_limit",
+                "read_failed",
+                "scanner_partial",
+                "scanner_unsupported",
+                "selection_uncertain"
+              ]
+            }
           }
         }
       }

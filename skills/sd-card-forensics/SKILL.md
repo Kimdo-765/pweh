@@ -1,6 +1,6 @@
 ---
 name: sd-card-forensics
-description: Analyze an authorized SD card image or the firmware SD attack surface with pweh-forensics and fwtriage. The human images the card through a hardware write-blocker; PWEH accepts image files only. Evidence flow records hashes, custody, acquisition attestation, partitions, FAT/exFAT file lists, deleted-file extraction and an evidence list. Selected text uses forensics_scan_secrets for masked candidates and coverage only. Existing reports use forensics_sd_ioc_scan for name candidates. Selected media uses forensics_media_inventory for bounded box metadata and forensics_media_candidates for bounded contiguous-prefix candidates only. 명시적으로 선택한 저장 후보의 prefix는 forensics_extract_media_candidate로 추출한다. Still-image clues use forensics_image_hints and image-hints-analysis; video/audio and direct evidence-file reads remain excluded. Security flow checks SD-01..09 in firmware and optional boot logs with a new blank test card. Records sd-forensics summary. SD 카드 포렌식, 카드 이미지, 삭제 파일 복구, 보관 기록, 쓰기 방지 장치.
+description: Analyze authorized SD card images or firmware SD attack surfaces with pweh-forensics and fwtriage. Record hashes, custody, acquisition attestation, FAT/exFAT lists, deleted-file extraction and evidence lists. forensics_scan_secrets checks selected text; forensics_scan_secrets_from_list automatically selects bounded files from stored FAT/exFAT lists. Return masked candidates and coverage only. forensics_sd_ioc_scan compares report names. forensics_media_inventory observes bounded BMFF structure; forensics_media_candidates finds contiguous-prefix candidates in selected files or explicit EV ranges. forensics_extract_media_candidate extracts one stored candidate prefix. Still images use image-hints-analysis; no video/audio decoding or direct evidence-file reads. Firmware checks cover SD-01..09. Record sd-forensics summary. SD 카드 포렌식, 카드 이미지, 삭제 파일 복구, 보관 기록, 쓰기 방지 장치.
 ---
 
 # SD 카드 포렌식 (sd-card-forensics)
@@ -36,7 +36,7 @@ PWEH 는 카드를 이미징하지 않고 원시 디스크를 열지 않는다 �
 - **사람·장비** (security 부팅 로그, 선택): UART 세션(`uart-shell-acquisition`)과 새 빈 시험 카드.
 - **MCP 서버**: pweh-case, pweh-forensics(evidence), pweh-fwtriage(security), pweh-uart(부팅 로그).
 - **권한 확인**: 쓰는 forensics 도구(접수·검증·증명·목록·추출·증거 목록·job 취소)는 부를 때마다 Claude Code 가 사람에게 확인받는다(`.claude/settings.json` 의 ask). 처음에 알린다.
-  `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs`는 조회 전용이라 자동 허용이다. `forensics_image_hints`도 사용자의 정지 이미지 내용 반환 결정에 따라 별도 승인 없이 허용한다(로컬 분석 결과는 쓴다). `forensics_scan_secrets`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`도 마스킹된 후보·보고서 이름 대조·미디어 구조/연속 후보를 로컬 기록하는 자동 허용 도구다.
+  `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs`는 조회 전용이라 자동 허용이다. `forensics_image_hints`도 사용자의 정지 이미지 내용 반환 결정에 따라 별도 승인 없이 허용한다(로컬 분석 결과는 쓴다). `forensics_scan_secrets`·`forensics_scan_secrets_from_list`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`도 마스킹된 후보·보고서 이름 대조·미디어 구조/연속 후보를 로컬 기록하는 자동 허용 도구다.
 
 ## 안전 규칙
 
@@ -77,7 +77,7 @@ PWEH 는 카드를 이미징하지 않고 원시 디스크를 열지 않는다 �
 | `forensics_partitions`, `forensics_image_check` | 파티션 구조·볼륨 정보, 호스트 오염 흔적 (읽기 전용) |
 | `forensics_fs_list` | FAT12/16/32·exFAT 목록(삭제 항목 포함) — 전체 목록은 `forensics/analysis/` JSON |
 | `forensics_extract` | 고른 파일만 추출(job) → `forensics/recovered/` (직접 열지 않음) |
-| `forensics_scan_secrets` | 선택 텍스트 하나의 비밀값 후보·마스킹된 지문·검사/미검사 범위만 기록 |
+| `forensics_scan_secrets` / `forensics_scan_secrets_from_list` | 선택 텍스트 하나 / 저장 FAT/exFAT 목록의 자동 선정·마스킹된 후보·검사/미검사 범위 기록 |
 | `forensics_sd_ioc_scan` | 검증된 카드 목록과 기존 펌웨어 보고서의 이름 후보·검사 한계만 기록 |
 | `forensics_media_inventory` | 완전한 선택 파일 하나의 BMFF 상자 구조·검사/opaque/미검사 범위만 기록 |
 | `forensics_media_candidates` | 선택 파일 또는 명시 EV 구간 안의 ftyp·연속 최상위 prefix 후보와 검색/검사/관계 한계만 기록 |
@@ -215,9 +215,9 @@ forensics_fs_list(case_id="<id>", evidence_id="EV-0001")
 
 고정 한도와 이미지·카드 상태(max_depth·max_dir_slots·beyond_image·image_truncated·volume_exceeds_partition·dir_*)는 max_seconds 를 늘려 답하지 않는다. 사유마다 도구별 뜻은 [reference.md §8](reference.md#8-잘림불완전-사유와-사람에게-알릴-것).
 
-### 6a. 선택 텍스트의 비밀값 후보가 필요한 경우
+### 6a. 비밀값 후보가 필요한 경우
 
-`forensics_scan_secrets(case_id="<id>", evidence_id="EV-0001", ref="<목록의 ref>")`로 목적에 필요한 UTF-8 텍스트 하나만 검사한다(최대4 MiB). 원문을 직접 열거나 앞부분만 검사하지 않는다. ref/path는 배타적, 작은 텍스트 EV 자체는 둘 다 생략한다. 기본은 평문이고 근거가 있을 때만 `xor_key=144`를 명시한다.
+`forensics_scan_secrets(case_id="<id>", evidence_id="EV-0001", ref="<목록의 ref>")`로 목적에 필요한 UTF-8 텍스트 하나만 검사한다(최대4 MiB). 원문을 직접 열거나 앞부분만 검사하지 않는다. ref/path는 배타적, 작은 텍스트 EV 자체는 둘 다 생략한다. 기본은 평문이고 근거가 있을 때만 `xor_key=144`를 명시한다. 저장 FAT/exFAT 목록에서 자동 검사할 때는 `forensics_scan_secrets_from_list(case_id="<id>", evidence_id="EV-0001", fs_list_path="<응답의 result_path>")`를 쓰며 [reference.md §15](reference.md#15-저장-목록의-자동-비밀값-검사)에 따라 `secret_survey_results`에 기록한다. 목록 누락·정책 제외·미검사를 보존하며 whole_card_examined=false를 유지한다.
 - 마스킹된 후보·케이스 솔트 지문·검사/미검사 범위를 [reference.md §9](reference.md#9-선택-텍스트-비밀값-검사)에 따라 `secret_scan_results`에 기록하고 `privacy.secret_plaintext_returned=false`를 유지한다. 후보0건도 비밀 없음/안전 판정이 아니다. 원문 키·값·계정·URL을 요약에 넣거나 자격증명으로 로그인하지 않는다.
 
 ### 6b. 선택 미디어의 구조·후보가 필요한 경우
