@@ -53,7 +53,7 @@
 - **`approvals_pending()`** — [읽기전용]  
   대기 중인 승인 요청 목록 (확인 코드는 제외).
 - **`schema_get(name)`** — [읽기전용]  
-  PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt, save-analysis, sd-forensics, emulation, image-hints, android-forensics, pinout-scan.
+  PWEH JSON 스키마 조회. name: android-forensics, auth-hunt, case, emulation, finding, firmware-dump, image-hints, media-candidates, media-inventory, media-prefix-extract, pinout-scan, save-analysis, sd-forensics, sd-ioc-scan, 
 
 ## pweh-uart
 
@@ -329,6 +329,8 @@
   증거에서 선택한 파일 1개의 MP4/QuickTime 계열 ISO BMFF 상자 구조를 오프라인 목록화한다. 소유/허가·보관 기록·무결성 확인 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택한다. 둘 다 없으면 EV 자체를 읽으며 자동 검색·카빙은 하지 않는다. 완전한 파일만 최대 64 MiB, max_seconds는 0 초 초과·최대 45초(선택·읽기·구조 검사 공통)
 - **`forensics_media_candidates(case_id, evidence_id, partition?, ref?, path?, method?, max_seconds?)`**  
   증거에서 선택한 파일 1개의 완전한 바이트에서 ftyp 기반 ISO BMFF 연속 최상위 상자 prefix 후보를 찾는다. 소유/허가·보관 기록·무결성 확인 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택한다. 둘 다 없으면 EV 전체를 선택한다. 최대 64 MiB, max_seconds는 0 초 초과·최대 45초이며 선택·읽기·후보 검색에 같은 시간 예산을 쓴다. 후보
+- **`forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)`**  
+  보관 기록에 결속된 media-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). analysis_path는 같은 케이스·EV의 생성 보고서 경로이며 index는 0~127의 저장 후보를 고른다. 증거와 보고서의 무결성을 확인하고 원래 ref/partition/실제 복구 방법으로 같은 완전 바이트를 다시 읽는다. 선택 최대 64 MiB, 전체 45초·ma
 
 ## pweh-emu
 

@@ -134,6 +134,7 @@ cases/<case_id>/
                        고정점은 케이스 밖 .pweh/state/custody/<case_id>.jsonl (디렉터리 0700, 파일 0600)
     analysis/fs-list-<EV>-NNN.json   forensics_fs_list 의 전체 목록 (0444)
     recovered/<label>-NNN/           forensics_extract 추출물 NNNN-<정리한 이름>(region=residual 이면 .residual) + manifest.json
+    recovered/media-prefix-NNN/      저장된 미디어 후보 앞부분 candidate-000.bin + manifest.json
                                      (파일 0444, 다 쓴 뒤 디렉터리 0555)
     evidence-list.json, evidence-list.md   forensics_evidence_list 의 증거 목록·해시값 확인서 (부를 때마다 원자적으로 다시 씀 → 0644)
   attestations.json    사람 증명의 읽기 전용 사본(0400, 그 케이스의 증명 레코드가 바뀔 때 다시 만든다. 사람이 보는 용도 — 보고서 생성기는 아직 읽지 않는다).
@@ -424,7 +425,7 @@ if not decision.allowed:
   - 영상·음성 내용을 에이전트 문맥에 넣지 않는다. 정지 그림은 `forensics_image_hints`로만 미리보기·OCR·QR·메타데이터를 반환한다(§6.8). 추출물은 `forensics/recovered/`에만 쓰고 직접 열지 않는다.
     다른 서버의 도구는 증거 폴더를 입력으로 받지 않는다(`validation_failed` — 자동 허용 도구로 녹화 내용이 문맥에 들어가지 않게). pweh-fwtriage 는 입력 경로가 그 케이스의 `forensics/` 안(링크를 풀어 판단)이거나 `forensics/` 를 품은 디렉터리(케이스 루트 등)면 거부한다.
     pweh-sigrok 의 `input_path`, `case_import_file`(풀기 전 경로와 링크를 푼 경로 모두 — 위), `case_hash_file`·`case_register_artifact`(링크를 푼 경로, 파일은 실제로 연 fd 의 경로로도 다시 — §6.1)는 어느 케이스의 `forensics/` 아래도 거부한다.
-  - 사람 확인은 `.claude/settings.json` 의 `ask`(쓰는 도구 7개 — Claude Code 에서는 bypass 모드에서도 묻는다)와 사람 증명 `write-blocker` 다. 클라이언트 권한은 안전 경계가 아니고(docs/safety.md §3.1),
+  - 사람 확인은 `.claude/settings.json` 의 `ask`(쓰는 도구 8개 — Claude Code 에서는 bypass 모드에서도 묻는다)와 사람 증명 `write-blocker` 다. 클라이언트 권한은 안전 경계가 아니고(docs/safety.md §3.1),
     증명은 기록일 뿐 내용 도구를 막지 않는다.
   - 한계: 이 경계가 막는 경로는 위 도구들뿐이다. 에이전트의 파일 도구나 자동 허용된 REA `open_binary`·`read_bytes` 는 `forensics/` 를 읽을 수 있으므로,
     전용 정지 이미지 도구 외에는 추출물·이미지를 직접 열지 않는 것이 에이전트 규칙이다(docs/safety.md §7). 경로를 확인한 뒤 경로로 다시 여는 pweh-fwtriage·pweh-sigrok은 그 사이 같은 계정 프로세스의 바꿔치기를 막지 못한다.
@@ -971,7 +972,7 @@ SD 카드 이미지의 증거 분석이다(설계 `docs/design/sd-forensics.md` 
 - **영상·음성 내용은 돌려주지 않는다**: 파일 목록 응답은 개수·범위·이름·경로와 해시다. 선택한 폰 앱 기록은 `forensics_android_artifacts`로 내용도 반환한다. 정지 그림은 `forensics_image_hints`에서 미리보기·마스킹하지 않은 OCR·QR·메타데이터를 반환한다. 추출물은 `forensics/recovered/`에만 쓰며 직접 열지 않는다. 전체 파일 목록은 `forensics/analysis/` 의 JSON 에만 있다. 응답의 긴 경로(`sample`·`cut_dirs`·흔적의 `path`)는 앞·뒤만 남겨 300자로 줄인다.
   다른 서버의 `forensics/` 거부(pweh-fwtriage, pweh-sigrok, `case_import_file`·`case_hash_file`·`case_register_artifact`)와 그 밖의 경로가 막히지 않는 한계는 §4 다.
 - **권한**: 조회 전용(`readOnlyHint`) 도구 `forensics_partitions`, `forensics_image_check`와 명시적 예외 `forensics_job_status`·`forensics_jobs`·`forensics_image_hints`·`forensics_sqlite_inventory`·`forensics_android_artifacts`·`forensics_timeline`이 `.claude/settings.json`의 `allow`다. 작업 상태/목록은 저장 기록 정리, 정지 이미지 분석은 로컬 JSON/PNG·보관 기록 쓰기가 있어 readOnlyHint는 false다.
-  쓰는 도구 7개(`forensics_intake_start`, `forensics_verify_start`, `forensics_acquisition_attest`, `forensics_evidence_list`, `forensics_fs_list`, `forensics_extract`, `forensics_job_cancel`)는 `ask` 다(매번 사람이 확인).
+  쓰는 도구 8개(`forensics_intake_start`, `forensics_verify_start`, `forensics_acquisition_attest`, `forensics_evidence_list`, `forensics_fs_list`, `forensics_extract`, `forensics_extract_media_candidate`, `forensics_job_cancel`)는 `ask` 다(매번 사람이 확인).
   모든 도구가 `openWorldHint=false` 이고 파괴적(`destructiveHint`) 도구는 없다.
 
 | 도구 | 동작 / 반환 |
@@ -988,6 +989,7 @@ SD 카드 이미지의 증거 분석이다(설계 `docs/design/sd-forensics.md` 
 | `forensics_sd_ioc_scan(case_id, evidence_id, firmware_result_path, fs_list_path, partition=None, max_matches=200, max_seconds=45.0)` | 같은 케이스의 등록된 `analysis/sd-surface-NNN.json`과 같은 EV의 보관 기록으로 검증한 `forensics/analysis/fs-list-EV-NNNN-NNN.json` 전체 보고서를 대조한다. FAT/exFAT 메타데이터만, TAR/ZIP 제외. `partition` 생략 시 지원 볼륨이 하나여야 한다. 정확 이름·ASCII 변형·삭제·불확실 후보와 입력/검사 한도를 구분한다. 원시 카드 경로·내용·펌웨어 발췌는 반환하지 않고 ref·펌웨어 배열 index로 연결한다. `report`와 `analysis{path,sha256,size,custody_seq,custody_hash}`, 0444 JSON 및 `sd-ioc-scan` 보관 기록. 이름 일치는 실행·침해 증명이 아니다 |
 | `forensics_media_inventory(case_id, evidence_id, partition=None, ref=None, path=None, method="auto", max_seconds=45)` | EV 자체 또는 FAT/exFAT·TAR/ZIP에서 선택한 파일 하나를 최대64 MiB까지 완전히 읽어 ISO-BMFF 상자 구조만 관찰한다. ref/path는 배타적이고 직접 EV는 partition 없이 method=auto만 받는다. 고정 box/brand 분류·위치/길이·검사/opaque/미검사 범위·출처 불확실성을 반환한다. 프레임·음성·시각·codec·암호화 판정 없음. `report`와 `analysis{path,sha256,size,custody_seq,custody_hash}`, 0444 JSON 및 `media-inventory` 보관 기록. 상세 계약은 아래 선택 미디어 구조 절 |
 | `forensics_media_candidates(case_id, evidence_id, partition=None, ref=None, path=None, method="auto", max_seconds=45)` | 완전한 선택 파일 하나(최대64 MiB)에서 고정 known brand를 가진 ftyp와 연속 최상위 상자 prefix 후보를 찾는다. 선택 기준 offset·검증한 길이·검색/검사/관계 완료도·반환 후보 간 겹침만 보고한다. 원본 경계·녹화 복구·재생 검증 없음. `report`와 `analysis{path,sha256,size,custody_seq,custody_hash}`, 0444 JSON 및 `media-candidates` 보관 기록. 상세 계약은 아래 선택 미디어 후보 절 |
+| `forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)` | job. 같은 EV의 저장된 `media-candidates` 보고서에서 후보 번호 하나의 검증된 prefix를 추출한다. 원래 선택 파일 전체의 해시·출처를 다시 대조. 출력은 고정 이름 바이너리와 매니페스트, 기존 `extract` 보관 기록. 입력64 MiB·보고서1 MiB·매니페스트64 KiB·공통45초. 내용 반환·녹화 복구/재생 판정 없음 |
 | `forensics_evidence_list(case_id, write_files=True)` | 케이스의 모든 EV 를 보관 기록과 EV 디렉터리로 정리한다(위 '증거 상태'). 먼저 커밋한 증거마다(이미 무결성 실패인 것 빼고) 내용 도구 입구로 접수 기록·사본 지문을 다시 대조해 새 문제는 `integrity-failed`(`found_by: "evidence-list"`)로 남긴다(`integrity_failures_recorded[{evidence_id, reason}]`). → `custody{ok, count, head, detail}`(체인·고정점 대조), `items[{evidence_id, label, stored_path, size, hashes, intake_ts, imaging_log(대조 결과 {status, details} 또는 null), intake, status, status_label, last_verify{ts, result, seq, kind(intake-copy/full-rehash)}, integrity_failures[{seq, ts, reason}], attestation{status, attestation_id, ts, decided_at, expires_at}, extracts, events, problems?}]`(커밋하지 못한 디렉터리는 `{evidence_id, status, status_label, intake: false}`, 보관 기록이 깨지면 `{evidence_id, status: "custody-broken", status_label}`), `aborted[{evidence_id, ts, seq, quarantine_path, reason}]`(`intake-aborted` 사건 — 증거가 아니다), `derived[{path, evidence_id, files, bytes, manifest_sha256, custody, custody_seq, error?}]`(`forensics/recovered/*/manifest.json` 을 링크를 따르지 않고 64 MiB 까지 읽어 보관 기록 `extract` 사건과 대조한 `custody`: `recorded`(manifest sha256 이 같음) / `mismatch`(매니페스트가 바뀜) / `unrecorded`(사건 없음 — 서버가 만들지 않은 것) / `missing`(사건은 있는데 디렉터리·매니페스트가 없음) / `unknown`(보관 기록이 깨짐). 정지 그림의 `image-hints` 사건은 `forensics/analysis/`의 JSON과 실제 PNG 해시도 검증한다. 해당 derived 항목은 `kind: image-hints`이며 추출 파일 합계와 구분한다), `notice`(고지), 증거가 없으면 `hint`. `write_files=true` 이고 `forensics/` 가 있으면 `forensics/evidence-list.json`(`pweh.evidence-list/v1` — `custody`·`items`·`aborted`·`derived`·`notice`)·`evidence-list.md`(증거 표 — 상태 칸은 `status_label`, 중단된 접수, 파생 산출물, 해시값 확인서 — 해시가 있는 상태의 증거마다 SHA-256·MD5·SHA-1(`ok` 가 아니면 `(상태: <status_label>)`), 확인 일시와 소유자(또는 제출인)·입회인·분석자 성명·서명란, 고지)를 다시 쓰고 `files{json, markdown, json_sha256}` 를 붙인다(`forensics/` 가 링크 등이면 쓰지 않고 `files_error`). 보관 기록이 정상일 때만 `evidence-list` 사건으로 JSON sha256 을 남긴다 |
 | `forensics_job_status(job_id, wait_seconds=0, case_id=None)`, `forensics_job_cancel(job_id)`, `forensics_jobs(active_only=False, case_id=None)` | `register_job_tools(..., "forensics")` — 접수·검증·추출 job. 기본은 이 서버 프로세스의 것만, `case_id`를 주면 같은 서버의 저장 기록도 확인한다(위 공통 계약). `wait_seconds` 최대 50초. 취소와 늦은 취소는 위 'job 과 취소' — 커밋한 job 에 대한 `forensics_job_cancel` 은 상태를 바꾸지 않는다. 공통 도구 설명의 '부분 결과는 보존된다'는 추출에만 맞다(커밋 전 접수는 되돌리고 재해시 도중의 검증은 아무것도 기록하지 않는다 — docs/safety.md §3.6) |
 
@@ -1027,6 +1029,14 @@ SD 카드 이미지의 증거 분석이다(설계 `docs/design/sd-forensics.md` 
 - `status`는 `ok/partial/unsupported`다. 검색·검사·목록·관계 중 미완료 또는 부분 framing은 partial, 제한된 검사를 마쳤지만 지원 anchor가 없으면 unsupported다. 둘 다 미디어 부재나 안전의 증거가 아니다. 삭제·복구·부모 상태 불확실성 또는 알려진 컨테이너 목록 잘림은 후보0건/unsupported여도 overall partial로 보정하며 코어의 검사 통계는 보존한다.
 - worker는 동일 EV fd를 읽기부터 저장까지 소유한다. 완전한 bytes 확보 뒤 코어 시간 한도의 partial은 저장할 수 있고, 커밋 전 취소는 결과 없이 끝낸다. `forensics/analysis/media-candidates-<EV>-NNN.json`을0444로 쓰고 EV/출력 seal을 재검증한 뒤 `media-candidates` 사건에 결속한다. 커밋 뒤 취소·보조 오류는 기록을 보존한다. 오류·감사·SDK 인자 오류에 선택 원문을 복사하지 않는다.
 - SD 요약 `media_candidate_results[]`에는 EV·결과 위치/해시·상태·선택 크기·저장 후보 수만 기록한다. 증거 목록의 derived에서 결과의 보관 기록과 해시를 대조한다. 실제 파일 추출·물리 카빙·녹화 인덱스/타임라인·벤더 표본 검증은 이 기능에 포함되지 않는다.
+
+#### 저장된 미디어 후보 추출 계약
+
+`forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)`는 같은 EV의 검증된 `media-candidates` 보고서에 저장된 후보 하나만 추출하는 job이다. 원래 선택 파일 전체를 다시 읽어 해시·크기·출처를 대조하고, 저장된 논리 위치와 검증된 prefix 길이만 사용한다. 새로운 offset/length나 복구 방법 인자는 없다.
+
+출력은 `forensics/recovered/media-prefix-NNN/candidate-000.bin`과 `manifest.json`이다. 스키마는 `pweh.media-prefix-extract/v1`, 보관 기록은 기존 `extract` 사건의 `method="media_candidate_prefix"`다. 보고서1 MiB·선택 파일64 MiB·매니페스트64 KiB·출력1개·worker 공통45초 마감이다. 같은 custody 잠금에서 EV·보고서·원래 사건·출력 fd/경로/해시를 다시 확인한 뒤 커밋한다. prefix 일부만 쓴 결과는 성공으로 남기지 않는다.
+
+원래 source/status/coverage를 보존하고 새 불확실성을 합친다. `files[0].complete=true`는 prefix 작성 완료이며 녹화 전체 복구가 아니다. 요약은 기존 `recovered`와 `notes`를 사용한다. `derived.recorded`는 매니페스트와 보관 기록의 결속을 뜻하고 추출 바이너리를 목록마다 전체 재해시한다는 뜻은 아니다. 상세 출처·정리·취소·한계 계약은 [미디어 후보 추출](references/media-prefix-extract.md)을 따른다.
 
 #### 펌웨어·카드 보고서 이름 대조 계약
 

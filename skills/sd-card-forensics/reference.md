@@ -259,3 +259,22 @@ E01 입력과 외부 도구(TSK·PhotoRec·ewf·ffprobe), ext4·NTFS 목록, 장
 `media_candidate_results[]`에는 `evidence_id`, `analysis_path`/`sha256`(응답 analysis), `status`(report.status), `selected_size`(source.selected_size), `candidates_reported`(report.summary.candidates_reported)만 남긴다. 이름·경로·후보 offset·원문 메타데이터를 요약에 복사하지 않는다. 증거 목록 derived에서 media-candidates 결과의 해시/보관 기록을 확인하고 기존 privacy.audio_decoded·recording_content_viewed는 false로 유지한다.
 
 후보128·anchor probe1024·header 후보당1024/전체8192·brand anchor당64/전체4096·구조 판독 합1 MiB·최종 JSON1 MiB·공통 시간45초의 상한이 있다. 한도나 구조 실패는 부분 후보/검사 범위로 남는다. 원본 녹화 복구·벤더 지원·전카드 탐색 완료로 보고하지 않는다. 전체 계약은 architecture §6.8, 한계는 safety §3.6이다.
+
+
+## 14. 저장된 후보 prefix 추출
+
+`forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)`는 같은 EV의
+`media-candidates` 보관 기록에 결속된 보고서와 원래 선택 파일 전체의 해시를 다시 확인한다.
+실제 후보 번호 하나를 지정하고 기존 forensics job 조회·취소 도구를 사용한다. offset·length·
+복구 방법을 새로 입력하지 않는다. 출력은 `recovered/media-prefix-NNN/`의 고정 이름
+`candidate-000.bin`과 `manifest.json`이며 직접 열지 않는다.
+
+전체 prefix를 썼어도 원래 후보/복구/부모/컨테이너 목록 불확실성이 있으면 상태는 partial이다.
+원래 source/status/coverage와 새 유효 불확실성을 보존한다. `files[0].complete=true`는 prefix 작성
+완료이며 녹화 전체 복구나 재생 성공이 아니다. 영상·음성·시각·암호화·원본 경계 검증 값은 false다.
+
+`forensics_evidence_list.derived`에서 매니페스트가 기존 `extract` 사건과 맞는지 확인한다.
+`recorded`는 매니페스트 해시 결속이지 목록 때 추출 바이너리 전체를 재해시했다는 뜻은 아니다.
+기존 `recovered`의 files/bytes/manifests에 합산하고 partial·확인하지 못한 사항은 notes에 적는다.
+입력64 MiB·보고서1 MiB·매니페스트64 KiB·worker 공통45초와 정리/취소 계약은
+[미디어 후보 추출](../../docs/references/media-prefix-extract.md)을 따른다.

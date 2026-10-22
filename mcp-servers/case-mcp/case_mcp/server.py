@@ -616,7 +616,7 @@ def approvals_pending() -> dict[str, Any]:
 
 
 @server.tool(
-    description="PWEH JSON 스키마 조회. name: case, step-result, finding, uart-recon, firmware-dump, static-analysis, signal-capture, auth-hunt, save-analysis, sd-forensics, emulation, image-hints, android-forensics, pinout-scan.",
+    description="PWEH JSON 스키마 조회. name: " + ", ".join(schemas.list_schemas()) + ".",
     annotations=ANN_READ_ONLY,
 )
 @safe_tool
