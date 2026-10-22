@@ -257,6 +257,62 @@ def build_argv(
     :data:`semihosting.EARLY_CHECK_SCRIPT` 를 넣는다: cfg 나 시작 명령이 init 을 먼저 실행했으면 그 자리에서 semihosting 을 끄고
     OpenOCD 를 오류로 끝내, 뒤따르는 시작 명령이 semihosting 이 켜진 채 실행되지 않게 한다. 끄는 경로는 테스트용이며 서버는 항상 켠다.
     """
+    return _build_argv(
+        binary, scripts_dir=scripts_dir, interface=interface, transport=transport,
+        targets=targets, extra_cfgs=extra_cfgs, adapter_speed_khz=adapter_speed_khz,
+        extra_commands=extra_commands, port_setup=port_commands(tcl_port),
+        debug_level=debug_level, search_dirs=search_dirs, semihosting_guard=semihosting_guard,
+    )
+
+
+def build_pipe_argv(
+    binary: str,
+    *,
+    scripts_dir: Path | None,
+    interface: CfgRef,
+    transport: str | None,
+    targets: list[CfgRef],
+    extra_cfgs: list[CfgRef],
+    adapter_speed_khz: int | None,
+    extra_commands: list[str],
+    debug_level: int | None = None,
+    search_dirs: list[Path] | None = None,
+    semihosting_guard: bool = True,
+) -> list[str]:
+    """내부 pipe 실행용 argv를 만든다. cfg·guard 순서는 TCP와 같고 리스너를 열지 않는다.
+
+    서버 backend를 선택하거나 cfg를 승인하지 않는다. 이 helper의 호출자는 별도로
+    cfg 분류·승인을 마쳐야 한다. telnet/GDB는 끄고 Tcl만 stdin/stdout pipe로 고정한다.
+    """
+    return _build_argv(
+        binary, scripts_dir=scripts_dir, interface=interface, transport=transport,
+        targets=targets, extra_cfgs=extra_cfgs, adapter_speed_khz=adapter_speed_khz,
+        extra_commands=extra_commands,
+        port_setup=[
+            "if {[catch {tcl port pipe}]} {tcl_port pipe}",
+            "if {[catch {telnet port disabled}]} {telnet_port disabled}",
+            "if {[catch {gdb port disabled}]} {gdb_port disabled}",
+        ],
+        debug_level=debug_level, search_dirs=search_dirs, semihosting_guard=semihosting_guard,
+    )
+
+
+def _build_argv(
+    binary: str,
+    *,
+    scripts_dir: Path | None,
+    interface: CfgRef,
+    transport: str | None,
+    targets: list[CfgRef],
+    extra_cfgs: list[CfgRef],
+    adapter_speed_khz: int | None,
+    extra_commands: list[str],
+    port_setup: list[str],
+    debug_level: int | None,
+    search_dirs: list[Path] | None,
+    semihosting_guard: bool,
+) -> list[str]:
+    """포트 설정 뒤의 기존 cfg·semihosting guard 순서를 한 곳에서 보존한다."""
     argv = [binary]
     if debug_level is not None:
         argv.append(f"-d{int(debug_level)}")
@@ -266,7 +322,7 @@ def build_argv(
         if s not in seen:
             seen.append(s)
             argv += ["-s", s]
-    for c in port_commands(tcl_port):
+    for c in port_setup:
         argv += ["-c", c]
     early = ["-c", semihosting.EARLY_CHECK_SCRIPT] if semihosting_guard else []
     argv += ["-f", interface.arg, *early]
@@ -550,6 +606,7 @@ __all__ = [
     "ReadyResult",
     "TRANSPORTS",
     "build_argv",
+    "build_pipe_argv",
     "find_openocd",
     "log_size",
     "openocd_search_dirs",

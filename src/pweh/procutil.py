@@ -24,6 +24,7 @@ WNOWAIT 관찰 뒤 :func:`process_group_empty`로 종료를 별도 확인한다.
 from __future__ import annotations
 
 import errno
+import math
 import os
 import signal
 import socket
@@ -415,26 +416,85 @@ def child_exited(pid: int) -> bool:
         return True
 
 
-def process_group_empty(pgid: int, *, expect_start_ticks: int | None) -> bool | None:
+def signal_owned_group(pgid: int, sig: int, *, expect_start_ticks: int,
+                       pidfd: int | None = None) -> bool | None:
+    """Linux 소유 그룹에 대기 없이 TERM/KILL 한 번을 보낸다(True/부재 False/미확인 None).
+
+    호출자는 직접 자식 리더를 WNOWAIT로 보존하여 신원 확인과 신호 사이 PID 재사용을 막아야 한다.
+    pidfd는 신호0으로 유효성만 확인하며, 그룹 신호의 성공은 종료 확인이 아니다.
+    기존 kill_process_group의 유예·반환 문자열 계약은 바꾸지 않는다.
+    """
+    if not sys.platform.startswith("linux"):
+        raise UnsupportedPlatform("소유 pipe 그룹 신호는 Linux에서만 지원합니다.")
+    if (not _valid_pid(pgid) or pgid <= 1 or pgid in (os.getpid(), os.getpgrp())
+            or not _valid_pid(expect_start_ticks)
+            or isinstance(sig, bool) or not isinstance(sig, int) or sig not in (signal.SIGTERM, signal.SIGKILL)
+            or (pidfd is not None and (type(pidfd) is not int or pidfd < 0))):
+        return None
+    current = proc_stat(pgid)
+    if current is None:
+        try:
+            os.getpgid(pgid)
+        except ProcessLookupError:
+            return False
+        except (OSError, OverflowError):
+            pass
+        return None  # 읽기 실패를 부재로 바꾸지 않는다.
+    if current[1] != expect_start_ticks:
+        return None
+    try:
+        if os.getpgid(pgid) != pgid:
+            return None
+        if pidfd is not None:
+            # 좀비 리더의 pidfd가 이미 종료를 알리더라도 남은 그룹 구성원은 별도로 정리한다.
+            pidfd_signal(pidfd, 0)
+        after = proc_stat(pgid)
+        if after is None or after[1] != expect_start_ticks:
+            return None
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return False
+    except (OSError, OverflowError, ValueError):
+        return None
+    return True
+
+
+def process_group_empty(pgid: int, *, expect_start_ticks: int | None,
+                        deadline: float | None = None) -> bool | None:
     """소유한 그룹의 비좀비 구성원 부재를 확인한다(True/False/미확인 None).
 
     종료 신호의 결과 문자열과 별개다. PID 재사용·관찰 실패·상한은 부재로 판정하지 않는다.
     외부 실행 소비자는 리더를 거두기 전에 호출하고, 미확인이면 lease를 보존한다.
+    deadline은 선택적인 monotonic 절대 시각이며 기존 2초 관찰 상한을 늘리지 않는다.
     """
+    if deadline is not None:
+        try:
+            valid = not isinstance(deadline, bool) and isinstance(deadline, (int, float)) and math.isfinite(deadline)
+        except OverflowError:
+            valid = False
+        if not valid:
+            raise ValueError("그룹 관찰 deadline은 유한한 시각이어야 합니다.")
+    started = time.monotonic()
+    until = started + 2.0 if deadline is None else min(started + 2.0, deadline)
+    if started >= until:
+        return None
     if not _valid_pid(pgid) or pgid <= 1 or expect_start_ticks is None:
         return None
     leader = proc_stat(pgid)
     if leader is not None and leader[1] != expect_start_ticks:
         return None
-    deadline = time.monotonic() + 2.0
+    if time.monotonic() >= until:
+        return None
     try:
         with os.scandir("/proc") as entries:
             count = 0
             for entry in entries:
+                if time.monotonic() >= until:
+                    return None
                 if not entry.name.isdigit():
                     continue
                 count += 1
-                if count > 65536 or time.monotonic() > deadline:
+                if count > 65536:
                     return None
                 try:
                     raw = Path(entry.path, "stat").read_bytes()
@@ -454,7 +514,7 @@ def process_group_empty(pgid: int, *, expect_start_ticks: int | None) -> bool | 
                     return False
     except OSError:
         return None
-    return True
+    return True if time.monotonic() < until else None
 
 
 def find_processes(*, uid: int, cwd: str | os.PathLike[str], exe_allow: Collection[str | os.PathLike[str]]) -> list[int]:

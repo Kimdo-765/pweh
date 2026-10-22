@@ -1,6 +1,6 @@
 # 설계안: 환경 감지와 물리 연결 라우팅 (COM·USB·libusb·캡처·블록 장치)
 
-> 상태: **P0·P1·P2 구현과 P3–P5 후속 설계**. 현재 동작의 계약은 [architecture.md](../architecture.md)이며, 구현 상태는 §13.2를 따른다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md)(§2 가 이 문서의 요약).
+> 상태: **P0·P1·P2 구현, P3-A 내부 pipe 기반과 P3–P5 후속 설계**. 현재 동작의 계약은 [architecture.md](../architecture.md)이며, 구현 상태는 §13.2를 따른다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md)(§2 가 이 문서의 요약).
 > 이 설계를 쓰는 곳: [game-console-flipper-rf.md](game-console-flipper-rf.md)(Flipper·ChameleonUltra·입력 브리지 COM 포트, SDR·캡처 도구), [sd-forensics.md](sd-forensics.md)(블록 장치는 사람 단계 — §9 R18), [esp32-instrument.md](esp32-instrument.md)(계측기 COM 포트·식별 고정·역할 표지).
 > 범위: COM·USB 직렬, libusb 장치, 영상 캡처, 블록 장치를 WSL2·WSL1·네이티브 Linux·macOS·네이티브 Windows 에서 감지·식별·열기·잠그는 방법.
 > 근거: 개발 환경 의 읽기 전용 probe(2026-10-19), 저장소 코드(`파일:줄`, **2026-10-19 22:52 기준** — 직전에 들어온 uart `validate_port` 변경 반영),
@@ -731,12 +731,16 @@ Windows 쪽 MCP 클라이언트는 사람이 설정한 `wsl.exe -d <배포판> -
 > lease는 실제 worker/핸들 종료까지 유지하며 orphan 종료 미확인 시 보존한다. ESP/sigrok CLI는 공용 procutil 신원·WNOWAIT/그룹 부재 확인을 사용하고, 기존 emu/OpenOCD 종료 의미는 바꾸지 않았다.
 > 검증은 합성 identity·sysfs/PnP graph·가짜 CLI·자체 PTY/프로세스다. 실제 USB 재열거·Windows 질의 시간·DTR/RTS 전기 변화·WSL1 동작은 검증하지 않았다.
 
+**P3-A 내부 기반**: bounded pipe RPC, Linux 직접 자식 owner, pipe argv·준비 판정을 구현했다. 요청 lock·송신·수신·파싱은 한 deadline을 사용하며, 전송 후 오류는 재전송 없이 terminal로 남긴다. stderr는 총량·줄·꼬리 상한을 갖고, 준비는 `version`을 먼저 보내 같은 deadline 안에서 `accepting 'tcl' connection from pipe` 진단과 정상 응답을 함께 확인한다. 종료는 리더를 WNOWAIT로 보존하고 소유 그룹 부재·스트림 정리·최종 reap을 확인한다. 운영 MCP는 기존 TCP를 사용하며 Windows backend·경로 변환·lease·installer 연결은 남아 있다. Linux owner는 Windows 자식의 종료 증거가 아니다.
+
+**D7 OpenOCD 무장치 확인**: 별도 동의 후 공식 SHA-256으로 고정한 xPack Windows 0.12.0-7을 dummy/testee + `noinit`로 실행했다. pipe version 왕복, stdin EOF 뒤 종료 코드 0, 정확한 실행 인자로 식별한 Windows 프로세스 부재를 확인했다. 실제 USB/COM·드라이버는 사용하지 않았다. sigrok의 다운로드·실행 동의와 시험은 별도다. 고정 버전·절차는 [TCL RPC 참고 §6.4.1](../references/openocd-tcl-rpc.md#641-pipe-준비-확인)을 따른다.
+
 | 단계 | 내용 | 합격 기준 |
 |---|---|---|
 | **P0** 감지·안전 정리 (동작 변화 최소) | `pweh.hostenv` + `pweh env` + doctor 환경 절(가짜 ttyS 숨김 — esp 규칙, WSL1/2 구분, 모드별 usbipd 힌트, esptool.exe 해석 통일, COM 별 `Service`, brltty·AutoBind·UAC 경고). `pipeline_environment()`(pweh-case). socket·rfc2217 루프백 검사(uart·jtagulator, D4 — 스킴 허용 목록은 uart 에 이미 있음). uart `_WIN_COM_RE` 에 상한 4096. win32·cygwin·msys 시작 거부와 코어 `procutil.pid_alive`(Windows 에서는 `os.kill(pid,0)` 금지)(G9). WSL 감지 통일(G6)·`/mnt/c` 제거(G7). 시뮬레이터 `--host`·`--tcp` 루프백 강제(G13) | 기존 시험 통과(§13.3 의 바뀌는 단정 제외). hostenv 주입 시험. URL·COM 문법 시험 |
 | **P1** 식별·portlock·TIOCEXCL (기존 경로 위에) | `pweh.ports`(문법·해석·열거·식별 표 `usb-ids.yaml`)와 `pweh.portlock`(OS 객체 키, abstract 이름, 장치 전체 동작, 역할 표지, 승인 대기 의미)을 uart(open·detect_baud)·jtagulator(connect)·esp(esptool 실행 전)·sigrok(직렬 conn)에 적용한다. 열기 순서 §5.1, TIOCEXCL/TIOCNXCL. `uart_detect_baud` 를 한 번만 열게 바꾼다. 결과에 `route`·`device_id`·`held_by` 를 추가하고, 열기·연결 지문에 `route` 를 넣는다. ESP/sigrok CLI가 공용 `procutil`의 신원·WNOWAIT·그룹 종료 확인을 사용한다. emu/OpenOCD 의미는 유지한다. 받을 수 없는 경로의 COMn 은 jtagulator·sigrok 에서도 명확한 오류로 바꾼다(G5) | 다중 프로세스 잠금 시험. "거부된 열기는 `os.open` 을 부르지 않는다" 시험. 승인 대기 중 busy·거부 뒤 해제 시험. 기본 sibling provider의 합성 graph/sysfs·worker 수명·교차 서버 경합 시험. 실제 하드웨어는 별도 |
 | **P2** Windows COM helper | §5.2의 C·Python transport, 불변 pin, source S→artifact R 재현 빌드, `winserial` 사전 빌드 설치, UART·JTAGulator COM 경로. PowerShell 직렬 relay 미구현 | 합성 protocol/소비자·취소/고아 회귀, PE 검사·독립 재현 빌드, COM 없는 Windows version/echo. 실제 USB-UART·DTR/RTS·드라이버 배타는 별도 실기 관문 |
-| **P3** Windows 판 libusb 도구 | (D7 동의 뒤) openocd.exe dummy + `tcl port pipe` 확인 → openocd-mcp pipe transport(재연결 없음, attach 불가, 준비 줄 변경, `-f/-s`·덤프 경로 `wslpath -w`). sigrok-cli.exe 포터블(7z 해제 + 목록 검증). install.sh Windows 구성요소. doctor 가 USB 장치마다 Windows `Service`(WINUSB/FTDIBUS/usbser)를 보여 Zadig 가 필요한지 안내한다. libusb 인터페이스 portlock 키 | 가짜 openocd 의 pipe 모드 시험, 실제 dummy(external·opt-in) |
+| **P3** Windows 판 libusb 도구 | 내부 pipe 기반(P3-A)과 동의받은 Windows OpenOCD dummy 확인 완료. 남음: 운영 Windows owner·pipe 세션(재연결 없음, attach 불가), `-f/-s`·덤프 경로 변환, libusb lease, installer·doctor. sigrok-cli.exe 포터블은 별도 동의·목록 검증 뒤 진행 | 내부 합성 pipe·Linux 자식 시험 완료. 운영 통합·Windows 수명/경로·장비별 시험은 후속 |
 | **P4** SDR·영상 (새 서버) | pweh-sdr, pweh-play 캡처를 같은 wininterop 규칙으로(rtl_sdr 은 파일 출력, ffmpeg `q`·`-an`, 리스너 옵션 거부) | 게임 문서 §8 의 가짜 도구 |
 | **P5** macOS 최선 노력 (요청 시) | §12 최소 목록 | macOS fixture 시험만 |
 
@@ -852,5 +856,5 @@ Windows 쪽 MCP 클라이언트는 사람이 설정한 `wsl.exe -d <배포판> -
 | D4 | 원격 시리얼 URL | `socket://`·`rfc2217://` 는 루프백만 받는다. LAN 호스트는 운영자가 `safety.ports.remote_serial_hosts`(새 중첩 키 — `SafetyConfig` 확장 필요)에 넣을 때만 받는다. `spy`·`hwgrep`·`alt`·`cp2110` 은 항상 거부한다(uart 는 이미 거부). 영향: jtagulator 의 문서화된 원격 URL(architecture.md:194·410, safety.md:255)과 `test_jtagulator_gate.py:66-69` 를 고친다 |
 | D5 | 계약 강화 묶음 | 수용한다: 열기·연결 지문에 `route{backend, lock_key, device_id}`(esp §6.7 문단 변경 — 식별이 흔들리면 `approval_mismatch` 로 재승인), 리셋 배선 장치의 `uart_open` = MODIFY, `uart_detect_baud` 단일 열기, TIOCEXCL(PWEH 밖 minicom 등도 동시에 열 수 없게 됨). TIOCEXCL 구현은 기본으로 stock pyserial `open()` 직후에 건다(PWEH 밖 프로그램에 수 ms 창이 남음). 창까지 닫으려면 `open()` 을 재정의한 하위 클래스를 쓴다(선택, 유지보수 비용) |
 | D6 | 플랫폼 입장 | 1급 = WSL2+interop·네이티브 Linux. 최선 노력 = WSL2(usbipd 만)·WSL1·macOS(P5, 요청 시). 네이티브 Windows·Cygwin·MSYS 는 서버 시작 거부(P0)이고, Windows 는 장치 호스트로만 쓴다 |
-| D7 | 내려받은 Windows 바이너리 실행 동의 | P3 시작 때 xPack openocd.exe 를 dummy 어댑터 + `tcl port pipe` 로 한 번 돌려 확인한다(하드웨어 불필요). sigrok-cli.exe 는 장치 없이 `--version`·`-L` 만 돌린다(`--scan` 은 fx2 펌웨어를 올릴 수 있음) |
+| D7 | 내려받은 Windows 바이너리 실행 동의 | xPack openocd.exe는 별도 동의 후 dummy + `noinit` + pipe/version/EOF 종료 확인 완료(§13.2). sigrok-cli.exe 동의는 별도이며, 받으면 장치 없이 `--version`·`-L`만 시험한다(`--scan`은 fx2 펌웨어를 올릴 수 있음) |
 | D8 | portlock 의 범위와 방식 | 호스트 전체(같은 커널)로 한다. 리눅스·WSL 은 abstract AF_UNIX 이름(파일이 아니라 지울 수 없고 커널이 해제), macOS 는 사용자별 디렉터리 flock(+ inode 확인). 역할 표지·소유 기록은 환경 변수가 아니라 uid 로 정한 `/tmp/pweh-<uid>` 에 둔다(배포판별). 결과: 다른 작업 공간·클론·(network namespace 를 공유하면) 다른 WSL 배포판의 세션도 `busy` 로 막는다. 대안(비권장): 작업 공간 단위 — 같은 장치를 두 작업 공간이 동시에 열 수 있어 배타가 깨진다 |

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Callable
 
 WS = " \t\n\r\f\v"
 
@@ -32,6 +33,28 @@ class TclParseError(ValueError):
     """Tcl 리스트/스크립트 문자열을 해석할 수 없음."""
 
 
+class TclIncomplete(TclParseError):
+    """아직 닫히지 않은 중괄호 또는 큰따옴표."""
+
+
+class TclItemLimit(TclParseError):
+    """리스트 원소 수가 호출자의 상한을 넘음."""
+
+
+def _check_progress(checkpoint: Callable[[], None] | None):
+    """선택적 협력 취소 확인을 최대 4096문자마다 수행한다."""
+    next_check = 0
+
+    def check(index: int) -> None:
+        nonlocal next_check
+        if checkpoint is not None and index >= next_check:
+            checkpoint()
+            # escape가 한 번에 최대 10문자를 건너뛰는 여유를 둔다.
+            next_check = index + 4080
+
+    return check
+
+
 # ---------------------------------------------------------------------------
 # 백슬래시 치환 / 리스트 파싱
 # ---------------------------------------------------------------------------
@@ -41,7 +64,7 @@ _HEX = set("0123456789abcdefABCDEF")
 _OCT = set("01234567")
 
 
-def backslash_subst(s: str, i: int) -> tuple[str, int]:
+def backslash_subst(s: str, i: int, *, checkpoint: Callable[[], None] | None = None) -> tuple[str, int]:
     """s[i] == '\\' 일 때 Tcl 백슬래시 치환 결과와 다음 인덱스를 반환."""
     n = len(s)
     if i + 1 >= n:
@@ -52,7 +75,9 @@ def backslash_subst(s: str, i: int) -> tuple[str, int]:
     if c == "\n":
         # 백슬래시-개행 + 뒤따르는 공백/탭 → 공백 하나
         j = i + 2
+        check = _check_progress(checkpoint)
         while j < n and s[j] in " \t":
+            check(j)
             j += 1
         return " ", j
     if c == "x":
@@ -81,12 +106,14 @@ def backslash_subst(s: str, i: int) -> tuple[str, int]:
     return c, i + 2
 
 
-def _find_close_brace(s: str, start: int) -> int:
+def _find_close_brace(s: str, start: int, *, checkpoint: Callable[[], None] | None = None) -> int:
     """s[start] == '{' 에 대응하는 '}' 의 인덱스. 백슬래시로 이스케이프된 중괄호는 세지 않는다."""
     depth = 0
     i = start
     n = len(s)
+    check = _check_progress(checkpoint)
     while i < n:
+        check(i)
         ch = s[i]
         if ch == "\\":
             i += 2
@@ -98,26 +125,33 @@ def _find_close_brace(s: str, start: int) -> int:
             if depth == 0:
                 return i
         i += 1
-    raise TclParseError("짝이 맞지 않는 여는 중괄호")
+    raise TclIncomplete("짝이 맞지 않는 여는 중괄호")
 
 
-def split_list(s: str) -> list[str]:
+def split_list(s: str, *, max_items: int | None = None, checkpoint: Callable[[], None] | None = None) -> list[str]:
     """Tcl 리스트 문자열을 원소 목록으로 분해한다 (Tcl_SplitList 와 같은 규칙).
 
     - ``{...}`` 원소는 내용을 그대로(백슬래시 치환 없이) 돌려준다.
     - ``"..."`` 원소와 단순 원소는 백슬래시 치환을 적용한다.
     """
+    if max_items is not None and (type(max_items) is not int or max_items < 1):
+        raise ValueError("리스트 원소 상한은 양의 정수여야 합니다")
     out: list[str] = []
     i = 0
     n = len(s)
+    check = _check_progress(checkpoint)
     while True:
+        check(i)
         while i < n and s[i] in WS:
+            check(i)
             i += 1
         if i >= n:
             break
+        if max_items is not None and len(out) >= max_items:
+            raise TclItemLimit("리스트 원소 상한 초과")
         ch = s[i]
         if ch == "{":
-            j = _find_close_brace(s, i)
+            j = _find_close_brace(s, i, checkpoint=checkpoint)
             out.append(s[i + 1 : j])
             i = j + 1
             if i < n and s[i] not in WS:
@@ -126,11 +160,12 @@ def split_list(s: str) -> list[str]:
             buf: list[str] = []
             i += 1
             while True:
+                check(i)
                 if i >= n:
-                    raise TclParseError("짝이 맞지 않는 큰따옴표")
+                    raise TclIncomplete("짝이 맞지 않는 큰따옴표")
                 c = s[i]
                 if c == "\\":
-                    sub, i = backslash_subst(s, i)
+                    sub, i = backslash_subst(s, i, checkpoint=checkpoint)
                     buf.append(sub)
                     continue
                 if c == '"':
@@ -144,14 +179,17 @@ def split_list(s: str) -> list[str]:
         else:
             buf = []
             while i < n and s[i] not in WS:
+                check(i)
                 c = s[i]
                 if c == "\\":
-                    sub, i = backslash_subst(s, i)
+                    sub, i = backslash_subst(s, i, checkpoint=checkpoint)
                     buf.append(sub)
                     continue
                 buf.append(c)
                 i += 1
             out.append("".join(buf))
+    if checkpoint is not None:
+        checkpoint()
     return out
 
 
@@ -311,6 +349,8 @@ def is_notification(frame: str) -> bool:
 __all__ = [
     "MAX_REQUEST_BYTES",
     "TclParseError",
+    "TclIncomplete",
+    "TclItemLimit",
     "TclReply",
     "backslash_subst",
     "brace_quote_path",
