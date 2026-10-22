@@ -78,7 +78,7 @@ def test_list_names_every_component_and_creates_nothing(tmp_path):
     r = _run("--list", "--prefix", str(prefix))
     assert r.returncode == 0, r.stderr
     names = [line.split()[0] for line in r.stdout.splitlines() if line.strip()]
-    assert names == COMPONENTS + STEPS  # 단계도 --only/--skip 으로 고르므로 목록에 보인다 (구성요소 다음, 실행 순서대로)
+    assert names == COMPONENTS + ["openocd-win", "sigrok-win"] + STEPS  # 단계도 --only/--skip 으로 고르므로 목록에 보인다 (구성요소 다음, 실행 순서대로)
     assert "[minimal]" in r.stdout and "[선택]" in r.stdout
     esptool = next(line for line in r.stdout.splitlines() if line.split()[:1] == ["esptool"])
     assert "[선택]" in esptool and "[minimal]" not in esptool and "방법 A" in esptool

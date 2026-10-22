@@ -86,6 +86,12 @@ git clone https://github.com/Kimdo-765/pweh.git ~/pweh && cd ~/pweh
 #   ./scripts/install.sh --check     설치·MCP 설정 상태만 점검 / --list 구성요소 목록 / --help 옵션 전체
 #   되돌리기·옵션 전체: docs/mcp-setup.md §1.1·§1.2
 
+# 선택 Windows 번들: 이미 추출한 등록 payload의 로컬 복사·정적 검사만
+#   ./scripts/install.sh --only openocd-win --windows-bundle-source openocd=/path/to/payload --prefix /path/to/tools
+#   PWEH_TOOLS_DIR=/path/to/tools .venv/bin/pweh doctor --windows-bundles-only --json
+#   sigrok-win도 명시 선택 가능. 기본 설치에서 제외하며 Windows 운영 backend는 아직 연결하지 않음
+#   출처·제한·설치법: docs/references/windows-bundles.md
+
 # 2. 셸에서 외부 도구 쓰기 (MCP 서버는 scripts/mcp-launch.sh 가 env.sh 를 자동으로 읽는다. Codex 설정의 PWEH 서버에는 env.sh 의 도구 경로가 들어간다)
 . ~/pweh-tools/env.sh
 

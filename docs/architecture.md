@@ -61,6 +61,25 @@ MCP 도구와 케이스 입구는 아직 연결하지 않았으며, 파일의 �
 | `pweh.nfc_formats` | Flipper NFC v4 ISO14443-3A·NTAG213/215/216 구조와 저장된 페이지의 변화 위치. UID·페이지 내용·PWD/PACK·카운터 원문은 반환하지 않는다. 부분 읽기의 0값을 읽힘 증거로 사용하지 않는다. [제한 프로필](references/nfc-file-profile.md) |
 | `pweh.vision_sequence` | 최대 256개 숫자 관찰의 최근 창·TTL·신뢰도·득표 판정. `stable/unknown/stale`은 관찰값 합의이며 영상 정지·게임 상태·버튼 동작 판정이 아니다. [모델 계약](references/numeric-observations.md) |
 
+### 2.1 Windows 번들의 로컬 설치·정적 검사
+
+`pweh.windows_bundle`은 패키지의 등록 색인 → manifest SHA → 정확한 payload 파일·디렉터리 집합을 검증한다.
+OpenOCD/sigrok 등록 버전만 받고 불변 결과·동일 fd 읽기·원래 신원 재대조를 제공한다. source 내용 검증과 설치본 receipt·고정 권한 검증을 구분한다.
+등록 receipt가 맞아도 전체 파일 크기·SHA 검증을 생략하지 않는다. 상한·출처·API는 [Windows 번들 계약](references/windows-bundles.md)에 있다.
+
+`scripts/install.sh --only openocd-win|sigrok-win --windows-bundle-source TOOL=DIR`는 별도 `scripts/windows_bundle.py`로
+이미 추출한 등록 payload를 복사한다. 기본/all/minimal에는 포함하지 않으며 기존 구성요소와 혼합하지 않는다.
+관리 위치는 `<tools-root>/windows-bundles/<tool>/<release_id>-<manifest-sha256>/`다. 검증한 source fd에서 pending으로 복사하고
+게시 전 source를 다시 대조하며, 기존 release를 덮어쓰지 않는다. 설치본이 검증되면 재호출은 성공하며 `--force`도 손상본을 덮어쓰지 않는다.
+이 경로는 env.sh·포인터·사용자 설정을 쓰거나 다운로드·Windows 실행·MCP 등록을 하지 않는다.
+
+선택은 `tools.openocd_win_bundle`/`tools.sigrok_win_bundle` → `PWEH_OPENOCD_WIN_BUNDLE`/`PWEH_SIGROK_WIN_BUNDLE` → 등록 관리 기본 위치다.
+명시 경로는 WSL/Linux에서 보이는 release root의 절대 경로이고 잘못된 명시는 fallback 없이 실패한다.
+`pweh doctor --windows-bundles-only --json`는 env.sh 실행·환경 감지·포트 조회·도구 버전 실행·case/state 생성 **앞에서** 정적 분기로 끝난다.
+관리 기본 설치 없음은 `ok=null`, 등록 tree 일치는 `true`, 명시 경로·receipt·hash 오류는 `false`이며 실패가 있으면 비0 종료다.
+성공도 Windows 실행 미확인·운영 backend 미연결·실기 미확인을 함께 표시한다. 기존 전체 doctor와 hostenv 경로 추천은 유지한다.
+MCP 도구·안전 게이트·장치 route를 추가하거나 활성화하는 기능은 아니다.
+
 ## 3. 케이스 디렉터리 (Skill 사이의 데이터 전달)
 
 케이스 생성은 `Runtime` 이 넘긴 `state_dir` 에 ID 예약을 남긴다(`case-ids/<casefold ID의 sha256>.json`).

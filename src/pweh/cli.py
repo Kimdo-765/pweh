@@ -2,6 +2,7 @@
 
 주요 명령:
   pweh doctor                       환경 점검 (맨 앞에 실행 환경 절 — pweh env 와 같은 감지 — 다음 Python 패키지, 설정, 시리얼 포트 권한, 외부 도구)
+  pweh doctor --windows-bundles-only Windows 번들 receipt·등록 tree만 정적 점검 (외부 실행·포트 조회 없음)
   pweh env [--json] [--refresh]     실행 환경 보고서(pweh.hostenv/v1)와 장치 종류별 추천 경로
   pweh approve <id>                 위험 작업 승인 (대화형 터미널에서 사람이 확인 코드를 입력해야 함)
   pweh deny <id>                    위험 작업 거부
@@ -33,6 +34,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -1162,7 +1164,87 @@ def image_doctor_checks(config: Any) -> list[dict[str, Any]]:
     return checks
 
 
+_BUNDLE_ERRORS = frozenset({"bundle_invalid_argument", "bundle_registry_invalid", "bundle_release_unregistered",
+    "bundle_missing", "bundle_receipt_invalid", "bundle_tree_invalid", "bundle_changed", "bundle_limit",
+    "bundle_timeout", "bundle_io_failed", "bundle_cancel_failed", "cancelled"})
+
+
+def windows_bundle_checks(config: Any, *, tools_root: Path | None = None, resolver: Any = None,
+                          verifier: Any = None) -> list[dict[str, Any]]:
+    """등록 receipt/tree의 정적 점검. 실행·hostenv·포트·환경 스크립트는 호출하지 않는다.
+
+    resolver/verifier는 Python 시험 seam이다. tool별 하나의 45초 deadline을 사용하며
+    명시 root의 오류를 preferred 설치본으로 바꾸지 않는다. path나 OS 오류 원문은 반환하지 않는다.
+    """
+    from . import toolsdir, windows_bundle
+
+    resolver = resolver or toolsdir.windows_bundle_candidates
+    verifier = verifier or windows_bundle.verify_release
+    rows = []
+    for tool in ("openocd", "sigrok"):
+        row: dict[str, Any] = {"check": f"bundle:{tool}-win", "ok": False,
+            "detail": "등록 번들 검증 실패 · Windows 실행 미확인 · backend 미연결 · 실기 미확인",
+            "hint": "명시한 release root와 로컬 번들 설치 상태를 확인하세요.",
+            "source": None, "problem": None, "tree_verified": False,
+            "execution_verified": False, "backend_enabled": False, "hardware_verified": False,
+            "release_id": None, "manifest_sha256": None, "digest_basis": None, "known_limitations": []}
+        end = time.monotonic() + 45
+        try:
+            config_tools = config.tools
+            if not isinstance(config_tools, dict):
+                raise ValueError
+            configured = config_tools.get(f"{tool}_win_bundle")
+            env_value = os.environ.get(f"PWEH_{tool.upper()}_WIN_BUNDLE")
+            # 잘못된 명시값에서도 선택 출처를 보존하되 값 자체는 응답에 복사하지 않는다.
+            row["source"] = "config" if configured not in (None, "") else "env" if env_value else "pweh-tools"
+            candidates = resolver(tool, configured, env_value, None)
+            if not candidates:
+                manifest = windows_bundle.load_registered_manifest(tool, deadline=end)
+                root = tools_root if tools_root is not None else toolsdir.tools_dir()
+                managed = windows_bundle.managed_release_root(root, manifest)
+                candidates = resolver(tool, None, None, managed)
+            path, source = candidates[0]
+            row["source"] = source
+            bundle = verifier(Path(path), tool, deadline=end)
+            row.update(ok=True, detail="등록 tree 일치 · Windows 실행 미확인 · backend 미연결 · 실기 미확인",
+                hint="", tree_verified=True, release_id=bundle.release_id,
+                manifest_sha256=bundle.manifest_sha256, digest_basis=bundle.digest_basis,
+                known_limitations=list(bundle.known_limitations))
+        except Exception as exc:
+            code = getattr(exc, "code", None)
+            row["problem"] = code if code in _BUNDLE_ERRORS else "bundle_io_failed"
+            if code == "bundle_missing" and row["source"] == "pweh-tools":
+                row.update(ok=None, tree_verified=None,
+                    detail="선택 설치 없음 · Windows 실행 미확인 · backend 미연결 · 실기 미확인",
+                    hint="기존 payload를 scripts/install.sh의 openocd-win 또는 sigrok-win 항목으로 명시 설치하세요.")
+        rows.append(row)
+    return rows
+
+
+def _windows_bundles_doctor(args: argparse.Namespace) -> int:
+    """정적 전용 진입점. 설정 오류 뒤 기본 도구로 fallback하지 않는다."""
+    try:
+        cfg = load_config()
+    except Exception:
+        checks = [{"check": "config", "ok": False, "detail": "설정 파일을 확인하지 못했습니다.",
+                   "hint": "PWEH_CONFIG와 설정 형식을 확인하세요.", "problem": "config_invalid"}]
+    else:
+        checks = windows_bundle_checks(cfg)
+    if args.json:
+        _print({"version": __version__, "mode": "windows-bundles-only", "checks": checks}, True)
+    else:
+        print(f"pweh {__version__} Windows 번들 정적 점검")
+        _print_checks(checks)
+        for row in checks:
+            if row.get("known_limitations"):
+                print("  기능 제한: " + ", ".join(row["known_limitations"]))
+    return int(any(row["ok"] is False for row in checks))
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
+    # env.sh는 bash로 실행될 수 있으므로 반드시 첫 분기로 정적 경로를 끝낸다.
+    if getattr(args, "windows_bundles_only", False):
+        return _windows_bundles_doctor(args)
     from . import hostenv
 
     checks: list[dict[str, Any]] = []
@@ -1258,6 +1340,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     checks.append(serial_helper_check(report))
     checks.extend(emu_doctor_checks(cfg))
     checks.extend(image_doctor_checks(cfg))
+    if cfg is not None:
+        checks.extend(windows_bundle_checks(cfg))
     gh = os.environ.get("GHIDRA_INSTALL_DIR")
     add("ghidra", bool(gh and Path(gh).exists()), gh or "GHIDRA_INSTALL_DIR 미설정", "REA 의 네이티브 디컴파일에 필요")
     jh = os.environ.get("JAVA_HOME")
@@ -1291,6 +1375,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     d = sub.add_parser("doctor", help="환경 점검")
     d.add_argument("--json", action="store_true")
+    d.add_argument("--windows-bundles-only", action="store_true", help="Windows 번들만 정적 검증 (외부 실행·포트 조회 없음)")
     d.set_defaults(fn=cmd_doctor)
     e = sub.add_parser("env", help="실행 환경 보고서(pweh.hostenv/v1)와 장치 종류별 추천 경로")
     e.add_argument("--json", action="store_true", help="보고서와 routes 를 JSON 으로")

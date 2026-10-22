@@ -7,6 +7,7 @@
 #   ./scripts/install.sh --only ghidra,jdk
 #   ./scripts/install.sh --only qemu_esp,simavr   # 펌웨어 에뮬레이션(pweh-emu)의 선택 구성요소만: Espressif QEMU + simavr/pweh_avr_run
 #   ./scripts/install.sh --only tesseract,zbar   # 정지 이미지 OCR(eng/kor)·QR, 검증된 배포판 잠금 자료만 사용
+#   ./scripts/install.sh --only openocd-win --windows-bundle-source openocd=/abs/payload --prefix /abs/tools
 #   ./scripts/install.sh --skip rea,binwalk
 #   ./scripts/install.sh --only mcp,skills,verify   # 도구는 다시 설치하지 않고 MCP 등록·Skill 링크·점검만
 #   ./scripts/install.sh --dry-run        # 아무것도 바꾸지 않고 MCP 등록·Codex 신뢰가 바꿀 내용(diff)만 보여 줌
@@ -20,7 +21,8 @@
 #                  pip·npm·cargo 의존성은 여전히 네트워크에서 받는다 (완전한 오프라인 설치는 아님).
 #                  git 커밋으로 고정한 소스(erofs, simavr)는 seed 로 대신할 수 없다 (git 으로 받는다)
 #   --venv DIR     pweh Python 가상환경 (기본: <저장소>/.venv). 아래 단계는 이 가상환경의 pweh 만 쓴다
-#   --force        이미 설치된 구성요소도 다시 설치
+#   --windows-bundle-source TOOL=DIR  openocd|sigrok 로컬 payload (반복 가능, 명시 Windows 구성요소만)
+#   --force        이미 설치된 구성요소도 다시 설치 (Windows 번들 덮어쓰기는 허용하지 않음)
 #   --no-link      기본 위치가 아닐 때 저장소에 .pweh/tools-env.path 를 남기지 않음 (시험·CI 용)
 #   --jobs N       빌드 병렬 수 (기본: CPU 수)
 #
@@ -132,11 +134,14 @@ SIMAVR_GIT="https://github.com/buserror/simavr.git"
 SIMAVR_COMMIT=5b08da60497f7564f50941f74a549fe2851db030
 
 ALL_COMPONENTS="python sigrok openocd squashfs uboot zig jdk ghidra unblob extractors erofs binwalk rea esptool qemu_esp simavr tesseract zbar espprobe-fw winserial"
+WINDOWS_BUNDLE_COMPONENTS="openocd-win sigrok-win"  # 기본·minimal 설치와 별개인 명시 로컬 복사
 MINIMAL_COMPONENTS="python sigrok openocd squashfs uboot"
 OPTIONAL_COMPONENTS="erofs binwalk rea esptool qemu_esp simavr tesseract zbar espprobe-fw winserial"   # 실패해도 설치 전체를 실패로 보지 않는다 (경고만)
 SKIP_RC=99   # install_* 가 이 값으로 끝나면 "건너뜀" (빌드 도구 같은 전제 조건이 없음). 실패로 세지 않는다
 
 declare -A DESC=(
+  [openocd-win]="등록된 Windows OpenOCD 번들 로컬 복사·정적 검증"
+  [sigrok-win]="등록된 Windows sigrok 번들 로컬 복사·정적 검증"
   [python]="pweh Python 가상환경 (.venv, pip install -e .[dev])"
   [sigrok]="sigrok-cli 0.7.2 + libsigrok/libsigrokdecode (배포판 패키지, 로직 애널라이저)"
   [openocd]="xPack OpenOCD ${OPENOCD_VER} + 하드웨어 없는 openocd-dummy (JTAG/SWD)"
@@ -192,15 +197,17 @@ TRUST=ask           # Codex 신뢰 — ask: 대화형 터미널에서만 묻는�
 CODEX_SCOPE=project # project: <저장소>/.codex/config.toml, global: Codex 홈의 config.toml (--codex-global)
 CODEX_HOMES=()      # --codex-home (여러 번): pweh mcp-config·pweh codex-trust 에 그대로 넘긴다. 없으면 pweh 가 자동 감지
 CURSOR=0
+WINDOWS_BUNDLE_SOURCES=()
 
 usage() { sed -n '2,/^$/{s/^# \{0,1\}//;p;}' "${BASH_SOURCE[0]}"; }   # 맨 위 주석 블록
 need_arg() { [ $# -ge 2 ] && [ -n "$2" ] || { echo "$1 에 값이 필요합니다 (--help 참고)" >&2; exit 2; }; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --prefix|--cache|--seed|--venv|--only|--skip|--jobs|--codex-home) need_arg "$@" ;;
+    --prefix|--cache|--seed|--venv|--only|--skip|--jobs|--codex-home|--windows-bundle-source) need_arg "$@" ;;
   esac
   case "$1" in
+    --windows-bundle-source) WINDOWS_BUNDLE_SOURCES+=("$2"); shift 2 ;;
     --prefix) PREFIX="$2"; shift 2 ;;
     --cache) CACHE="$2"; shift 2 ;;
     --seed) SEED="$2"; shift 2 ;;
@@ -240,16 +247,81 @@ selected() {
   return 0
 }
 for c in ${ONLY//,/ } ${SKIP//,/ }; do
-  case " $ALL_COMPONENTS $STEPS " in *" $c "*) ;; *) echo "알 수 없는 구성요소·단계: $c (--list 참고)" >&2; exit 2 ;; esac
+  case " $ALL_COMPONENTS $WINDOWS_BUNDLE_COMPONENTS $STEPS " in *" $c "*) ;; *) echo "알 수 없는 구성요소·단계: $c (--list 참고)" >&2; exit 2 ;; esac
 done
+# Windows 번들은 기존 설치·등록 단계와 섞지 않고 모든 입력을 쓰기 전에 검사한다.
+windows_argument_error() { echo "Windows 번들 설치 인자가 허용 범위가 아닙니다." >&2; exit 2; }
+WINDOWS_ONLY=0
+for c in ${ONLY//,/ }; do
+  case " $WINDOWS_BUNDLE_COMPONENTS " in *" $c "*) WINDOWS_ONLY=1 ;; esac
+done
+if [ "$WINDOWS_ONLY" = 1 ]; then
+  for c in ${ONLY//,/ }; do
+    case " $WINDOWS_BUNDLE_COMPONENTS " in *" $c "*) ;; *) windows_argument_error ;; esac
+  done
+fi
+declare -A WINDOWS_SOURCES=()
+for item in "${WINDOWS_BUNDLE_SOURCES[@]}"; do
+  [ "$WINDOWS_ONLY" = 1 ] || windows_argument_error
+  case "$item" in *=*) ;; *) windows_argument_error ;; esac
+  tool=${item%%=*}; source_tree=${item#*=}
+  case "$tool" in openocd|sigrok) ;; *) windows_argument_error ;; esac
+  [ -z "${WINDOWS_SOURCES[$tool]+set}" ] || windows_argument_error
+  selected "$tool-win" || windows_argument_error
+  case "$source_tree" in /*) ;; *) windows_argument_error ;; esac
+  case "/$source_tree/" in */../*|*$'\n'*|*$'\r'*) windows_argument_error ;; esac
+  WINDOWS_SOURCES[$tool]=$source_tree
+done
+if [ "$WINDOWS_ONLY" = 1 ]; then
+  case "$PREFIX" in /*) ;; *) windows_argument_error ;; esac
+  case "/$PREFIX/" in */../*|*$'\n'*|*$'\r'*) windows_argument_error ;; esac
+  if [ "$MODE" = check ] && [ "${#WINDOWS_BUNDLE_SOURCES[@]}" != 0 ]; then windows_argument_error; fi
+fi
 if [ "$MODE" = list ]; then
   for c in $ALL_COMPONENTS; do
     tag=""; case " $MINIMAL_COMPONENTS " in *" $c "*) tag=" [minimal]" ;; esac
     case " $OPTIONAL_COMPONENTS " in *" $c "*) tag="$tag [선택]" ;; esac
     printf '  %-11s %s%s\n' "$c" "${DESC[$c]}" "$tag"
   done
+  for c in $WINDOWS_BUNDLE_COMPONENTS; do printf '  %-11s %s [명시 선택·로컬 전용]\n' "$c" "${DESC[$c]}"; done
   for c in $STEPS; do printf '  %-11s %s [단계]\n' "$c" "${STEP_DESC[$c]}"; done
   exit 0
+fi
+find_python() {  # Python >= 3.10
+  local p
+  local flags=()
+  if [ "${1:-}" = isolated ]; then flags=(-I -B); fi
+  for p in python3 python3.13 python3.12 python3.11 python3.10; do
+    if command -v "$p" >/dev/null && "$p" "${flags[@]}" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+      command -v "$p"; return 0
+    fi
+  done
+  return 1
+}
+# env.sh·cache·로그·기존 check/version보다 먼저 종료하는 로컬 전용 입구.
+if [ "$WINDOWS_ONLY" = 1 ]; then
+  if [ "$DRYRUN" = 1 ]; then
+    for c in $WINDOWS_BUNDLE_COMPONENTS; do
+      if selected "$c"; then printf '%s: 로컬 번들 %s 계획 (아직 검증·복사하지 않음)\n' "$c" "$MODE"; fi
+    done
+    exit 0
+  fi
+  PY=""
+  if [ -x "$VENV/bin/python" ] && "$VENV/bin/python" -I -B -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
+    PY="$VENV/bin/python"
+  else
+    PY="$(find_python isolated || true)"
+  fi
+  [ -n "$PY" ] || { echo "로컬 번들 검사에는 Python 3.10 이상이 필요합니다." >&2; exit 1; }
+  WINDOWS_RC=0
+  for c in $WINDOWS_BUNDLE_COMPONENTS; do
+    selected "$c" || continue
+    tool=${c%-win}
+    args=("$MODE" --tool "$tool" --prefix "$PREFIX")
+    if [ -n "${WINDOWS_SOURCES[$tool]+set}" ]; then args+=(--source-tree "${WINDOWS_SOURCES[$tool]}"); fi
+    if ! "$PY" -I -B "$REPO/scripts/windows_bundle.py" "${args[@]}"; then WINDOWS_RC=1; fi
+  done
+  exit "$WINDOWS_RC"
 fi
 COMP_SELECTED=0   # 구성요소를 하나라도 골랐는가 (아니면 단계만 돈다: 도구를 다시 설치하지 않고 env.sh 도 그대로)
 for c in $ALL_COMPONENTS; do if selected "$c"; then COMP_SELECTED=1; break; fi; done
@@ -304,15 +376,6 @@ HAVE_APT=0
 if command -v apt-get >/dev/null && command -v apt-cache >/dev/null && command -v dpkg-deb >/dev/null && command -v dpkg-query >/dev/null; then HAVE_APT=1; fi
 LIBDIR=x86_64-linux-gnu
 
-find_python() {  # Python >= 3.10
-  local p
-  for p in python3 python3.13 python3.12 python3.11 python3.10; do
-    if command -v "$p" >/dev/null && "$p" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
-      command -v "$p"; return 0
-    fi
-  done
-  return 1
-}
 PY="$(find_python || true)"
 
 # ---------------------------------------------------------------------------

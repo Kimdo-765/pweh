@@ -61,7 +61,7 @@ packages = [
 
 [tool.setuptools.package-data]
 "pweh.schemas" = ["*.json"]
-"pweh.data" = ["*.yaml", "*.json", "*.txt"]
+"pweh.data" = ["*.yaml", "*.json", "*.txt", "windows-bundles/*.json"]
 "pweh.mocktarget" = ["profiles/*.yaml", "*.yaml", "firmware_src/*.c", "firmware_src/*.h", "profiles/vendor_src/*.c"]
 
 [tool.pytest.ini_options]

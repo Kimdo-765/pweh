@@ -1,6 +1,6 @@
 # 설계안: 환경 감지와 물리 연결 라우팅 (COM·USB·libusb·캡처·블록 장치)
 
-> 상태: **P0·P1·P2 구현, P3-A pipe·P3-B Windows 계획 기반과 P3–P5 후속 설계**. 현재 동작의 계약은 [architecture.md](../architecture.md)이며, 구현 상태는 §13.2를 따른다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md)(§2 가 이 문서의 요약).
+> 상태: **P0·P1·P2 구현, P3-A pipe·P3-B Windows 계획·로컬 번들 설치 기반과 P3–P5 후속 설계**. 현재 동작의 계약은 [architecture.md](../architecture.md)이며, 구현 상태는 §13.2를 따른다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md)(§2 가 이 문서의 요약).
 > 이 설계를 쓰는 곳: [game-console-flipper-rf.md](game-console-flipper-rf.md)(Flipper·ChameleonUltra·입력 브리지 COM 포트, SDR·캡처 도구), [sd-forensics.md](sd-forensics.md)(블록 장치는 사람 단계 — §9 R18), [esp32-instrument.md](esp32-instrument.md)(계측기 COM 포트·식별 고정·역할 표지).
 > 범위: COM·USB 직렬, libusb 장치, 영상 캡처, 블록 장치를 WSL2·WSL1·네이티브 Linux·macOS·네이티브 Windows 에서 감지·식별·열기·잠그는 방법.
 > 근거: 개발 환경 의 읽기 전용 probe(2026-10-19), 저장소 코드(`파일:줄`, **2026-10-19 22:52 기준** — 직전에 들어온 uart `validate_port` 변경 반영),
@@ -733,7 +733,9 @@ Windows 쪽 MCP 클라이언트는 사람이 설정한 `wsl.exe -d <배포판> -
 
 **P3-A 내부 기반**: bounded pipe RPC, Linux 직접 자식 owner, pipe argv·준비 판정을 구현했다. 요청 lock·송신·수신·파싱은 한 deadline을 사용하며, 전송 후 오류는 재전송 없이 terminal로 남긴다. stderr는 총량·줄·꼬리 상한을 갖고, 준비는 `version`을 먼저 보내 같은 deadline 안에서 `accepting 'tcl' connection from pipe` 진단과 정상 응답을 함께 확인한다. 종료는 리더를 WNOWAIT로 보존하고 소유 그룹 부재·스트림 정리·최종 reap을 확인한다. 운영 MCP는 기존 TCP를 사용하며 Windows backend·경로 변환·lease·installer 연결은 남아 있다. Linux owner는 Windows 자식의 종료 증거가 아니다.
 
-**P3-B 내부 계획 기반**: Windows 경로·명령줄·완전한 프로세스 목록의 신원 검사와 고정 조회/종료 계약, 불변 파일 snapshot·cfg·전용 환경의 실행 계획을 구현했다. 경로 변환기와 Windows 실행기는 필수 주입이며 합성 시험으로 검증했다. 계획 성공이 cfg 승인·번들 신뢰·Windows 실행/정리 성공을 뜻하지 않는다. 실제 owner·세션·덤프 출력·USB lease·설치 연결은 후속이다([상세 계약](../references/windows-openocd-plan.md)).
+**P3-B 내부 계획 기반**: Windows 경로·명령줄·완전한 프로세스 목록의 신원 검사와 고정 조회/종료 계약, 불변 파일 snapshot·cfg·전용 환경의 실행 계획을 구현했다. 경로 변환기와 Windows 실행기는 필수 주입이며 합성 시험으로 검증했다. 계획 성공이 cfg 승인·번들 신뢰·Windows 실행/정리 성공을 뜻하지 않는다. 실제 owner·세션·덤프 출력·USB lease·운영 연결은 후속이다([상세 계약](../references/windows-openocd-plan.md)).
+
+**P3 고정 번들 설치**: 등록 manifest와 정확 tree·신원을 검증하는 코어, 명시 `openocd-win`·`sigrok-win` 로컬 복사 설치, `doctor --windows-bundles-only` 정적 판정을 구현했다. 새 다운로드·Windows 실행·env.sh 변경 없이 기존 payload를 관리하며 운영 backend·hostenv 추천은 활성화하지 않는다. sigrok 최초 취득 지문과 알려진 decoder/DLL 한계를 그대로 표시한다([번들 계약](../references/windows-bundles.md)).
 
 **D7 OpenOCD 무장치 확인**: 별도 동의 후 공식 SHA-256으로 고정한 xPack Windows 0.12.0-7을 dummy/testee + `noinit`로 실행했다. pipe version 왕복, stdin EOF 뒤 종료 코드 0, 정확한 실행 인자로 식별한 Windows 프로세스 부재를 확인했다. 실제 USB/COM·드라이버는 사용하지 않았다. 고정 버전·절차는 [TCL RPC 참고 §6.4.1](../references/openocd-tcl-rpc.md#641-pipe-준비-확인)을 따른다.
 
@@ -744,7 +746,7 @@ Windows 쪽 MCP 클라이언트는 사람이 설정한 `wsl.exe -d <배포판> -
 | **P0** 감지·안전 정리 (동작 변화 최소) | `pweh.hostenv` + `pweh env` + doctor 환경 절(가짜 ttyS 숨김 — esp 규칙, WSL1/2 구분, 모드별 usbipd 힌트, esptool.exe 해석 통일, COM 별 `Service`, brltty·AutoBind·UAC 경고). `pipeline_environment()`(pweh-case). socket·rfc2217 루프백 검사(uart·jtagulator, D4 — 스킴 허용 목록은 uart 에 이미 있음). uart `_WIN_COM_RE` 에 상한 4096. win32·cygwin·msys 시작 거부와 코어 `procutil.pid_alive`(Windows 에서는 `os.kill(pid,0)` 금지)(G9). WSL 감지 통일(G6)·`/mnt/c` 제거(G7). 시뮬레이터 `--host`·`--tcp` 루프백 강제(G13) | 기존 시험 통과(§13.3 의 바뀌는 단정 제외). hostenv 주입 시험. URL·COM 문법 시험 |
 | **P1** 식별·portlock·TIOCEXCL (기존 경로 위에) | `pweh.ports`(문법·해석·열거·식별 표 `usb-ids.yaml`)와 `pweh.portlock`(OS 객체 키, abstract 이름, 장치 전체 동작, 역할 표지, 승인 대기 의미)을 uart(open·detect_baud)·jtagulator(connect)·esp(esptool 실행 전)·sigrok(직렬 conn)에 적용한다. 열기 순서 §5.1, TIOCEXCL/TIOCNXCL. `uart_detect_baud` 를 한 번만 열게 바꾼다. 결과에 `route`·`device_id`·`held_by` 를 추가하고, 열기·연결 지문에 `route` 를 넣는다. ESP/sigrok CLI가 공용 `procutil`의 신원·WNOWAIT·그룹 종료 확인을 사용한다. emu/OpenOCD 의미는 유지한다. 받을 수 없는 경로의 COMn 은 jtagulator·sigrok 에서도 명확한 오류로 바꾼다(G5) | 다중 프로세스 잠금 시험. "거부된 열기는 `os.open` 을 부르지 않는다" 시험. 승인 대기 중 busy·거부 뒤 해제 시험. 기본 sibling provider의 합성 graph/sysfs·worker 수명·교차 서버 경합 시험. 실제 하드웨어는 별도 |
 | **P2** Windows COM helper | §5.2의 C·Python transport, 불변 pin, source S→artifact R 재현 빌드, `winserial` 사전 빌드 설치, UART·JTAGulator COM 경로. PowerShell 직렬 relay 미구현 | 합성 protocol/소비자·취소/고아 회귀, PE 검사·독립 재현 빌드, COM 없는 Windows version/echo. 실제 USB-UART·DTR/RTS·드라이버 배타는 별도 실기 관문 |
-| **P3** Windows 판 libusb 도구 | 내부 pipe(P3-A)·Windows 실행 계획/신원 기반(P3-B)과 동의받은 Windows OpenOCD dummy 확인 완료. sigrok Windows 고정 취득본의 승인된 버전·목록·종료 확인 완료, `signature` 디코더 로드 실패. 남음: 운영 Windows owner·pipe 세션(재연결 없음, attach 불가), 계획의 `-f/-s` 경로를 운영에 연결·덤프 경로 변환, libusb lease, installer·doctor·sigrok 운영 연결 | 내부 합성 pipe·Linux 자식 시험 완료. sigrok 전체 디코더 정상 로드는 미달. 운영 통합·Windows 수명/경로·장비별 시험은 후속 |
+| **P3** Windows 판 libusb 도구 | 내부 pipe(P3-A)·Windows 실행 계획/신원 기반(P3-B)과 동의받은 Windows OpenOCD dummy 확인 완료. sigrok Windows 고정 취득본의 승인된 버전·목록·종료 확인 완료, `signature` 디코더 로드 실패. 남음: 운영 Windows owner·pipe 세션(재연결 없음, attach 불가), 계획의 `-f/-s` 경로를 운영에 연결·덤프 경로 변환, libusb lease, sigrok 운영 연결. 고정 번들의 로컬 installer·정적 doctor는 구현 | 내부 합성 pipe·Linux 자식 시험 완료. sigrok 전체 디코더 정상 로드는 미달. 운영 통합·Windows 수명/경로·장비별 시험은 후속 |
 | **P4** SDR·영상 (새 서버) | pweh-sdr, pweh-play 캡처를 같은 wininterop 규칙으로(rtl_sdr 은 파일 출력, ffmpeg `q`·`-an`, 리스너 옵션 거부) | 게임 문서 §8 의 가짜 도구 |
 | **P5** macOS 최선 노력 (요청 시) | §12 최소 목록 | macOS fixture 시험만 |
 

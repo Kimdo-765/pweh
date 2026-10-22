@@ -150,6 +150,34 @@ def image_tool_candidates(name: str, configured: str | None, env_value: str | No
     return out
 
 
+def windows_bundle_candidates(tool: str, configured: str | None, env_value: str | None,
+                              managed_root: Path | None) -> list[tuple[str, str]]:
+    """Windows bundle release root를 config → env → 관리 위치 중 하나만 고른다.
+
+    managed_root는 core가 등록 manifest로 계산한 최종 release root이며 tools-root가 아니다.
+    파일·환경·PATH를 조회하지 않는다. 잘못된 명시 후보를 다음 후보로 바꾸지 않는다.
+    관리 경로를 아직 계산하지 않았으면 None을 주어 명시 후보의 유무만 확인할 수 있다.
+    """
+    from .errors import ValidationFailed
+
+    def invalid() -> None:
+        raise ValidationFailed("Windows 번들 선택 경로가 올바르지 않습니다.", code="bundle_invalid_argument")
+
+    if tool not in ("openocd", "sigrok"):
+        invalid()
+    for value, source in ((configured, "config"), (env_value, "env"), (managed_root, "pweh-tools")):
+        if value is None or value == "":
+            continue
+        if source == "pweh-tools" and isinstance(value, Path):
+            value = str(value)
+        if (type(value) is not str or len(value) > 32768 or value != value.strip()
+                or not value.startswith("/") or value.startswith("//") or "\\" in value
+                or ".." in Path(value).parts or any(ord(c) < 32 or ord(c) == 127 for c in value)):
+            invalid()
+        return [(value, source)]
+    return []
+
+
 __all__ = ["EMU_BINARY_RELPATHS", "ESPTOOL_WIN_RELPATHS", "IMAGE_TOOL_RELPATHS", "POINTER", "SERIAL_HELPER_RELPATH",
            "emu_binary_candidates", "esptool_win_candidates", "image_tool_candidates", "serial_helper_candidates",
-           "tools_dir", "tools_env"]
+           "tools_dir", "tools_env", "windows_bundle_candidates"]

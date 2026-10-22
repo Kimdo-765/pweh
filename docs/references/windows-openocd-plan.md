@@ -2,7 +2,7 @@
 
 PWEH의 P3-B는 Windows OpenOCD에 넘길 argv·자식 환경·고유 표식과, 주입된 조회 결과의 프로세스 신원을 검증하는 내부 기반이다. `pweh.wininterop`와 `openocd_mcp.windows_plan`을 합성 경로·가짜 응답으로 시험한다. 운영 MCP의 backend 선택, 실제 Windows child owner, 설치·USB 경로·리스너를 추가하지 않는다.
 
-계획을 만들거나 가짜 runner의 종료 확인이 성공했다는 사실은 실제 Windows 실행·환경 전달·종료 검증을 뜻하지 않는다. 기존 OpenOCD TCP와 P3-A pipe 코어, ESP/P2 경로의 동작은 유지한다.
+계획을 만들거나 가짜 runner의 종료 확인이 성공했다는 사실은 실제 Windows 실행·환경 전달·종료 검증을 뜻하지 않는다. 기존 OpenOCD TCP와 P3-A pipe 코어, ESP/P2 경로의 동작은 유지한다. 별도의 [Windows 번들 코어·로컬 설치·정적 doctor](windows-bundles.md)는 등록 tree 검증을 제공하며, 이 계획과 실제 실행 owner의 연결은 후속이다.
 
 ## 1. 구성과 주입 경계
 

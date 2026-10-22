@@ -41,6 +41,7 @@ MCP 단계가 저장소 밖에 쓰는 것은 Codex 홈의 trust 항목과 그 �
 | `squashfs`, `uboot` | mksquashfs/unsquashfs, mkimage/mkenvimage/dumpimage | 배포판 패키지 (개인 경로) |
 | `zig` | Zig 0.17.0 (시뮬레이터 합성 펌웨어) | 공식 tar.xz (sha256 고정) |
 | `winserial` *(선택)* | Windows COM helper 0.1.0 (UART·JTAGulator) | 저장소 사전 빌드의 해시·PE·소스 결속을 검증해 `winserial/`에 복사. 다운로드·컴파일·Windows 실행 없음 |
+| `openocd-win`, `sigrok-win` *(명시 선택)* | 등록된 Windows payload의 로컬 설치·정적 검증 | 이미 추출한 디렉터리를 `--windows-bundle-source TOOL=DIR`로 지정. 기본/all/minimal 제외. Windows 실행·다운로드·env.sh 변경 없음. [전용 설치법](references/windows-bundles.md) |
 | `jdk`, `ghidra` | Temurin JDK 21, Ghidra 12.1.4 (REA 디컴파일 엔진) | 공식 tar.gz / zip (sha256 고정) |
 | `unblob`, `extractors` | unblob 26.6.4 + 7z, lz4, lzop, zstd, sasquatch, unar, simg2img … | 전용 venv(unblob 휠 sha256 고정, libmagic 이 없으면 개인 경로에) + 배포판 패키지, sasquatch .deb (sha256 고정) |
 | `erofs` *(선택)* | erofs-utils 1.9.4 (EROFS 추출) | 태그 소스 빌드 (C 컴파일러·autotools 필요) |
@@ -49,6 +50,8 @@ MCP 단계가 저장소 밖에 쓰는 것은 Codex 홈의 trust 항목과 그 �
 | `esptool` *(선택)* | esptool 5.4.0 (ESP32 계열 칩·보안 정보, 플래시 읽기) + WSL 이면 Windows `esptool.exe` (방법 A: WSL 에서 interop 으로 실행해 Windows COM 포트를 씀) | Linux 판: 전용 venv `esptool/venv` 에 PyPI 소스 배포판(sha256 고정. PyPI 에 5.x 휠이 없음)을 설치하고 `bin/esptool` 래퍼로 실행한다. Windows 판: WSL interop 이 켜져 있으면 공식 Windows 빌드 zip(sha256 고정)을 `esptool-win/` 에 풀고, interop 으로 `esptool.exe version` 을 실행해 확인한다. WSL 이 아니면 Windows 판은 건너뛴다(실패 아님). 한쪽이 실패해도 다른 쪽은 설치하고, env.sh 는 실제로 실행되는 쪽만 `PWEH_ESPTOOL`(Linux 판)·`PWEH_ESPTOOL_WIN`(Windows 판 `.exe` 절대 경로)으로 알려 준다 |
 | `qemu_esp` *(선택)* | Espressif QEMU 9.2.2 (`esp_develop_9.2.2_20260417`), ESP32·S3·C3 | xtensa/riscv32 공식 tar.xz 두 개(sha256 고정). 실행 파일과 ROM 을 `qemu-esp/{xtensa,riscv32}` 에 함께 설치 |
 | `simavr` *(선택)* | 고정 커밋 `5b08da60497f7564f50941f74a549fe2851db030` + PWEH `pweh_avr_run` | git 소스로 라이브러리·실행기를 빌드. ELF 입력·GDB 리스너 없음, 플래시 경계 밖 접근 보완. `simavr/bin/pweh_avr_run` 만 설치 |
+
+`openocd-win`·`sigrok-win` 전용 `--only`는 위 일반 설치·MCP·Skill·verify 단계와 분리되어 로컬 복사/검증만 수행한다. 두 Windows 항목끼리는 함께 선택할 수 있으며 기존 구성요소와 섞으면 거부한다. `--check --only openocd-win,sigrok-win` 또는 `pweh doctor --windows-bundles-only --json`으로 정적 상태를 확인한다. 이 경로의 `--prefix`는 env.sh·저장소 포인터를 쓰지 않으므로 다른 prefix의 doctor에는 `PWEH_TOOLS_DIR`를 지정한다. 설치본 존재가 운영 Windows backend 연결을 뜻하지 않는다.
 
 - **전제 조건:** Linux x86_64, bash, curl(또는 wget), tar, xz, Python 3.10 이상, git.
   배포판 패키지 구성요소는 Debian/Ubuntu(apt)에서만 받는다. apt 가 없으면 해당 도구를 직접 설치하고 `PWEH_*` 환경변수로 알려 준다.

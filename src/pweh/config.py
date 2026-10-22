@@ -67,6 +67,9 @@ DEFAULTS: dict[str, Any] = {
     "tools": {
         "sigrok_cli": "${PWEH_SIGROK_CLI:-sigrok-cli}",
         "openocd": "${PWEH_OPENOCD:-openocd}",
+        # 번들 locator가 config/env 출처를 구분하므로 환경 확장은 그 locator에서 한다.
+        "openocd_win_bundle": "",
+        "sigrok_win_bundle": "",
         "rea": "${PWEH_REA:-rea}",
         "mksquashfs": "${PWEH_MKSQUASHFS:-mksquashfs}",
         "unsquashfs": "${PWEH_UNSQUASHFS:-unsquashfs}",
