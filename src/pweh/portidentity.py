@@ -5,6 +5,7 @@ OS 관찰 실패는 unknown이다. 시험은 Windows runner 또는 합성 sysfs/
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import signal
@@ -326,106 +327,257 @@ $one=Read-Scope;$two=Read-Scope;
 ConvertTo-Json -InputObject @{schema='pweh.pnp-usb-scope/v1';snapshots=@($one,$two)} -Depth 6 -Compress"""
 
 
-def parse_windows_scope(route: Any, raw: bytes | str, *, deadline: float | None = None) -> Any:
-    """고정 PnP 두 관찰을 순수 검증하여 USB subtree 전체 key를 만든다."""
-    from .ports import SiblingScope
-    parent = route.identity.usb_ancestor
+_SCOPE_REASONS = frozenset({
+    "pnp_scope_input_limit", "pnp_scope_json", "pnp_scope_schema", "pnp_scope_snapshots",
+    "pnp_scope_query_failed", "pnp_scope_count", "pnp_scope_node", "pnp_scope_parent_unreadable",
+    "pnp_scope_com_invalid", "pnp_scope_duplicate_node", "pnp_scope_parent_gap_cycle_depth",
+    "pnp_scope_changed", "pnp_scope_usb_parent", "pnp_scope_selected_com", "pnp_scope_subtree_limit",
+    "pnp_scope_serial_unmapped", "pnp_scope_duplicate_com", "pnp_scope_keys_invalid",
+    "pnp_scope_time_limit", "pnp_scope_cancelled", "pnp_scope_callback_failed",
+})
+_ScopeGraph = dict[str, tuple[str | None, str, str | None, str]]
+
+
+class _WindowsScopeError(ValueError):
+    """공유 관찰 helper의 고정 사유. JSON·PnP·callback 원문을 담지 않는다."""
+
+    def __init__(self, reason: str):
+        self.reason = reason if type(reason) is str and reason in _SCOPE_REASONS else "pnp_scope_node"
+        super().__init__(self.reason)
+
+
+def _windows_scope_deadline(deadline: float) -> float:
+    """caller의 남은 예산을 늘리지 않고 한 번의 관찰을 5초 이내로 제한한다."""
     try:
-        if not parent or len(raw) > MAX_OUTPUT:
-            raise ValueError("pnp_scope_input_limit")
-        data = json.loads(raw)
+        valid = type(deadline) in (int, float) and math.isfinite(deadline)
+    except (OverflowError, ValueError):
+        valid = False
+    if not valid:
+        raise _WindowsScopeError("pnp_scope_input_limit")
+    return min(deadline, time.monotonic() + PNP_TIMEOUT_S)
+
+
+def _windows_scope_tick(deadline: float, cancel: Callable[[], bool] | None) -> None:
+    if time.monotonic() > deadline:
+        raise _WindowsScopeError("pnp_scope_time_limit")
+    if cancel is not None:
+        try:
+            stopped = cancel()
+            if type(stopped) is not bool:
+                raise ValueError()
+        except Exception:
+            raise _WindowsScopeError("pnp_scope_callback_failed") from None
+        if stopped:
+            raise _WindowsScopeError("pnp_scope_cancelled")
+        if time.monotonic() > deadline:
+            raise _WindowsScopeError("pnp_scope_time_limit")
+
+
+def _windows_scope_json(raw: bytes | str, deadline: float, cancel: Callable[[], bool] | None) -> Any:
+    """1 MiB·깊이 16의 JSON만 해석하고 중복 key·비유한 수를 거부한다."""
+    _windows_scope_tick(deadline, cancel)
+    if type(raw) not in (bytes, str) or len(raw) > MAX_OUTPUT:
+        raise _WindowsScopeError("pnp_scope_input_limit")
+    try:
+        text = raw.decode("utf-8") if type(raw) is bytes else raw
+        if len(text.encode("utf-8")) > MAX_OUTPUT:
+            raise _WindowsScopeError("pnp_scope_input_limit")
+        depth = 0
+        quoted = escaped = False
+        for index, char in enumerate(text):
+            if index % 4096 == 0:
+                _windows_scope_tick(deadline, cancel)
+            if quoted:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    quoted = False
+            elif char == '"':
+                quoted = True
+            elif char in "[{":
+                depth += 1
+                if depth > 16:
+                    raise _WindowsScopeError("pnp_scope_json")
+            elif char in "]}":
+                depth -= 1
+                if depth < 0:
+                    raise _WindowsScopeError("pnp_scope_json")
+        if depth or quoted:
+            raise _WindowsScopeError("pnp_scope_json")
+
+        def pairs(items):
+            _windows_scope_tick(deadline, cancel)
+            result = {}
+            for index, (key, value) in enumerate(items):
+                if index % 4096 == 0:
+                    _windows_scope_tick(deadline, cancel)
+                if key in result:
+                    raise _WindowsScopeError("pnp_scope_json")
+                result[key] = value
+            return result
+
+        def number(value, *, integer):
+            # Python 3.10에서도 거대 정수 변환이 공통 예산을 독점하지 못하게 한다.
+            if len(value) > 128:
+                raise _WindowsScopeError("pnp_scope_json")
+            result = int(value) if integer else float(value)
+            if not integer and not math.isfinite(result):
+                raise _WindowsScopeError("pnp_scope_json")
+            return result
+
+        def constant(_):
+            raise _WindowsScopeError("pnp_scope_json")
+
+        _windows_scope_tick(deadline, cancel)
+        data = json.loads(text, object_pairs_hook=pairs, parse_constant=constant,
+                          parse_int=lambda v: number(v, integer=True),
+                          parse_float=lambda v: number(v, integer=False))
+        _windows_scope_tick(deadline, cancel)
+        return data
+    except _WindowsScopeError:
+        raise
+    except (ValueError, TypeError, RecursionError, UnicodeError, OverflowError):
+        raise _WindowsScopeError("pnp_scope_json") from None
+
+
+def _parse_windows_scope_graph(raw: bytes | str, *, deadline: float,
+                               cancel: Callable[[], bool] | None = None) -> _ScopeGraph:
+    """두 complete Present graph의 전체 동등성을 검증한다. OS 조회는 하지 않는다."""
+    deadline = _windows_scope_deadline(deadline)
+    try:
+        data = _windows_scope_json(raw, deadline, cancel)
         if not isinstance(data, dict) or data.get("schema") != "pweh.pnp-usb-scope/v1":
-            raise ValueError("pnp_scope_schema")
+            raise _WindowsScopeError("pnp_scope_schema")
         snapshots = data.get("snapshots")
         if not isinstance(snapshots, list) or len(snapshots) != 2:
-            raise ValueError("pnp_scope_snapshots")
-        deadline = deadline if deadline is not None else time.monotonic() + PNP_TIMEOUT_S
+            raise _WindowsScopeError("pnp_scope_snapshots")
         graphs = []
         for snapshot in snapshots:
             if not isinstance(snapshot, dict) or snapshot.get("errors") != []:
-                raise ValueError("pnp_scope_query_failed")
+                raise _WindowsScopeError("pnp_scope_query_failed")
             nodes = snapshot.get("nodes")
             if (not isinstance(nodes, list) or not 1 <= len(nodes) <= 8192
                     or type(snapshot.get("present_count")) is not int or snapshot["present_count"] != len(nodes)):
-                raise ValueError("pnp_scope_count")
+                raise _WindowsScopeError("pnp_scope_count")
             graph = {}
             for row in nodes:
-                if time.monotonic() > deadline:
-                    raise ValueError("pnp_scope_time_limit")
+                _windows_scope_tick(deadline, cancel)
                 if not isinstance(row, dict):
-                    raise ValueError("pnp_scope_node")
+                    raise _WindowsScopeError("pnp_scope_node")
                 ident = _text(row.get("instance_id")).upper()
                 par = _text(row.get("parent"), optional=True)
                 par = par.upper() if par else None
                 state = row.get("parent_state")
                 if not ((state == "root" and ident == "HTREE\\ROOT\\0" and par is None)
                         or (state == "ok" and par)):
-                    raise ValueError("pnp_scope_parent_unreadable")
+                    raise _WindowsScopeError("pnp_scope_parent_unreadable")
                 com = row.get("com")
                 if com is not None:
                     n = parse_win_com(com)
                     if n is None:
-                        raise ValueError("pnp_scope_com_invalid")
+                        raise _WindowsScopeError("pnp_scope_com_invalid")
                     com = f"COM{n}"
                 cls = _text(row.get("pnp_class"), optional=True) or ""
+                # JSON의 surrogate escape를 OS 신원 문자열로 보존하지 않는다.
+                for value in (ident, par or "", cls):
+                    value.encode("utf-8")
                 if ident in graph:
-                    raise ValueError("pnp_scope_duplicate_node")
+                    raise _WindowsScopeError("pnp_scope_duplicate_node")
                 graph[ident] = (par, state, com, cls.casefold())
-            for ident, row in graph.items():
-                if time.monotonic() > deadline:
-                    raise ValueError("pnp_scope_time_limit")
+            for ident in graph:
+                _windows_scope_tick(deadline, cancel)
                 seen = set()
                 here = ident
                 for depth in range(17):
+                    # 기존 관찰은 root sentinel 자체가 nodes에 없는 경우도 허용한다.
                     if here == "HTREE\\ROOT\\0":
                         break
                     if depth == 16 or here in seen or here not in graph:
-                        raise ValueError("pnp_scope_parent_gap_cycle_depth")
+                        raise _WindowsScopeError("pnp_scope_parent_gap_cycle_depth")
                     seen.add(here)
                     here = graph[here][0]
-                else:
-                    raise ValueError("pnp_scope_parent_depth")
             graphs.append(graph)
         if graphs[0] != graphs[1]:
-            raise ValueError("pnp_scope_changed")
-        graph = graphs[0]
+            raise _WindowsScopeError("pnp_scope_changed")
+        _windows_scope_tick(deadline, cancel)
+        return graphs[0]
+    except _WindowsScopeError:
+        raise
+    except (ValueError, TypeError, KeyError, AttributeError, RecursionError, UnicodeError):
+        raise _WindowsScopeError("pnp_scope_node") from None
+
+
+def _windows_scope_subtree(graph: _ScopeGraph, parent: str, *, deadline: float,
+                           cancel: Callable[[], bool] | None = None
+                           ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]]:
+    """검증한 graph에서 parent 전체 node/key/(COM,node)를 반환한다. 선택 COM은 요구하지 않는다."""
+    deadline = _windows_scope_deadline(deadline)
+    try:
+        _windows_scope_tick(deadline, cancel)
         root = parent.upper()
         if root not in graph or not _USB.fullmatch(root) or _USB.fullmatch(root).group(3):
-            raise ValueError("pnp_scope_usb_parent")
-        selected = [node for node, row in graph.items() if "win:" + str(row[2]) == route.lock_key]
-        if len(selected) != 1:
-            raise ValueError("pnp_scope_selected_com")
-        children: dict[str, list[str]] = {}
+            raise _WindowsScopeError("pnp_scope_usb_parent")
+        children: dict[str | None, list[str]] = {}
         for node, row in graph.items():
+            _windows_scope_tick(deadline, cancel)
             children.setdefault(row[0], []).append(node)
         pending = [(root, 0)]
         subtree = set()
         keys = set()
-        coms = set()
+        aliases = {}
         while pending:
-            if time.monotonic() > deadline:
-                raise ValueError("pnp_scope_time_limit")
+            _windows_scope_tick(deadline, cancel)
             node, depth = pending.pop()
             if depth > 16 or len(subtree) >= 256 or node in subtree:
-                raise ValueError("pnp_scope_subtree_limit")
+                raise _WindowsScopeError("pnp_scope_subtree_limit")
             subtree.add(node)
             row = graph[node]
             keys.add("winif:" + node)
             if row[3] == "ports" and not row[2]:
-                raise ValueError("pnp_scope_serial_unmapped")
+                raise _WindowsScopeError("pnp_scope_serial_unmapped")
             if row[2]:
-                if row[2] in coms:
-                    raise ValueError("pnp_scope_duplicate_com")
-                coms.add(row[2])
+                if row[2] in aliases:
+                    raise _WindowsScopeError("pnp_scope_duplicate_com")
+                aliases[row[2]] = node
                 keys.add("win:" + row[2])
             pending.extend((child, depth + 1) for child in children.get(node, ()))
-        if selected[0] not in subtree or route.lock_key not in keys or len(keys) > 64:
-            raise ValueError("pnp_scope_keys_invalid")
-        if time.monotonic() > deadline:
-            raise ValueError("pnp_scope_time_limit")
-        return SiblingScope(tuple(sorted(keys)), parent, True)
-    except (ValueError, TypeError, KeyError, AttributeError, RecursionError, UnicodeError) as exc:
-        return SiblingScope((), parent, False, (str(exc)[:100],))
+        if len(keys) > 64 or any(len(key) > 4096 for key in keys):
+            raise _WindowsScopeError("pnp_scope_keys_invalid")
+        _windows_scope_tick(deadline, cancel)
+        return tuple(sorted(subtree)), tuple(sorted(keys)), tuple(sorted(aliases.items()))
+    except _WindowsScopeError:
+        raise
+    except (ValueError, TypeError, KeyError, IndexError, AttributeError, RecursionError, UnicodeError):
+        raise _WindowsScopeError("pnp_scope_node") from None
+
+
+def parse_windows_scope(route: Any, raw: bytes | str, *, deadline: float | None = None) -> Any:
+    """기존 serial wrapper: 선택 COM의 전역 유일성과 parent subtree 소속을 추가 확인한다."""
+    from .ports import SiblingScope
+    parent = route.identity.usb_ancestor
+    try:
+        if not parent:
+            raise _WindowsScopeError("pnp_scope_input_limit")
+        deadline = _windows_scope_deadline(deadline if deadline is not None else time.monotonic() + PNP_TIMEOUT_S)
+        graph = _parse_windows_scope_graph(raw, deadline=deadline)
+        selected = []
+        for node, row in graph.items():
+            _windows_scope_tick(deadline, None)
+            if "win:" + str(row[2]) == route.lock_key:
+                selected.append(node)
+        if len(selected) != 1:
+            raise _WindowsScopeError("pnp_scope_selected_com")
+        subtree, keys, _ = _windows_scope_subtree(graph, parent, deadline=deadline)
+        if selected[0] not in subtree or route.lock_key not in keys:
+            raise _WindowsScopeError("pnp_scope_keys_invalid")
+        _windows_scope_tick(deadline, None)
+        return SiblingScope(keys, parent, True)
+    except _WindowsScopeError as exc:
+        return SiblingScope((), parent, False, (exc.reason,))
+    except (ValueError, TypeError, KeyError, AttributeError, RecursionError, UnicodeError):
+        return SiblingScope((), parent, False, ("pnp_scope_node",))
 
 
 def linux_sibling_scope(route: Any, *, sysfs_root: Path | None = None, stat_port: Callable | None = None) -> Any:

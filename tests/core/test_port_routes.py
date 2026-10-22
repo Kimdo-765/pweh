@@ -3,6 +3,7 @@ import copy
 import json
 import os
 import stat
+import time
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -146,6 +147,210 @@ def test_windows_scope_partial_never_complete(fault):
     raw = " " * (I.MAX_OUTPUT + 1) if fault == "large" else json.dumps(data)
     result = I.parse_windows_scope(windows_route(), raw)
     assert not result.complete and result.keys == () and result.reasons
+
+
+def scope_raw(data=None):
+    return json.dumps(win_scope() if data is None else data, separators=(",", ":")).encode()
+
+
+def scope_graph(raw=None, **kwargs):
+    return I._parse_windows_scope_graph(scope_raw() if raw is None else raw,
+                                        deadline=time.monotonic() + 5, **kwargs)
+
+
+def test_shared_scope_helpers_preserve_serial_keys_and_do_not_query(monkeypatch):
+    monkeypatch.setattr(I, "_windows_output", lambda *a, **k: pytest.fail("실제 PnP 조회 금지"))
+    parent = windows_route().identity.usb_ancestor
+    graph = scope_graph()
+    nodes, keys, aliases = I._windows_scope_subtree(graph, parent, deadline=time.monotonic() + 5)
+    serial = I.parse_windows_scope(windows_route(), scope_raw())
+    assert serial.complete and serial.keys == keys
+    assert aliases == (("COM31", parent + "&MI_02"),)
+    assert nodes == tuple(sorted(node for node in graph if "OTHER" not in node))
+    assert serial.parent_id == parent and serial.reasons == ()
+
+
+@pytest.mark.parametrize("fault", ["no-selected", "selected-elsewhere", "duplicate-selected"])
+def test_legacy_scope_requires_selected_com_globally_unique_and_in_subtree(fault):
+    data = win_scope()
+    for snapshot in data["snapshots"]:
+        selected, other = snapshot["nodes"][2], snapshot["nodes"][3]
+        if fault != "duplicate-selected":
+            selected.update(com=None, pnp_class="USB")
+        if fault != "no-selected":
+            other.update(com="COM31", pnp_class="Ports")
+    serial = I.parse_windows_scope(windows_route(), scope_raw(data))
+    assert not serial.complete and serial.keys == ()
+    assert serial.reasons == (("pnp_scope_keys_invalid",) if fault == "selected-elsewhere"
+                              else ("pnp_scope_selected_com",))
+
+
+def test_shared_subtree_allows_no_com_but_legacy_wrapper_does_not():
+    data = win_scope()
+    for snapshot in data["snapshots"]:
+        snapshot["nodes"][2].update(com=None, pnp_class="USB")
+    graph = scope_graph(scope_raw(data))
+    nodes, keys, aliases = I._windows_scope_subtree(graph, windows_route().identity.usb_ancestor,
+                                                   deadline=time.monotonic() + 5)
+    assert len(nodes) == len(keys) == 3 and aliases == ()
+    assert all(key.startswith("winif:") for key in keys)
+    assert not I.parse_windows_scope(windows_route(), scope_raw(data)).complete
+
+
+@pytest.mark.parametrize("include_root", [False, True])
+def test_scope_root_sentinel_case_normalization_and_row_order(include_root):
+    data = win_scope()
+    if include_root:
+        for snapshot in data["snapshots"]:
+            snapshot["nodes"].append({"instance_id": "HTREE\\ROOT\\0", "parent": None,
+                                      "parent_state": "root", "com": None, "pnp_class": "Computer"})
+            snapshot["present_count"] += 1
+    for row in data["snapshots"][1]["nodes"]:
+        for field in ("instance_id", "parent", "com", "pnp_class"):
+            if row[field] is not None:
+                row[field] = row[field].lower()
+    data["snapshots"][1]["nodes"].reverse()
+    serial = I.parse_windows_scope(windows_route(), scope_raw(data))
+    assert serial.complete and serial.keys == I.parse_windows_scope(windows_route(), scope_raw()).keys
+
+
+@pytest.mark.parametrize("raw", [b"\xff", b'{"secret-host":', b'{} {}', b'{"x":NaN}',
+                                b'{"x":Infinity}', b'{"x":-Infinity}', b'{"x":1e999}',
+                                b'{"x":' + b'9' * 129 + b'}', b'{"x":1,"x":2}',
+                                b'{"a":{"x":1,"x":2}}', b'["unterminated]'])
+def test_scope_json_failure_has_fixed_reason_only(raw):
+    with pytest.raises(I._WindowsScopeError) as err:
+        scope_graph(raw)
+    assert err.value.reason == str(err.value) == "pnp_scope_json"
+    serial = I.parse_windows_scope(windows_route(), raw)
+    assert serial.reasons == ("pnp_scope_json",) and serial.keys == ()
+
+
+@pytest.mark.parametrize("raw", [None, [], {}, bytearray(b"{}"), b" " * (I.MAX_OUTPUT + 1),
+                                "한" * (I.MAX_OUTPUT // 3 + 1)])
+def test_scope_raw_type_and_utf8_byte_cap(raw):
+    with pytest.raises(I._WindowsScopeError, match="pnp_scope_input_limit"):
+        I._parse_windows_scope_graph(raw, deadline=time.monotonic() + 5)
+
+
+def test_scope_accepts_exact_raw_limit_and_json_brackets_inside_escaped_string():
+    data = win_scope()
+    data["ignored"] = '"\\[]{}' * 30
+    raw = scope_raw(data)
+    padded = raw + b" " * (I.MAX_OUTPUT - len(raw))
+    assert scope_graph(padded) == scope_graph(raw)
+    assert scope_graph(raw.decode()) == scope_graph(raw)
+
+
+@pytest.mark.parametrize("depth,valid", [(15, True), (16, False)])
+def test_scope_json_depth_checked_before_json_loads(depth, valid, monkeypatch):
+    raw = scope_raw()
+    raw = raw[:-1] + b',"ignored":' + b'[' * depth + b'0' + b']' * depth + b'}'
+    original = I.json.loads
+    calls = []
+    def loads(*args, **kwargs):
+        calls.append(True)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(I.json, "loads", loads)
+    if valid:
+        scope_graph(raw)
+        assert calls
+    else:
+        with pytest.raises(I._WindowsScopeError, match="pnp_scope_json"):
+            scope_graph(raw)
+        assert not calls
+
+
+@pytest.mark.parametrize("fault", ["boolean-count", "too-many-nodes", "surrogate", "invalid-com"])
+def test_scope_graph_malformed_values_are_fixed(fault):
+    data = win_scope()
+    for snapshot in data["snapshots"]:
+        if fault == "boolean-count":
+            snapshot["present_count"] = True
+        elif fault == "too-many-nodes":
+            snapshot.update(nodes=[{}] * 8193, present_count=8193)
+        elif fault == "surrogate":
+            snapshot["nodes"][1]["instance_id"] = "SECRET\\\ud800"
+        else:
+            snapshot["nodes"][2]["com"] = "COM01"
+    with pytest.raises(I._WindowsScopeError) as err:
+        scope_graph(scope_raw(data))
+    assert err.value.reason in {"pnp_scope_count", "pnp_scope_node", "pnp_scope_com_invalid"}
+    assert "SECRET" not in str(err.value)
+
+
+def sized_scope(count, *, chain=False):
+    parent = windows_route().identity.usb_ancestor
+    nodes = [{"instance_id": parent, "parent": "HTREE\\ROOT\\0", "parent_state": "ok",
+              "com": "COM31", "pnp_class": "Ports"}]
+    for index in range(1, count):
+        nodes.append({"instance_id": f"SYNTHETIC\\N{index}",
+                      "parent": nodes[-1]["instance_id"] if chain else parent,
+                      "parent_state": "ok", "com": None, "pnp_class": "USB"})
+    snapshot = {"present_count": count, "nodes": nodes, "errors": []}
+    return {"schema": "pweh.pnp-usb-scope/v1", "snapshots": [snapshot, copy.deepcopy(snapshot)]}
+
+
+@pytest.mark.parametrize("count,valid", [(16, True), (17, False)])
+def test_scope_parent_chain_limit(count, valid):
+    raw = scope_raw(sized_scope(count, chain=True))
+    if valid:
+        assert I.parse_windows_scope(windows_route(), raw).complete
+    else:
+        with pytest.raises(I._WindowsScopeError, match="pnp_scope_parent_gap_cycle_depth"):
+            scope_graph(raw)
+
+
+@pytest.mark.parametrize("count,reason", [(63, None), (64, "pnp_scope_keys_invalid"),
+                                         (256, "pnp_scope_keys_invalid"), (257, "pnp_scope_subtree_limit")])
+def test_scope_key_and_subtree_caps(count, reason):
+    graph = scope_graph(scope_raw(sized_scope(count)))
+    def subtree():
+        return I._windows_scope_subtree(graph, windows_route().identity.usb_ancestor,
+                                         deadline=time.monotonic() + 5)
+    if reason is None:
+        nodes, keys, aliases = subtree()
+        assert len(nodes) == 63 and len(keys) == 64 and len(aliases) == 1
+    else:
+        with pytest.raises(I._WindowsScopeError, match=reason):
+            subtree()
+
+
+@pytest.mark.parametrize("deadline", [float("nan"), float("inf"), -float("inf"), True, None, "5", 10**400])
+def test_scope_invalid_deadline_is_fixed(deadline):
+    with pytest.raises(I._WindowsScopeError, match="pnp_scope_input_limit"):
+        I._parse_windows_scope_graph(scope_raw(), deadline=deadline)
+
+
+@pytest.mark.parametrize("kind,reason", [("cancel", "pnp_scope_cancelled"),
+                                        ("wrong-type", "pnp_scope_callback_failed"),
+                                        ("raises", "pnp_scope_callback_failed")])
+def test_scope_callbacks_cannot_leak_or_succeed(kind, reason):
+    graph = scope_graph()
+    def cancel():
+        if kind == "raises":
+            raise RuntimeError("SECRET-CALLBACK-HOST")
+        return True if kind == "cancel" else 1
+    for operation in (lambda: scope_graph(cancel=cancel),
+                      lambda: I._windows_scope_subtree(graph, windows_route().identity.usb_ancestor,
+                                                        deadline=time.monotonic() + 5, cancel=cancel)):
+        with pytest.raises(I._WindowsScopeError) as err:
+            operation()
+        assert str(err.value) == reason
+
+
+def test_scope_parser_enforces_five_seconds_and_checks_after_callback(monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr(I.time, "monotonic", lambda: clock[0])
+    def slow():
+        clock[0] = 6.0
+        return False
+    with pytest.raises(I._WindowsScopeError, match="pnp_scope_time_limit"):
+        I._parse_windows_scope_graph(scope_raw(), deadline=100.0, cancel=slow)
+
+
+def test_scope_error_constructor_never_accepts_arbitrary_reason():
+    assert str(I._WindowsScopeError("SECRET-RAW-PAYLOAD")) == "pnp_scope_node"
 
 
 def sysfs_scope(tmp_path):
