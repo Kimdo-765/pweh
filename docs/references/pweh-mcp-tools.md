@@ -53,7 +53,7 @@
 - **`approvals_pending()`** — [읽기전용]  
   대기 중인 승인 요청 목록 (확인 코드는 제외).
 - **`schema_get(name)`** — [읽기전용]  
-  PWEH JSON 스키마 조회. name: android-forensics, auth-hunt, case, emulation, finding, firmware-dump, image-hints, media-candidates, media-inventory, media-prefix-extract, pinout-scan, save-analysis, sd-forensics, sd-ioc-scan, 
+  PWEH JSON 스키마 조회. name: android-forensics, auth-hunt, case, dhav-candidates, emulation, finding, firmware-dump, image-hints, media-candidates, media-inventory, media-prefix-extract, pinout-scan, save-analysis, sd-forensi
 
 ## pweh-uart
 
@@ -331,6 +331,8 @@
   증거에서 선택한 파일 1개의 MP4/QuickTime 계열 ISO BMFF 상자 구조를 오프라인 목록화한다. 소유/허가·보관 기록·무결성 확인 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택한다. 둘 다 없으면 EV 자체를 읽으며 자동 검색·카빙은 하지 않는다. 완전한 파일만 최대 64 MiB, max_seconds는 0 초 초과·최대 45초(선택·읽기·구조 검사 공통)
 - **`forensics_media_candidates(case_id, evidence_id, partition?, ref?, path?, method?, max_seconds?, offset?, length?)`**  
   증거에서 선택한 파일 1개의 완전한 바이트 또는 EV의 명시 구간에서 ftyp 기반 ISO BMFF 연속 최상위 상자 prefix 후보를 찾는다. 소유/허가·보관 기록·무결성 확인 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택한다. ref/path와 offset/length가 모두 없으면 EV 전체를 선택한다. offset/length는 exact int를 함께 지정하
+- **`forensics_dhav_candidates(case_id, evidence_id, partition?, ref?, path?, method?, max_seconds?, offset?, length?)`**  
+  선택한 완전 파일 또는 EV의 명시 바이트 구간에서 DHAV 고정 record 구조 후보를 관찰한다. ref/path는 FAT/exFAT·TAR/ZIP 파일 하나이며 둘 다 없으면 EV 전체를 읽는다. offset/length는 exact int로 함께 지정하고 선택자·partition과 혼용하지 않으며 method=auto만 받는다. 선택·구간은 최대 64 MiB, offset+length
 - **`forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)`**  
   보관 기록에 결속된 media-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). analysis_path는 같은 케이스·EV의 생성 보고서 경로이며 index는 0~127의 저장 후보를 고른다. 증거와 보고서의 무결성을 확인하고 원래 ref/partition/복구 방법 또는 EV 명시 구간으로 같은 완전 바이트를 다시 읽는다. 구간은 저장된 시작·길이·
 

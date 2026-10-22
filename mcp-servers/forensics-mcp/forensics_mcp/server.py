@@ -1815,6 +1815,7 @@ from .secret_survey_tools import register_secret_survey_tools
 from .ioc_tools import register_ioc_tools
 from .media_tools import register_media_tools
 from .media_candidate_tools import register_media_candidate_tools
+from .dhav_tools import register_dhav_tools
 from .media_prefix_tools import register_media_prefix_tools
 
 register_android_tools(server, globals())
@@ -1823,6 +1824,7 @@ register_secret_survey_tools(server, globals())
 register_ioc_tools(server, globals())
 register_media_tools(server, globals())
 register_media_candidate_tools(server, globals())
+register_dhav_tools(server, globals())
 register_media_prefix_tools(server, globals())
 
 

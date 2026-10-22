@@ -21,7 +21,7 @@ def anyio_backend():
     return "asyncio"
 
 
-@pytest.mark.parametrize("event", ["secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory"])
+@pytest.mark.parametrize("event", ["secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory", "dhav-candidates"])
 async def test_analysis_inventory_recorded_tampered_missing_and_unrecorded(workspace, auth, event):
     from forensics_mcp import server as S
 
@@ -59,7 +59,7 @@ async def test_analysis_inventory_recorded_tampered_missing_and_unrecorded(works
 
 
 @pytest.mark.parametrize("mutation", ["source", "symlink", "hardlink"])
-@pytest.mark.parametrize("event", ["secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory"])
+@pytest.mark.parametrize("event", ["secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory", "dhav-candidates"])
 def test_analysis_derived_output_rejects_false_source_or_links(workspace, auth, tmp_path, mutation, event):
     from forensics_mcp import server as S
 

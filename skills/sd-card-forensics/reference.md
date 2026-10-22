@@ -291,3 +291,30 @@ opaque payload는 검사 바이트와 다르며 timing도20/32bytes prefix 외 �
 `forensics_scan_secrets_from_list`에 같은 EV의 `forensics_fs_list` 전체 JSON 경로를 전달한다. 목록 안의 지원 FAT/exFAT 파일을 순서대로 자동 선정하며 최대32파일·합16 MiB·파일당4 MiB·총200후보를 검사한다. TAR/ZIP 또는 명시한 파일 하나는 기존 단일 도구를 쓴다.
 
 [상세 계약과 요약 필드 매핑](../../docs/references/secrets-survey.md#sd-요약)에 따라 `secret_survey_results`를 기록한다. 목록 완료·정책 분류 완료·eligible 검사 완료를 구분하고, 정책 제외·한도·읽기 실패를 notes에 남긴다. whole_card_examined와 privacy.secret_plaintext_returned는 false다. 원래 파일명·시각·키·본문을 요약에 넣지 않으며 후보0건은 비밀 없음/안전 판정이 아니다. `secrets-survey` 사건과 결과 SHA는 증거 목록 derived로 확인한다.
+
+## 16. DHAV record 구조 후보
+
+`forensics_dhav_candidates`는 완전한 선택 파일 또는 명시 EV 구간(최대64 MiB)에서 고정 DHAV
+record 구조 후보만 찾는다. ref/path는 배타적이며 직접 EV는 둘 다 생략한다. offset/length는
+함께 지정하고 ref/path/partition 없이 method=auto를 쓴다. 파일과 명시 구간의 닫힌 profile은
+각각 dhav-record-framing-v1/dhav-record-ev-range-v1이다.
+
+지원 type f0/fc/fd의 길이·표지·범위를 대조하지만 원시 header 시각·채널/counter/checksum,
+extension 내부와 payload 의미를 해석하지 않는다. 후보 offset은 선택 상대이며 구간에서만
+source.offset을 더해 EV 위치를 구한다. 파일/삭제 복구/아카이브 논리 위치에는 적용하지 않는다.
+
+`report.summary`의 완전 기각/범위 부족/지원/생략 후보와 `coverage`의 search_complete,
+candidate_checks_complete(관찰한 anchor만),candidate_list_complete를 따로 읽는다.
+후보0건도 범위 부족·한도·출처 불확실성이 있으면 partial이다. possible은 구조 후보의 확신이고
+source.complete/high는 선택 bytes의 완전 읽기/신원이므로 서로 대신하지 않는다.
+
+`dhav_candidate_results[]`에는 evidence_id,analysis_path/sha256(analysis),status(report.status),
+selected_size(source.selected_size),candidates_reported(summary.candidates_reported)만 넣는다.
+좌표·원문 시각·채널·이름·본문을 요약에 추가하지 않는다. partial/unsupported와 미검사 범위는
+notes에 남기고 기존 privacy.audio_decoded·recording_content_viewed는 false를 유지한다.
+JSON은 `dhav-candidates` 사건과 결속되며 evidence-list derived에서 생성 경로·해시를 확인한다.
+
+공통45초·anchor probe1024·후보128·구조 필드 판독1 MiB·JSON1 MiB 한도와9개 false 값,
+footer 반복 길이의 PWEH 추론은 [DHAV 후보 계약](../../docs/references/dhav-candidates.md)을 따른다.
+이는 메타데이터 분석이며 DHAV record 추출·영상 해독·녹화 타임라인·암호화 판정은 미지원이다.
+기존 `forensics_extract_media_candidate`는 BMFF 보고서만 받는다.

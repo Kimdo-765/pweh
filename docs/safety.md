@@ -567,6 +567,12 @@ pweh-forensics 와 그 코어(`pweh.fs`·`pweh.evidence`·`pweh.safeio`)가 지�
 - size0·선택 끝·다음 ftyp를 원본 녹화 종료로 보지 않는다. 후보0건/unsupported도 미디어 부재를 증명하지 않는다. `complete_recording`·원본 경계·물리 카빙·재생·암호화 검증 값은 false다. 후보 JSON을 녹화 복구물로 부르지 않는다.
 - 검색 위치의 완료 prefix, 현재 미처리 anchor, 후보 목록 완료, 반환 후보 간 관계 완료를 각각 확인한다. 한도로 관계 계산이 잘렸으면 빈 배열이 겹침 없음의 근거가 아니다. 삭제/복구/부모 상태·컨테이너 목록 불확실성은 후보0건에도 partial로 남는다. 입력·시간·출력 및 동일 OS 계정 경합 한계는 위 구조 관찰과 같다.
 
+**DHAV 구조 후보**
+
+- `forensics_dhav_candidates`는 최대64 MiB의 완전한 선택 파일 또는 명시 EV 구간에서 고정 record framing subset만 검사한다. 임의 bytes도 구조 조건을 만족할 수 있어 confidence는 possible이다. 후보0건·unsupported는 미디어 부재 증거가 아니다.
+- 검색은 payload 내부의 표지를 지날 수 있으나 의미는 해석하지 않는다. 원문·채널·시각·extension 내용·개별 payload 지문을 반환하지 않으며 checksum·codec·재생·암호화·완전 녹화도 판정하지 않는다. 잘린 record·검색 한도·출처 불확실성은 partial로 보존한다.
+- 같은 EV fd와 custody 잠금 아래 입력·출력 seal을 검사하고 SDK 타입 오류도 입력 원문을 숨긴다. 커밋 전 실패는 이번 출력만 정리하고 이후 늦은 취소는 결과를 보존한다. 45초는 선택·검색의 공통 예산이며 강제 RSS·커널 I/O 시간 보장은 아니다. 기존 BMFF 추출 입구를 통해 DHAV를 추출할 수 없다. [상한·회계·출처 계약](references/dhav-candidates.md).
+
 **저장된 후보 prefix 추출**
 
 - `forensics_extract_media_candidate`는 같은 EV의 보관 기록에 결속된 보고서와 원래 선택 파일 또는 EV 구간 전체의 해시를 재검증한다. 보고서의 논리 offset·검증 prefix 길이만 쓰며 새 물리 범위를 지정하지 않는다. 원래 불확실성과 재선택의 불확실성을 함께 보존한다.

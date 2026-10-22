@@ -605,6 +605,58 @@
         }
       }
     },
+    "dhav_candidate_results": {
+      "type": "array",
+      "maxItems": 100,
+      "description": "선택 bytes의 제한된 DHAV record 구조 후보 보고서 참조. 후보 수는 저장된 행의 수이며 원래 파일·프레임·녹화 수나 복구·재생 성공을 뜻하지 않는다. 상세 검색·검사·목록 완료도와 출처 불확실성은 결과 JSON을 따른다.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_id",
+          "analysis_path",
+          "sha256",
+          "status",
+          "selected_size",
+          "candidates_reported"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^EV-[0-9]{4,6}$",
+            "maxLength": 9
+          },
+          "analysis_path": {
+            "type": "string",
+            "pattern": "^forensics/analysis/dhav-candidates-EV-[0-9]{4,6}-[0-9]{3,9}\\.json$",
+            "maxLength": 100
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "partial",
+              "unsupported"
+            ]
+          },
+          "selected_size": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 67108864
+          },
+          "candidates_reported": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 128
+          }
+        }
+      }
+    },
     "media_inventory_results": {
       "type": "array",
       "maxItems": 100,
