@@ -1,15 +1,13 @@
 ---
 name: sd-card-forensics
-description: Analyze an authorized SD card image or the firmware SD attack surface with pweh-forensics and fwtriage. The human images the card through a hardware write-blocker; PWEH accepts image files only. Evidence flow records hashes, custody, acquisition attestation, partitions, FAT/exFAT file lists, deleted-file extraction and an evidence list. Selected text uses forensics_scan_secrets for masked candidates and coverage only. Existing firmware and card reports use forensics_sd_ioc_scan for name candidates, not compromise proof. Still-image clues use forensics_image_hints and image-hints-analysis; video/audio and direct evidence-file reads remain excluded. Security flow checks SD-01..09 in firmware and optional boot logs with a new blank test card. Records sd-forensics summary. SD 카드 포렌식, 카드 이미지, 삭제 파일 복구, 보관 기록, 쓰기 방지 장치.
+description: Analyze an authorized SD card image or the firmware SD attack surface with pweh-forensics and fwtriage. The human images the card through a hardware write-blocker; PWEH accepts image files only. Evidence flow records hashes, custody, acquisition attestation, partitions, FAT/exFAT file lists, deleted-file extraction and an evidence list. Selected text uses forensics_scan_secrets for masked candidates and coverage only. Existing reports use forensics_sd_ioc_scan for name candidates. Selected media uses forensics_media_inventory for bounded box metadata only. Still-image clues use forensics_image_hints and image-hints-analysis; video/audio and direct evidence-file reads remain excluded. Security flow checks SD-01..09 in firmware and optional boot logs with a new blank test card. Records sd-forensics summary. SD 카드 포렌식, 카드 이미지, 삭제 파일 복구, 보관 기록, 쓰기 방지 장치.
 ---
 
 # SD 카드 포렌식 (sd-card-forensics)
 
 `orchestrator/master-prompt.md` §3 의 **SD 카드 포렌식** 목표 Skill 이다. 소유/서면 허가가 기록된 케이스에서만 쓴다. 대상은 카메라·블랙박스·IoT 기기의 SD 카드와 그 기기의 펌웨어다.
 PWEH 는 카드를 이미징하지 않고 원시 디스크를 열지 않는다 — 사람이 하드웨어 쓰기 방지 장치를 거쳐 만든 이미지 **파일**만 pweh-forensics 서버로 접수한다. 결과는 연구·방어·증거 보존용이다.
-응답 필드와 요약 매핑, 보안 분석 세부, 법률 메모, 실패 표, 잘림 사유, 예시는 [reference.md](reference.md) 에 있다.
-설계 근거는 `docs/design/sd-forensics.md` §3(획득)·§4(증거 분석)·§5(보안 분석)·§6(케이스 구조)·§7(법률·개인정보), 서버 계약은 `docs/architecture.md` §6.8 과 `mcp-servers/forensics-mcp/README.md`,
-알려진 한계(취소·빠른 지문·잘린 이미지 등)의 전체 목록은 `docs/safety.md` §3.6 이다.
+응답 필드·요약·세부 절차는 [reference.md](reference.md)에 있다. 설계 근거는 `docs/design/sd-forensics.md` §3(획득)·§4(증거 분석)·§5(보안 분석)·§6(케이스 구조)·§7(법률·개인정보), 서버 계약은 `docs/architecture.md` §6.8 과 `mcp-servers/forensics-mcp/README.md`, 알려진 한계(취소·빠른 지문·잘린 이미지 등)의 전체 목록은 `docs/safety.md` §3.6 이다.
 
 ## 목적
 
@@ -39,7 +37,7 @@ PWEH 는 카드를 이미징하지 않고 원시 디스크를 열지 않는다 �
 - **사람·장비** (security 부팅 로그, 선택): UART 세션(`uart-shell-acquisition`)과 새 빈 시험 카드.
 - **MCP 서버**: pweh-case, pweh-forensics(evidence), pweh-fwtriage(security), pweh-uart(부팅 로그).
 - **권한 확인**: 쓰는 forensics 도구(접수·검증·증명·목록·추출·증거 목록·job 취소)는 부를 때마다 Claude Code 가 사람에게 확인받는다(`.claude/settings.json` 의 ask). 처음에 알린다.
-  `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs`는 조회 전용이라 자동 허용이다. `forensics_image_hints`도 사용자의 정지 이미지 내용 반환 결정에 따라 별도 승인 없이 허용한다(로컬 분석 결과는 쓴다). `forensics_scan_secrets`·`forensics_sd_ioc_scan`도 마스킹된 후보·보고서 이름 대조를 로컬 기록하는 자동 허용 도구다.
+  `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs`는 조회 전용이라 자동 허용이다. `forensics_image_hints`도 사용자의 정지 이미지 내용 반환 결정에 따라 별도 승인 없이 허용한다(로컬 분석 결과는 쓴다). `forensics_scan_secrets`·`forensics_sd_ioc_scan`·`forensics_media_inventory`도 마스킹된 후보·보고서 이름 대조·미디어 구조를 로컬 기록하는 자동 허용 도구다.
 
 ## 안전 규칙
 
@@ -82,6 +80,7 @@ PWEH 는 카드를 이미징하지 않고 원시 디스크를 열지 않는다 �
 | `forensics_extract` | 고른 파일만 추출(job) → `forensics/recovered/` (직접 열지 않음) |
 | `forensics_scan_secrets` | 선택 텍스트 하나의 비밀값 후보·마스킹된 지문·검사/미검사 범위만 기록 |
 | `forensics_sd_ioc_scan` | 검증된 카드 목록과 기존 펌웨어 보고서의 이름 후보·검사 한계만 기록 |
+| `forensics_media_inventory` | 완전한 선택 파일 하나의 BMFF 상자 구조·검사/opaque/미검사 범위만 기록 |
 | `forensics_image_hints` | 선택한 정지 그림만 미리보기·OCR·QR·메타데이터 분석 → `image-hints-analysis` |
 | `forensics_verify_start`, `forensics_evidence_list` | 사본 전체 재해시(job), 증거 목록·보관 기록 검증·해시값 확인서 |
 | `fw_sd_surface`, `fw_rootfs_audit`, `fw_uboot_env`, `fwtriage_job_status` | 펌웨어의 SD 공격 표면 (security, 오프라인) |
@@ -217,12 +216,13 @@ forensics_fs_list(case_id="<id>", evidence_id="EV-0001")
 
 ### 6a. 선택 텍스트의 비밀값 후보가 필요한 경우
 
-분석 목적에 필요한 파일 하나의 `ref` 또는 살아 있는 `path`를 골라 `forensics_scan_secrets(case_id="<id>", evidence_id="EV-0001", ref="<목록의 ref>")`를 호출한다. 선택자 둘을 함께 주지 않는다. EV 자체가 작은 텍스트면 둘 다 생략한다. 추출하거나 파일 도구로 원문을 열지 않는다. 기본은 평문만이며 0x90 보기가 필요하다는 근거가 있을 때만 `xor_key=144`를 명시한다(자동 키 탐색·복호가 아니다).
+`forensics_scan_secrets(case_id="<id>", evidence_id="EV-0001", ref="<목록의 ref>")`로 목적에 필요한 UTF-8 텍스트 하나만 검사한다(최대4 MiB). 원문을 직접 열거나 앞부분만 검사하지 않는다. ref/path는 배타적, 작은 텍스트 EV 자체는 둘 다 생략한다. 기본은 평문이고 근거가 있을 때만 `xor_key=144`를 명시한다.
+- 마스킹된 후보·케이스 솔트 지문·검사/미검사 범위를 [reference.md §9](reference.md#9-선택-텍스트-비밀값-검사)에 따라 `secret_scan_results`에 기록하고 `privacy.secret_plaintext_returned=false`를 유지한다. 후보0건도 비밀 없음/안전 판정이 아니다. 원문 키·값·계정·URL을 요약에 넣거나 자격증명으로 로그인하지 않는다.
 
-- 완전한 선택 내용 최대4 MiB, UTF-8(BOM 허용)만 지원한다. 영상·음성·바이너리·UTF-16·불완전 복구 후보는 대상이 아니다. 큰 파일의 앞부분만 대신 검사하지 않는다.
-- `report.matches`는 후보 위치·길이·고정 `<masked>`·가능성·경계가 완전한 값의 케이스 솔트 지문만 담는다. 원문 키·계정·URL·파일명·비밀값을 찾아 채우거나 복구한 자격증명으로 로그인하지 않는다. 열린 경계의 `digest=null`을 오류나 빈 비밀번호로 읽지 않는다.
-- `report.status`와 `coverage`의 검사/미검사 바이트·사유를 함께 보고한다. 긴 줄·시간/후보 상한·복구/목록 불확실성은 `partial`, 미지원 형식은 `unsupported`다. 후보0건은 지원 패턴을 실제 검사한 범위에서 찾지 못했다는 뜻이다. 전체 카드·자격증명 유효성·침해·안전을 판정하지 않는다.
-- `analysis.path`·`sha256`·보관 기록 번호를 보존하고 증거 목록의 `derived` 대조를 확인한다. SD 요약 `secret_scan_results`에 EV·결과 경로/해시·상태·후보 수·검사/미검사 바이트·사유를, `privacy.secret_plaintext_returned=false`를 기록한다([reference.md §9](reference.md#9-선택-텍스트-비밀값-검사)). 새 발견사항을 자동 생성하지 않는다.
+### 6b. 선택 미디어의 구조가 필요한 경우
+
+`forensics_media_inventory(case_id="<id>", evidence_id="EV-0001", ref="<목록의 ref>")`로 완전한 파일 하나(최대64 MiB)의 BMFF 상자 경계만 관찰한다. ref/path 배타·직접 EV는 둘 다 생략, 파티션은 필요한 경우 명시한다. 원시 파일·복구물을 직접 열거나 프레임·음성을 해독하지 않는다.
+- 구조/인식 상태와 출처·검사 범위를 [reference.md §12](reference.md#12-선택-미디어-구조-관찰)에 따라 `media_inventory_results`에 결과 참조로 기록한다. 정상 재생·녹화 시각·암호화·침해 여부를 판정하지 않는다.
 
 ### 7. 필요한 것만 추출
 

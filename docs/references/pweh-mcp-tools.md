@@ -325,6 +325,8 @@
   증거의 선택 텍스트 파일 1개에서 자격증명·토큰 후보를 오프라인 검사한다. 소유/허가·보관 기록·무결성 검사 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택하며, 둘 다 없으면 EV 자체를 읽는다. 완전한 파일만, 해제 크기 최대 4 MiB·UTF-8/BOM만 받는다. xor_key는 생략하거나 144(0x90)를 명시하며 자동 XOR 탐색은 없다. max_hits는 1
 - **`forensics_sd_ioc_scan(case_id, evidence_id, firmware_result_path, fs_list_path, partition?, max_matches?, max_seconds?)`**  
   같은 케이스의 fw_sd_surface 전체 결과와 같은 EV의 FAT/exFAT fs-list 전체 JSON을 대조해 펌웨어 참조 경로와 카드 파일 이름이 겹치는 후보를 찾는다. firmware_result_path는 analysis/sd-surface-NNN.json, fs_list_path는 forensics/analysis/fs-list-EV-NNNN-NNN.json의 생성 상대 경로
+- **`forensics_media_inventory(case_id, evidence_id, partition?, ref?, path?, method?, max_seconds?)`**  
+  증거에서 선택한 파일 1개의 MP4/QuickTime 계열 ISO BMFF 상자 구조를 오프라인 목록화한다. 소유/허가·보관 기록·무결성 확인 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택한다. 둘 다 없으면 EV 자체를 읽으며 자동 검색·카빙은 하지 않는다. 완전한 파일만 최대 64 MiB, max_seconds는 0 초 초과·최대 45초(선택·읽기·구조 검사 공통)
 
 ## pweh-emu
 

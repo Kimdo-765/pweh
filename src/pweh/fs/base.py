@@ -696,7 +696,8 @@ class VolumeBase:
 
     @guard
     def reachable_dirspecs(self, limits: Limits | None = None, *, budget: Budget | None = None,
-                           targets: Iterable[str] | None = None) -> dict[str, Any]:
+                           targets: Iterable[str] | None = None,
+                           include_parent_deleted: bool = False) -> dict[str, Any]:
         """walk 가 내려가 목록을 내는 디렉터리(검증된 살아 있는·삭제된 디렉터리)의 dirspec 과 표시 경로 — 디렉터리만 순회한다.
 
         바깥에서 온 ref 를 받는 쪽(forensics_extract)이 ref 의 dirspec 이 여기 있는지 확인해, 임의의 클러스터를 디렉터리로 읽게 하는
@@ -712,6 +713,9 @@ class VolumeBase:
         일찍 멈춤), 'truncated'(한도·예산·취소로 잘렸거나 살아 있는 디렉터리를 끝까지 읽지 못함(beyond_image·dir_chain_broken·
         dir_unreadable) — 없는 dirspec 은 확인할 수 없음, truncated_reason 이 사유).
         truncated 는 한도에 걸린 일이 있었는지다(targets_found 이어도 그 전에 디렉터리별 한도에 걸렸으면 True).
+        include_parent_deleted: 이 순회에서 확인한 디렉터리의 삭제 문맥 map을 parent_deleted로 추가한다. 루트는 False,
+        해당 디렉터리 또는 조상이 삭제됐으면 True다. 모순된 문맥을 관찰하면 루트 외 문맥은 보수적으로 None이다.
+        이 map은 선택 경로의 문맥이며 targets_found를 전체 컨테이너 검사 완료로 바꾸지 않는다.
         """
         lim = limits or self.limits
         budget = self._budget(lim, budget)
@@ -728,16 +732,34 @@ class VolumeBase:
         chars = 0
         sink = Warnings(0)
 
-        def found(spec: str, path: str) -> bool:
-            """dirspec 을 찾음으로 남기고, targets 를 다 찾았으면 True."""
+        parent_deleted: dict[str, bool | None] = {}
+        contexts: dict[Any, bool | None] = {}
+        ambiguous_context = False
+
+        def found(spec: str, path: str, pdel: bool) -> bool:
+            """기존 도달 가능성 판정과 독립적으로 같은 순회의 삭제 문맥만 덧붙인다."""
+            nonlocal ambiguous_context
             dirspecs.add(spec)
             paths.setdefault(spec, path)
+            if include_parent_deleted:
+                try:
+                    key = self._spec_key(spec)
+                except FsError:
+                    parent_deleted[spec] = None
+                else:
+                    previous = contexts.get(key, pdel)
+                    if previous is None or previous != pdel:
+                        ambiguous_context = True
+                        contexts[key] = None
+                    else:
+                        contexts[key] = pdel
+                    parent_deleted[spec] = contexts[key]
             if left is not None:
                 left.discard(spec)
                 return not left
             return False
 
-        early = found("root", "/")
+        early = found("root", "/", False)
         # (dirspec, 표시 경로, 깊이, 삭제된 디렉터리이거나 그 아래인지)
         stack: list[tuple[str, str, int, bool]] = [] if early else [("root", "", 0, False)]
         while stack and not early:
@@ -788,8 +810,18 @@ class VolumeBase:
                 chars += cost
                 cpath = dpath + "/" + dname
                 children.append((e["child_dir"], cpath, depth + 1, pdel or bool(e["deleted"])))
-                if found(str(e["child_dir"]), cpath):
+                if found(str(e["child_dir"]), cpath, pdel or bool(e["deleted"])):
                     early = True
+                    if include_parent_deleted:
+                        # 같은 이미 검증된 디렉터리 결과 안의 모순도 본다. 새 디렉터리를 열거나 ref를 추가하지 않는다.
+                        for other in res.entries:
+                            budget.tick()
+                            if budget.expired():
+                                ambiguous_context = True
+                                break
+                            if (other["is_dir"] and other.get("child_dir") == e["child_dir"]
+                                    and (pdel or bool(other["deleted"])) != (pdel or bool(e["deleted"]))):
+                                ambiguous_context = True
                     break
             if stop is None and res.budget_stop is not None and not early:
                 stop = res.budget_stop
@@ -802,6 +834,12 @@ class VolumeBase:
                                "truncated_reason": reasons[0] if reasons else None, "truncated_reasons": reasons,
                                "cut_dirs": cuts.items, "cut_dirs_total": cuts.total, "unvalidated_dirs": unvalidated,
                                "path_chars": chars}
+        if include_parent_deleted:
+            # 별도 디스크 순회 없이 이미 찾은 map만 보수화한다. 자식의 이전 관찰도 live로 남기지 않는다.
+            if ambiguous_context:
+                parent_deleted = {spec: None for spec in parent_deleted}
+            parent_deleted["root"] = False
+            out["parent_deleted"] = parent_deleted
         if want is not None:
             out["targets_found"] = sorted(want & dirspecs)
             out["targets_missing"] = sorted(want - dirspecs)

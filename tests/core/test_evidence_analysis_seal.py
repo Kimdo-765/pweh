@@ -36,7 +36,7 @@ def outputs(case):
     return list((case.dir / "forensics/analysis").glob("*.json"))
 
 
-@pytest.mark.parametrize("event", ["secrets-scan", "sd-ioc-scan", "sqlite-inventory", "android-artifacts", "timeline"])
+@pytest.mark.parametrize("event", ["secrets-scan", "sd-ioc-scan", "media-inventory", "sqlite-inventory", "android-artifacts", "timeline"])
 def test_analysis_held_fd_and_custody_lock_through_final_check(analysis_case, monkeypatch, event):
     case, log, opened, report = analysis_case
     created = []
@@ -263,12 +263,12 @@ def test_analysis_precommit_cancel_discards_only_owned_output(analysis_case, whe
     assert [e["event"] for e in log.entries()] == ["intake"]
 
 
-@pytest.mark.parametrize("event", ["secrets_scan", "secrets-scan/other", "sd_ioc_scan", "sd-ioc-scan/other", "other", "note", "image-hints"])
+@pytest.mark.parametrize("event", ["secrets_scan", "secrets-scan/other", "sd_ioc_scan", "sd-ioc-scan/other", "media_inventory", "media-inventory/other", "other", "note", "image-hints"])
 def test_analysis_unknown_event_stays_closed(analysis_case, event):
     case, log, opened, report = analysis_case
     with pytest.raises(ValidationFailed):
         store(analysis_case, event=event)
-    assert E.ANALYSIS_EVENTS == {"sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "sd-ioc-scan"}
+    assert E.ANALYSIS_EVENTS == {"sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "sd-ioc-scan", "media-inventory"}
     if event not in {"note", "image-hints"}:
         with pytest.raises(ValidationFailed):
             log.append(event, evidence_id=opened.evidence_id, data={})

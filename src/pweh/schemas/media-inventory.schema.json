@@ -1,0 +1,1013 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "pweh.media-inventory/v1"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "partial",
+        "unsupported"
+      ]
+    },
+    "format": {
+      "enum": [
+        "iso-bmff",
+        "unknown"
+      ]
+    },
+    "profile": {
+      "const": "mp4-quicktime-box-v1"
+    },
+    "framing_status": {
+      "enum": [
+        "complete",
+        "partial"
+      ]
+    },
+    "recognition": {
+      "enum": [
+        "allowed_brand",
+        "fragment_candidate",
+        "unbranded",
+        "unknown_brand",
+        "empty"
+      ]
+    },
+    "media_decoded": {
+      "const": false
+    },
+    "playback_verified": {
+      "const": false
+    },
+    "recording_time_verified": {
+      "const": false
+    },
+    "encryption_assessed": {
+      "const": false
+    },
+    "format_conformance_assessed": {
+      "const": false
+    },
+    "brands": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "box_index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4095
+              },
+              "major": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "isom",
+                      "iso2",
+                      "iso3",
+                      "iso4",
+                      "iso5",
+                      "iso6",
+                      "mp41",
+                      "mp42",
+                      "quicktime",
+                      "unknown"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "compatible": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "isom",
+                    "iso2",
+                    "iso3",
+                    "iso4",
+                    "iso5",
+                    "iso6",
+                    "mp41",
+                    "mp42",
+                    "quicktime",
+                    "unknown"
+                  ]
+                },
+                "maxItems": 10,
+                "uniqueItems": true
+              },
+              "compatible_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 63
+              },
+              "unknown_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 64
+              },
+              "unknown_distinct_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 64
+              },
+              "slots_examined": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 64
+              },
+              "complete": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "box_index",
+              "major",
+              "compatible",
+              "compatible_count",
+              "unknown_count",
+              "unknown_distinct_count",
+              "slots_examined",
+              "complete"
+            ]
+          },
+          "maxItems": 257
+        },
+        "known": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "isom",
+              "iso2",
+              "iso3",
+              "iso4",
+              "iso5",
+              "iso6",
+              "mp41",
+              "mp42",
+              "quicktime"
+            ]
+          },
+          "maxItems": 9,
+          "uniqueItems": true
+        },
+        "slots_examined": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 256
+        },
+        "unknown_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 256
+        },
+        "unknown_distinct_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 256
+        }
+      },
+      "required": [
+        "tables",
+        "known",
+        "slots_examined",
+        "unknown_count",
+        "unknown_distinct_count"
+      ]
+    },
+    "boxes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4095
+          },
+          "parent_index": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4095
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "enum": [
+              "ftyp",
+              "styp",
+              "moov",
+              "mdat",
+              "free",
+              "skip",
+              "wide",
+              "uuid",
+              "trak",
+              "mdia",
+              "minf",
+              "stbl",
+              "edts",
+              "dinf",
+              "mvex",
+              "moof",
+              "traf",
+              "meta",
+              "udta",
+              "unknown"
+            ]
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 67108864
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 8,
+            "maximum": 67108864
+          },
+          "header_size": {
+            "enum": [
+              8,
+              16,
+              24,
+              32
+            ]
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "handling": {
+            "enum": [
+              "children",
+              "brand-table",
+              "skipped"
+            ]
+          },
+          "children_complete": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "index",
+          "parent_index",
+          "kind",
+          "offset",
+          "size",
+          "header_size",
+          "depth",
+          "handling",
+          "children_complete"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "handling": {
+                  "const": "children"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "children_complete": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "children_complete": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "maxItems": 4096
+    },
+    "observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "top_level_ftyp": {
+          "type": "boolean"
+        },
+        "top_level_moov": {
+          "type": "boolean"
+        },
+        "top_level_mdat": {
+          "type": "boolean"
+        },
+        "top_level_moof": {
+          "type": "boolean"
+        },
+        "top_level_styp": {
+          "type": "boolean"
+        },
+        "initialization_context": {
+          "enum": [
+            "moov-observed",
+            "unavailable",
+            "not-assessed"
+          ]
+        }
+      },
+      "required": [
+        "top_level_ftyp",
+        "top_level_moov",
+        "top_level_mdat",
+        "top_level_moof",
+        "top_level_styp",
+        "initialization_context"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "boxes_seen": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "boxes_reported": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "unknown_box_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "unknown_type_distinct_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "max_depth_seen": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8
+        }
+      },
+      "required": [
+        "boxes_seen",
+        "boxes_reported",
+        "unknown_box_count",
+        "unknown_type_distinct_count",
+        "max_depth_seen"
+      ]
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "header_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "skipped_payload_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "unexamined_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "structure_complete": {
+          "type": "boolean"
+        },
+        "container_examined": {
+          "const": false
+        },
+        "selection_uncertain": {
+          "type": "boolean"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "truncated_base_header",
+              "truncated_extended_header",
+              "truncated_uuid_header",
+              "size_below_header",
+              "box_beyond_parent",
+              "unsupported_nested_size_zero",
+              "invalid_ftyp_shape",
+              "box_limit",
+              "depth_limit",
+              "brand_limit",
+              "range_limit",
+              "output_limit",
+              "time_limit",
+              "multiple_ftyp",
+              "unsupported_wide_shape",
+              "selection_uncertain",
+              "container_listing_incomplete"
+            ]
+          },
+          "maxItems": 17,
+          "uniqueItems": true
+        },
+        "ranges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 67108864
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 67108864
+              },
+              "kind": {
+                "enum": [
+                  "header",
+                  "skipped",
+                  "unexamined"
+                ]
+              },
+              "reason": {
+                "enum": [
+                  "box_header",
+                  "brand_table",
+                  "leaf_payload",
+                  "unknown_payload",
+                  "metadata_payload",
+                  "unsupported_context",
+                  "truncated_base_header",
+                  "truncated_extended_header",
+                  "truncated_uuid_header",
+                  "size_below_header",
+                  "box_beyond_parent",
+                  "unsupported_nested_size_zero",
+                  "invalid_ftyp_shape",
+                  "box_limit",
+                  "depth_limit",
+                  "brand_limit",
+                  "range_limit",
+                  "output_limit",
+                  "time_limit"
+                ]
+              }
+            },
+            "required": [
+              "offset",
+              "length",
+              "kind",
+              "reason"
+            ],
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "header"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "reason": {
+                      "enum": [
+                        "box_header",
+                        "brand_table"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "skipped"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "reason": {
+                      "enum": [
+                        "leaf_payload",
+                        "unknown_payload",
+                        "metadata_payload",
+                        "unsupported_context"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "unexamined"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "reason": {
+                      "enum": [
+                        "truncated_base_header",
+                        "truncated_extended_header",
+                        "truncated_uuid_header",
+                        "size_below_header",
+                        "box_beyond_parent",
+                        "unsupported_nested_size_zero",
+                        "invalid_ftyp_shape",
+                        "box_limit",
+                        "depth_limit",
+                        "brand_limit",
+                        "range_limit",
+                        "output_limit",
+                        "time_limit"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "maxItems": 8193
+        }
+      },
+      "required": [
+        "input_bytes",
+        "header_bytes",
+        "skipped_payload_bytes",
+        "unexamined_bytes",
+        "structure_complete",
+        "container_examined",
+        "selection_uncertain",
+        "reasons",
+        "ranges"
+      ]
+    },
+    "limitations": {
+      "const": [
+        "box_framing_only",
+        "opaque_payloads_unexamined",
+        "no_format_conformance_validation",
+        "no_media_type_confirmation",
+        "no_sample_or_playback_validation",
+        "no_time_or_codec_analysis",
+        "no_encryption_assessment",
+        "selected_file_only",
+        "unknown_identifiers_not_returned"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "evidence"
+        },
+        "evidence_id": {
+          "type": "string",
+          "pattern": "^EV-[0-9]{4,6}$",
+          "maxLength": 9
+        },
+        "evidence_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "container": {
+          "enum": [
+            "file",
+            "filesystem",
+            "tar",
+            "zip"
+          ]
+        },
+        "member_selected": {
+          "type": "boolean"
+        },
+        "selected_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "selected_size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "complete": {
+          "const": true
+        },
+        "method": {
+          "enum": [
+            "whole-file",
+            "archive-member",
+            "chain",
+            "nofatchain",
+            "contiguous",
+            "skip-allocated",
+            "skip-claimed",
+            "fat-chain",
+            "stale-chain",
+            "empty"
+          ]
+        },
+        "confidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "partition": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?:root|c[0-9]{1,10}(?:\\+[0-9]{1,10})?|n[0-9]{1,10}\\+[0-9]{1,10})/[0-9]{1,9}$",
+              "maxLength": 40
+            },
+            {
+              "type": "string",
+              "pattern": "^arc:[0-9]{1,6}$",
+              "maxLength": 10
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "deleted": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "parent_deleted": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "container_truncated": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "container_truncated_reasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "time",
+              "unsupported_archive_compression",
+              "incomplete_archive",
+              "max_metadata",
+              "max_entries",
+              "invalid_archive",
+              "unsupported_archive",
+              "trailing_data_unexamined",
+              "trailing_data",
+              "unsupported_sparse",
+              "steps",
+              "max_depth",
+              "max_dir_slots",
+              "max_total_slots",
+              "max_path_chars",
+              "beyond_image",
+              "dir_chain_broken",
+              "dir_unreadable",
+              "dir_unvalidated",
+              "unknown_container_limit"
+            ]
+          },
+          "maxItems": 20,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "kind",
+        "evidence_id",
+        "evidence_sha256",
+        "container",
+        "member_selected",
+        "selected_sha256",
+        "selected_size",
+        "complete",
+        "method",
+        "confidence",
+        "partition",
+        "ref",
+        "deleted",
+        "parent_deleted",
+        "container_truncated",
+        "container_truncated_reasons"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "container": {
+                "const": "file"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "member_selected": {
+                "const": false
+              },
+              "method": {
+                "const": "whole-file"
+              },
+              "confidence": {
+                "const": "high"
+              },
+              "partition": {
+                "type": "null"
+              },
+              "ref": {
+                "type": "null"
+              },
+              "deleted": {
+                "type": "null"
+              },
+              "parent_deleted": {
+                "type": "null"
+              },
+              "container_truncated": {
+                "type": "null"
+              },
+              "container_truncated_reasons": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "container": {
+                "enum": [
+                  "tar",
+                  "zip"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "member_selected": {
+                "const": true
+              },
+              "method": {
+                "const": "archive-member"
+              },
+              "confidence": {
+                "const": "high"
+              },
+              "partition": {
+                "type": "null"
+              },
+              "ref": {
+                "type": "string",
+                "pattern": "^arc:[0-9]{1,6}$",
+                "maxLength": 10
+              },
+              "deleted": {
+                "const": false
+              },
+              "parent_deleted": {
+                "type": "null"
+              },
+              "container_truncated": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "container": {
+                "const": "filesystem"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "member_selected": {
+                "const": true
+              },
+              "method": {
+                "enum": [
+                  "chain",
+                  "nofatchain",
+                  "contiguous",
+                  "skip-allocated",
+                  "skip-claimed",
+                  "fat-chain",
+                  "stale-chain",
+                  "empty"
+                ]
+              },
+              "partition": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4096
+              },
+              "ref": {
+                "type": "string",
+                "pattern": "^(?:root|c[0-9]{1,10}(?:\\+[0-9]{1,10})?|n[0-9]{1,10}\\+[0-9]{1,10})/[0-9]{1,9}$",
+                "maxLength": 40
+              },
+              "deleted": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "empty"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "selected_size": {
+                "const": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "partition": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "method": {
+          "enum": [
+            "auto",
+            "chain",
+            "nofatchain",
+            "contiguous",
+            "skip-allocated",
+            "skip-claimed",
+            "fat-chain",
+            "stale-chain"
+          ]
+        },
+        "max_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 45
+        }
+      },
+      "required": [
+        "partition",
+        "method",
+        "max_seconds"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "status",
+    "format",
+    "profile",
+    "framing_status",
+    "recognition",
+    "media_decoded",
+    "playback_verified",
+    "recording_time_verified",
+    "encryption_assessed",
+    "format_conformance_assessed",
+    "brands",
+    "boxes",
+    "observations",
+    "summary",
+    "coverage",
+    "limitations",
+    "source",
+    "params"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "properties": {
+              "container": {
+                "enum": [
+                  "file",
+                  "tar",
+                  "zip"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "properties": {
+              "partition": {
+                "type": "null"
+              },
+              "method": {
+                "const": "auto"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.media-inventory/v1",
+  "title": "선택 파일 BMFF 박스 구조 관찰"
+}

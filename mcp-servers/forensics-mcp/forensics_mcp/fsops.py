@@ -637,7 +637,8 @@ def merge_reasons(reasons: Iterable[str], unresolved: Iterable[dict[str, Any]]) 
 
 def resolve_targets(vol: Any, refs: Iterable[str], paths: Iterable[str], *, limits: Limits, deadline: float,
                     check: Callable[[], None] | None = None,
-                    cancel: Callable[[], Any] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+                    cancel: Callable[[], Any] | None = None,
+                    include_parent_deleted: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """refs·paths → (추출할 항목, 찾지 못한 것 [{ref|path, code, reason}]). 중복을 없앤다(순서 유지, 같은 항목을 가리키는 ref·path 도).
 
     엔진 호출(reachable_dirspecs·entry·lookup)마다 예산을 새로 만든다: job 마감(deadline)·취소 함수(cancel)를 함께 쓰고 단계 상한은
@@ -650,6 +651,7 @@ def resolve_targets(vol: Any, refs: Iterable[str], paths: Iterable[str], *, limi
     없으면 그 ref 만 refs_unverifiable(찾은 dirspec 의 ref 는 검증된 것이라 받는다). 검증된 ref 가 하나도 없고 paths 도 없으면
     FsError(refs_unverifiable) — job 실패.
     모양이 다른 ref 는 순회 없이 bad_ref. ref 항목의 display_path 는 순회의 디렉터리 경로 + '/' + 표시 이름이다.
+    include_parent_deleted=True면 같은 순회에서 얻은 부모 삭제 문맥(bool/미확인 None)을 ref 항목에 덧붙인다.
 
     paths 는 검증한 디렉터리만 지나는 ``vol.lookup`` 으로 찾는다(정확히 같은 이름이 먼저, 없으면 대소문자 무시 — 여럿이면
     ambiguous_path). 항목의 display_path 는 lookup 이 돌려준 디스크의 이름(8.3 별칭·대소문자 변형이 아닌)이고, 호출자가 쓴 철자가
@@ -680,18 +682,21 @@ def resolve_targets(vol: Any, refs: Iterable[str], paths: Iterable[str], *, limi
         status, why = "complete", None
         dirspecs: set[str] = set()
         dpaths: dict[str, str] = {}
+        parent_deleted: dict[str, bool | None] = {}
         if specs:
             b = call_budget()
             if b is None:
                 status, why = "truncated", "time"
             else:
-                reach = vol.reachable_dirspecs(limits=limits, budget=b, targets=sorted(specs))
+                context_kw = {"include_parent_deleted": True} if include_parent_deleted else {}
+                reach = vol.reachable_dirspecs(limits=limits, budget=b, targets=sorted(specs), **context_kw)
                 why = reach.get("truncated_reason")
                 if why == "cancelled":
                     checkpoint()
                 status = str(reach.get("status") or ("truncated" if reach.get("truncated") else "complete"))
                 dirspecs = set(reach.get("dirspecs") or ())
                 dpaths = dict(reach.get("paths") or {})
+                parent_deleted = dict(reach.get("parent_deleted") or {})
         verified = [r for r, s in parsed if s is not None and s in dirspecs]
         missing = [r for r, s in parsed if s is not None and s not in dirspecs]
         if status == "truncated" and missing and not verified and not paths:
@@ -725,6 +730,9 @@ def resolve_targets(vol: Any, refs: Iterable[str], paths: Iterable[str], *, limi
                 continue
             seen_refs.add(e.get("ref"))
             e["display_path"] = _join_display(dpaths.get(spec), e.get("display_name"))
+            if include_parent_deleted:
+                context = parent_deleted.get(spec)
+                e["parent_deleted"] = context if type(context) is bool else None
             targets.append(e)
     for ptxt in paths:
         checkpoint()
@@ -755,24 +763,28 @@ def resolve_targets(vol: Any, refs: Iterable[str], paths: Iterable[str], *, limi
 
 
 def read_selected_image(img: ImageReader, *, partition: int | None, ref: str | None, path: str | None,
-                        method: str, max_bytes: int, deadline: float, cancel: Callable[[], bool]) -> tuple[bytes, dict[str, Any]]:
+                        method: str, max_bytes: int, deadline: float, cancel: Callable[[], bool],
+                        allow_empty: bool = False) -> tuple[bytes, dict[str, Any]]:
     """FAT/exFAT 의 검증된 파일 1개를 읽는다. 디렉터리 도달 가능성·완전한 복구 계획을 먼저 확인한다.
 
     ref 는 목록과 같은 검증 순회를 거치고 path 는 검증된 디렉터리 lookup 을 쓴다. 삭제 파일은 선택한 복구 방법·신뢰도를
     출처에 남긴다. 잘린/예산 부족 계획을 완전한 정지이미지로 넘기지 않는다. 호스트 추출 파일을 만들거나 다시 열지 않는다.
+    allow_empty=True는 실제 항목 크기도 0인 완전한 빈 파일만 허용한다. 기본값은 기존 정지이미지의 빈 파일 거부다.
     """
     from pweh.evidence import image_hints_checkpoint
 
     def check() -> None:
         image_hints_checkpoint(deadline, cancel)
 
+    if type(allow_empty) is not bool:
+        raise FsError("allow_empty는 bool이어야 합니다.", reason="bad_argument")
     left = image_hints_checkpoint(deadline, cancel)
     limits = dataclasses.replace(Limits(), max_seconds=left, max_read_bytes=max_bytes)
     p, vol = open_partition_volume(img, partition, limits=limits,
                                     budget=engine_budget(None, limits, deadline=deadline, cancel=cancel))
     check()
     entries, unresolved = resolve_targets(vol, [ref] if ref else [], [path] if path else [], limits=limits,
-                                           deadline=deadline, check=check, cancel=cancel)
+                                           deadline=deadline, check=check, cancel=cancel, include_parent_deleted=True)
     if unresolved or len(entries) != 1:
         reason = str(unresolved[0].get("code")) if unresolved else "not_found"
         raise FsError("이미지 파일 1개를 검증해 선택하지 못했습니다.", reason=reason, data={"unresolved": unresolved})
@@ -787,8 +799,9 @@ def read_selected_image(img: ImageReader, *, partition: int | None, ref: str | N
     if not pd.get("complete") or pd.get("limit_reason") or pd.get("status") == "limit" or pd.get("bytes_beyond_image"):
         raise FsError("파일 내용 계획이 불완전해 이미지 분석에 넘기지 않습니다.", reason="incomplete_file",
                        data={k: pd.get(k) for k in ("complete", "status", "limit_reason", "bytes_beyond_image")})
-    if not 0 < plan.size <= max_bytes:
-        raise FsError(f"이미지는 0 바이트 초과, {max_bytes} 바이트 이하여야 합니다.", reason="bad_argument")
+    empty = allow_empty and plan.size == 0 and entry.get("size") == 0
+    if not empty and not 0 < plan.size <= max_bytes:
+        raise FsError(f"선택 파일 크기가 허용 범위 밖입니다(최대 {max_bytes} 바이트).", reason="bad_argument")
     chunks: list[bytes] = []
     size = 0
     for chunk in vol.iter_plan(plan, max_bytes=max_bytes):
@@ -802,6 +815,7 @@ def read_selected_image(img: ImageReader, *, partition: int | None, ref: str | N
     data = b"".join(chunks)
     return data, {"partition": p.get("index"), "ref": entry.get("ref"), "path": entry.get("display_path"),
                   "requested_path": entry.get("requested_path"), "deleted": bool(entry.get("deleted")),
+                  "parent_deleted": entry.get("parent_deleted") if type(entry.get("parent_deleted")) is bool else None,
                   "method": pd.get("method"), "confidence": pd.get("confidence"), "complete": True,
                   "note": pd.get("note"), "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
 
@@ -949,13 +963,16 @@ def archive_inventory(fd: int, *, max_entries: int = LIST_MAX_ENTRIES, deadline:
 
 def read_selected_file(fd: int, *, partition: int | None = None, ref: str | None = None, path: str | None = None,
                        method: str = "auto", max_bytes: int, deadline: float,
-                       cancel: Callable[[], bool]) -> tuple[bytes, dict[str, Any]]:
+                       cancel: Callable[[], bool], allow_empty: bool = False) -> tuple[bytes, dict[str, Any]]:
     """검증된 EV fd 자체 또는 FAT/exFAT·TAR/ZIP 항목 1개의 완전한 바이트를 반환한다.
 
     fd 의 소유/무결성 확인은 호출자가 E.open_checked 로 한다. 결과를 커밋할 때도 같은 fd 를 재검증해야 한다.
+    allow_empty는 FS 선택의 빈 파일 허용만 제어한다. EV 자체·아카이브의 기존 빈 bytes 동작은 유지한다.
     """
     from pweh.archive import Archive, checkpoint, kind
     checkpoint(deadline, cancel)
+    if type(allow_empty) is not bool:
+        raise FsError("allow_empty는 bool이어야 합니다.", reason="bad_argument")
     if ref is not None and path is not None:
         raise FsError("ref 와 path 를 동시에 지정할 수 없습니다.", reason="bad_argument")
     if ref is None and path is None:
@@ -986,7 +1003,7 @@ def read_selected_file(fd: int, *, partition: int | None = None, ref: str | None
                       "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
     with image_reader(fd) as img:
         data, source = read_selected_image(img, partition=partition, ref=ref, path=path, method=method,
-                                           max_bytes=max_bytes, deadline=deadline, cancel=cancel)
+                                           max_bytes=max_bytes, deadline=deadline, cancel=cancel, allow_empty=allow_empty)
     return data, {"container": "filesystem", "member_selected": True, **source}
 
 
