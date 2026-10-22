@@ -163,8 +163,8 @@
   연결된 sigrok 장치 스캔. 인자 없으면 모든 드라이버로 USB 등 자동 탐지(읽기 전용 식별). driver 로 한정 가능. conn(시리얼 /dev/ttyACM0, USB 'bus.addr'/'VID.PID', 'tcp-raw/host/port') 을 주면 그 포트로 식별 질의를 보내므로 시리얼/네트워크 conn 은 case_id(소유/허가 증명)가 필요하다. 명시 직렬 conn 은 
 - **`sigrok_device_info(case_id, driver, conn?, timeout_s?, backend?, approval_id?)`**  
   로직 애널라이저 상세(sigrok-cli -d <driver> --show 파싱): 드라이버 기능, 채널/채널 그룹, 지원 samplerate 목록 또는 범위, 지원 트리거 문자, 최대 샘플 수를 조회한다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용. 명시 직렬 conn 은 공통 포트 잠금·route 재검증·target/bridge 거부를 적용한다. backend
-- **`sigrok_capture(case_id, driver, samplerate?, duration_ms?, samples?, channels?, triggers?, output_name?, conn?, capture_ratio?, background?, timeout_s?)`**  
-  로직 애널라이저 캡처 → cases/<id>/signals/<name>.sr (srzip) 저장 + 아티팩트 등록. 입력 전용(OBSERVE)이지만 케이스 소유/허가 증명이 필요. driver 필수(sigrok_scan 결과), samplerate 예 '1m'/'8MHz'/'24m'(소문자 m=MHz, 정수 Hz 로 변환), duration_ms 와 samples 중 정확히 하나. chann
+- **`sigrok_capture(case_id, driver, samplerate?, duration_ms?, samples?, channels?, triggers?, output_name?, conn?, capture_ratio?, background?, timeout_s?, backend?, approval_id?)`**  
+  로직 애널라이저 캡처 → cases/<id>/signals/<name>.sr (srzip) 저장 + 아티팩트 등록. 입력 신호 캡처이며 케이스 소유/허가 증명이 필요. driver 필수(sigrok_scan 결과), samplerate 예 '1m'/'8MHz'/'24m'(소문자 m=MHz, 정수 Hz 로 변환). Linux는 duration_ms 와 samples 중 정확히 하나. Linux
 - **`sigrok_decode(case_id, input_path, decoders, annotations?, input_format?, samplenum?, max_lines?, background?, timeout_s?, output_name?)`**  
   sigrok-cli 로 신호 파일 디코드: -i <input_path> [-I input_format] -P <스택들> [-A annotations] [--protocol-decoder-samplenum]. 결과 전체는 signals/<입력>.<디코더>.txt 로 저장(아티팩트 signal-decode)하고 앞 max_lines 줄 미리보기와 줄 수/인스턴스별 개수를 반환. decoders 
 - **`sigrok_export(case_id, input_path, output_format?, output_name?, input_format?, timeout_s?)`**  

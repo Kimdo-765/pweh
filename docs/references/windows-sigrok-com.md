@@ -1,6 +1,6 @@
 # Windows OLS COM 스캔·장치 정보 조회
 
-WSL에서 등록 sigrok Windows 번들로 **명시한 OLS 계측기 COM 하나**를 조회한다. `sigrok_scan`과 `sigrok_device_info`의 기본값은 `backend="linux"`다. Windows 경로는 `backend="windows"`, `driver="ols"`, 소유/허가가 기록된 `case_id`, `conn="COMn"`을 모두 요구한다. 정규 COM1–COM4096만 받으며 자동 포트 선택·다른 드라이버·USB 주소·네트워크·Windows 캡처는 지원하지 않는다.
+WSL에서 등록 sigrok Windows 번들로 **명시한 OLS 계측기 COM 하나**를 조회한다. `sigrok_scan`과 `sigrok_device_info`의 기본값은 `backend="linux"`다. Windows 경로는 `backend="windows"`, `driver="ols"`, 소유/허가가 기록된 `case_id`, `conn="COMn"`을 모두 요구한다. 정규 COM1–COM4096만 받으며 자동 포트 선택·다른 드라이버·USB 주소·네트워크는 지원하지 않는다. 유한 캡처는 별도 [캡처 계약](windows-sigrok-capture.md)을 사용한다.
 
 ## 호출과 고정 명령
 
@@ -40,7 +40,7 @@ Windows owner는 복사나 Windows 제어 실행 전에 포트 lease에 연결�
 
 ## 검증 범위와 소스 근거
 
-포트·정책·승인 결속·fresh 검사·프로세스 신원·부분 준비 실패·취소·정리 미확인·결과 투영은 합성 시험으로 검증한다. **실제 Windows COM/PnP 조회·OLS 장치 접근·드라이버 설치는 수행하지 않았다.** Windows 캡처와 실제 장비 호환성 검증은 후속이며, 이 구현을 실제 장치 시험 통과로 표시하지 않는다.
+포트·정책·승인 결속·fresh 검사·프로세스 신원·부분 준비 실패·취소·정리 미확인·결과 투영은 합성 시험으로 검증한다. **실제 Windows COM/PnP 조회·OLS 장치 접근·드라이버 설치는 수행하지 않았다.** 유한 캡처의 합성 검증은 별도 계약에 기록한다. 실제 장비 호환성 검증은 후속이며, 이 구현을 실제 장치 시험 통과로 표시하지 않는다.
 
 근거는 배포물이 보고한 동일 버전의 upstream 소스다. 이 대조가 배포 바이너리의 재현 빌드 동등성을 증명하지는 않는다.
 

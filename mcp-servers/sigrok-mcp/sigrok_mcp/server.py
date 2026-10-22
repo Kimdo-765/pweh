@@ -243,6 +243,20 @@ def _probe_classification(use: _SerialUse | None, action: dict[str, Any], cls: C
     return cls
 
 
+def _capture_classification(use: _SerialUse | None, action: dict[str, Any], cls: Classification) -> Classification:
+    """허용된 OLS 직렬 캡처의 reset·설정·acquisition 효과만 별도로 승격한다."""
+    cls = _port_classification(use, action, cls)
+    if use is not None:
+        action["reset_scope"] = list(use.keys)
+    if action.get("driver") == "ols" and conn_kind(action.get("conn")) == "serial":
+        action["backend"] = use.backend if use else "linux"
+        action["capture_rule"] = "ols-serial-capture-reset-v1"
+        return Classification(Risk.MODIFY, "sigrok.ols.capture-reset",
+                              "OLS 직렬 캡처는 reset·ID 질의 뒤 장치를 설정하고 acquisition을 시작합니다.",
+                              matched=cls.matched)
+    return cls
+
+
 def _port_worker(use: _SerialUse | None, work: Callable, finish: Callable, cancel_event: threading.Event) -> dict[str, Any]:
     if use is not None and not use.handoff.claim_worker():
         return {"ok": False, "status": "cancelled"}
@@ -991,13 +1005,16 @@ def _salvage_partial(case: Case, plan: CapturePlan) -> dict[str, Any] | None:
 
 @server.tool(
     description=(
-        "로직 애널라이저 캡처 → cases/<id>/signals/<name>.sr (srzip) 저장 + 아티팩트 등록. 입력 전용(OBSERVE)이지만 케이스 소유/허가 증명이 필요. "
-        "driver 필수(sigrok_scan 결과), samplerate 예 '1m'/'8MHz'/'24m'(소문자 m=MHz, 정수 Hz 로 변환), duration_ms 와 samples 중 정확히 하나. "
-        "channels 예 ['D0','D1'] 또는 ['D0=RX','D1=TX'](0번부터 연속 선택 권장), triggers 예 'RX=f'(rename 후 이름, 문자 0/1/r/f/e), "
+        "로직 애널라이저 캡처 → cases/<id>/signals/<name>.sr (srzip) 저장 + 아티팩트 등록. 입력 신호 캡처이며 케이스 소유/허가 증명이 필요. "
+        "driver 필수(sigrok_scan 결과), samplerate 예 '1m'/'8MHz'/'24m'(소문자 m=MHz, 정수 Hz 로 변환). Linux는 duration_ms 와 samples 중 정확히 하나. "
+        "Linux channels 예 ['D0','D1'] 또는 ['D0=RX','D1=TX'](0번부터 연속 선택 권장), triggers 예 'RX=f'(rename 후 이름, 문자 0/1/r/f/e), "
         "capture_ratio=트리거 전 비율(%), conn=장치 지정. 전원공급기 등 출력 장치와 samplerate/captureratio 외 config 는 거부. "
         "예상 20초 초과 또는 트리거 사용 시 job 으로 실행되어 job_id 반환 → sigrok_job_status 로 폴링 (background 로 강제 가능). "
         "부트 로그는 캡처를 먼저 시작한 뒤 사람이 대상 전원을 넣도록 안내한다. "
-        "명시 직렬 conn 의 공통 포트 잠금은 worker의 프로세스 정리가 확인될 때까지 유지하며, libusb 장치 선택은 이 직렬 잠금의 대상이 아니다."
+        "명시 직렬 conn 의 공통 포트 잠금은 worker의 프로세스 정리가 확인될 때까지 유지하며, libusb 장치 선택은 이 직렬 잠금의 대상이 아니다. "
+        "backend 기본 linux; windows는 ols+COM+유한 samples(4의 배수)+명시 0번부터 연속 숫자채널만 지원한다. "
+        "Windows duration_ms/triggers/capture_ratio는 미지원. OLS 명시 직렬 캡처는 MODIFY이며 approval_id 재시도를 지원한다. "
+        "Windows 출력은 같은 fd 검증·artifact 등록·실제 종료/정리 확인을 거치며 미확인 상태는 결과와 잠금을 보존한다."
     ),
     annotations=ANN_DEVICE,
 )
@@ -1015,8 +1032,17 @@ async def sigrok_capture(
     capture_ratio: int | None = None,
     background: bool | None = None,
     timeout_s: float | None = None,
+    backend: str = "linux",
+    approval_id: str | None = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
+    if backend not in ("linux", "windows"):
+        raise ValidationFailed("backend는 linux 또는 windows여야 합니다.")
+    if backend == "windows":
+        from .windows_capture_tools import capture
+        return await capture(case_id=case_id,driver=driver,samplerate=samplerate,duration_ms=duration_ms,
+            samples=samples,channels=channels,triggers=triggers,output_name=output_name,conn=conn,
+            capture_ratio=capture_ratio,background=background,timeout_s=timeout_s,approval_id=approval_id,ctx=ctx)
     r = rt()
     case = r.case(case_id, hardware=True)
     drv = validate_driver(driver)
@@ -1065,8 +1091,8 @@ async def sigrok_capture(
             for j in r.jobs.list(active_only=True):
                 if (j.get("meta") or {}).get("exclusive_key") == exclusive_key:
                     raise Busy(f"같은 장치로 캡처 작업이 실행 중입니다: {j['job_id']}", hint="sigrok_job_status 로 확인하거나 sigrok_job_cancel 로 취소하라.")
-            cls = _port_classification(use, action, cls)
-            decision = await r.authorize(tool="sigrok_capture", action=action, classification=cls, case_id=case.id, ctx=ctx)
+            cls = _capture_classification(use, action, cls)
+            decision = await r.authorize(tool="sigrok_capture", action=action, classification=cls, case_id=case.id, approval_id=approval_id, ctx=ctx)
             if not decision.allowed:
                 return gate_response(decision)
 

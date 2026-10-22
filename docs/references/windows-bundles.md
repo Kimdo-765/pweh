@@ -2,7 +2,7 @@
 
 ## 범위
 
-이미 추출한 고정 OpenOCD/sigrok Windows payload를 등록된 파일 목록·크기·SHA-256과 대조하고 관리 디렉터리에 복사한다. 새 다운로드나 Windows 설치 프로그램 실행 없이 로컬 설치 상태를 확인할 수 있다. 이 설치는 Windows 실행·USB/COM 사용·드라이버 설치를 수행하지 않는다. 별도의 [OpenOCD 무장치 진단 세션](windows-openocd-dummy.md)과 [sigrok 버전·목록 조회](windows-sigrok-info.md), [OLS COM 조회](windows-sigrok-com.md)가 검증된 설치본을 소비한다.
+이미 추출한 고정 OpenOCD/sigrok Windows payload를 등록된 파일 목록·크기·SHA-256과 대조하고 관리 디렉터리에 복사한다. 새 다운로드나 Windows 설치 프로그램 실행 없이 로컬 설치 상태를 확인할 수 있다. 이 설치는 Windows 실행·USB/COM 사용·드라이버 설치를 수행하지 않는다. 별도의 [OpenOCD 무장치 진단 세션](windows-openocd-dummy.md)과 [sigrok 버전·목록 조회](windows-sigrok-info.md), [OLS COM 조회](windows-sigrok-com.md)·[유한 캡처](windows-sigrok-capture.md)가 검증된 설치본을 소비한다.
 
 등록된 SHA는 저장소의 manifest/index에서 가져온다. 입력 디렉터리의 현재 해시로 신뢰 기준을 새로 만들거나, 명시한 경로가 잘못됐을 때 시스템 설치로 대체하지 않는다. 검증 성공은 그 시점의 파일 집합 일치이며 서명·실행 가능·장치 지원의 증거가 아니다.
 

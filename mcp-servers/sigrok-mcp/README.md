@@ -24,7 +24,7 @@ REA 의 `decode_signal_recording` / `inspect_signal_decoders` 는 이미 녹화�
 | `sigrok_list(kind="drivers"\|"decoders"\|"input-formats"\|"output-formats"\|"transforms"\|"all", query=None, backend="linux")` | 지원 목록. drivers 항목에는 캡처 정책(`capture_allowed`, `output_capable`, `reason`)이 붙는다 |
 | `sigrok_decoder_help(decoder)` | 디코더의 채널, 옵션(값 목록·기본값), annotation 클래스와 행, 바이너리 클래스, 문서, `example_stack` |
 | `sigrok_device_info(case_id, driver, conn=None, backend="linux", approval_id=None)` *(추가)* | 드라이버 기능, 채널 그룹, 지원 samplerate 목록 또는 범위, 트리거 문자, 최대 샘플 수 |
-| `sigrok_capture(case_id, driver, samplerate="1m", duration_ms=None, samples=None, channels=None, triggers=None, output_name=None, conn=None, capture_ratio=None, background=None, timeout_s=None)` | `duration_ms` 와 `samples` 중 **정확히 하나**를 준다(둘 다 없거나 둘 다 주면 `validation_failed`). `signals/<name>.sr` 를 만들고 아티팩트로 등록한다. `path`, `samples`, `samplerate`, `channels`, 채널별 `activity`, `next_steps` 를 돌려준다. 예상 시간이 20초를 넘거나 트리거를 쓰면 job 으로 돌고 `job_id` 를 반환한다 |
+| `sigrok_capture(case_id, driver, samplerate="1m", duration_ms=None, samples=None, channels=None, triggers=None, output_name=None, conn=None, capture_ratio=None, background=None, timeout_s=None, backend="linux", approval_id=None)` | Linux는 `duration_ms` 와 `samples` 중 **정확히 하나**를 준다. Windows OLS는 명시 `samples`와 연속 숫자 채널을 요구한다. 잘못된 조합은 `validation_failed`다. `signals/<name>.sr` 를 만들고 아티팩트로 등록한다. `path`, `samples`, `samplerate`, `channels`, 채널별 `activity`, `next_steps` 를 돌려준다. 예상 시간이 20초를 넘거나 트리거를 쓰면 job 으로 돌고 `job_id` 를 반환한다 |
 | `sigrok_decode(case_id, input_path, decoders, annotations=None, input_format=None, samplenum=False, max_lines=400, background=None)` | 결과 전체를 `signals/<입력>.<디코더>.txt` 로 저장한다(`signal-decode`). `lines`(미리보기), `lines_total`, `instances`, `sample_range` 를 돌려준다 |
 | `sigrok_export(case_id, input_path, output_format="vcd", output_name=None)` | 형식을 변환한다(srzip↔vcd, csv 등). 출력이 vcd/srzip 이면 다시 읽어서 검증한다 |
 | `sigrok_file_info(case_id, input_path)` *(추가)* | 순수 Python 으로 만든 요약(형식, samplerate, 채널, 샘플 수, 길이)과 채널별 활동(에지 수, high 비율, 처음/끝 레벨), `uart_candidates` |
@@ -45,13 +45,17 @@ REA 의 `decode_signal_recording` / `inspect_signal_decoders` 는 이미 녹화�
 
 ## Windows 무장치 정보 조회
 
-`sigrok_version(backend="windows")`와 `sigrok_list(backend="windows")`는 등록 Windows 번들의 버전·지원 목록만 조회한다. 요청별 전체 사본을 사용하고 실제 Windows 프로세스·wrapper 종료와 사본 검증을 마친 뒤 반환한다. 기본 Linux 경로와 캐시는 유지한다. 이 정보 조회는 장치를 열지 않는다. 별도 `sigrok_scan`·`sigrok_device_info`의 Windows 경로는 고정 OLS COM만 지원한다. Windows USB 자동 탐지·capture·decode는 지원하지 않는다.
+`sigrok_version(backend="windows")`와 `sigrok_list(backend="windows")`는 등록 Windows 번들의 버전·지원 목록만 조회한다. 요청별 전체 사본을 사용하고 실제 Windows 프로세스·wrapper 종료와 사본 검증을 마친 뒤 반환한다. 기본 Linux 경로와 캐시는 유지한다. 이 정보 조회는 장치를 열지 않는다. 별도 `sigrok_scan`·`sigrok_device_info`의 Windows 경로는 고정 OLS COM만 지원한다. Windows 유한 OLS capture는 별도 고정 프로필이며 USB 자동 탐지·decode는 지원하지 않는다.
 
 동봉 Python 3.4.4의 `signature` 디코더 오류가 재현되면 version은 `status="partial"`, `counts=null`, `list_complete=false`를 반환하고 list는 모든 kind에서 오류로 끝난다. 설치 선택·고정 명령·오류·취소/정리 계약은 [Windows 정보 조회](../../docs/references/windows-sigrok-info.md)를 본다.
 
 ## Windows OLS COM 조회
 
 `backend="windows"`, `driver="ols"`, `conn="COMn"`과 소유/허가 케이스를 명시한다. 고정 `ols-serial-v1` scan/show만 실행하며 프로토콜 reset 때문에 MODIFY다. `approval_required`이면 사람이 별도 터미널에서 승인한 뒤 `approval_id`를 전달한다. 명령·결과 투영·lease와 Windows 종료 확인·합성 시험 범위는 [COM 조회 계약](../../docs/references/windows-sigrok-com.md)을 본다. 실제 COM 접근·장비 검증은 아직 수행하지 않았다.
+
+## Windows OLS 유한 캡처
+
+`sigrok_capture(backend="windows", driver="ols", conn="COMn", samples=4096, channels=["0=RX"])`처럼 명시한다. 10Hz–100MHz, 4–8,388,608의 4배수 samples, 0부터 연속1–32채널만 받는다. 시간·트리거·ratio는 지원하지 않는다. 실제 Windows 종료 확인 뒤 bounded ZIP·CRC 검사와 같은 fd 복사를 마친 파일만 등록한다. 취소·샘플 부족·미검사 출력·정리 미확인과 job 수명은 [캡처 계약](../../docs/references/windows-sigrok-capture.md)을 따른다.
 
 ## 안전 정책
 
@@ -91,10 +95,10 @@ REA 의 `decode_signal_recording` / `inspect_signal_decoders` 는 이미 녹화�
 - **항상 `-d <driver>` 를 명시하고 `--dont-scan` 을 붙인다.** `-d` 없이 캡처하면 sigrok-cli 가 스캔된 장치를 자동으로 고른다. 그러면 전원공급기가 선택될 수도 있다.
 - 장치를 건드리는 모든 도구는 케이스 소유/허가 증명(`rt().case(case_id, hardware=True)`)을 요구한다. 실행할 **argv 그대로**를 분류기 `classify_sigrok_argv` 에 통과시킨 뒤 `rt().authorize` 를 거친다.
 - 디코드(`sigrok_decode` job, `sigrok_uart_autodecode` 의 sigrok-cli 경로)도 sigrok-cli 를 띄우기 직전에 argv 를 다시 분류해 **오프라인 명령(`sigrok.offline`)만** 실행한다.
-  - 위험도는 다음과 같다. USB 캡처는 OBSERVE 다. 시리얼/네트워크 `conn` 은 드라이버가 그 포트로 식별 바이트를 보내므로 INTERACT 다. OLS+명시 직렬 scan/show는 reset 때문에 MODIFY로 올려 기존 게이트를 적용한다.
+  - 위험도는 다음과 같다. USB 캡처는 OBSERVE 다. 시리얼/네트워크 `conn` 은 드라이버가 그 포트로 식별 바이트를 보내므로 INTERACT 다. OLS+명시 직렬 scan/show·capture는 reset 때문에 MODIFY로 올려 기존 게이트를 적용한다.
 - 시리얼 `conn` 을 다른 프로세스가 열고 있으면 거부한다(Busy). 예를 들어 uart-mcp 가 대상 콘솔을 열고 있는 경우다. 대상 U-Boot/쉘 콘솔에 OLS 프로브 바이트(0x00, 0x02 …)가 들어가는 사고를 막기 위해서다.
 - 명시 직렬 `conn`은 승인 전 공용 portlock lease를 잡고 action에 route 지문, 결과·job metadata에 공개 route를 남긴다. child 종료를 확인할 때까지 잠금을 유지하며 취소/고아 정리 미확인으로 먼저 풀지 않는다.
-  USB 자동 탐지·일반 libusb는 이 공용 잠금의 적용 범위 밖이다. Windows COM은 고정 OLS scan/show만 허용한다. 기본 Linux와 capture에서는 COM을 거부한다.
+  USB 자동 탐지·일반 libusb는 이 공용 잠금의 적용 범위 밖이다. Windows COM은 고정 OLS scan/show·유한 캡처만 허용한다. 기본 Linux에서는 COM을 거부한다.
 - 백그라운드 작업은 프로세스를 띄우기 직전에 같은 분류기로 argv 를 **다시 검사**한다.
 - 같은 장치로는 캡처를 동시에 하나만 돌린다.
 - subprocess 실행 규칙은 다음과 같다.

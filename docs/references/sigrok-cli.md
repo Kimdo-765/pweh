@@ -129,7 +129,7 @@ PE import에 필요한 `MSVCR100.dll`은 추출 트리에 없으며, 이번 두 
 
 ### 1.6 Windows OLS COM 조회
 
-명시 `backend="windows"`, `driver="ols"`, `conn="COMn"`의 scan/show를 [고정 COM 계약](windows-sigrok-com.md)으로 제공한다. 등록 버전의 OLS 탐색은 reset 5회와 ID·metadata 질의를 보내므로 MODIFY다. `--dont-scan`도 명시 driver의 probe를 생략하지 않는다. 이 구현의 검증은 합성 시험이며 실제 COM·장비 호환성은 미확인이다. Windows 캡처·USB 자동 탐지는 포함하지 않는다.
+명시 `backend="windows"`, `driver="ols"`, `conn="COMn"`의 scan/show를 [고정 COM 계약](windows-sigrok-com.md)으로 제공한다. 등록 버전의 OLS 탐색은 reset 5회와 ID·metadata 질의를 보내므로 MODIFY다. `--dont-scan`도 명시 driver의 probe를 생략하지 않는다. 이 구현의 검증은 합성 시험이며 실제 COM·장비 호환성은 미확인이다. 유한 샘플 캡처·job은 별도 [캡처 계약](windows-sigrok-capture.md)을 사용한다. Windows USB 자동 탐지는 포함하지 않는다.
 
 ## 2. 명령행 개요
 

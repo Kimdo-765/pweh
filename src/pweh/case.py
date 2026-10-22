@@ -21,11 +21,13 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import stat
+import time
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from .audit import AuditLog
 from .errors import AuthorizationRequired, CaseError, NotFound, ValidationFailed
@@ -233,8 +235,36 @@ class Case:
         extra: dict[str, Any] | None = None,
         compute_hash: bool = True,
         sha256: str | None = None,
+        check: Callable[[dict[str, Any]], None] | None = None,
+        on_commit: Callable[[dict[str, Any]], None] | None = None,
+        deadline: float | None = None,
+        replace_existing: bool = True,
     ) -> dict[str, Any]:
-        """아티팩트 등록(같은 경로는 갱신). sha256: 호출자가 이미 계산한 해시(예: 복사하면서 계산) — 주면 파일을 다시 읽지 않는다."""
+        """아티팩트 등록. 기본은 같은 경로 갱신, supplied sha256은 재해시하지 않는다.
+
+        선택 check(entry)는 metadata lock 안에서 최종 경로/크기/해시 seal을 검증한다.
+        on_commit(entry)는 원자 metadata 게시 직후 audit보다 먼저 호출된다. 그 뒤 오류는
+        이미 등록한 파일을 되돌리지 않는다. deadline은 이 등록의 잠금 대기도 제한한다.
+        """
+        if (type(replace_existing) is not bool or (check is not None and not callable(check))
+                or (on_commit is not None and not callable(on_commit))):
+            raise ValidationFailed("아티팩트 등록 옵션이 올바르지 않습니다.")
+        def remaining() -> float:
+            if deadline is None:
+                return 30.0
+            try:
+                if type(deadline) not in (int, float):
+                    raise ValueError
+                value = float(deadline)
+                if not math.isfinite(value):
+                    raise ValueError
+            except (OverflowError, ValueError):
+                raise ValidationFailed("아티팩트 등록 시간 상한이 올바르지 않습니다.") from None
+            left = value - time.monotonic()
+            if left <= 0:
+                raise CaseError("아티팩트 등록 시간 상한을 넘었습니다.", code="artifact_timeout")
+            return min(30.0, left)
+        remaining()
         p = self.resolve_path(path)
         if not p.exists():
             raise NotFound(f"아티팩트 파일이 없습니다: {p}")
@@ -262,6 +292,8 @@ class Case:
             # 같은 경로는 갱신
             for i, a in enumerate(arts):
                 if a.get("path") == entry["path"]:
+                    if not replace_existing:
+                        raise CaseError("이미 등록된 아티팩트 경로입니다.", code="artifact_exists")
                     entry["id"] = a.get("id")
                     arts[i] = entry
                     return entry
@@ -269,7 +301,21 @@ class Case:
             arts.append(entry)
             return entry
 
-        result = self._update(fn)
+        if check is None and on_commit is None and deadline is None and replace_existing:
+            result = self._update(fn)
+        else:
+            # 이 등록만의 선택 경계다. 공통 _update의 기존 호출 계약은 바꾸지 않는다.
+            with file_lock(self.lock_path, timeout=remaining()):
+                remaining()
+                meta = self.load()
+                result = fn(meta)
+                if check is not None and check(dict(result)) is not None:
+                    raise ValidationFailed("아티팩트 최종 검사가 완료되지 않았습니다.")
+                remaining()
+                meta["updated_at"] = utcnow_iso()
+                atomic_write_json(self.meta_path, meta)
+                if on_commit is not None:
+                    on_commit(dict(result))
         self.audit({"event": "artifact_registered", "artifact": result})
         return result
 

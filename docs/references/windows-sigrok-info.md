@@ -11,7 +11,7 @@ sigrok_version(backend="windows")
 sigrok_list(kind="drivers", query="fx2", backend="windows")
 ```
 
-버전 조회는 고정 `--version` 뒤 `--list-supported`를 실행하고, 목록 조회는 `--list-supported`만 실행한다. `kind`·`query`는 출력의 필터이며 명령 인자에 들어가지 않는다. 두 정보 도구에는 케이스나 포트가 필요하지 않다. 별도의 [OLS COM 조회](windows-sigrok-com.md)는 케이스·명시 포트·MODIFY 게이트를 사용한다. 캡처·디코드·export는 기존 Linux 경로를 사용한다.
+버전 조회는 고정 `--version` 뒤 `--list-supported`를 실행하고, 목록 조회는 `--list-supported`만 실행한다. `kind`·`query`는 출력의 필터이며 명령 인자에 들어가지 않는다. 두 정보 도구에는 케이스나 포트가 필요하지 않다. 별도의 [OLS COM 조회](windows-sigrok-com.md)는 케이스·명시 포트·MODIFY 게이트를 사용한다. Windows OLS의 유한 샘플 캡처는 별도 [캡처 계약](windows-sigrok-capture.md)을 사용한다. 디코드·export는 기존 Linux 경로를 사용한다.
 
 ## 결과와 알려진 디코더 오류
 
@@ -25,7 +25,7 @@ Windows 응답에는 `backend`, `status`, 등록 `bundle` 정보가 추가된다
 
 등록 번들의 `signature` 디코더에는 동봉 Python 3.4.4가 해석하지 못하는 숫자 리터럴 구분자가 있다. 최초 무장치 시험에서 이 오류를 확인했으므로 종료 코드 0이나 목록 개수만으로 전체 디코더가 정상이라고 표시하지 않는다. 이번 실행에서 관찰한 오류와 번들의 `known_limitations`는 구분한다. 원시 stderr·traceback·Windows 명령줄은 공개 오류에 넣지 않는다.
 
-공식 checksum·서명을 확보하지 못했으므로 등록 SHA-256은 최초 취득본 지문이다. 외부 `MSVCR100.dll`, ZIP 내부 DLL 검색과 의존성 라이선스 검토의 한계는 [취득 기록](sigrok-cli.md#14-windows-고정-취득본의-무장치-확인-2026-10-22)을 따른다. 드라이버의 `capture_allowed` 표시는 기존 캡처 정책이며 Windows 캡처 지원을 뜻하지 않는다.
+공식 checksum·서명을 확보하지 못했으므로 등록 SHA-256은 최초 취득본 지문이다. 외부 `MSVCR100.dll`, ZIP 내부 DLL 검색과 의존성 라이선스 검토의 한계는 [취득 기록](sigrok-cli.md#14-windows-고정-취득본의-무장치-확인-2026-10-22)을 따른다. 드라이버의 `capture_allowed` 표시는 기존 캡처 정책이며 해당 드라이버의 Windows 캡처 지원을 뜻하지 않는다. Windows 캡처는 별도 고정 OLS 프로필만 지원한다.
 
 ## 사본과 종료 확인
 
