@@ -36,7 +36,7 @@ def outputs(case):
     return list((case.dir / "forensics/analysis").glob("*.json"))
 
 
-@pytest.mark.parametrize("event", ["secrets-scan", "sqlite-inventory", "android-artifacts", "timeline"])
+@pytest.mark.parametrize("event", ["secrets-scan", "sd-ioc-scan", "sqlite-inventory", "android-artifacts", "timeline"])
 def test_analysis_held_fd_and_custody_lock_through_final_check(analysis_case, monkeypatch, event):
     case, log, opened, report = analysis_case
     created = []
@@ -185,6 +185,43 @@ def test_analysis_input_rechecked_under_same_commit_lock(analysis_case):
     assert [entry["event"] for entry in log.entries()] == ["intake"]
 
 
+def test_analysis_entries_callback_receives_current_entries_under_lock(analysis_case, monkeypatch):
+    case, log, opened, report = analysis_case
+    calls = []
+    original = E.recheck_opened
+
+    def recheck(*args, **kwargs):
+        original(*args, **kwargs)
+        calls.append("ev")
+
+    def check_entries(entries):
+        assert calls == ["ev"]
+        assert [entry["event"] for entry in entries] == ["intake"]
+        assert "hash" not in entries[0]
+        ffd = E.open_forensics(case)
+        try:
+            assert safeio.try_lock_at(ffd, E.CUSTODY_LOCK, create=False) is None
+        finally:
+            os.close(ffd)
+        calls.append("entries")
+
+    monkeypatch.setattr(E, "recheck_opened", recheck)
+    assert store(analysis_case, event="sd-ioc-scan", check_entries=check_entries)["ok"]
+    assert calls == ["ev", "entries"]
+
+
+def test_analysis_entries_callback_failure_prevents_commit(analysis_case):
+    case, log, opened, report = analysis_case
+
+    def reject(entries):
+        raise ValidationFailed("합성 목록 사건 불일치")
+
+    with pytest.raises(ValidationFailed):
+        store(analysis_case, event="sd-ioc-scan", check_entries=reject)
+    assert outputs(case) == []
+    assert [entry["event"] for entry in log.entries()] == ["intake"]
+
+
 def test_analysis_write_failure_does_not_delete_replaced_name(analysis_case, monkeypatch, tmp_path):
     case, log, opened, report = analysis_case
     write = safeio.write_all
@@ -226,12 +263,12 @@ def test_analysis_precommit_cancel_discards_only_owned_output(analysis_case, whe
     assert [e["event"] for e in log.entries()] == ["intake"]
 
 
-@pytest.mark.parametrize("event", ["secrets_scan", "secrets-scan/other", "other", "note", "image-hints"])
+@pytest.mark.parametrize("event", ["secrets_scan", "secrets-scan/other", "sd_ioc_scan", "sd-ioc-scan/other", "other", "note", "image-hints"])
 def test_analysis_unknown_event_stays_closed(analysis_case, event):
     case, log, opened, report = analysis_case
     with pytest.raises(ValidationFailed):
         store(analysis_case, event=event)
-    assert E.ANALYSIS_EVENTS == {"sqlite-inventory", "android-artifacts", "timeline", "secrets-scan"}
+    assert E.ANALYSIS_EVENTS == {"sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "sd-ioc-scan"}
     if event not in {"note", "image-hints"}:
         with pytest.raises(ValidationFailed):
             log.append(event, evidence_id=opened.evidence_id, data={})

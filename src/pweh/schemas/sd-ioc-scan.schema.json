@@ -1,0 +1,776 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "pweh.sd-ioc-scan/v1"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "ok",
+        "partial",
+        "unsupported"
+      ]
+    },
+    "association_basis": {
+      "const": "caller-selected-same-case"
+    },
+    "device_association_verified": {
+      "const": false
+    },
+    "volume_mapping": {
+      "const": "caller-selected-or-single-volume"
+    },
+    "selected_partition": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "matches": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "by_kind": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "exact_live_name": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "case_variant_candidate": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "deleted_name_candidate": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "uncertain_name": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            }
+          },
+          "required": [
+            "exact_live_name",
+            "case_variant_candidate",
+            "deleted_name_candidate",
+            "uncertain_name"
+          ]
+        },
+        "directory_references": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "ambiguous_matches": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "name_match_candidates",
+            "no_name_match_in_examined_scope"
+          ]
+        }
+      },
+      "required": [
+        "matches",
+        "by_kind",
+        "directory_references",
+        "ambiguous_matches",
+        "result"
+      ]
+    },
+    "matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "firmware_index": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000000
+          },
+          "card_ref": {
+            "type": "string",
+            "pattern": "^(?:root|c[0-9]{1,10}(?:\\+[0-9]{1,10})?|n[0-9]{1,10}\\+[0-9]{1,10})/[0-9]{1,9}$",
+            "maxLength": 44
+          },
+          "partition": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096
+          },
+          "match_kind": {
+            "type": "string",
+            "enum": [
+              "exact_live_name",
+              "case_variant_candidate",
+              "deleted_name_candidate",
+              "uncertain_name"
+            ]
+          },
+          "comparison": {
+            "type": "string",
+            "enum": [
+              "literal-exact",
+              "ascii-case-variant"
+            ]
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "exec",
+                "exec?",
+                "flash",
+                "update-file",
+                "trigger",
+                "serve",
+                "read-config",
+                "write-log",
+                "write",
+                "record",
+                "reference"
+              ]
+            },
+            "maxItems": 11
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "SD-01",
+                "SD-02",
+                "SD-03",
+                "SD-04",
+                "SD-05",
+                "SD-06",
+                "SD-07",
+                "SD-08",
+                "SD-09"
+              ]
+            },
+            "maxItems": 9
+          },
+          "ambiguous": {
+            "type": "boolean"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "unsupported_container",
+                "unsupported_volume",
+                "firmware_incomplete",
+                "firmware_coverage_unknown",
+                "listing_incomplete",
+                "listing_coverage_unknown",
+                "deleted_not_included",
+                "volume_incomplete",
+                "unmatchable_path",
+                "path_too_long",
+                "path_chars_limit",
+                "unknown_mount",
+                "relative_path_mismatch",
+                "unknown_metadata",
+                "nonascii_case_unexamined",
+                "uncertain_name",
+                "parent_unknown",
+                "deleted_name",
+                "parent_deleted",
+                "chain_unchecked",
+                "chain_incomplete",
+                "ambiguous_path",
+                "ascii_case_variant",
+                "entry_limit",
+                "ref_limit",
+                "match_limit",
+                "step_limit",
+                "time_limit",
+                "output_limit"
+              ]
+            },
+            "maxItems": 29
+          },
+          "confidence": {
+            "const": "possible"
+          }
+        },
+        "required": [
+          "firmware_index",
+          "card_ref",
+          "partition",
+          "match_kind",
+          "comparison",
+          "actions",
+          "checks",
+          "ambiguous",
+          "reasons",
+          "confidence"
+        ]
+      },
+      "maxItems": 200
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entries_total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "entries_processed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "entries_indexed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "entries_unmatchable": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "entries_remaining": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "firmware_refs_total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "firmware_refs_processed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "firmware_refs_matchable": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "firmware_refs_unmatchable": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "firmware_refs_remaining": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "uncertain_names": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "deleted_entries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "parent_deleted_entries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "chain_unchecked": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "chain_incomplete": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "cut_dirs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "unvalidated_dirs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
+        },
+        "whole_card_examined": {
+          "const": false
+        },
+        "deleted_scope_complete": {
+          "const": false
+        },
+        "ascii_only_case_variants": {
+          "const": true
+        },
+        "short_name_aliases_compared": {
+          "const": false
+        },
+        "comparison_complete": {
+          "type": "boolean"
+        },
+        "unprocessed_entry_ranges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "start": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000000
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200000
+              }
+            },
+            "required": [
+              "start",
+              "count"
+            ]
+          },
+          "maxItems": 1
+        },
+        "unprocessed_ref_ranges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "start": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000000
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200000
+              }
+            },
+            "required": [
+              "start",
+              "count"
+            ]
+          },
+          "maxItems": 1
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "unsupported_container",
+              "unsupported_volume",
+              "firmware_incomplete",
+              "firmware_coverage_unknown",
+              "listing_incomplete",
+              "listing_coverage_unknown",
+              "deleted_not_included",
+              "volume_incomplete",
+              "unmatchable_path",
+              "path_too_long",
+              "path_chars_limit",
+              "unknown_mount",
+              "relative_path_mismatch",
+              "unknown_metadata",
+              "nonascii_case_unexamined",
+              "uncertain_name",
+              "parent_unknown",
+              "deleted_name",
+              "parent_deleted",
+              "chain_unchecked",
+              "chain_incomplete",
+              "ambiguous_path",
+              "ascii_case_variant",
+              "entry_limit",
+              "ref_limit",
+              "match_limit",
+              "step_limit",
+              "time_limit",
+              "output_limit"
+            ]
+          },
+          "maxItems": 29
+        },
+        "reason_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "unsupported_container": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "unsupported_volume": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "firmware_incomplete": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "firmware_coverage_unknown": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "listing_incomplete": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "listing_coverage_unknown": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "deleted_not_included": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "volume_incomplete": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "unmatchable_path": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "path_too_long": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "path_chars_limit": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "unknown_mount": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "relative_path_mismatch": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "unknown_metadata": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "nonascii_case_unexamined": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "uncertain_name": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "parent_unknown": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "deleted_name": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "parent_deleted": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "chain_unchecked": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "chain_incomplete": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "ambiguous_path": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "ascii_case_variant": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "entry_limit": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "ref_limit": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "match_limit": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "step_limit": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "time_limit": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "output_limit": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            }
+          },
+          "required": []
+        }
+      },
+      "required": [
+        "entries_total",
+        "entries_processed",
+        "entries_indexed",
+        "entries_unmatchable",
+        "entries_remaining",
+        "firmware_refs_total",
+        "firmware_refs_processed",
+        "firmware_refs_matchable",
+        "firmware_refs_unmatchable",
+        "firmware_refs_remaining",
+        "uncertain_names",
+        "deleted_entries",
+        "parent_deleted_entries",
+        "chain_unchecked",
+        "chain_incomplete",
+        "cut_dirs",
+        "unvalidated_dirs",
+        "whole_card_examined",
+        "deleted_scope_complete",
+        "ascii_only_case_variants",
+        "short_name_aliases_compared",
+        "comparison_complete",
+        "unprocessed_entry_ranges",
+        "unprocessed_ref_ranges",
+        "reasons",
+        "reason_counts"
+      ]
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "name_candidates_only",
+          "no_content_comparison",
+          "no_execution_or_compromise_verification",
+          "no_device_association_verification",
+          "no_short_name_aliases",
+          "no_unicode_casefold",
+          "no_path_expansion",
+          "deleted_history_not_complete",
+          "firmware_artifact_index_not_protected_origin"
+        ]
+      },
+      "maxItems": 9
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "evidence"
+        },
+        "evidence_id": {
+          "type": "string",
+          "pattern": "^EV-[0-9]{4,6}$"
+        },
+        "evidence_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "firmware": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "pattern": "^analysis/sd-surface-[0-9]{3,9}\\.json$"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "artifact_id": {
+              "type": "string",
+              "pattern": "^A-[0-9]{4,8}$"
+            },
+            "origin_basis": {
+              "const": "case-artifact-index"
+            }
+          },
+          "required": [
+            "path",
+            "sha256",
+            "size",
+            "artifact_id",
+            "origin_basis"
+          ]
+        },
+        "listing": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "pattern": "^forensics/analysis/fs-list-EV-[0-9]{4,6}-[0-9]{3,9}\\.json$"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000
+            },
+            "custody_seq": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000000
+            },
+            "custody_hash": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "origin_basis": {
+              "const": "evidence-custody-list"
+            }
+          },
+          "required": [
+            "path",
+            "sha256",
+            "size",
+            "custody_seq",
+            "custody_hash",
+            "origin_basis"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "evidence_id",
+        "evidence_sha256",
+        "firmware",
+        "listing"
+      ]
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "partition": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_matches": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
+        "max_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 45
+        }
+      },
+      "required": [
+        "partition",
+        "max_matches",
+        "max_seconds"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "status",
+    "association_basis",
+    "device_association_verified",
+    "volume_mapping",
+    "selected_partition",
+    "summary",
+    "matches",
+    "coverage",
+    "limitations",
+    "source",
+    "params"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.sd-ioc-scan/v1",
+  "title": "SD 문자 경로 비교 결과"
+}

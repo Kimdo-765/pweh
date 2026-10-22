@@ -1,6 +1,6 @@
 ---
 name: sd-card-forensics
-description: Analyze an authorized SD card image or the firmware SD attack surface with pweh-forensics and fwtriage. The human images the card through a hardware write-blocker; PWEH accepts image files only. Evidence flow records hashes, custody, acquisition attestation, partitions, FAT/exFAT file lists, deleted-file extraction and an evidence list. Selected text uses forensics_scan_secrets for masked candidates and coverage only. Still-image clues use forensics_image_hints and image-hints-analysis; video/audio and direct evidence-file reads remain excluded. Security flow checks SD-01..09 in firmware and optional boot logs with a new blank test card. Records sd-forensics summary. SD 카드 포렌식, 카드 이미지, 삭제 파일 복구, 보관 기록, 쓰기 방지 장치.
+description: Analyze an authorized SD card image or the firmware SD attack surface with pweh-forensics and fwtriage. The human images the card through a hardware write-blocker; PWEH accepts image files only. Evidence flow records hashes, custody, acquisition attestation, partitions, FAT/exFAT file lists, deleted-file extraction and an evidence list. Selected text uses forensics_scan_secrets for masked candidates and coverage only. Existing firmware and card reports use forensics_sd_ioc_scan for name candidates, not compromise proof. Still-image clues use forensics_image_hints and image-hints-analysis; video/audio and direct evidence-file reads remain excluded. Security flow checks SD-01..09 in firmware and optional boot logs with a new blank test card. Records sd-forensics summary. SD 카드 포렌식, 카드 이미지, 삭제 파일 복구, 보관 기록, 쓰기 방지 장치.
 ---
 
 # SD 카드 포렌식 (sd-card-forensics)
@@ -16,7 +16,7 @@ PWEH 는 카드를 이미징하지 않고 원시 디스크를 열지 않는다 �
 - **evidence (증거 분석)**: 사람이 만든 카드 이미지를 접수해 해시(sha256·md5·sha1)·보관 기록(해시 체인)·접수 정보(목적·법적 근거·설치 장소 유형·업무 목적·역할)를 남긴다.
   획득 방법(쓰기 방지 장치)은 사람이 증명한다. 파티션 구조·호스트 오염 흔적·파일 시스템 목록(삭제 항목 포함)을 보고, 사용자에게 필요한 파일만 추출하고, 증거 목록(해시값 확인서)을 만든다.
 - **security (보안 분석)**: 펌웨어가 SD 카드를 어떻게 다루는지 본다 — 카드 내용 실행, 서명 없는 SD 업데이트, U-Boot 의 mmc 부팅·카드 스크립트, 약한 마운트 옵션 등(SD-01~09). 카드는 필요 없다. 부팅 로그는 **새 빈 시험 카드**로만 관찰한다.
-- **both**: 둘 다 하고, 펌웨어가 실행·플래시하는 카드 경로가 증거 카드에 있는지 대조한다(강한 침해 흔적 후보).
+- **both**: 둘 다 하고, 펌웨어가 실행·플래시하는 카드 경로가 증거 카드에 있는지 대조한다(이름 일치는 추가 검사 후보이며 실행·침해 증명이 아니다).
 - 끝에 `sd-forensics` 요약을 남긴다(master-prompt §5). 영상·음성 내용은 보지 않는다. 정지 그림의 상세 단서는 별도 image-hints 요약에 기록하고 SD 요약에는 결과 참조·반환 여부를 남긴다.
 
 ## 언제 쓰나
@@ -39,7 +39,7 @@ PWEH 는 카드를 이미징하지 않고 원시 디스크를 열지 않는다 �
 - **사람·장비** (security 부팅 로그, 선택): UART 세션(`uart-shell-acquisition`)과 새 빈 시험 카드.
 - **MCP 서버**: pweh-case, pweh-forensics(evidence), pweh-fwtriage(security), pweh-uart(부팅 로그).
 - **권한 확인**: 쓰는 forensics 도구(접수·검증·증명·목록·추출·증거 목록·job 취소)는 부를 때마다 Claude Code 가 사람에게 확인받는다(`.claude/settings.json` 의 ask). 처음에 알린다.
-  `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs`는 조회 전용이라 자동 허용이다. `forensics_image_hints`도 사용자의 정지 이미지 내용 반환 결정에 따라 별도 승인 없이 허용한다(로컬 분석 결과는 쓴다). `forensics_scan_secrets`도 선택 텍스트의 마스킹된 후보·검사 범위를 로컬 기록하는 자동 허용 도구다.
+  `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs`는 조회 전용이라 자동 허용이다. `forensics_image_hints`도 사용자의 정지 이미지 내용 반환 결정에 따라 별도 승인 없이 허용한다(로컬 분석 결과는 쓴다). `forensics_scan_secrets`·`forensics_sd_ioc_scan`도 마스킹된 후보·보고서 이름 대조를 로컬 기록하는 자동 허용 도구다.
 
 ## 안전 규칙
 
@@ -81,6 +81,7 @@ PWEH 는 카드를 이미징하지 않고 원시 디스크를 열지 않는다 �
 | `forensics_fs_list` | FAT12/16/32·exFAT 목록(삭제 항목 포함) — 전체 목록은 `forensics/analysis/` JSON |
 | `forensics_extract` | 고른 파일만 추출(job) → `forensics/recovered/` (직접 열지 않음) |
 | `forensics_scan_secrets` | 선택 텍스트 하나의 비밀값 후보·마스킹된 지문·검사/미검사 범위만 기록 |
+| `forensics_sd_ioc_scan` | 검증된 카드 목록과 기존 펌웨어 보고서의 이름 후보·검사 한계만 기록 |
 | `forensics_image_hints` | 선택한 정지 그림만 미리보기·OCR·QR·메타데이터 분석 → `image-hints-analysis` |
 | `forensics_verify_start`, `forensics_evidence_list` | 사본 전체 재해시(job), 증거 목록·보관 기록 검증·해시값 확인서 |
 | `fw_sd_surface`, `fw_rootfs_audit`, `fw_uboot_env`, `fwtriage_job_status` | 펌웨어의 SD 공격 표면 (security, 오프라인) |
@@ -297,9 +298,8 @@ uart_capture_boot(session_id="<session_id>", duration=60)
 - 카드 없이 한 번, 새 빈 시험 카드를 넣고 한 번 받는다. `sd_summary`(card_detected — false 는 감지 줄을 못 봤다는 뜻, counts, devices, filesystems)와 `sd_events`(update·script·uboot-script 줄), `sd_note` 를 10a 결과와 대조한다.
 
 **10c. 카드와 펌웨어 대조 (both)**
-- `sd_paths_referenced[].card_relative` 를 증거 카드의 목록 JSON 파일 하나(`forensics/analysis/fs-list-<EV>-NNN.json`, 삭제 항목 포함)에서 Grep 으로 찾는다. 대조 도구는 아직 없다.
-  목록이 잘렸으면(6단계 truncated) "일치 없음"은 본 범위에서만이다 — notes 에 그렇게 적는다.
-- 같은 경로가 있으면 security.card_matches_firmware_paths 에 넣고 "펌웨어가 실행·플래시하는 파일이 카드에 있음 — 강한 침해 흔적 후보" 로 사람에게 알린다. 그 파일도 열지 않는다(규칙 3). 발견사항 예시는 [reference.md §6](reference.md#6-발견사항-예시-both--카드와-펌웨어-경로-일치).
+- `forensics_sd_ioc_scan(case_id="<id>", evidence_id="EV-0001", firmware_result_path="analysis/sd-surface-001.json", fs_list_path="forensics/analysis/fs-list-EV-0001-001.json")`을 쓴다. 지원 볼륨이 여럿이면 `partition`을 지정한다. 두 입력은 기존 전체 JSON이며 카드 내용을 추출하거나 파일 도구로 열지 않는다.
+- `report`의 후보·coverage와 `analysis`의 위치/해시를 [reference.md §11](reference.md#11-펌웨어카드-보고서-이름-대조)에 따라 `ioc_scan_results`에 기록한다. 정확 이름도 실행·침해 증명이 아니며 자동 발견사항을 만들지 않는다. 원시 카드 경로·이름은 요약에 복사하지 않는다.
 
 ### 11. 요약 기록과 마무리
 

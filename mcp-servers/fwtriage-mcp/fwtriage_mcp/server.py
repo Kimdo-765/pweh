@@ -1072,8 +1072,8 @@ async def fw_sd_surface(
             steps.append("일부 점검이 시간·크기 예산으로 unknown 입니다: max_seconds·max_file_size 를 늘리거나 background=true 로 다시 실행.")
         steps.append("부팅 로그 수동 관찰은 uart_capture_boot 의 sd_events 로만 (카드 없음 vs 사람이 동의한 새 빈 시험 카드 — 증거 카드는 다시 넣지 않음).")
         if res["sd_paths_total"]:
-            steps.append("sd_paths_referenced(card_relative)는 카드 이미지가 있으면 pweh-forensics 의 forensics_fs_list 목록(결과 JSON 의 경로, 삭제 항목 포함)과 "
-                         "대조할 목록입니다 — 같은 경로의 파일이 카드에 있으면 침해 흔적 후보.")
+            steps.append("카드 이미지가 있으면 이 전체 결과 JSON과 forensics_fs_list 전체 목록을 forensics_sd_ioc_scan으로 대조합니다. "
+                         "이름 일치는 추가 검사 후보입니다. 정상 업데이트·설정 파일도 일치할 수 있으며 실행·침해를 증명하지 않습니다.")
         out["next_steps"] = steps
         return out
 

@@ -100,8 +100,8 @@ _QUARANTINE_RE = re.compile(r"^EV-(\d{4,6})-")
 #: 이미지 사본 이름으로 쓸 수 없는 이름 (같은 디렉터리의 접수 기록·로그 사본·잠금·복사 중 이름과 겹침)
 RESERVED_NAME_RE = re.compile(r"(?i)^(?:EV-\d+\.json|imaging-log\.txt|\.intake\.lock|.*\.partial)$")
 #: 보관 기록 사건 종류 (닫힌 집합)
-ANALYSIS_EVENTS = frozenset({"sqlite-inventory", "android-artifacts", "timeline", "secrets-scan"})
-CUSTODY_EVENTS = ("intake", "intake-aborted", "verify", "integrity-failed", "attest", "check", "list", "extract", "image-hints", "sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "evidence-list", "note")
+ANALYSIS_EVENTS = frozenset({"sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "sd-ioc-scan"})
+CUSTODY_EVENTS = ("intake", "intake-aborted", "verify", "integrity-failed", "attest", "check", "list", "extract", "image-hints", "sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "sd-ioc-scan", "evidence-list", "note")
 CUSTODY_ACTORS = ("server", "agent", "human")
 #: 빠른 지문: 앞·뒤 1 MiB 의 sha256 + 크기·mtime_ns
 FINGERPRINT_BLOCK = 1 << 20
@@ -1599,12 +1599,14 @@ def _discard_analysis_output(directory: int, name: str, fd: int) -> None:
 
 def store_analysis(case: Case, opened: OpenedEvidence, report: dict[str, Any], *, event: str,
                    custody_log: CustodyLog, reference_roots: Any = (), check: Callable[[], None] | None = None,
+                   check_entries: Callable[[list[dict[str, Any]]], None] | None = None,
                    on_commit: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """분석 JSON 을 0444 로 저장하고 같은 EV 를 재검증해 보관 기록에 결속한다.
 
     내용은 JSON 에만 두고 보관 기록·아티팩트에는 해시/크기/출처만 남긴다. 작성 fd를 커밋까지 유지하고
     custody 잠금 안에서 EV와 출력 seal을 재검증한다. 커밋 전 실패는 같은 신원의 생성 파일만 지우며,
-    커밋 뒤 감사·색인 오류나 취소는 이미 기록한 분석을 되돌리지 않는다. store_image_hints와는 별도 경로다.
+    커밋 뒤 감사·색인 오류나 취소는 이미 기록한 분석을 되돌리지 않는다. check_entries는 같은 잠금 아래
+    검증된 entries를 읽기만 하며, 로그를 다시 읽거나 잠금을 중첩하지 않는다. store_image_hints와는 별도 경로다.
     """
     if event not in ANALYSIS_EVENTS:
         raise ValidationFailed("지원하지 않는 분석 보관 기록 사건입니다.")
@@ -1644,6 +1646,8 @@ def store_analysis(case: Case, opened: OpenedEvidence, report: dict[str, Any], *
             if check:
                 check()
             recheck_opened(case, opened, entries, reference_roots=reference_roots)
+            if check_entries:
+                check_entries(entries)
             _check_analysis_output(case, dfd, name, fd, sealed)
 
         entry = custody_log.append(event, evidence_id=opened.evidence_id,

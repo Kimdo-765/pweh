@@ -6294,6 +6294,61 @@
      "openWorldHint": false
     },
     "meta": null
+   },
+   {
+    "name": "forensics_sd_ioc_scan",
+    "description": "같은 케이스의 fw_sd_surface 전체 결과와 같은 EV의 FAT/exFAT fs-list 전체 JSON을 대조해 펌웨어 참조 경로와 카드 파일 이름이 겹치는 후보를 찾는다. firmware_result_path는 analysis/sd-surface-NNN.json, fs_list_path는 forensics/analysis/fs-list-EV-NNNN-NNN.json의 생성 상대 경로다. 소유/허가·EV 지문·목록 보관 기록·펌웨어 아티팩트 해시를 확인하고 입력을 커밋까지 재검증한다. partition 생략 시 지원 볼륨 하나만 허용하며, max_matches는 1~200, max_seconds는 0 초 초과·최대 45초다. 원시 증거 내용·복구 파일은 읽지 않으며 TAR/ZIP은 받지 않는다. 정확 이름·ASCII 대소문자 변형·삭제 이름 후보와 불확실성·검사 한도를 구분한다. 같은 장치 출처·실행·악성 여부를 확인하지 않으며 0건도 검사 범위 내 이름 불일치만 뜻한다. 원시 카드 이름·경로·발췌 대신 생성 보고서 경로·해시·ref·배열 index·고정 분류만 반환한다. 결과 JSON은 forensics/analysis/에 0444로 저장하고 sd-ioc-scan 보관 기록에 결속한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "evidence_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "firmware_result_path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "fs_list_path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "partition",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "max_matches",
+      "type": "integer",
+      "required": false,
+      "default": 200
+     },
+     {
+      "name": "max_seconds",
+      "type": "number/integer",
+      "required": false,
+      "default": 45
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
    }
   ]
  },

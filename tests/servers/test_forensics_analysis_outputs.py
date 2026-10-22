@@ -21,7 +21,8 @@ def anyio_backend():
     return "asyncio"
 
 
-async def test_secrets_scan_inventory_recorded_tampered_missing_and_unrecorded(workspace, auth):
+@pytest.mark.parametrize("event", ["secrets-scan", "sd-ioc-scan"])
+async def test_analysis_inventory_recorded_tampered_missing_and_unrecorded(workspace, auth, event):
     from forensics_mcp import server as S
 
     case = CaseStore(workspace["cases_dir"]).create(title="합성 분석 목록", authorization=auth, case_id="analysis-inventory")
@@ -30,7 +31,7 @@ async def test_secrets_scan_inventory_recorded_tampered_missing_and_unrecorded(w
     with E.open_checked(case, ev, log.entries()) as opened:
         report = {"status": "ok", "source": {"kind": "evidence", "evidence_id": ev,
                   "evidence_sha256": opened.intake["hashes"]["sha256"]}, "params": {}, "matches": []}
-        result = E.store_analysis(case, opened, report, event="secrets-scan", custody_log=log)
+        result = E.store_analysis(case, opened, report, event=event, custody_log=log)
     rel = result["analysis"]["path"]
     saved = case.dir / rel
 
@@ -38,7 +39,7 @@ async def test_secrets_scan_inventory_recorded_tampered_missing_and_unrecorded(w
         response = await call(client, "forensics_evidence_list", case_id=case.id, write_files=False)
         assert response["ok"], response
         item, = [row for row in response["derived"] if row["path"] == rel]
-        assert item["kind"] == "secrets-scan" and item["custody"] == "recorded"
+        assert item["kind"] == event and item["custody"] == "recorded"
         assert item["evidence_id"] == ev and item["manifest_sha256"] == result["analysis"]["sha256"]
 
         saved.chmod(0o644)
@@ -51,14 +52,15 @@ async def test_secrets_scan_inventory_recorded_tampered_missing_and_unrecorded(w
         response = await call(client, "forensics_evidence_list", case_id=case.id, write_files=False)
         assert next(row for row in response["derived"] if row["path"] == rel)["custody"] == "missing"
 
-        planted = saved.with_name("secrets-scan-EV-0001-999.json")
+        planted = saved.with_name(f"{event}-EV-0001-999.json")
         planted.write_text(json.dumps(report), encoding="utf-8")
         response = await call(client, "forensics_evidence_list", case_id=case.id, write_files=False)
         assert next(row for row in response["derived"] if row["path"] == planted.relative_to(case.dir).as_posix())["custody"] == "unrecorded"
 
 
 @pytest.mark.parametrize("mutation", ["source", "symlink", "hardlink"])
-def test_secrets_scan_derived_output_rejects_false_source_or_links(workspace, auth, tmp_path, mutation):
+@pytest.mark.parametrize("event", ["secrets-scan", "sd-ioc-scan"])
+def test_analysis_derived_output_rejects_false_source_or_links(workspace, auth, tmp_path, mutation, event):
     from forensics_mcp import server as S
 
     case = CaseStore(workspace["cases_dir"]).create(title="합성 분석 출처", authorization=auth, case_id="analysis-source")
@@ -67,7 +69,7 @@ def test_secrets_scan_derived_output_rejects_false_source_or_links(workspace, au
     with E.open_checked(case, ev, log.entries()) as opened:
         report = {"status": "ok", "source": {"kind": "evidence", "evidence_id": ev,
                   "evidence_sha256": opened.intake["hashes"]["sha256"]}, "params": {}}
-        result = E.store_analysis(case, opened, report, event="secrets-scan", custody_log=log)
+        result = E.store_analysis(case, opened, report, event=event, custody_log=log)
     entries = log.entries()
     path = case.dir / result["analysis"]["path"]
     if mutation == "source":
@@ -80,4 +82,4 @@ def test_secrets_scan_derived_output_rejects_false_source_or_links(workspace, au
     else:
         os.link(path, tmp_path / "alias.json")
     item, = S._image_hint_outputs(case, entries)
-    assert item["kind"] == "secrets-scan" and item["custody"] == "mismatch"
+    assert item["kind"] == event and item["custody"] == "mismatch"

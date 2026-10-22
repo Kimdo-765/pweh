@@ -82,8 +82,7 @@
 - **부팅 로그**: `uart_capture_boot` 의 `sd_events[{line, kind, also, text}]` kind 는 card-detected·card-removed·card-absent·block-device·partition·fs-mount·fs-error·uboot-mmc·uboot-script(boot.scr·uEnv.txt 읽기)·update·script·card-other 다.
   `sd_summary{card_detected, card_absent, counts, devices, filesystems, events_total, truncated, long_lines_skipped}` — eMMC·SDIO 줄은 counts 의 emmc·sdio 로만 센다. update·script·uboot-script 줄이 있으면 `sd_note` 가 붙는다.
   카드 없음과 시험 카드의 두 로그를 비교해 카드가 감지·마운트되는지, 카드에서 무엇을 찾는지(업데이트 파일 이름·스크립트)를 본다. 그 이름의 파일을 만들어 넣어 보지 않는다.
-- **카드와 펌웨어 대조(10c)**: `sd_paths_referenced` 가 잘렸으면(`sd_paths_truncated`) 결과 파일의 전체 목록을 쓴다. 찾는 곳은 목록 JSON 파일 하나뿐이고, FAT·exFAT 은 대소문자를 구분하지 않으므로 대소문자를 무시하고 찾는다.
-  삭제 항목도 센다(지운 흔적도 침해 흔적 후보다). 일치한 항목은 크기·시각·삭제 여부만 적고 내용은 열지 않는다. 목록이 잘렸으면(truncated) 일치 없음은 본 범위에서만이다.
+- **카드와 펌웨어 대조(10c)**: 기존 전체 보고서 둘을 `forensics_sd_ioc_scan`으로 검증·대조한다(§11). ASCII 대소문자 변형도 후보일 뿐 실제 FAT/OEM·exFAT up-case lookup을 확인하지 않는다. 삭제·손상 이름과 목록/스캐너 잘림을 보존한다.
 
 ## 4. security 만 한 요약 예시
 
@@ -127,23 +126,9 @@
 - 복구한 Wi-Fi 키·클라우드 토큰·계정으로 어디에도 로그인하지 않는다(정보통신망법 제48조①).
 - 모든 보고에 고지를 싣는다: PWEH 는 인증·검증된 포렌식 도구가 아니다. 법적 용도라면 원본 카드를 보존하고 원본·이미지·보관 기록을 자격 있는 전문가에게 넘긴다. 해시값 확인서(`forensics/evidence-list.md`)의 서명은 사람이 한다.
 
-## 6. 발견사항 예시 (both — 카드와 펌웨어 경로 일치)
+## 6. 카드와 펌웨어 경로 일치의 해석
 
-펌웨어가 부팅 때 실행하는 카드 경로(SD-01)와 같은 파일이 증거 카드에 있을 때다. 카드 경로는 펌웨어의 `card_relative` 값이므로 적어도 된다. 파일 내용은 열지 않는다.
-```
-case_add_finding(case_id="<id>", finding={
-  "title": "증거 카드에 펌웨어가 부팅 때 실행하는 파일이 있음 (SD-01 경로 /autorun.sh) — 침해 흔적 후보",
-  "category": "backdoor", "severity": "high", "confidence": "possible", "status": "unverified",
-  "summary": "rcS 가 카드의 autorun.sh 를 부팅 때 실행한다(SD-01 found). 증거 카드 EV-0001 의 목록에 같은 경로의 파일이 있다(삭제 아님, 812 바이트). 파일 내용은 열지 않았다.",
-  "location": {"firmware": "dumps/flash-full.bin", "file": "/etc/init.d/rcS", "line": 42, "evidence_id": "EV-0001", "card_path": "/autorun.sh"},
-  "evidence": [
-    {"type": "triage", "ref": "analysis/sd-surface-001.json", "excerpt": "SD-01 found: sh /mnt/sd/autorun.sh (card_relative /autorun.sh)"},
-    {"type": "file", "ref": "forensics/analysis/fs-list-EV-0001-001.json", "excerpt": "card_relative /autorun.sh 와 같은 경로 1건, deleted=false, size=812"}
-  ],
-  "reasoning": "펌웨어가 카드의 파일을 검증 없이 실행하고, 증거 카드에 그 이름의 파일이 있다. 사용자가 둔 파일일 수도 있어 침해로 단정하지 않는다.",
-  "verification_plan": "사람이 forensics_extract 로 추출한 파일을 PWEH 밖의 격리 환경에서 텍스트로만 검토한다(실행하지 않음). 펌웨어의 실행 경로는 REA 로 확인한다."
-})
-```
+이름이 같다는 사실만으로 `backdoor`·`high` 발견사항을 만들지 않는다. 정상 설정·로그·업데이트 파일도 같은 이름을 사용한다. `forensics_sd_ioc_scan` 결과는 §11의 요약 참조로 남기고, 실행 경로·내용·장치 연관성에 대한 별도 근거가 있을 때만 그 근거로 발견사항을 작성한다. 파일 내용을 직접 열거나 실행하지 않는다.
 
 ## 7. 실패 처리 전체
 
@@ -176,7 +161,7 @@ case_add_finding(case_id="<id>", finding={
 | `pweh-fwtriage` 가 `forensics/` 경로를 거부, `case_import_file`·`case_hash_file`·`case_register_artifact` 가 거부 | 펌웨어 도구·케이스 도구는 증거 폴더를 읽지 않는다 | 정상이다. 다른 도구로 우회하지 않는다 |
 | `uart_capture_boot` 에 sd_events 없음, card_detected false | 감지 줄을 못 봤다(카드가 없다는 뜻은 아님) | 콘솔 로그 수준·관찰 시간(`duration`)을 확인하고, 결과는 그대로 적는다 |
 
-**아직 없는 것**(F2·F3 단계): 녹화 컨테이너·프레임 해석과 CCTV 인덱스(Hikvision·Dahua 등), 녹화 타임라인, 카드 쪽 녹화 암호화 판정·전체 카드 비밀값 자동 탐색·침해 흔적 자동 대조, 파일 시스템 메타데이터 밖의 카빙,
+**아직 없는 것**(F2·F3 단계): 녹화 컨테이너·프레임 해석과 CCTV 인덱스(Hikvision·Dahua 등), 녹화 타임라인, 카드 쪽 녹화 암호화 판정·전체 카드 비밀값 자동 탐색·카드 내용의 침해 판정, 파일 시스템 메타데이터 밖의 카빙,
 E01 입력과 외부 도구(TSK·PhotoRec·ewf·ffprobe), ext4·NTFS 목록, 장치에서 카드 식별 정보 읽기, Windows 원시 읽기 헬퍼, 영상 내보내기.
 이것들은 셸이나 외부 프로그램으로 대신하지 않는다. 필요했던 일은 요약 notes 와 `case_record_step` 의 blockers·next_actions 에 "아직 없음" 으로 적는다.
 
@@ -242,3 +227,13 @@ E01 입력과 외부 도구(TSK·PhotoRec·ewf·ffprobe), ext4·NTFS 목록, 장
 - 보관 기록과 고정점을 함께 잃으면 증거 목록은 보관 기록 정상(0개) 옆에 record-without-intake 행을 보인다 — 사람이 알아채야 한다(위 표).
 
 `coverage.analysis_complete`와 `hits_are_lower_bound`는 선택한 바이트의 지원 패턴 검사에 한정된다. 복구 후보나 컨테이너 목록만 불확실하면 각각 true/false여도 report.status는 partial이다. 전체 컨테이너 검사·원본 파일 복구의 확실성을 뜻하지 않는다.
+
+## 11. 펌웨어·카드 보고서 이름 대조
+
+`forensics_sd_ioc_scan`의 입력은 같은 케이스의 등록된 `analysis/sd-surface-NNN.json`과 같은 EV의 보관 기록에 결속된 `forensics/analysis/fs-list-EV-NNNN-NNN.json`이다. 전체 JSON만 받으며 표본20개·임의 JSON·TAR/ZIP 목록은 받지 않는다. 지원 FAT/exFAT 볼륨이 하나가 아니면 `partition`을 지정한다. 같은 케이스도 동일 장치·버전의 증명이 아니므로 결과의 `device_association_verified=false`를 유지한다.
+
+`report.status`는 `ok/partial/unsupported`다. `exact_live_name`·case_variant_candidate·`deleted_name_candidate`·`uncertain_name`은 이름 수준 후보이며 실행·악성 여부·침해를 뜻하지 않는다. 0건도 본 범위의 이름 무검출이다. 원래 목록/스캐너의 잘림·unknown, 삭제·별칭·대소문자 제한을 `coverage`에서 확인한다. 후보가 있다고 자동 finding/severity를 만들지 않는다.
+
+`ioc_scan_results[]`에는 `evidence_id`, `analysis_path`/`sha256`(`analysis.path`/`sha256`), `status`(`report.status`), `matches_total`(`report.summary.matches`, 저장한 `report.matches` 길이), `partition`(`report.selected_partition`, 없으면 null), `firmware_result_path`, `fs_list_path`만 기록한다. 원시 카드 이름·경로·시각·펌웨어 발췌는 요약에 복사하지 않는다. 상세 한계·ref·펌웨어 배열 index·입력 해시는 결과 보고서를 참조한다. `forensics_evidence_list`의 `derived`에서 `sd-ioc-scan` 결과 해시/보관 기록 대조를 확인한다.
+
+입력은 각16 MiB와 JSON 복잡도 상한, 후보는 최대200개다. 큰 전체 목록은 오류이며 앞부분만 성공으로 읽지 않는다. 필요하면 `forensics_fs_list`의 partition/max_entries를 좁혀 다시 만들고 그 목록의 잘림을 그대로 보고한다. 시간·비교 한도는 부분 결과로, 입력 검증 실패는 오류로 남는다. 상세 상한과 입력 fd/목록 사건 결속은 architecture §6.8, 같은 OS 계정의 경합 한계는 safety §3.6이다.
