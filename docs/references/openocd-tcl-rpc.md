@@ -866,6 +866,7 @@ at file "/path/cfgS.cfg", line 10
 - 연결 진단을 먼저 기다리면 안 된다. [고정 소스의 서버 루프](https://github.com/openocd-org/openocd/blob/e5888bda38f4952e2ae92f7dc5b25fc9a2d1c2b3/src/server/server.c)는 stdin이 읽기 가능한 상태가 되어야 pipe 연결을 만든다. 실제 출력에도 `tcl` 둘레의 작은따옴표가 있다.
 - 이 시험에서 version 응답은 `0.12.0+dev-02228-ge5888bda3-dirty`였고 stdin EOF 뒤 종료 코드 0과 해당 Windows 프로세스 부재를 확인했다. `shutdown`·Ctrl-C·실제 어댑터 초기화는 시험하지 않았다. Linux wrapper의 종료만으로 Windows 자식 종료를 확정하지 않는다.
 - 저장소 P3-A는 이 순서를 합성 pipe 자식으로 회귀 검증한다. Linux 내부 owner와 운영 TCP 세션은 별개이며, pipe 준비 성공은 semihosting 검증이나 하드웨어 준비 성공을 뜻하지 않는다.
+- P3-B의 Windows 경로·환경·파일 snapshot·프로세스 신원 계획은 [별도 계약](windows-openocd-plan.md)에 있다. 합성 실행기를 사용하는 내부 기반이며 이 절의 D7 실제 확인 범위를 늘리거나 운영 Windows backend를 활성화하지 않는다.
 
 ### 6.5 `noinit` 전략 (선택)
 

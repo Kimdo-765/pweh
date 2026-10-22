@@ -577,7 +577,9 @@ if not decision.allowed:
   `uart_estimate` ← `sigrok_uart_autodecode.uart_estimate`, `decoders[].output_file` ← `sigrok_decode.output_path`.
 
 ### 6.4 pweh-openocd
-개발용 pipe 기반은 `rpc_pipe.py`·`process_pipe.py`와 `process.build_pipe_argv`에 있다. 운영 MCP의 start/attach는 아래 TCP 경로를 계속 사용한다. pipe client는 요청별 시간·응답·파싱 예산을 적용하고 전송 뒤 timeout/취소/프로토콜 오류가 생기면 재연결·재전송 없이 종료 상태로 둔다. Linux 직접 자식 owner는 stdin EOF → TERM → KILL 순서로 정리하고, 소유 그룹의 비좀비 프로세스 부재와 리더 reap·스트림 정리를 모두 확인해야 완료로 보고한다. 이 기반의 준비 판정은 pipe 진단 줄과 `version` 왕복이며, 운영 경로의 semihosting 확인을 대신하지 않는다. Windows 실행·경로 변환·libusb lease 통합은 후속이다([포트 라우팅 §13.2](design/port-routing.md#132-단계)).
+개발용 pipe 기반은 `rpc_pipe.py`·`process_pipe.py`와 `process.build_pipe_argv`에 있다. 운영 MCP의 start/attach는 아래 TCP 경로를 계속 사용한다. pipe client는 요청별 시간·응답·파싱 예산을 적용하고 전송 뒤 timeout/취소/프로토콜 오류가 생기면 재연결·재전송 없이 종료 상태로 둔다. Linux 직접 자식 owner는 stdin EOF → TERM → KILL 순서로 정리하고, 소유 그룹의 비좀비 프로세스 부재와 리더 reap·스트림 정리를 모두 확인해야 완료로 보고한다. 이 기반의 준비 판정은 pipe 진단 줄과 `version` 왕복이며, 운영 경로의 semihosting 확인을 대신하지 않는다. Windows 운영 실행·libusb lease 통합은 후속이다([포트 라우팅 §13.2](design/port-routing.md#132-단계)).
+
+Windows 계획 기반은 `pweh.wininterop`과 `openocd_mcp.windows_plan`에 있다. bounded 경로/프로세스 신원 검사와 필수 주입 실행기의 고정 조회·종료 계약, 파일 snapshot·cfg·전용 실행 디렉터리를 묶은 argv/env 계획을 제공한다. 계획은 파일 관찰·경로 변환 결과이며 cfg 승인·번들 신뢰·실행 성공의 증거가 아니다. 고정 Windows 경로로 변환한 환경값은 WSLENV의 `/w`로 한 번만 전달한다. 기본 실행기나 운영 MCP 연결은 없으며 기존 ESP/P2 경로를 바꾸지 않는다([상세 계약](references/windows-openocd-plan.md)).
 
 OpenOCD 프로세스 관리 + TCL RPC. TCL 포트만 127.0.0.1 에 열고 telnet/GDB 포트는 끈다(다시 여는 명령은 DESTRUCTIVE). 보내는 모든 Tcl 텍스트는 `openocd_mcp.guard.classify_command` 로 분류한다(§4 — 코어 `classify_openocd` 만으로는 불완전).
 덤프 job 이 도는 케이스에서는 halt/resume/reset·쓰기·MODIFY 이상 원시 명령이 `busy` 로 거부되고, 조회 도구는 현재 청크가 끝날 때까지 기다린다.
