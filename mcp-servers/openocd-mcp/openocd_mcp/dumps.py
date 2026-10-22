@@ -39,6 +39,7 @@ from .parsers import (
     values_to_bytes,
 )
 from .rpc import RequestCancelled, TclConnectionClosed, TclRpcClient
+from .rpc_pipe import TclPipeClient
 from .tcl import brace_quote_path
 
 log = logging.getLogger("pweh.openocd")
@@ -261,18 +262,24 @@ class DumpRunner:
         self,
         spec: DumpSpec,
         jctx: JobContext,
-        client: TclRpcClient,
+        client: TclRpcClient | TclPipeClient,
         *,
         unknown_risk: str,
         process_alive: Callable[[], bool] | None = None,
         audit: Callable[[dict[str, Any]], None] | None = None,
+        borrowed_pipe: bool = False,
     ) -> None:
+        if type(borrowed_pipe) is not bool or (borrowed_pipe and (
+            type(client) is not TclPipeClient or spec.kind != "memory" or spec.method != "read_memory"
+        )):
+            raise ValidationFailed("공유 pipe 덤프는 명시한 memory/read_memory 방식만 허용합니다.")
         self.spec = spec
         self.j = jctx
         self.client = client
         self.unknown_risk = unknown_risk
         self.process_alive = process_alive or (lambda: True)
         self.audit = audit or (lambda ev: None)
+        self.borrowed_pipe = borrowed_pipe
         self.allowed_dirs = [spec.out_dir]
         self.method = spec.method
         if spec.kind == "memory" and self.method == "auto":
@@ -285,18 +292,33 @@ class DumpRunner:
         self.method_switches: list[str] = []
 
     # -- 공통 -------------------------------------------------------------
+    def _check_pipe(self) -> None:
+        """공유 client는 빌려 쓰기만 한다. 취소·종료 뒤에는 재시도하지 않는다."""
+        if self.borrowed_pipe:
+            self.j.check_cancelled()
+            if self.client.terminal_reason is not None:
+                raise DeviceError("공유 OpenOCD pipe가 종료 상태여서 덤프를 중단했습니다.",
+                                  code="openocd_pipe_terminal") from None
+
     def _send(self, cmd: str, timeout: float):
         guard.ensure_job_commands_safe(
             [cmd], allowed_dirs=self.allowed_dirs, unknown_risk=self.unknown_risk, trusted_targets=self.spec.trusted_targets
         )
+        self._check_pipe()
         try:
-            return self.client.call(cmd, timeout=timeout, cancel_check=lambda: self.j.cancelled)
+            reply = self.client.call(cmd, timeout=timeout, cancel_check=lambda: self.j.cancelled)
+            self._check_pipe()
+            return reply
         except RequestCancelled:
             raise JobCancelled()
         except TclConnectionClosed as exc:
+            self._check_pipe()
             if not self.process_alive():
                 raise DeviceError("덤프 중 OpenOCD 프로세스가 종료되었습니다.", hint="openocd_status 로 로그 확인 후 다시 시작하고, 같은 output_name 으로 재개하세요.") from exc
             raise ChunkError(f"연결 끊김: {exc}") from exc
+        except (TimeoutExpired, DeviceError):
+            self._check_pipe()
+            raise
 
     def _timeout(self, n: int) -> float:
         if self.spec.chunk_timeout:
@@ -370,6 +392,9 @@ class DumpRunner:
             if not reply.ok:
                 err = reply.error_text
                 if "invalid command name" in err and "read_memory" in err:
+                    if self.borrowed_pipe:
+                        raise DeviceError("공유 OpenOCD pipe에서 read_memory 명령을 지원하지 않습니다.",
+                                          code="openocd_pipe_read_memory_unsupported") from None
                     # 0.11 계열: read_memory 없음 → md 파싱으로 전환
                     self.method = "md"
                     self.method_switches.append("read_memory→md (read_memory 명령 없음)")
@@ -455,6 +480,7 @@ class DumpRunner:
                     "플래시는 로컬에서 OpenOCD 를 실행(openocd_start)한 뒤 다시 시도하세요.",
                 ) from exc
             except TimeoutExpired as exc:
+                self._check_pipe()
                 attempt += 1
                 self.retries_used += 1
                 self.j.log(f"청크 시간 초과 @+0x{pos:x} (시도 {attempt}): {exc.message}")
@@ -462,6 +488,7 @@ class DumpRunner:
                     raise
                 timeout = min(1800.0, timeout * 2)
             except ChunkError as exc:
+                self._check_pipe()
                 attempt += 1
                 self.retries_used += 1
                 self.j.log(f"청크 실패 @+0x{pos:x} (시도 {attempt}): {exc}")

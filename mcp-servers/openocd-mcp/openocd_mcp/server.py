@@ -37,6 +37,7 @@ from typing import Any
 
 from pweh.errors import Busy, DeviceError, NotFound, PwehError, SafetyDenied, TimeoutExpired, ValidationFailed
 from pweh.fsutil import atomic_write_json, atomic_write_text, parse_size, read_json, sha256_file, utcnow_iso
+from pweh.jobs import JobCancelled
 from pweh.mcpkit import (
     META_REQUIRE_HUMAN,
     ANN_DESTRUCTIVE,
@@ -51,10 +52,12 @@ from pweh.mcpkit import (
     safe_tool,
 )
 from pweh.runtime import Runtime, get_runtime
+from pweh.portlock import LeaseHandoff
 from pweh.safety import Classification, Risk, worst
 
 from . import dumps, guard, parsers, process, semihosting, windows_start
 from .rpc import TclConnectionClosed, TclRpcClient
+from .rpc_pipe import TclPipeClient
 from .session import REGISTRY, OcdSession
 from .tcl import TclReply, brace_quote_path, braces_balanced
 
@@ -1022,11 +1025,19 @@ async def openocd_stop(case_id: str, ctx: Context, shutdown_attached: bool = Fal
     case = r.case(case_id)
     sess = REGISTRY.get(case_id)
     if sess.windows:
+        # 등록 직전인 작업도 첫 RPC 전에 closing을 보게 한다. 사용권은 worker만 반환한다.
+        sess.begin_close()
+        cancelled = []
+        for j in _active_jobs(case_id):
+            r.jobs.cancel(j["job_id"])
+            cancelled.append(j["job_id"])
         result = await run_blocking(windows_start.close_session, sess)
+        result["cancelled_jobs"] = cancelled
         if result["stopped"] and sess.log_path is not None and sess.log_path.exists():
             result["log_artifact"] = case.register_artifact(sess.log_path, kind="other", producer=SERVER_NAME,
                                                           description="Windows dummy OpenOCD 로그")
-        r.audit({"event": "openocd_stopped", "backend": "windows", "cleanup_pending": result["cleanup_pending"]}, case_id)
+        r.audit({"event": "openocd_stopped", "backend": "windows", "cleanup_pending": result["cleanup_pending"],
+                 "cancelled_jobs": cancelled}, case_id)
         return result
     cancelled = []
     for j in _active_jobs(case_id):
@@ -1577,24 +1588,53 @@ def _start_dump_job(spec: dumps.DumpSpec, sess: OcdSession, *, description: str,
     r = rt()
     case_id = spec.case.id
     unknown = _unknown_risk()
+    borrowed_pipe = sess.windows
+    handoff = LeaseHandoff() if borrowed_pipe else None
+    borrowed_client = None
+    if borrowed_pipe:
+        # 공개 Windows 입구는 계속 거부한다. 내부 연결은 read_memory 한 방법만 다룬다.
+        if spec.kind != "memory" or spec.method != "read_memory" or type(sess.client) is not TclPipeClient:
+            raise DeviceError("내부 pipe 작업은 read_memory 메모리 덤프만 지원합니다.", code="openocd_pipe_job_unsupported")
+        if sess.cleanup_pending:
+            raise Busy("Windows OpenOCD 세션이 정리 중입니다.")
+        if not sess.client.connected:
+            raise DeviceError("OpenOCD pipe RPC가 종료 상태입니다.", code="openocd_pipe_terminal")
+        borrowed_client = sess.client
+        sess.reserve_use()
 
     def fn(jctx):
-        client = sess.new_client(name=f"{case_id}-{jctx.job.id}")
+        if handoff is not None and not handoff.claim_worker():
+            raise JobCancelled()
+        client = None
         try:
+            jctx.check_cancelled()
+            if borrowed_pipe and sess.closing:
+                raise JobCancelled()
+            client = borrowed_client if borrowed_pipe else sess.new_client(name=f"{case_id}-{jctx.job.id}")
             runner = dumps.DumpRunner(
                 spec, jctx, client, unknown_risk=unknown,
                 process_alive=lambda: not sess.died_after_disconnect(),
                 audit=lambda ev: r.audit(ev, case_id),
+                borrowed_pipe=borrowed_pipe,
             )
             return runner.run()
         finally:
-            client.close()
+            if borrowed_pipe:
+                sess.finish_use()
+            elif client is not None:
+                client.close()
 
-    return r.jobs.start(
-        kind, fn, description=description, case_id=case_id,
-        meta={"output": spec.case.rel(spec.final), "resume_from": spec.start_offset, "length": spec.length},
-        exclusive_key=f"openocd:{case_id}",
-    )
+    try:
+        return r.jobs.start(
+            kind, fn, description=description, case_id=case_id,
+            meta={"output": spec.case.rel(spec.final), "resume_from": spec.start_offset, "length": spec.length},
+            exclusive_key=f"openocd:{case_id}",
+        )
+    except BaseException:
+        # 시작 예외가 실제 worker 실행 뒤에 와도 caller가 사용권을 중복 반환하지 않는다.
+        if handoff is not None and handoff.abandon_caller():
+            sess.finish_use()
+        raise
 
 
 @server.tool(

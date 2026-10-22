@@ -113,4 +113,6 @@ stderr decoder는 이번 코어에 포함하지 않는다. 후속 runtime에서 
 
 Windows owner는 P3-A의 strict UTF-8 framed RPC client를 재사용하며 Linux owner의 `/proc`/POSIX 종료 상태를 Windows 실제 종료로 대체할 수 없다. 준비 확인은 version 한 번 전송 후 동일 deadline에서 정상 응답과 완결된 `Info : accepting 'tcl' connection from pipe` 줄을 모두 확인한다. 상세는 [OpenOCD TCL RPC §6.4.1](openocd-tcl-rpc.md#641-pipe-준비-확인)을 따른다.
 
-정상 EOF/exit0 뒤에도 정확 Windows 표식의 최종 부재 확인이 필요하다. 비정상은 POSIX wrapper가 뒤늦게 child를 만들 가능성을 먼저 닫은 뒤 Windows를 마지막으로 확인한다. 확인이 끝나지 않으면 owner/marker 경로/lease 예약을 유지한다. 고정 dummy/Tigard 소비자는 이 수명을 연결한다. Tigard는 실제 blocking worker의 사용권이 끝나고 run 신원 정리까지 확인된 뒤 전체 USB lease를 해제한다. Windows 덤프 경로는 후속이다.
+정상 EOF/exit0 뒤에도 정확 Windows 표식의 최종 부재 확인이 필요하다. 비정상은 POSIX wrapper가 뒤늦게 child를 만들 가능성을 먼저 닫은 뒤 Windows를 마지막으로 확인한다. 확인이 끝나지 않으면 owner/marker 경로/lease 예약을 유지한다. 고정 dummy/Tigard 소비자는 이 수명을 연결한다. Tigard는 실제 blocking worker의 사용권이 끝나고 run 신원 정리까지 확인된 뒤 전체 USB lease를 해제한다.
+
+내부 덤프 job도 세션의 단일 pipe client를 빌려 쓰는 사용권을 연결한다. Linux fake의 `read_memory` 응답으로 청크·해시·부분 기록과 취소·terminal 오류·stop 경합을 검증하며, job은 공유 client를 닫거나 terminal 뒤 재전송하지 않는다. stop은 새 사용권을 막고 해당 케이스 job을 취소한 뒤 worker 종료와 owner/run 정리를 확인한다. 이 내부 시험은 공개 Windows dummy/Tigard의 타깃·메모리·플래시·덤프 거부를 바꾸지 않는다. Windows 파일 출력 경로·게시와 실제 타깃 검증은 후속이다.
