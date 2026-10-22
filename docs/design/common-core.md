@@ -20,8 +20,11 @@
 | `src/pweh/evidence.py` 보호 하위 트리 가드 | `forensics/`·`emu/` 를 다른 도구의 입력에서 제외 | 증분 B: case·fwtriage·sigrok 적용, 원시 콘솔은 emu_read 로만 표시 |
 | `src/pweh/safety/attestations.py` | 사람 증명 레코드(재사용 가능, 대상·바인딩·만료) | I1 에서 구현 — §3 구현 상태 |
 | `src/pweh/provenance.py` | 출처 원장(기기에서 읽은 산출물만 기록) | I1 에서 구현 — §4 구현 상태 |
-| `src/pweh/safety/rf.py`, `src/pweh/rf/` | 지역 대역표·RF 수신 분류기, `.sub`/`.ook`/펄스 파서 | 없음 |
-| `src/pweh/nfc/` | `.nfc`·CU 형식, ISO14443A 프레임, 태그 계열 판정 | 없음 |
+| `src/pweh/rf_formats.py` | 이미 공급된 Flipper RAW v1 bytes의 제한된 구조·펄스 통계 | 순수 코어 구현. [제한 프로필](../references/flipper-raw-profile.md). 수신·디코드·재생·MCP 연결 없음 |
+| `src/pweh/safety/rf.py`, `src/pweh/rf/` | 지역 대역표·RF 수신 분류기, `.ook`·RF 확장 | 후속 제안. RAW 파서가 수신 정책이나 대역 허가를 대신하지 않음 |
+| `src/pweh/nfc_formats.py` | Flipper NFC v4 ISO14443-3A·NTAG21x의 구조와 저장 페이지 변화 위치 | 순수 코어 구현. [제한 프로필](../references/nfc-file-profile.md). 실제 inventory·태그 권한·MCP 연결 없음 |
+| `src/pweh/nfc/` | CU 형식, ISO14443A 프레임, 태그 계열 정책 | 후속 제안 |
+| `src/pweh/vision_sequence.py` | 유한 숫자 관찰 창의 TTL·신뢰도·N-of-M 합의 | 순수 코어 구현. [모델 계약](../references/numeric-observations.md). OCR·캡처·입력 브리지 없음 |
 | `src/pweh/jtag/jep106.py` | JEP106 제조사 코드 해석(jtagulator·espprobe 공용) | I5: 코어 구현, 기존 경로는 호환 재노출 |
 | `src/pweh/jtag/pinout_scan.py` | 순열 수·`lower_bound_seconds`, 결과 형식 `pweh.pinout-scan/v1`(`pweh.jtagulator-scan/v1` 일반화) | I5: 공용 계산·스키마, JTAGulator 새 결과는 일반 형식으로 기록 |
 | `src/pweh/safety/probes.py` | UART 프로브 문자열 분류 `classify_uart_probe`(한 번·두 번 이어 붙인 형태) | I5: 공용 분류, 기존 규칙 ID·import 경로 유지 |

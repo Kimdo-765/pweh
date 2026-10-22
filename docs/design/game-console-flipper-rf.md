@@ -59,6 +59,11 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 공통 코어            환경 감지(hostenv)·포트 라우팅(ports)·winserial·wininterop·portlock·증명·출처 원장·비밀 마스킹·safety.rf·nfc·rf 파서 (common-core)
 ```
 
+위 신규 서버는 후속 설계다. 선행 구현한 순수 코어는 `pweh.rf_formats`(RAW 통계), `pweh.nfc_formats`(NFC 구조·저장 페이지 비교),
+`pweh.vision_sequence`(숫자 관찰값 합의)이며, 외부 I/O나 MCP 입구를 갖지 않는다.
+파일의 선언·저장된 값만 다루므로 실제 수신·태그 소유/허가·완전한 물리 읽기·게임 상태를 확인하지 않는다.
+계약은 [RAW](../references/flipper-raw-profile.md)·[NFC](../references/nfc-file-profile.md)·[숫자 모델](../references/numeric-observations.md)을 따른다.
+
 기기 단위 서버인 이유: MCP 서버끼리는 서로 부를 수 없고 한 포트는 한 프로세스만 연다. Flipper 의 모든 앱은 pweh-flipper 가, CU 는 pweh-nfc 가 맡는다.
 오프라인 NFC 분석은 장치가 없어도 쓰므로 pweh-nfc 에 둔다(Flipper 가 만든 파일도 해석). 화면 캡처와 입력은 한 루프에서 돌아야 하므로 pweh-play 한 프로세스다.
 
@@ -130,7 +135,8 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
   HELLO 는 고정된 포트에만, uart 세션이 쥔 포트가 아닐 때만 보낸다. 기본 보드: ESP32-S3-DevKitC-1(네이티브 USB=콘솔용, 보드 USB-UART=PC 용). 대안: RP2040 + Raspberry Pi Debug Probe(2e8a:000c).
 - **입력 방식**: USB HID(인증 없는 유선 패드를 받는 기기 — Switch 는 커뮤니티 보고, §9 확인), 접근성 컨트롤러 잭(**PS5 Access 컨트롤러·Xbox Adaptive 만**, Access 는 3.5 mm 포트 4개), 정품 컨트롤러 PCB 접점(PS4 포함 모든 기기).
 - **화면 인식**: Windows `ffmpeg.exe`(DirectShow) → rawvideo 파이프. **영상만 녹화(`-an`, DirectShow 오디오 장치를 열지 않음)**. HDMI 캡처를 열거나 녹화할 때 소스 종류 증명(콘솔 자체 설정으로 HDCP 끔·스트리퍼 없음 / HDMI 아님)이 필요하고 플레이 job 은 묶인 화면 세션의 증명을 물려받는다.
-  숫자 인식은 순수 파이썬 템플릿(합성 벤치마크 0.25 ms/프레임 — 실제 캡처 경로에서 다시 검증). "비정상 OCR"은 지속적 불일치로 정의한다(N-of-M 시간 투표, 단조 증가 점수 모델, 신뢰 여유). OpenCV 는 넣지 않는다.
+  숫자 인식은 순수 파이썬 템플릿을 제안한다(합성 벤치마크 0.25 ms/프레임 — 실제 캡처 경로에서 다시 검증). 선행 숫자 모델은 N-of-M 시간 투표와 신뢰도를 계산하지만 OCR·영상 상태를 검증하지 않는다.
+  점수의 단조 증가는 게임별로 확인해야 할 선택 규칙이며 기본 가정이 아니다. 감소·리셋도 입력값으로 받는다. OpenCV 는 넣지 않는다.
 - **플레이 job**: 계획 전체를 한 번 승인(스크립트·매핑·브리지 시리얼·펌웨어·채널·한도·정지 조건·감지기 해시·증명). architecture §4 의 job 규칙 예외로 명시하고,
   job 안에서 매 동작을 계획과 대조(`job_command_denied`), 주기적으로 케이스 승인 재확인(`authorization_required`), 브리지·캡처 배타 키를 쓴다. fail closed 규칙(모르는 화면 → 즉시 해제, 정지·검은 화면·캡처 끊김·하트비트 끊김 → 해제 + 정지, 저장 표시 중 전원·리셋 금지).
 

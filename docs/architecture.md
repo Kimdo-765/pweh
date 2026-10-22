@@ -52,6 +52,15 @@ SD 카드 이미지 해석 엔진(`pweh.fs`), 증거 보관 기록·EV 번호·�
 콘솔 스크립트: `pweh`, `pweh-case-mcp`, `pweh-uart-mcp`, `pweh-openocd-mcp`, `pweh-sigrok-mcp`,
 `pweh-jtagulator-mcp`, `pweh-fwtriage-mcp`, `pweh-esp-mcp`, `pweh-forensics-mcp`, `pweh-emu-mcp`, `pweh-espprobe-mcp`, `pweh-mock-device`.
 
+장치 연결과 독립된 내부 해석 코어도 제공한다. 다음 모듈은 이미 공급된 bytes·수치만 받고 파일·장치·외부 프로그램을 열지 않는다.
+MCP 도구와 케이스 입구는 아직 연결하지 않았으며, 파일의 선언을 소유/허가·실제 기기 식별로 해석하지 않는다.
+
+| 내부 모듈 | 제한된 계약 |
+|---|---|
+| `pweh.rf_formats` | Flipper RAW v1의 선언값·부호별 펄스 통계. 줄 전체를 검증한 뒤 집계하고, 손상·미지원·예산 중단과 완전한 검사를 구분한다. 원시 펄스 목록·키·ID는 반환하지 않는다. [제한 프로필](references/flipper-raw-profile.md) |
+| `pweh.nfc_formats` | Flipper NFC v4 ISO14443-3A·NTAG213/215/216 구조와 저장된 페이지의 변화 위치. UID·페이지 내용·PWD/PACK·카운터 원문은 반환하지 않는다. 부분 읽기의 0값을 읽힘 증거로 사용하지 않는다. [제한 프로필](references/nfc-file-profile.md) |
+| `pweh.vision_sequence` | 최대 256개 숫자 관찰의 최근 창·TTL·신뢰도·득표 판정. `stable/unknown/stale`은 관찰값 합의이며 영상 정지·게임 상태·버튼 동작 판정이 아니다. [모델 계약](references/numeric-observations.md) |
+
 ## 3. 케이스 디렉터리 (Skill 사이의 데이터 전달)
 
 케이스 생성은 `Runtime` 이 넘긴 `state_dir` 에 ID 예약을 남긴다(`case-ids/<casefold ID의 sha256>.json`).
