@@ -19,7 +19,10 @@
       ]
     },
     "profile": {
-      "const": "mp4-quicktime-box-v1"
+      "enum": [
+        "mp4-quicktime-box-v1",
+        "mp4-quicktime-declarations-v1"
+      ]
     },
     "framing_status": {
       "enum": [
@@ -229,7 +232,10 @@
               "traf",
               "meta",
               "udta",
-              "unknown"
+              "unknown",
+              "mvhd",
+              "mdhd",
+              "pssh"
             ]
           },
           "offset": {
@@ -259,7 +265,8 @@
             "enum": [
               "children",
               "brand-table",
-              "skipped"
+              "skipped",
+              "declaration"
             ]
           },
           "children_complete": {
@@ -439,10 +446,15 @@
               "multiple_ftyp",
               "unsupported_wide_shape",
               "selection_uncertain",
-              "container_listing_incomplete"
+              "container_listing_incomplete",
+              "unsupported_declaration_version",
+              "unsupported_declaration_flags",
+              "truncated_declaration_fields",
+              "zero_timescale",
+              "pssh_length_mismatch"
             ]
           },
-          "maxItems": 17,
+          "maxItems": 22,
           "uniqueItems": true
         },
         "ranges": {
@@ -488,7 +500,10 @@
                   "brand_limit",
                   "range_limit",
                   "output_limit",
-                  "time_limit"
+                  "time_limit",
+                  "declaration_fields",
+                  "declaration_identifiers",
+                  "declaration_payload"
                 ]
               }
             },
@@ -512,7 +527,8 @@
                     "reason": {
                       "enum": [
                         "box_header",
-                        "brand_table"
+                        "brand_table",
+                        "declaration_fields"
                       ]
                     }
                   }
@@ -533,7 +549,9 @@
                         "leaf_payload",
                         "unknown_payload",
                         "metadata_payload",
-                        "unsupported_context"
+                        "unsupported_context",
+                        "declaration_identifiers",
+                        "declaration_payload"
                       ]
                     }
                   }
@@ -587,17 +605,7 @@
       ]
     },
     "limitations": {
-      "const": [
-        "box_framing_only",
-        "opaque_payloads_unexamined",
-        "no_format_conformance_validation",
-        "no_media_type_confirmation",
-        "no_sample_or_playback_validation",
-        "no_time_or_codec_analysis",
-        "no_encryption_assessment",
-        "selected_file_only",
-        "unknown_identifiers_not_returned"
-      ]
+      "type": "array"
     },
     "source": {
       "type": "object",
@@ -951,6 +959,196 @@
         "method",
         "max_seconds"
       ]
+    },
+    "declarations": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "const": "mvhd-mdhd-pssh-selected-contexts"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "partial"
+          ]
+        },
+        "timing": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "$ref": "#/$defs/timing_declaration"
+          }
+        },
+        "pssh": {
+          "type": "array",
+          "maxItems": 4096,
+          "items": {
+            "$ref": "#/$defs/pssh_declaration"
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "traversal_complete": {
+              "type": "boolean"
+            },
+            "fields_complete": {
+              "type": "boolean"
+            },
+            "reasons": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "truncated_base_header",
+                  "truncated_extended_header",
+                  "truncated_uuid_header",
+                  "size_below_header",
+                  "box_beyond_parent",
+                  "unsupported_nested_size_zero",
+                  "invalid_ftyp_shape",
+                  "box_limit",
+                  "depth_limit",
+                  "brand_limit",
+                  "range_limit",
+                  "output_limit",
+                  "time_limit",
+                  "unsupported_declaration_version",
+                  "unsupported_declaration_flags",
+                  "truncated_declaration_fields",
+                  "zero_timescale",
+                  "pssh_length_mismatch"
+                ]
+              },
+              "maxItems": 18,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "traversal_complete",
+            "fields_complete",
+            "reasons"
+          ]
+        },
+        "absolute_times_returned": {
+          "const": false
+        },
+        "sample_entries_examined": {
+          "const": false
+        },
+        "sample_encryption_examined": {
+          "const": false
+        }
+      },
+      "required": [
+        "scope",
+        "status",
+        "timing",
+        "pssh",
+        "coverage",
+        "absolute_times_returned",
+        "sample_entries_examined",
+        "sample_encryption_examined"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "coverage": {
+                "properties": {
+                  "traversal_complete": {
+                    "const": true
+                  },
+                  "fields_complete": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "complete"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "status": {
+                "const": "partial"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "anyOf": [
+              {
+                "properties": {
+                  "timing": {
+                    "contains": {
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "unsupported",
+                            "malformed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ]
+                    }
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "pssh": {
+                    "contains": {
+                      "properties": {
+                        "status": {
+                          "enum": [
+                            "unsupported",
+                            "malformed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "then": {
+            "properties": {
+              "coverage": {
+                "properties": {
+                  "fields_complete": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "coverage": {
+                "properties": {
+                  "fields_complete": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "required": [
@@ -1005,9 +1203,1022 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "const": "mp4-quicktime-box-v1"
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "declarations"
+          ]
+        },
+        "properties": {
+          "boxes": {
+            "items": {
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "ftyp",
+                    "styp",
+                    "moov",
+                    "mdat",
+                    "free",
+                    "skip",
+                    "wide",
+                    "uuid",
+                    "trak",
+                    "mdia",
+                    "minf",
+                    "stbl",
+                    "edts",
+                    "dinf",
+                    "mvex",
+                    "moof",
+                    "traf",
+                    "meta",
+                    "udta",
+                    "unknown"
+                  ]
+                },
+                "handling": {
+                  "enum": [
+                    "children",
+                    "brand-table",
+                    "skipped"
+                  ]
+                }
+              }
+            }
+          },
+          "coverage": {
+            "properties": {
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "truncated_base_header",
+                    "truncated_extended_header",
+                    "truncated_uuid_header",
+                    "size_below_header",
+                    "box_beyond_parent",
+                    "unsupported_nested_size_zero",
+                    "invalid_ftyp_shape",
+                    "box_limit",
+                    "depth_limit",
+                    "brand_limit",
+                    "range_limit",
+                    "output_limit",
+                    "time_limit",
+                    "multiple_ftyp",
+                    "unsupported_wide_shape",
+                    "selection_uncertain",
+                    "container_listing_incomplete"
+                  ]
+                },
+                "maxItems": 17,
+                "uniqueItems": true
+              },
+              "ranges": {
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 67108864
+                    },
+                    "length": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 67108864
+                    },
+                    "kind": {
+                      "enum": [
+                        "header",
+                        "skipped",
+                        "unexamined"
+                      ]
+                    },
+                    "reason": {
+                      "enum": [
+                        "box_header",
+                        "brand_table",
+                        "leaf_payload",
+                        "unknown_payload",
+                        "metadata_payload",
+                        "unsupported_context",
+                        "truncated_base_header",
+                        "truncated_extended_header",
+                        "truncated_uuid_header",
+                        "size_below_header",
+                        "box_beyond_parent",
+                        "unsupported_nested_size_zero",
+                        "invalid_ftyp_shape",
+                        "box_limit",
+                        "depth_limit",
+                        "brand_limit",
+                        "range_limit",
+                        "output_limit",
+                        "time_limit"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "offset",
+                    "length",
+                    "kind",
+                    "reason"
+                  ],
+                  "allOf": [
+                    {
+                      "if": {
+                        "properties": {
+                          "kind": {
+                            "const": "header"
+                          }
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "reason": {
+                            "enum": [
+                              "box_header",
+                              "brand_table"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "kind": {
+                            "const": "skipped"
+                          }
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "reason": {
+                            "enum": [
+                              "leaf_payload",
+                              "unknown_payload",
+                              "metadata_payload",
+                              "unsupported_context"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "if": {
+                        "properties": {
+                          "kind": {
+                            "const": "unexamined"
+                          }
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "reason": {
+                            "enum": [
+                              "truncated_base_header",
+                              "truncated_extended_header",
+                              "truncated_uuid_header",
+                              "size_below_header",
+                              "box_beyond_parent",
+                              "unsupported_nested_size_zero",
+                              "invalid_ftyp_shape",
+                              "box_limit",
+                              "depth_limit",
+                              "brand_limit",
+                              "range_limit",
+                              "output_limit",
+                              "time_limit"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "limitations": {
+            "const": [
+              "box_framing_only",
+              "opaque_payloads_unexamined",
+              "no_format_conformance_validation",
+              "no_media_type_confirmation",
+              "no_sample_or_playback_validation",
+              "no_time_or_codec_analysis",
+              "no_encryption_assessment",
+              "selected_file_only",
+              "unknown_identifiers_not_returned"
+            ]
+          }
+        }
+      },
+      "else": {
+        "required": [
+          "declarations"
+        ],
+        "properties": {
+          "limitations": {
+            "const": [
+              "box_framing_and_selected_declarations_only",
+              "opaque_payloads_unexamined",
+              "no_format_conformance_validation",
+              "no_media_type_confirmation",
+              "no_sample_or_playback_validation",
+              "no_absolute_time_or_codec_analysis",
+              "no_encryption_assessment",
+              "selected_file_only",
+              "unknown_identifiers_not_returned",
+              "declared_duration_not_playback_duration",
+              "pssh_structure_not_encryption_proof",
+              "sample_encryption_boxes_unexamined"
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "framing_status": {
+                  "const": "complete"
+                }
+              },
+              "required": [
+                "framing_status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "declarations": {
+                  "properties": {
+                    "coverage": {
+                      "properties": {
+                        "traversal_complete": {
+                          "const": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "framing_status": {
+                  "const": "partial"
+                }
+              },
+              "required": [
+                "framing_status"
+              ]
+            },
+            "then": {
+              "properties": {
+                "declarations": {
+                  "properties": {
+                    "coverage": {
+                      "properties": {
+                        "traversal_complete": {
+                          "const": false
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "pweh.media-inventory/v1",
-  "title": "선택 파일 BMFF 박스 구조 관찰"
+  "title": "선택 파일 BMFF 박스 구조 관찰",
+  "$defs": {
+    "timing_declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "box_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4095
+        },
+        "parent_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4095
+        },
+        "version": {
+          "enum": [
+            0,
+            1,
+            null
+          ]
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "unsupported",
+            "malformed"
+          ]
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "unsupported_declaration_version",
+              "unsupported_declaration_flags",
+              "truncated_declaration_fields",
+              "zero_timescale"
+            ]
+          },
+          "maxItems": 1,
+          "uniqueItems": true
+        },
+        "kind": {
+          "enum": [
+            "mvhd",
+            "mdhd"
+          ]
+        },
+        "creation_time_state": {
+          "enum": [
+            "zero",
+            "nonzero",
+            "unread"
+          ]
+        },
+        "modification_time_state": {
+          "enum": [
+            "zero",
+            "nonzero",
+            "unread"
+          ]
+        },
+        "timescale": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "duration_units": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 18446744073709551614
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "duration_state": {
+          "enum": [
+            "declared",
+            "zero",
+            "indeterminate",
+            "unread"
+          ]
+        }
+      },
+      "required": [
+        "box_index",
+        "parent_index",
+        "version",
+        "status",
+        "issues",
+        "kind",
+        "creation_time_state",
+        "modification_time_state",
+        "timescale",
+        "duration_units",
+        "duration_state"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "complete"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "version": {
+                "enum": [
+                  0,
+                  1
+                ]
+              },
+              "issues": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unsupported"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "issues": {
+                "minItems": 1,
+                "items": {
+                  "enum": [
+                    "unsupported_declaration_version",
+                    "unsupported_declaration_flags"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "malformed"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "issues": {
+                "minItems": 1,
+                "items": {
+                  "enum": [
+                    "truncated_declaration_fields",
+                    "zero_timescale"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "issues": {
+                "const": [
+                  "unsupported_declaration_version"
+                ]
+              }
+            },
+            "required": [
+              "issues"
+            ]
+          },
+          "then": {
+            "properties": {
+              "version": {
+                "const": null
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "issues": {
+                "const": [
+                  "unsupported_declaration_flags"
+                ]
+              }
+            },
+            "required": [
+              "issues"
+            ]
+          },
+          "then": {
+            "properties": {
+              "version": {
+                "enum": [
+                  0,
+                  1
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "version": {
+                "const": null
+              }
+            },
+            "required": [
+              "version"
+            ]
+          },
+          "then": {
+            "properties": {
+              "issues": {
+                "minItems": 1,
+                "items": {
+                  "enum": [
+                    "unsupported_declaration_version",
+                    "truncated_declaration_fields"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unsupported"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "creation_time_state": {
+                "const": "unread"
+              },
+              "modification_time_state": {
+                "const": "unread"
+              },
+              "timescale": {
+                "const": null
+              },
+              "duration_units": {
+                "const": null
+              },
+              "duration_state": {
+                "const": "unread"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "issues": {
+                "const": [
+                  "truncated_declaration_fields"
+                ]
+              }
+            },
+            "required": [
+              "issues"
+            ]
+          },
+          "then": {
+            "properties": {
+              "creation_time_state": {
+                "const": "unread"
+              },
+              "modification_time_state": {
+                "const": "unread"
+              },
+              "timescale": {
+                "const": null
+              },
+              "duration_units": {
+                "const": null
+              },
+              "duration_state": {
+                "const": "unread"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "issues": {
+                "const": [
+                  "zero_timescale"
+                ]
+              }
+            },
+            "required": [
+              "issues"
+            ]
+          },
+          "then": {
+            "properties": {
+              "version": {
+                "enum": [
+                  0,
+                  1
+                ]
+              },
+              "timescale": {
+                "const": 0
+              },
+              "creation_time_state": {
+                "enum": [
+                  "zero",
+                  "nonzero"
+                ]
+              },
+              "modification_time_state": {
+                "enum": [
+                  "zero",
+                  "nonzero"
+                ]
+              },
+              "duration_state": {
+                "enum": [
+                  "declared",
+                  "zero",
+                  "indeterminate"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "complete"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "timescale": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 4294967295
+              },
+              "creation_time_state": {
+                "enum": [
+                  "zero",
+                  "nonzero"
+                ]
+              },
+              "modification_time_state": {
+                "enum": [
+                  "zero",
+                  "nonzero"
+                ]
+              },
+              "duration_state": {
+                "enum": [
+                  "declared",
+                  "zero",
+                  "indeterminate"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "version": {
+                "const": 0
+              }
+            },
+            "required": [
+              "version"
+            ]
+          },
+          "then": {
+            "properties": {
+              "duration_units": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4294967294
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "duration_state": {
+                "const": "zero"
+              }
+            },
+            "required": [
+              "duration_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "duration_units": {
+                "const": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "duration_state": {
+                "const": "declared"
+              }
+            },
+            "required": [
+              "duration_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "duration_units": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 18446744073709551614
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "duration_state": {
+                "const": "indeterminate"
+              }
+            },
+            "required": [
+              "duration_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "duration_units": {
+                "const": null
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "duration_state": {
+                "const": "unread"
+              }
+            },
+            "required": [
+              "duration_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "duration_units": {
+                "const": null
+              }
+            }
+          }
+        }
+      ]
+    },
+    "pssh_declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "box_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4095
+        },
+        "parent_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4095
+        },
+        "version": {
+          "enum": [
+            0,
+            1,
+            null
+          ]
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "unsupported",
+            "malformed"
+          ]
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "unsupported_declaration_version",
+              "unsupported_declaration_flags",
+              "truncated_declaration_fields",
+              "pssh_length_mismatch"
+            ]
+          },
+          "maxItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "box_index",
+        "parent_index",
+        "version",
+        "status",
+        "issues"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "complete"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "version": {
+                "enum": [
+                  0,
+                  1
+                ]
+              },
+              "issues": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unsupported"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "issues": {
+                "minItems": 1,
+                "items": {
+                  "enum": [
+                    "unsupported_declaration_version",
+                    "unsupported_declaration_flags"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "malformed"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "issues": {
+                "minItems": 1,
+                "items": {
+                  "enum": [
+                    "truncated_declaration_fields",
+                    "pssh_length_mismatch"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "issues": {
+                "const": [
+                  "unsupported_declaration_version"
+                ]
+              }
+            },
+            "required": [
+              "issues"
+            ]
+          },
+          "then": {
+            "properties": {
+              "version": {
+                "const": null
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "issues": {
+                "const": [
+                  "unsupported_declaration_flags"
+                ]
+              }
+            },
+            "required": [
+              "issues"
+            ]
+          },
+          "then": {
+            "properties": {
+              "version": {
+                "enum": [
+                  0,
+                  1
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "version": {
+                "const": null
+              }
+            },
+            "required": [
+              "version"
+            ]
+          },
+          "then": {
+            "properties": {
+              "issues": {
+                "minItems": 1,
+                "items": {
+                  "enum": [
+                    "unsupported_declaration_version",
+                    "truncated_declaration_fields"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
 }

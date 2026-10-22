@@ -72,6 +72,21 @@ def check(report):
             assert item["offset"] + item["size"] <= p["offset"] + p["size"]
             assert item["depth"] == p["depth"] + 1
     assert report["summary"]["boxes_reported"] == len(report["boxes"])
+    assert report["profile"] == M.PROFILE
+    declarations = report["declarations"]
+    rows = declarations["timing"] + declarations["pssh"]
+    assert len({row["box_index"] for row in rows}) == len(rows) <= len(report["boxes"])
+    for row in rows:
+        item = report["boxes"][row["box_index"]]
+        assert item["handling"] == "declaration" and item["children_complete"] is None
+        assert row["parent_index"] == item["parent_index"]
+        assert row.get("kind", "pssh") == item["kind"]
+    assert declarations["coverage"]["traversal_complete"] == cov["structure_complete"]
+    assert declarations["coverage"]["fields_complete"] == all(row["status"] == "complete" for row in rows)
+    assert (declarations["status"] == "complete") == (declarations["coverage"]["traversal_complete"] and
+                                                      declarations["coverage"]["fields_complete"])
+    assert not any(declarations[field] for field in ("absolute_times_returned", "sample_entries_examined",
+                                                    "sample_encryption_examined"))
     assert not any(report[field] for field in ("media_decoded", "playback_verified", "recording_time_verified",
                                                "encryption_assessed", "format_conformance_assessed"))
     validate("media-inventory", envelope(report))

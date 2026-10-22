@@ -222,7 +222,7 @@ forensics_fs_list(case_id="<id>", evidence_id="EV-0001")
 
 ### 6b. 선택 미디어의 구조·후보가 필요한 경우
 
-`forensics_media_inventory(case_id="<id>", evidence_id="EV-0001", ref="<목록의 ref>")`로 완전한 파일 하나(최대64 MiB)의 BMFF 상자 경계를 관찰한다. `forensics_media_candidates`는 같은 인자로 선택 파일 안의 연속 최상위 prefix 후보를 찾는다. ref/path 배타·직접 EV는 둘 다 생략하며 필요한 파티션만 명시한다. 원시 파일·복구물을 직접 열거나 프레임·음성을 해독하지 않는다.
+`forensics_media_inventory(case_id="<id>", evidence_id="EV-0001", ref="<목록의 ref>")`로 완전한 파일 하나(최대64 MiB)의 BMFF 상자 경계와 제한된 길이·PSSH 선언을 관찰한다(촬영 시각·재생 길이·암호화 판정 아님). `forensics_media_candidates`는 같은 인자로 선택 파일 안의 연속 최상위 prefix 후보를 찾는다. ref/path 배타·직접 EV는 둘 다 생략하며 필요한 파티션만 명시한다. 원시 파일·복구물을 직접 열거나 프레임·음성을 해독하지 않는다.
 - inventory는 [reference.md §12](reference.md#12-선택-미디어-구조-관찰)에 따라 `media_inventory_results`, 연속 후보는 [§13](reference.md#13-선택-미디어-연속-후보)에 따라 `media_candidate_results`에 결과 참조만 기록한다. 검색/검사/목록/관계 완료도를 각각 보고 원본 경계·녹화 복구·재생·시각·암호화·침해 여부를 판정하지 않는다. 저장된 후보의 앞부분이 승인된 목적에 필요하면 `forensics_extract_media_candidate(case_id="<id>", evidence_id="EV-0001", analysis_path="<응답의 analysis.path>", candidate_index=0)`를 쓴다. 번호는 보고서에 실제 존재하는 정수 하나만 고른다. 이 쓰기 도구는 `ask` 권한이며 기존 `forensics_job_status`로 완료를 확인한다. 원래 불확실성을 보존하고, [reference.md §14](reference.md#14-저장된-후보-prefix-추출)에 따라 `recovered`·`notes`와 증거 목록에 남긴다. `complete=true`는 prefix 작성 완료이며 녹화 전체 복구 성공이 아니다.
 
 ### 7. 필요한 것만 추출

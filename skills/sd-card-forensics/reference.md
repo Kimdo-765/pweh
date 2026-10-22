@@ -162,7 +162,7 @@
 | `pweh-fwtriage` 가 `forensics/` 경로를 거부, `case_import_file`·`case_hash_file`·`case_register_artifact` 가 거부 | 펌웨어 도구·케이스 도구는 증거 폴더를 읽지 않는다 | 정상이다. 다른 도구로 우회하지 않는다 |
 | `uart_capture_boot` 에 sd_events 없음, card_detected false | 감지 줄을 못 봤다(카드가 없다는 뜻은 아님) | 콘솔 로그 수준·관찰 시간(`duration`)을 확인하고, 결과는 그대로 적는다 |
 
-**아직 없는 것**(F2·F3 단계): 선택 BMFF 구조 밖의 녹화 컨테이너·프레임 해석과 CCTV 인덱스(Hikvision·Dahua 등), 녹화 타임라인, 카드 쪽 녹화 암호화 판정·전체 카드 비밀값 자동 탐색·카드 내용의 침해 판정, 파일 시스템 메타데이터 밖의 카빙,
+**아직 없는 것**(F2·F3 단계): 선택 BMFF 구조·제한된 선언 관찰 밖의 녹화 컨테이너·프레임 해석과 CCTV 인덱스(Hikvision·Dahua 등), 녹화 타임라인, 카드 쪽 녹화 암호화 판정·전체 카드 비밀값 자동 탐색·카드 내용의 침해 판정, 원시 이미지 구간 카빙,
 E01 입력과 외부 도구(TSK·PhotoRec·ewf·ffprobe), ext4·NTFS 목록, 장치에서 카드 식별 정보 읽기, Windows 원시 읽기 헬퍼, 영상 내보내기.
 이것들은 셸이나 외부 프로그램으로 대신하지 않는다. 필요했던 일은 요약 notes 와 `case_record_step` 의 blockers·next_actions 에 "아직 없음" 으로 적는다.
 
@@ -241,13 +241,17 @@ E01 입력과 외부 도구(TSK·PhotoRec·ewf·ffprobe), ext4·NTFS 목록, 장
 
 ## 12. 선택 미디어 구조 관찰
 
-`forensics_media_inventory`는 EV 자체 또는 FAT/exFAT·TAR/ZIP에서 선택한 완전한 파일 하나의 상자 구조만 본다. ref/path 중 하나를 주거나 직접 EV에서는 둘 다 생략한다. 직접 EV는 partition 없이 method=auto다. 최대64 MiB이고 불완전 읽기·한도 초과를 앞부분 성공으로 바꾸지 않는다. 빈 선택 파일은 미지원 결과다.
+`forensics_media_inventory`는 EV 자체 또는 FAT/exFAT·TAR/ZIP에서 선택한 완전한 파일 하나의 상자 경계와 허용 계층의 `mvhd/mdhd` 시간 단위·길이 선언, `pssh` 구조를 본다. ref/path 중 하나를 주거나 직접 EV에서는 둘 다 생략한다. 직접 EV는 partition 없이 method=auto다. 최대64 MiB이고 불완전 읽기·한도 초과를 앞부분 성공으로 바꾸지 않는다. 빈 선택 파일은 미지원 결과다.
 
-`report.status`의 ok/partial/unsupported, `framing_status`, `recognition`, `coverage`를 구분한다. brand 선언이나 moov/moof가 있다고 영상 정상·재생 가능·녹화 시각·암호화 여부를 판정하지 않는다. opaque payload는 구조 해석 바이트와 다르다. 삭제·삭제된 부모·알 수 없는 부모·복구 신뢰도의 불확실성이 있으면 구조가 완주해도 overall partial일 수 있다. 전체 컨테이너 미검사를 전체 목록 완료로 쓰지 않는다.
+schema `pweh.media-inventory/v1`은 유지한다. 새 profile `mp4-quicktime-declarations-v1`은 `declarations`가 필수이고, 옛 `mp4-quicktime-box-v1`은 그 section 없이 기존 형식으로 계속 읽는다. 옛 보고서가 새 선언 검사를 받은 것으로 해석하지 않는다.
+
+`report.status`의 ok/partial/unsupported, `framing_status`, `recognition`, `coverage`와 `declarations.status`를 구분한다. 선언 필드가 미지원·불완전하면 상자 경계가 complete여도 전체 partial이다. 선언0개/complete는 보호 신호 부재·평문 확인이 아니다. timing의 timescale/duration_units는 선언 정수이며 재생 길이나 녹화 시작/끝으로 변환하지 않는다. creation/modification는 zero/nonzero/unread만, PSSH는 index/version/status/issues만 반환한다. 원시 시각·식별자·payload는 나오지 않는다.
+
+opaque payload는 검사 바이트와 다르며 timing도20/32bytes prefix 외 필드는 미검사다. brand나 moov/moof/PSSH가 있다고 영상 정상·재생 가능·녹화 시각·암호화를 판정하지 않는다. 삭제·삭제된 부모·알 수 없는 부모·복구 신뢰도의 불확실성은 선언 검사 상태와 별도로 overall partial에 남는다. 전체 컨테이너 미검사를 전체 목록 완료로 쓰지 않는다.
 
 `media_inventory_results[]`에는 `evidence_id`, `analysis_path`/`sha256`(응답 analysis), `status`(report.status), `selected_size`(source.selected_size), `boxes_reported`(보고한 상자 수)만 기록한다. 원래 파일명·경로·시각·FourCC·UUID·메타데이터 원문은 추가하지 않는다. 범위별 한계는 결과 JSON을 참조하고 증거 목록의 derived에서 media-inventory 결과 해시/보관 기록을 확인한다. 기존 privacy.audio_decoded·recording_content_viewed는 false로 유지한다.
 
-상자4096·깊이8·brand ftyp당64/전체256·범위8193·JSON1 MiB·최대45초의 제한이 있다. 구조 실패/한도에서 검증한 prefix와 미검사 tail을 구분한다. 구조를 읽어볼 필요가 없거나 지원 범위를 벗어나면 외부 decoder/파일 도구로 대신하지 않는다. 전체 계약은 architecture §6.8, 한계는 safety §3.6이다.
+상자4096·깊이8·brand 표당64/전체256·범위8193·JSON1 MiB·공통 최대45초의 제한이 있다. timing/PSSH row 합계는 반환 상자 수 이하이며 상자당1개다. 구조 실패/한도에서 검증한 범위와 미검사 tail을 구분한다. 지원 밖을 외부 decoder/파일 도구로 대신하지 않는다. 상세 필드·false 검증 값·구버전은 [선언 관찰](../../docs/references/media-declarations.md), 전체 보관 계약은 architecture §6.8, 한계는 safety §3.6이다. 후보·prefix 도구와 녹화 타임라인 입력은 바뀌지 않는다.
 
 ## 13. 선택 미디어 연속 후보
 

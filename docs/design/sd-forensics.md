@@ -112,7 +112,7 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 > 접수 아티팩트 kind는 사본의 `evidence-image`와 참조 기록의 `evidence-reference`다(추출물은 매니페스트로 센다). 발견사항 카테고리 `insecure-storage`·`privacy` 는 아직 없다. D의 `pweh-fwtriage` raw GPT 분할은 `pweh.fs`의 파티션 파서를 재사용한다(증거 파일 시스템 접근은 아님).
 > - **저장된 후보 추출**: `forensics_extract_media_candidate`가 같은 EV의 후보 보고서·선택 파일을 다시 검증하고 지정 후보의 앞부분 하나를 파생 파일로 쓴다. 녹화 전체 복구·재생을 판정하지 않는다. [입출력·보관 기록 계약](../references/media-prefix-extract.md).
 > - **선택 연속 구조 후보**: `forensics_media_candidates`는 같은 완전 선택 파일 안에서 ftyp·연속 최상위 상자 prefix 후보와 검색/검사/목록/관계 완료도를 기록한다. 원본 파일 경계·녹화 복구·물리 카빙 검증은 아니며 계약은 architecture §6.8이다.
-> - **선택 미디어 구조**: `forensics_media_inventory`는 완전한64 MiB 이하 선택 파일의 ISO-BMFF 상자 경계·고정 brand 선언과 검사/opaque/미검사 범위를 관찰한다. 프레임·음성·시각·codec·암호화·표준 적합성·재생을 검증하지 않으며 카빙/벤더 인덱스 지원으로 세지 않는다. 출처·취소·저장 계약은 architecture §6.8이다.
+> - **선택 미디어 구조**: `forensics_media_inventory`는 완전한64 MiB 이하 선택 파일의 ISO-BMFF 상자 경계·고정 brand, 제한된 mvhd/mdhd 시간 단위·길이 선언과 pssh 구조, 검사/opaque/미검사 범위를 관찰한다. 생성/수정 시각은 zero/nonzero/unread 상태만 남긴다. [선언 계약](../references/media-declarations.md)에 따라 프레임·음성·촬영 시각·codec·암호화·표준 적합성·재생을 검증하지 않으며 카빙/벤더 인덱스 지원으로 세지 않는다. 출처·취소·저장 계약은 architecture §6.8이다.
 >
 > 남음: F2 — CCTV 형식(프레임 카버·인덱스·이름 규칙), 카빙, 녹화 인덱스 타임라인, §5.2의 카드 전체 비밀값 자동 탐색·암호화 판정·카드 내용의 침해 판정(기존 보고서 이름 대조·선택 BMFF 구조 관찰은 구현), E01·외부 도구(TSK·PhotoRec·ewf·ffprobe).
 > F3 — ext4(NTFS 목록도 없음), Windows 원시 읽기 헬퍼, 영상 내보내기. 장치에서 카드 식별 정보 읽기(sysfs cid/csd)도 아직 없다.
@@ -148,6 +148,7 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 - **구현 — `forensics_scan_secrets`**: 접수한 EV 자체 또는 FAT/exFAT·TAR/ZIP에서 명시적으로 고른 파일 하나를 완전히 읽은 뒤(최대 4 MiB), UTF-8 텍스트의 공통 자격증명·콘솔 토큰 패턴을 검사한다. BOM은 허용하며 UTF-16·바이너리·영상음성·중첩 압축은 지원하지 않는다. 기본은 평문이고 `xor_key=144`를 명시하면 0x90 보기만 검사한다. 자동 XOR 키 탐색·벤더 판정·fwtriage YAML 전체 규칙은 구현 범위에 없다.
   결과는 원문 없는 위치·길이·고정 `<masked>`·경계가 완전한 값의 케이스 솔트 지문이다. 계정·키 이름·URL·파일명·변환 평문은 새 산출물에 남기지 않는다. 16 KiB를 넘는 줄은 전부 건너뛰며 시간·줄·후보·범위 상한과 복구 불확실성을 `partial` 및 검사/미검사 바이트 범위로 기록한다. 후보 0건도 파일 전체나 카드의 안전을 뜻하지 않는다.
   분석 JSON은 `secrets-scan` 보관 기록에 해시로 결속한다. 복구한 자격증명으로 로그인하지 않는다. 정확한 인자·반환 계약은 architecture §6.8과 `schemas/secrets-scan.schema.json`이다.
+- 기존 inventory의 제한된 `pssh` 구조 관찰은 구현했다. SystemID/KID/data와 sample entry·sample 암호화는 미검사이며, 아래 제안 도구나 암호화 판정의 완료로 보지 않는다.
 - **미구현 — `forensics_encryption_assess`**: "암호화 안 됨"은 **보호 신호가 없고**(encv/enca/sinf/schm/tenc/senc/pssh) **슬라이스 본문(앞 32바이트 이후)이 해석될 때만**. 그 밖은 "암호화됨/모름"(상자 구조와 NAL 헤더는 암호화돼도 남는다, 엔트로피는 결정적이지 않음).
 - **구현 — `forensics_sd_ioc_scan`**: 검증된 FAT/exFAT 전체 목록과 등록된 `fw_sd_surface` 전체 보고서의 문자 경로를 대조한다. 정상 업데이트·설정·로그 파일도 일치할 수 있으므로 이름 존재로 내용·실행·침해를 확정하지 않는다. 삭제·손상·중복·대소문자 후보와 입력/검사 한계를 함께 남기며 원시 경로·발췌는 새 결과에 복사하지 않는다. 상세 계약은 architecture §6.8이다.
 
