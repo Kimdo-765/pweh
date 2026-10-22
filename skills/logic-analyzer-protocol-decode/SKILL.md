@@ -8,7 +8,7 @@ description: Capture and decode UART/SPI/I2C board signals with a sigrok logic a
 ## 목적
 
 소유 기기나 서면 허가를 받은 기기의 보드 신호를 로직 애널라이저(LA)로 **수동 캡처**하고, sigrok 디코더로 해석한다. 결과는 연구·방어용이다(공격 페이로드나 제3자 시스템 공격 없음).
-이 Skill 은 입력만 받는다. 대상에는 아무것도 보내지 않는다. 배선과 전원 재투입은 사람이 한다.
+보드 신호 캡처는 입력 전용이다. 시리얼형 계측기 탐색은 OLS reset·ID·metadata 같은 제어 바이트를 보내므로 계측기 포트를 정확히 고른다. 배선과 전원 재투입은 사람이 한다.
 
 결과물은 넷이다.
 1. **UART TX 패드, 보드레이트, 프레임, 극성.** 다음 Skill `uart-shell-acquisition` 이 이 값을 입력으로 쓴다.
@@ -41,7 +41,7 @@ description: Capture and decode UART/SPI/I2C board signals with a sigrok logic a
   - 선택: `pipeline_profile(name="<profile>")` 의 보드레이트 후보로 추정값을 교차 확인한다.
 - **사람이 준비할 장비**: LA(fx2lafw 계열 8ch 24 MHz "Saleae 클론", DSLogic 등), 훅 클립과 점퍼선, 멀티미터, SPI 를 볼 때는 SOIC-8 클립(LA 에만 연결).
   대상 전원을 사람이 직접 껐다 켤 수 있어야 한다. DC 잭 구성을 권장한다.
-- **WSL2**: `usbipd attach` 가 필요하다. fx2lafw 는 펌웨어 업로드 뒤 재열거되므로 attach 를 다시 해야 할 수 있다.
+- **WSL2**: Linux USB 캡처에는 `usbipd attach` 가 필요하다. fx2lafw 는 펌웨어 업로드 뒤 재열거되므로 attach 를 다시 해야 할 수 있다. Windows OLS COM scan/show만 별도 지원하며 Windows 캡처는 아직 지원하지 않는다.
 - **sigrok-cli**: `sigrok_version()` 이 tool_missing 이면 설치 힌트를 전달한다(`. ~/pweh-tools/env.sh` 또는 `apt install sigrok-cli`).
   이미 있는 캡처 파일은 sigrok-cli 없이도 분석된다: `sigrok_file_info`, `sigrok_estimate_baud`, `sigrok_uart_autodecode(engine="python")`.
 
@@ -56,12 +56,12 @@ master-prompt §1 과 docs/safety.md §2.3·§2.5·§7 을 따른다. 이 Skill 
    fx2lafw 입력은 −0.5~5.25 V, 임계 VIH 2.0 V / VIL 0.8 V 이므로 3.3 V·5 V TTL 만 직접 연결한다. VCC 레일, PoE 48 V, AC 입력 DVR 의 SMPS 근처에는 프로브를 대지 않는다.
 4. **SPI 클립.** 전원을 끈 상태에서 물리고, LA 에만 연결한다. 프로그래머(CH341A 등)와 클립의 VCC 핀은 연결하지 않는다(역전원, safety.md §2.5).
 5. **물리 작업은 사람이 한다.** 아래 템플릿처럼 구체적으로 요청하고, "완료" 전에는 진행하지 않는다.
-6. **시리얼형 LA(OLS 등).** conn 이 대상 콘솔 포트가 아닌지 확인한다. 다른 프로세스가 그 포트를 열고 있으면 서버가 Busy 로 거부한다. 우회하지 않는다.
+6. **시리얼형 LA(OLS 등).** conn 이 대상 콘솔 포트가 아닌지 확인한다. OLS scan/show는 reset 5회·질의와 포트 열기를 하므로 MODIFY이며 DTR/RTS LOW도 보장하지 않는다. 다른 프로세스가 포트를 열고 있거나 Windows 정리가 미확인이면 서버가 거부한다. 우회하지 않는다.
 7. **긴 캡처는 job 으로.** 사용자가 멈추라고 하면 즉시 `sigrok_job_cancel` 을 호출한다. 부분 캡처는 `<name>-partial.sr` 로 보존된다.
 8. **민감 정보.** EEPROM·SPI 데이터에 비밀번호, 키, Wi-Fi 정보가 있을 수 있다. 요약과 대화에는 마스킹해서 싣고 원문은 케이스 파일에만 둔다.
 9. **확인과 추측을 구분한다.** 예: "TX = J3-2 (confidence 0.999, 부팅 배너로 확인)" 과 "J3-3 = RX (추정)".
-10. **승인 경로가 없다.** OBSERVE/INTERACT 는 항상 허용되고, 그보다 높은 위험도는 승인 경로 없이 denied 로 끝난다.
-    그래서 sigrok 도구는 approval_required 를 내지 않고 approval_id 인자도 없다. approval_required 가 보이면 멈추고 보고한다.
+10. **OLS 조회의 승인 게이트.** Linux/Windows의 OLS+명시 직렬 scan/show는 기존 `modify_policy`를 따른다.
+    `approval_required`이면 위험과 승인 ID를 설명하고 사람이 별도 터미널에서 `pweh approve <id>`로 승인한 뒤 같은 인자에 `approval_id`를 붙여 재호출한다. 규칙 2의 정책 거부에는 승인 경로가 없다.
     어떤 경우에도 에이전트가 `pweh approve` 를 실행하거나 승인 파일·설정을 고치지 않는다(master-prompt §1-2).
 
 ## 사용하는 MCP 도구
@@ -100,6 +100,8 @@ sigrok_version()
 sigrok_scan()                                   # 인자 없음 = USB 자동 탐지, case_id 불필요
 sigrok_device_info(case_id="20261018-acme-ipc", driver="fx2lafw")
 ```
+
+Windows의 OLS 조회는 소유/허가 케이스와 확인한 계측기 COM을 사용해 `sigrok_scan(case_id=…, driver="ols", conn="COMn", backend="windows")` 또는 `sigrok_device_info`를 호출한다. `COMn`은 실제 번호로 바꾼다. scan/show에만 지원하며 Windows 캡처나 자동 Linux fallback으로 이어가지 않는다. 상세 범위는 `docs/references/windows-sigrok-com.md`를 본다.
 
 - `sigrok_scan` 응답은 `devices[{driver, conn, description, channels, capture_allowed}]` 다. capture_allowed 가 false 인 장치는 쓰지 않는다.
   드라이버별 허용 여부는 `sigrok_list(kind="drivers")` 의 capture_allowed·output_capable 로도 볼 수 있다.

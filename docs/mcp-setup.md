@@ -51,7 +51,7 @@ MCP 단계가 저장소 밖에 쓰는 것은 Codex 홈의 trust 항목과 그 �
 | `qemu_esp` *(선택)* | Espressif QEMU 9.2.2 (`esp_develop_9.2.2_20260417`), ESP32·S3·C3 | xtensa/riscv32 공식 tar.xz 두 개(sha256 고정). 실행 파일과 ROM 을 `qemu-esp/{xtensa,riscv32}` 에 함께 설치 |
 | `simavr` *(선택)* | 고정 커밋 `5b08da60497f7564f50941f74a549fe2851db030` + PWEH `pweh_avr_run` | git 소스로 라이브러리·실행기를 빌드. ELF 입력·GDB 리스너 없음, 플래시 경계 밖 접근 보완. `simavr/bin/pweh_avr_run` 만 설치 |
 
-`openocd-win`·`sigrok-win` 전용 `--only`는 위 일반 설치·MCP·Skill·verify 단계와 분리되어 로컬 복사/검증만 수행한다. 두 Windows 항목끼리는 함께 선택할 수 있으며 기존 구성요소와 섞으면 거부한다. `--check --only openocd-win,sigrok-win` 또는 `pweh doctor --windows-bundles-only --json`으로 정적 상태를 확인한다. 이 경로의 `--prefix`는 env.sh·저장소 포인터를 쓰지 않으므로 다른 prefix의 doctor에는 `PWEH_TOOLS_DIR`를 지정한다. 설치본 존재가 Windows 실행 검증을 뜻하지 않는다. OpenOCD의 명시 무장치 진단은 [고정 dummy 계약](references/windows-openocd-dummy.md)을, sigrok의 명시 Windows 버전·목록 조회는 [정보 조회 계약](references/windows-sigrok-info.md)을 따른다.
+`openocd-win`·`sigrok-win` 전용 `--only`는 위 일반 설치·MCP·Skill·verify 단계와 분리되어 로컬 복사/검증만 수행한다. 두 Windows 항목끼리는 함께 선택할 수 있으며 기존 구성요소와 섞으면 거부한다. `--check --only openocd-win,sigrok-win` 또는 `pweh doctor --windows-bundles-only --json`으로 정적 상태를 확인한다. 이 경로의 `--prefix`는 env.sh·저장소 포인터를 쓰지 않으므로 다른 prefix의 doctor에는 `PWEH_TOOLS_DIR`를 지정한다. 설치본 존재가 Windows 실행 검증을 뜻하지 않는다. OpenOCD의 명시 무장치 진단은 [고정 dummy 계약](references/windows-openocd-dummy.md)을, sigrok의 명시 Windows 버전·목록 조회는 [정보 조회 계약](references/windows-sigrok-info.md)을 따른다. `ols`의 명시 COM scan/show는 별도의 [기기 조회 계약](references/windows-sigrok-com.md)을 따르며 캡처는 Linux 경로에 남는다.
 
 - **전제 조건:** Linux x86_64, bash, curl(또는 wget), tar, xz, Python 3.10 이상, git.
   배포판 패키지 구성요소는 Debian/Ubuntu(apt)에서만 받는다. apt 가 없으면 해당 도구를 직접 설치하고 `PWEH_*` 환경변수로 알려 준다.

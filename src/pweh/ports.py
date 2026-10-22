@@ -1,4 +1,4 @@
-"""포트 참조·불변 route·읽기 전용 식별·scope — port-routing P0/P1/P2.
+"""포트 참조·불변 route·읽기 전용 식별·scope — port-routing P0/P1/P2/P3.
 
 지금 들어 있는 것:
 - Windows COM 이름 문법(:func:`parse_win_com`): ``COM1``–``COM4096``, 대소문자 무관, 앞자리 0 금지.
@@ -11,7 +11,8 @@
 - 같은 끝점을 가리키는 표기를 한 키로(:func:`endpoint_key`) — 루프백 원격 URL 은 포트만(``net-loopback:<port>``) 본다.
 
 resolve/list/scope는 장치를 열지 않는다. open_serial만 별도 serialtransport에 위임한다.
-WSL의 Windows COM 세션은 검증한 helper에 위임한다. Windows sigrok는 후속 P3이다.
+WSL의 Windows COM 세션은 검증한 helper에 위임한다. sigrok COM은 Windows exe 경로이며
+명시 backend·고정 driver/동작 허용 여부는 소비자가 resolve 전에 검증한다.
 """
 
 from __future__ import annotations
@@ -467,8 +468,12 @@ def resolve(env: Mapping[str, Any], ref: str, purpose: str, *, probe: PortProbe 
         side = "windows"
         key = f"win:COM{com}"
         if purpose == "sigrok-serial":
-            raise ValidationFailed("Windows COM sigrok 경로는 P3에서 지원 예정입니다. local tty를 쓰세요.")
-        if purpose == "serial-session":
+            if hostenv.disabled_keys(config) & {"interop", "windows_tools"}:
+                raise ValidationFailed("hostenv.disable 설정으로 Windows sigrok COM 경로가 꺼져 있습니다.")
+            if kind not in {"WSL1", "WSL2_INTEROP", "WSL_UNKNOWN"} or not hostenv.interop_usable(env):
+                raise ValidationFailed("Windows sigrok COM 경로는 사용 가능한 WSL interop이 필요합니다.")
+            backend = "win-exe"
+        elif purpose == "serial-session":
             if kind == "WSL1" and com <= 191:
                 path = f"/dev/ttyS{com}"
             else:

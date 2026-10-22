@@ -123,6 +123,7 @@ PWEH 는 물리 작업을 사람에게 맡긴다. 에이전트는 무엇을 연�
 예외: pweh-sigrok 의 출력 가능 장치(전원공급기·전자부하·신호발생기·릴레이)와 허용 목록 밖 드라이버 거부(`gate.via: "sigrok-policy"`)는
 게이트에 넘기지 않으므로 `approve` 정책에서도 승인 경로가 없다. 범용 FTDI 칩을 VID/PID 만으로 잡는 `ftdi-la` 도 기본 허용 목록 밖이다
 (같은 칩을 쓰는 대상 콘솔 USB-UART·JTAG 어댑터·JTAGulator 를 가로챌 수 있다). 전용 FTDI LA 만 쓰는 환경에서 운영자가 `sigrok.capture_drivers_allow` 로만 연다.
+OLS의 명시 직렬 `sigrok_scan`·`sigrok_device_info`는 프로토콜 reset을 보내므로 Linux/Windows 모두 MODIFY이며 기존 `modify_policy`를 따른다. `approval_required`이면 사람이 승인한 뒤 같은 인자에 `approval_id`를 붙인다. 출력 장치의 정책 거부를 이 승인으로 풀 수는 없다.
 pweh-jtagulator 는 원시 키 입력 도구 자체가 없다.
 pweh-esp 도 같다. esptool 의 쓰기·삭제·eFuse·RAM 실행 같은 DESTRUCTIVE argv 는 게이트에 넘기지 않고 `gate.via: "esp-policy"` 로 거부하므로
 승인 레코드가 생기지 않고 `pweh approve` 로도 풀 수 없다(§3.3).
@@ -259,7 +260,7 @@ pweh-emu 의 고정 argv 허용 목록 위반도 `gate.via: "emu-policy"`, `stat
   - JTAGulator UART 스캔 프로브는 대상 콘솔이 여러 번 받으므로, 두 번 이어 붙인 형태까지 콘솔 분류기로 검사한다(`_erase X\rflash` → `flash_erase X`).
     `jtagulator_connect`는 문자장치·루프백 socket/RFC2217·loop와 WSL COM을 받는다. WSL1 COM1–191은 ttyS, 그 밖의 WSL COM은 interop과 검증된 helper가 필요하다.
     공용 portlock을 승인·open 전에 잡아 다른 PWEH 세션의 포트에 재동기화 키를 보내지 않는다. 루프백 URL은 모든 호스트 표기·두 스킴을 포트 번호 하나로 묶는다.
-    UART가 기록한 target/bridge 역할 표지도 프로브를 막는다. 미확인 식별이면 표지를 임의로 해제하지 않는다. sigrok는 명시 직렬 conn만 같은 잠금에 참여한다.
+    UART가 기록한 target/bridge 역할 표지도 프로브를 막는다. 미확인 식별이면 표지를 임의로 해제하지 않는다. sigrok는 명시 직렬 conn만 같은 잠금에 참여한다. Windows는 고정 OLS COM scan/show만 지원한다. OLS reset·질의와 포트 재열기가 있으므로 수동 관찰이나 DTR/RTS LOW 보장으로 설명하지 않는다. Windows 실제 프로세스와 사본 정리가 미확인이면 owner·lease를 유지한다([계약](references/windows-sigrok-com.md)).
 - **포트와 연결 수명**: 경로·OS 노드·USB 식별을 승인 뒤 다시 확인하며 바뀌면 `route_changed`로 중단한다. 확인된 장치 전체 reset은 같은 부모의 모든 현재 형제 키가 필요하다.
   형제 관찰이 불완전하면 `port_scope_unknown`이다. POSIX는 open 뒤 TIOCEXCL, close 전에 TIOCNXCL을 적용한다. 최초 open pulse와 비PWEH 프로그램의 open–ioctl 경합까지 없애지는 못한다.
   승인 대기에도 잠금을 유지한다. 끊어진 세션은 명시 close까지, 취소한 worker는 실제 핸들·프로세스 종료가 확인될 때까지 유지한다. GC·시간 경과로 orphan 잠금을 풀지 않는다.

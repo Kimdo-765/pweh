@@ -24,6 +24,7 @@ import os
 import re
 import shutil
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -119,18 +120,36 @@ _ORPHAN_LOCK = threading.Lock()
 class _SerialUse:
     """명시 serial conn의 gate/worker 수명. 외부 실행 전에 tty를 따로 열지 않는다."""
 
-    def __init__(self, case_id: str, conn: str):
+    def __init__(self, case_id: str, conn: str, backend: str = "linux"):
         self.runtime = rt()
+        # resolver가 COM을 이해해도 명시 Windows 두 프로브 외에는 활성화하지 않는다.
+        com = ports.parse_win_com(conn)
+        if backend not in ("linux", "windows") or (backend == "linux" and com is not None):
+            raise ValidationFailed("이 직렬 경로에는 명시 Windows OLS 프로브가 필요합니다.")
+        if backend == "windows" and com is None:
+            raise ValidationFailed("Windows OLS 프로브는 명시 COM 포트만 받습니다.")
+        self.backend = backend
+        self.cleanup_owner = None
         self.route = ports.resolve(_port_environment(), conn, "sigrok-serial", probe=_port_probe(), config=self.runtime.config)
+        if (self.route.backend == "win-exe") != (backend == "windows"):
+            raise ValidationFailed("선택한 backend와 직렬 경로가 일치하지 않습니다.")
         self.whole = self.route.reset_risk == "wired"
         self.keys = ports.reset_scope(self.route, whole_device=self.whole, config=self.runtime.config)
         with _ORPHAN_LOCK:
             for old in list(_ORPHAN_PORTS):
                 if old.lease.closed:
                     _ORPHAN_PORTS.remove(old)
-                elif set(old.keys) & set(self.keys) and old.result is not None:
-                    if (procutil.process_group_empty(old.result.pid, expect_start_ticks=old.result.start_ticks) is True
-                            and cli_runner.cleanup_owned(old.result.pid, process_token=old.result.process_token)):
+                elif set(old.keys) & set(self.keys):
+                    if old.cleanup_owner is not None:
+                        try:
+                            confirmed = old.cleanup_owner.close(deadline=time.monotonic()+10).confirmed is True
+                        except Exception:
+                            confirmed = False
+                    else:
+                        confirmed = (old.result is not None
+                            and procutil.process_group_empty(old.result.pid, expect_start_ticks=old.result.start_ticks) is True
+                            and cli_runner.cleanup_owned(old.result.pid, process_token=old.result.process_token))
+                    if confirmed:
                         old.lease.close()
                         _ORPHAN_PORTS.remove(old)
         self.lease = portlock.get_manager().acquire(self.keys, owner=portlock.PortOwner(
@@ -158,13 +177,13 @@ class _SerialUse:
             self.lease.close()
 
 
-def _serial_use(case_id: str | None, conn: str | None) -> _SerialUse | None:
+def _serial_use(case_id: str | None, conn: str | None, backend: str = "linux") -> _SerialUse | None:
     if conn_kind(conn) != "serial":
         return None
     if not case_id:
         raise ValidationFailed("serial conn에는 case_id가 필요합니다.")
     case = rt().case(case_id, hardware=True)
-    return _SerialUse(case.id, conn)
+    return _SerialUse(case.id, conn, backend)
 
 
 def _port_classification(use: _SerialUse | None, action: dict[str, Any], cls: Classification) -> Classification:
@@ -180,6 +199,8 @@ def _port_classification(use: _SerialUse | None, action: dict[str, Any], cls: Cl
 def _port_run(use: _SerialUse | None, argv: list[str], **kwargs: Any) -> CliResult:
     if use is None:
         return run_process(argv, **kwargs)
+    if use.backend != "linux" or use.route.backend == "win-exe":
+        raise ValidationFailed("Windows COM 실행에는 전용 소유 실행기가 필요합니다.")
     use.fresh()
     use.lease.set_state("running")
     use.unverified = True
@@ -203,6 +224,23 @@ def _port_run(use: _SerialUse | None, argv: list[str], **kwargs: Any) -> CliResu
     if use.unverified:
         check_result(result, "sigrok serial 실행")
     return result
+
+
+def _probe_classification(use: _SerialUse | None, action: dict[str, Any], cls: Classification,
+                          mode: str) -> Classification:
+    """일반 정책 거부를 통과한 OLS 직렬 식별의 실제 reset 효과를 반영한다."""
+    cls = _port_classification(use, action, cls)
+    if use is not None:
+        action["reset_scope"] = list(use.keys)
+    if action.get("driver") == "ols" and conn_kind(action.get("conn")) == "serial":
+        from pweh.sigrok_com import PROFILE_ID, PROFILE_SHA256
+        action["backend"] = use.backend if use else "linux"
+        action["profile"] = {"profile_id": PROFILE_ID, "profile_sha256": PROFILE_SHA256, "mode": mode}
+        reason = "OLS 직렬 식별은 SUMP reset 0x00을 5회 보내고 ID/metadata를 질의합니다."
+        if use is not None and use.route.reset_risk == "wired":
+            reason += " 내장 USB 직렬 열기의 리셋 가능성에 따라 전체 형제 포트 범위도 잠급니다."
+        return Classification(Risk.MODIFY, "sigrok.ols.serial-reset", reason, matched=cls.matched)
+    return cls
 
 
 def _port_worker(use: _SerialUse | None, work: Callable, finish: Callable, cancel_event: threading.Event) -> dict[str, Any]:
@@ -552,7 +590,7 @@ def _hardware_prelude(case_id: str | None, conn: str | None) -> Case | None:
             "conn 으로 시리얼/네트워크 포트를 지정하면 드라이버가 그 포트로 식별 바이트를 보내므로 case_id(소유/허가 증명)가 필요하다.",
             hint="case_id 를 함께 전달하라. USB 장치는 conn 없이 sigrok_scan() 으로 찾을 수 있다.",
         )
-    if kind == "serial" and conn:
+    if kind == "serial" and conn and ports.parse_win_com(conn) is None:
         # 진입에서 공통 resolver가 문자장치와 rdev를 확인하고 lease를 확보했다.
         users = device_users(conn)
         if users:
@@ -569,6 +607,8 @@ def _hardware_prelude(case_id: str | None, conn: str | None) -> Case | None:
         "연결된 sigrok 장치 스캔. 인자 없으면 모든 드라이버로 USB 등 자동 탐지(읽기 전용 식별). driver 로 한정 가능. "
         "conn(시리얼 /dev/ttyACM0, USB 'bus.addr'/'VID.PID', 'tcp-raw/host/port') 을 주면 그 포트로 식별 질의를 보내므로 "
         "시리얼/네트워크 conn 은 case_id(소유/허가 증명)가 필요하다. 명시 직렬 conn 은 공통 포트 잠금·route 재검증을 적용하고 target/bridge 표지가 있으면 거부한다. "
+        "backend 기본 linux; windows는 고정 ols+명시 COM만 지원하며 자동 USB/COM 탐색·캡처는 지원하지 않는다. "
+        "Linux/Windows OLS 직렬 식별은 reset을 보내므로 MODIFY 게이트를 거친다. approval_required이면 사람이 승인 후 같은 인자+approval_id로 재호출한다. "
         "결과 각 장치에 capture_allowed 정책이 붙는다."
     ),
     annotations=ANN_DEVICE,
@@ -579,8 +619,16 @@ async def sigrok_scan(
     conn: str | None = None,
     case_id: str | None = None,
     timeout_s: float | None = None,
+    backend: str = "linux",
+    approval_id: str | None = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
+    if backend not in ("linux", "windows"):
+        raise ValidationFailed("backend는 linux 또는 windows여야 합니다.")
+    if backend == "windows":
+        from .windows_com_tools import probe
+        return await probe("scan", case_id=case_id, driver=driver, conn=conn,
+                           timeout_s=timeout_s, approval_id=approval_id, ctx=ctx)
     r = rt()
     drv = validate_driver(driver) if driver else None
     conn_v = validate_conn(conn)
@@ -602,8 +650,9 @@ async def sigrok_scan(
         cid = case.id if case else None
         if cls.risk >= Risk.MODIFY:
             return _policy_denied("sigrok_scan", action, cls, cid)
-        cls = _port_classification(use, action, cls)
-        decision = await r.authorize(tool="sigrok_scan", action=action, classification=cls, case_id=cid, ctx=ctx)
+        cls = _probe_classification(use, action, cls, "scan")
+        decision = await r.authorize(tool="sigrok_scan", action=action, classification=cls, case_id=cid,
+                                     approval_id=approval_id, ctx=ctx)
         if not decision.allowed:
             return gate_response(decision)
         timeout = _clamp_timeout(timeout_s, 45.0)
@@ -655,8 +704,10 @@ async def sigrok_scan(
 @server.tool(
     description=(
         "로직 애널라이저 상세(sigrok-cli -d <driver> --show 파싱): 드라이버 기능, 채널/채널 그룹, 지원 samplerate 목록 또는 범위, "
-        "지원 트리거 문자, 최대 샘플 수. 장치를 열기만 하고 설정은 바꾸지 않는다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용. "
-        "명시 직렬 conn 은 공통 포트 잠금·route 재검증·target/bridge 거부를 적용한다."
+        "지원 트리거 문자, 최대 샘플 수를 조회한다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용. "
+        "명시 직렬 conn 은 공통 포트 잠금·route 재검증·target/bridge 거부를 적용한다. "
+        "backend 기본 linux; windows는 고정 ols+명시 COM의 정보 프로브만 지원한다. "
+        "Linux/Windows OLS는 식별 중 reset을 보내고 show에서 다시 열므로 MODIFY이며, approval_required 후 approval_id 재시도를 지원한다."
     ),
     annotations=ANN_DEVICE,
 )
@@ -666,8 +717,16 @@ async def sigrok_device_info(
     driver: str,
     conn: str | None = None,
     timeout_s: float | None = None,
+    backend: str = "linux",
+    approval_id: str | None = None,
     ctx: Context = None,  # type: ignore[assignment]
 ) -> dict[str, Any]:
+    if backend not in ("linux", "windows"):
+        raise ValidationFailed("backend는 linux 또는 windows여야 합니다.")
+    if backend == "windows":
+        from .windows_com_tools import probe
+        return await probe("show", case_id=case_id, driver=driver, conn=conn,
+                           timeout_s=timeout_s, approval_id=approval_id, ctx=ctx)
     r = rt()
     drv = validate_driver(driver)
     conn_v = validate_conn(conn)
@@ -683,8 +742,9 @@ async def sigrok_device_info(
         action = {"driver": drv, "conn": conn_v}
         if cls.risk >= Risk.MODIFY:
             return _policy_denied("sigrok_device_info", action, cls, case.id)
-        cls = _port_classification(use, action, cls)
-        decision = await r.authorize(tool="sigrok_device_info", action=action, classification=cls, case_id=case.id, ctx=ctx)
+        cls = _probe_classification(use, action, cls, "show")
+        decision = await r.authorize(tool="sigrok_device_info", action=action, classification=cls, case_id=case.id,
+                                     approval_id=approval_id, ctx=ctx)
         if not decision.allowed:
             return gate_response(decision)
         timeout = _clamp_timeout(timeout_s, 60.0)

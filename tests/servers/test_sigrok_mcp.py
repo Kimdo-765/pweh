@@ -161,7 +161,7 @@ async def test_scan_serial_port_in_use_is_refused(fake):
             holder.kill()
             holder.wait(5)
             r = await call(c, "sigrok_scan", driver="ols", conn=pts, case_id=cid)
-            assert r["ok"] and r["devices"][0]["driver"] == "ols" and r["classification"]["risk"] == "interact"
+            assert r["ok"] and r["devices"][0]["driver"] == "ols" and r["classification"]["risk"] == "modify"
     finally:
         if holder.poll() is None:
             holder.kill()

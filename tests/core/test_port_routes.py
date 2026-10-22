@@ -63,7 +63,7 @@ def test_wsl1_com_tty_alias_and_helper_selection():
     b = P.resolve(env, "/dev/ttyS3", "serial-session", probe=q)
     assert a.lock_key == b.lock_key == "win:COM3" and a.device_path == b.device_path
     for report, ref, purpose in [(env, "COM192", "serial-session"),
-                                  (WINDOWS, "COM3", "sigrok-serial"), (LINUX, "COM3", "esptool")]:
+                                  (env, "COM3", "sigrok-serial"), (LINUX, "COM3", "esptool")]:
         with pytest.raises(ValidationFailed):
             P.resolve(report, ref, purpose, probe=q)
 

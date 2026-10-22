@@ -11,7 +11,7 @@ sigrok_version(backend="windows")
 sigrok_list(kind="drivers", query="fx2", backend="windows")
 ```
 
-버전 조회는 고정 `--version` 뒤 `--list-supported`를 실행하고, 목록 조회는 `--list-supported`만 실행한다. `kind`·`query`는 출력의 필터이며 명령 인자에 들어가지 않는다. 두 정보 도구에는 케이스나 포트가 필요하지 않다. 다른 sigrok 도구는 기존 Linux 경로를 사용한다.
+버전 조회는 고정 `--version` 뒤 `--list-supported`를 실행하고, 목록 조회는 `--list-supported`만 실행한다. `kind`·`query`는 출력의 필터이며 명령 인자에 들어가지 않는다. 두 정보 도구에는 케이스나 포트가 필요하지 않다. 별도의 [OLS COM 조회](windows-sigrok-com.md)는 케이스·명시 포트·MODIFY 게이트를 사용한다. 캡처·디코드·export는 기존 Linux 경로를 사용한다.
 
 ## 결과와 알려진 디코더 오류
 

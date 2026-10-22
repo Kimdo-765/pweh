@@ -2626,7 +2626,7 @@
    },
    {
     "name": "sigrok_scan",
-    "description": "연결된 sigrok 장치 스캔. 인자 없으면 모든 드라이버로 USB 등 자동 탐지(읽기 전용 식별). driver 로 한정 가능. conn(시리얼 /dev/ttyACM0, USB 'bus.addr'/'VID.PID', 'tcp-raw/host/port') 을 주면 그 포트로 식별 질의를 보내므로 시리얼/네트워크 conn 은 case_id(소유/허가 증명)가 필요하다. 명시 직렬 conn 은 공통 포트 잠금·route 재검증을 적용하고 target/bridge 표지가 있으면 거부한다. 결과 각 장치에 capture_allowed 정책이 붙는다.",
+    "description": "연결된 sigrok 장치 스캔. 인자 없으면 모든 드라이버로 USB 등 자동 탐지(읽기 전용 식별). driver 로 한정 가능. conn(시리얼 /dev/ttyACM0, USB 'bus.addr'/'VID.PID', 'tcp-raw/host/port') 을 주면 그 포트로 식별 질의를 보내므로 시리얼/네트워크 conn 은 case_id(소유/허가 증명)가 필요하다. 명시 직렬 conn 은 공통 포트 잠금·route 재검증을 적용하고 target/bridge 표지가 있으면 거부한다. backend 기본 linux; windows는 고정 ols+명시 COM만 지원하며 자동 USB/COM 탐색·캡처는 지원하지 않는다. Linux/Windows OLS 직렬 식별은 reset을 보내므로 MODIFY 게이트를 거친다. approval_required이면 사람이 승인 후 같은 인자+approval_id로 재호출한다. 결과 각 장치에 capture_allowed 정책이 붙는다.",
     "params": [
      {
       "name": "driver",
@@ -2649,6 +2649,18 @@
      {
       "name": "timeout_s",
       "type": "number/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "backend",
+      "type": "string",
+      "required": false,
+      "default": "linux"
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
       "required": false,
       "default": null
      }
@@ -2663,7 +2675,7 @@
    },
    {
     "name": "sigrok_device_info",
-    "description": "로직 애널라이저 상세(sigrok-cli -d <driver> --show 파싱): 드라이버 기능, 채널/채널 그룹, 지원 samplerate 목록 또는 범위, 지원 트리거 문자, 최대 샘플 수. 장치를 열기만 하고 설정은 바꾸지 않는다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용. 명시 직렬 conn 은 공통 포트 잠금·route 재검증·target/bridge 거부를 적용한다.",
+    "description": "로직 애널라이저 상세(sigrok-cli -d <driver> --show 파싱): 드라이버 기능, 채널/채널 그룹, 지원 samplerate 목록 또는 범위, 지원 트리거 문자, 최대 샘플 수를 조회한다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용. 명시 직렬 conn 은 공통 포트 잠금·route 재검증·target/bridge 거부를 적용한다. backend 기본 linux; windows는 고정 ols+명시 COM의 정보 프로브만 지원한다. Linux/Windows OLS는 식별 중 reset을 보내고 show에서 다시 열므로 MODIFY이며, approval_required 후 approval_id 재시도를 지원한다.",
     "params": [
      {
       "name": "case_id",
@@ -2686,6 +2698,18 @@
      {
       "name": "timeout_s",
       "type": "number/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "backend",
+      "type": "string",
+      "required": false,
+      "default": "linux"
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
       "required": false,
       "default": null
      }

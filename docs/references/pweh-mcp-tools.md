@@ -159,10 +159,10 @@
   sigrok 지원 목록. kind: drivers | decoders | input-formats | output-formats | transforms | all. query 로 id/설명 부분 문자열 필터. drivers 에는 이 서버의 캡처 정책(capture_allowed, output_capable, reason)이 붙는다. backend 기본 linux; windows는 등록 번들·
 - **`sigrok_decoder_help(decoder)`** — [읽기전용]  
   프로토콜 디코더 상세(sigrok-cli -P <id> --show 파싱): 필수/선택 채널, 옵션(값 목록·기본값), annotation 클래스/행, 바이너리 클래스, 문서. sigrok_decode 의 -P/-A 문자열을 만들 때 사용 (libsigrokdecode 버전마다 이름이 다르므로 하드코딩 금지).
-- **`sigrok_scan(driver?, conn?, case_id?, timeout_s?)`**  
+- **`sigrok_scan(driver?, conn?, case_id?, timeout_s?, backend?, approval_id?)`**  
   연결된 sigrok 장치 스캔. 인자 없으면 모든 드라이버로 USB 등 자동 탐지(읽기 전용 식별). driver 로 한정 가능. conn(시리얼 /dev/ttyACM0, USB 'bus.addr'/'VID.PID', 'tcp-raw/host/port') 을 주면 그 포트로 식별 질의를 보내므로 시리얼/네트워크 conn 은 case_id(소유/허가 증명)가 필요하다. 명시 직렬 conn 은 
-- **`sigrok_device_info(case_id, driver, conn?, timeout_s?)`**  
-  로직 애널라이저 상세(sigrok-cli -d <driver> --show 파싱): 드라이버 기능, 채널/채널 그룹, 지원 samplerate 목록 또는 범위, 지원 트리거 문자, 최대 샘플 수. 장치를 열기만 하고 설정은 바꾸지 않는다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용. 명시 직렬 conn 은 공통 포트 잠금·route 재검증·target/bridge
+- **`sigrok_device_info(case_id, driver, conn?, timeout_s?, backend?, approval_id?)`**  
+  로직 애널라이저 상세(sigrok-cli -d <driver> --show 파싱): 드라이버 기능, 채널/채널 그룹, 지원 samplerate 목록 또는 범위, 지원 트리거 문자, 최대 샘플 수를 조회한다(허용 목록 드라이버만). 캡처 전에 samplerate 를 고를 때 사용. 명시 직렬 conn 은 공통 포트 잠금·route 재검증·target/bridge 거부를 적용한다. backend
 - **`sigrok_capture(case_id, driver, samplerate?, duration_ms?, samples?, channels?, triggers?, output_name?, conn?, capture_ratio?, background?, timeout_s?)`**  
   로직 애널라이저 캡처 → cases/<id>/signals/<name>.sr (srzip) 저장 + 아티팩트 등록. 입력 전용(OBSERVE)이지만 케이스 소유/허가 증명이 필요. driver 필수(sigrok_scan 결과), samplerate 예 '1m'/'8MHz'/'24m'(소문자 m=MHz, 정수 Hz 로 변환), duration_ms 와 samples 중 정확히 하나. chann
 - **`sigrok_decode(case_id, input_path, decoders, annotations?, input_format?, samplenum?, max_lines?, background?, timeout_s?, output_name?)`**  

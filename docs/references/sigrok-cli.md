@@ -123,9 +123,13 @@ PE import에 필요한 `MSVCR100.dll`은 추출 트리에 없으며, 이번 두 
 
 ### 1.5 PWEH Windows 정보 소비자
 
-`sigrok_version`·`sigrok_list`의 명시 `backend="windows"`는 등록 번들의 고유 전체 사본과 실제 Windows 종료 확인을 사용한다. 기본 Linux 경로·캐시는 유지하며 Windows 장치 스캔·캡처는 연결하지 않는다. §1.4의 알려진 오류는 숨기지 않는다. 정상 버전 뒤 확인된 decoder-only 목록 오류일 때 version은 partial/counts=null이고, list는 모든 kind에서 오류다. 설치 선택·고정 실행 범위·취소·사본 정리는 [Windows 정보 조회 계약](windows-sigrok-info.md)에 있다.
+`sigrok_version`·`sigrok_list`의 명시 `backend="windows"`는 등록 번들의 고유 전체 사본과 실제 Windows 종료 확인을 사용한다. 기본 Linux 경로·캐시는 유지하며 이 정보 경로에서는 장치를 열지 않는다. §1.4의 알려진 오류는 숨기지 않는다. 정상 버전 뒤 확인된 decoder-only 목록 오류일 때 version은 partial/counts=null이고, list는 모든 kind에서 오류다. 설치 선택·고정 실행 범위·취소·사본 정리는 [Windows 정보 조회 계약](windows-sigrok-info.md)에 있다.
 
 ---
+
+### 1.6 Windows OLS COM 조회
+
+명시 `backend="windows"`, `driver="ols"`, `conn="COMn"`의 scan/show를 [고정 COM 계약](windows-sigrok-com.md)으로 제공한다. 등록 버전의 OLS 탐색은 reset 5회와 ID·metadata 질의를 보내므로 MODIFY다. `--dont-scan`도 명시 driver의 probe를 생략하지 않는다. 이 구현의 검증은 합성 시험이며 실제 COM·장비 호환성은 미확인이다. Windows 캡처·USB 자동 탐지는 포함하지 않는다.
 
 ## 2. 명령행 개요
 
