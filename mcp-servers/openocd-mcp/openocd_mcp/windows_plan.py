@@ -368,8 +368,38 @@ def build_plan(inputs: PipeStartInputs, layout: RunLayout, *, ambient_env: tuple
     converter 자체를 강제로 중단하지는 못하므로 호출 전후 deadline을 검사한다.
     반환 직후 경로 교체를 봉쇄하는 잠금도 아니며 실행자는 같은 입력을 다시 검증해야 한다.
     """
+    return _build_plan(inputs, layout, ambient_env=ambient_env, path_converter=path_converter,
+                       deadline=deadline, dummy=False)
+
+
+def build_dummy_plan(inputs: PipeStartInputs, layout: RunLayout, *, ambient_env: tuple[tuple[str, str], ...],
+                     path_converter: Callable[[Path, float], str | bytes], deadline: float) -> OpenOcdWindowsPlan:
+    """고정 dummy cfg와 상수 명령만 허용하는 noinit 계획. 공개 guard 해제 옵션이 아니다."""
+    return _build_plan(inputs, layout, ambient_env=ambient_env, path_converter=path_converter,
+                       deadline=deadline, dummy=True)
+
+
+def _dummy_inputs(inputs: PipeStartInputs) -> None:
+    """기존 타입 검사 뒤 고정 profile의 입력을 대조한다. bundle 결속은 실행자의 책임이다."""
+    from .dummy_profile import DUMMY_PROFILE as profile
+
+    cfg = inputs.interface
+    if (len(inputs.search_dirs) != 1 or cfg.kind != "standard"
+            or cfg.file.path != inputs.search_dirs[0] / profile.interface_ref
+            or cfg.file.sha256 != profile.interface_sha256 or cfg.file.size != profile.interface_size
+            or inputs.targets or inputs.extras or inputs.extra_commands
+            or inputs.transport != profile.transport or inputs.adapter_speed_khz != profile.adapter_speed_khz):
+        raise _fail()
+
+
+def _build_plan(inputs: PipeStartInputs, layout: RunLayout, *, ambient_env: tuple[tuple[str, str], ...],
+                path_converter: Callable[[Path, float], str | bytes], deadline: float,
+                dummy: bool) -> OpenOcdWindowsPlan:
+    """두 고정 builder의 관찰·변환을 공유한다. 외부 argv factory/skip_init 입력은 없다."""
     _tick(deadline)
     cfgs = _inputs(inputs)
+    if dummy:
+        _dummy_inputs(inputs)
     env = _ambient(ambient_env)
     if not callable(path_converter):
         raise _fail()
@@ -425,18 +455,25 @@ def build_plan(inputs: PipeStartInputs, layout: RunLayout, *, ambient_env: tuple
             return process.CfgRef(convert(cfg.file.path), cfg.kind, cfg.file.path)
 
         marker = convert(layout.owner_cfg.path)
-        argv = process.build_pipe_argv(
-            str(inputs.executable.path), scripts_dir=searches[0], search_dirs=searches,  # type: ignore[arg-type]
-            interface=cfg_ref(inputs.interface), targets=[cfg_ref(c) for c in inputs.targets],
-            extra_cfgs=[*(cfg_ref(c) for c in inputs.extras), process.CfgRef(marker, "custom", layout.owner_cfg.path)],
-            transport=inputs.transport, adapter_speed_khz=inputs.adapter_speed_khz,
-            extra_commands=list(inputs.extra_commands), debug_level=3, semihosting_guard=True,
-        )
-        # 생성 위치를 고정한다. Tcl 문자열의 '-f' 같은 내용을 다시 파싱하지 않는다.
-        path_indices = tuple([2 + i * 2 for i in range(len(searches))]
-                             + [len(searches) * 2 + 8]
-                             + [len(searches) * 2 + 12 + (2 if inputs.transport else 0) + i * 4
-                                for i in range(len(inputs.targets) + len(inputs.extras) + 1)])
+        owner = process.CfgRef(marker, "custom", layout.owner_cfg.path)
+        if dummy:
+            argv = process.build_dummy_pipe_argv(str(inputs.executable.path), scripts_dir=searches[0],
+                                                 interface=cfg_ref(inputs.interface), owner=owner)
+            # 고정 -s 한 개와 dummy/owner -f만이다. -c 안의 문장을 옵션으로 다시 해석하지 않는다.
+            path_indices = (2, 10, 20)
+        else:
+            argv = process.build_pipe_argv(
+                str(inputs.executable.path), scripts_dir=searches[0], search_dirs=searches,  # type: ignore[arg-type]
+                interface=cfg_ref(inputs.interface), targets=[cfg_ref(c) for c in inputs.targets],
+                extra_cfgs=[*(cfg_ref(c) for c in inputs.extras), owner],
+                transport=inputs.transport, adapter_speed_khz=inputs.adapter_speed_khz,
+                extra_commands=list(inputs.extra_commands), debug_level=3, semihosting_guard=True,
+            )
+            # 생성 위치를 고정한다. Tcl 문자열의 '-f' 같은 내용을 다시 파싱하지 않는다.
+            path_indices = tuple([2 + i * 2 for i in range(len(searches))]
+                                 + [len(searches) * 2 + 8]
+                                 + [len(searches) * 2 + 12 + (2 if inputs.transport else 0) + i * 4
+                                    for i in range(len(inputs.targets) + len(inputs.extras) + 1)])
         env.update({"OPENOCD_SCRIPTS": searches[0], "HOME": convert(layout.home),
                     "XDG_CONFIG_HOME": convert(layout.config_home), "APPDATA": convert(layout.appdata),
                     "USERPROFILE": convert(layout.home), "WSLENV": WSLENV})

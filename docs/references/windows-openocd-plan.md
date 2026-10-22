@@ -1,8 +1,8 @@
 # Windows OpenOCD 실행 계획·소유 확인 코어
 
-PWEH의 P3-B는 Windows OpenOCD에 넘길 argv·자식 환경·고유 표식과, 주입된 조회 결과의 프로세스 신원을 검증하는 내부 기반이다. `pweh.wininterop`와 `openocd_mcp.windows_plan`을 합성 경로·가짜 응답으로 시험한다. 운영 MCP의 backend 선택, 실제 Windows child owner, 설치·USB 경로·리스너를 추가하지 않는다.
+PWEH의 P3-B는 Windows OpenOCD에 넘길 argv·자식 환경·고유 표식과, 주입된 조회 결과의 프로세스 신원을 검증하는 내부 기반이다. `pweh.wininterop`와 `openocd_mcp.windows_plan`을 합성 경로·가짜 응답으로 시험한다. 현재 [고정 무장치 소비자](windows-openocd-dummy.md)가 이 기반을 사용하며, 실제 USB 프로필은 지원하지 않는다.
 
-계획을 만들거나 가짜 runner의 종료 확인이 성공했다는 사실은 실제 Windows 실행·환경 전달·종료 검증을 뜻하지 않는다. 기존 OpenOCD TCP와 P3-A pipe 코어, ESP/P2 경로의 동작은 유지한다. 별도의 [Windows 번들 코어·로컬 설치·정적 doctor](windows-bundles.md)는 등록 tree 검증을 제공하며, 이 계획과 실제 실행 owner의 연결은 후속이다.
+계획을 만들거나 가짜 runner의 종료 확인이 성공했다는 사실은 실제 Windows 실행·환경 전달·종료 검증을 뜻하지 않는다. 기존 OpenOCD TCP와 P3-A pipe 코어, ESP/P2 경로의 동작은 유지한다. 별도의 [Windows 번들 코어·로컬 설치·정적 doctor](windows-bundles.md)는 등록 tree 검증을 제공하며, `process_windows.py`와 고정 dummy 소비자가 이 계획을 실제 실행 owner에 연결한다.
 
 ## 1. 구성과 주입 경계
 
@@ -10,7 +10,7 @@ PWEH의 P3-B는 Windows OpenOCD에 넘길 argv·자식 환경·고유 표식과,
 |---|---|
 | `pweh.wininterop` | 제한된 Windows 경로·명령줄·조회 응답 검증, frozen 신원/launch 값, 고정 조회·종료 script와 필수 주입 runner |
 | `openocd_mcp.windows_plan` | 로컬 파일 snapshot 관찰·대조, cfg 입력 고정, 미리 만든 run layout 확인, 필수 경로 converter를 통한 argv·환경 계획 |
-| 후속 실행 owner | 실제 gate/분류·번들/route 검증, Windows spawn, 파일·경로 예약·fd 수명, 정상 EOF·강제 종료·최종 부재 확인 |
+| `openocd_mcp.process_windows` | 고정 dummy 소비자의 Windows spawn·pipe 준비·fd 수명·정확한 종료 확인. 실제 USB route/lease는 후속 |
 
 두 모듈은 import 시 환경 감지·장치/프로세스 조회를 하지 않는다. Windows 실행을 위한 기본 subprocess runner나 wslpath converter가 없다. caller는 `path_converter(local_path, deadline)`와 `runner(fixed_script, deadline)`를 명시적으로 주입한다. 이 콜백을 임의 PowerShell 명령 실행용 public 도구로 노출하지 않는다.
 
@@ -51,7 +51,7 @@ cwd/home/config/appdata는 서로 다른 빈 디렉터리이며 root 바로 아�
 
 각 고유 local 경로는 converter로 한 번만 변환하고 결과를 argv/env에서 재사용한다. converter는 str 또는 strict UTF-8 bytes를 반환할 수 있다. 출력은≤8 KiB이며 허용된 terminal newline만 제거한 값으로 검사한다. 공백을 무조건 strip하거나 replacement decoding으로 바꾸지 않는다.
 
-계획은 기존 `build_pipe_argv`를 재사용한다. 검증한 Windows 절대 `-s/-f` 경로를 넣고, owner cfg는 사용자 extras 뒤에 추가한다. pipe TCL, telnet/GDB disabled, debug level3, semihosting guard, EARLY/PRE/init/POST 순서를 유지한다. cfg body나 임의 Tcl 안의 경로를 일반 문자열 치환하지 않는다. planner의 길이·제어문자 검사는 cfg/명령 분류·사용자 허가를 대체하지 않는다.
+기존 `build_plan`은 `build_pipe_argv`를 재사용한다. 고정 진단 전용 `build_dummy_plan`은 등록 dummy cfg·TAP/testee·noinit만 구성하며 init과 semihosting script를 넣지 않는다. 이 전용 분기는 사용자 guard 해제 옵션이 아니다. 일반 계획은 다음 규칙을 유지한다. 검증한 Windows 절대 `-s/-f` 경로를 넣고, owner cfg는 사용자 extras 뒤에 추가한다. pipe TCL, telnet/GDB disabled, debug level3, semihosting guard, EARLY/PRE/init/POST 순서를 유지한다. cfg body나 임의 Tcl 안의 경로를 일반 문자열 치환하지 않는다. planner의 길이·제어문자 검사는 cfg/명령 분류·사용자 허가를 대체하지 않는다.
 
 `launch.argv_tail`은 argv[0]을 제외한 최종 인자다. `launch.path_arg_indices`는 그 tail에서 `-s/-f`의 **값** 위치만 지정한다. 신원 대조는 이 위치에만 제한된 Windows 경로 비교를 적용하고 Tcl/기타 인자는 대소문자를 포함해 정확히 비교한다.
 
@@ -103,14 +103,14 @@ OpenOCD 고정 소스 `e5888bda38f4952e2ae92f7dc5b25fc9a2d1c2b3`에서 확인한
 
 이 검증은 알려진 image·고유 marker·정확 argv의 OpenOCD 프로세스 범위다. 임의 자손 전체나 marker를 버리고 탈출한 프로세스까지 부재라고 주장하지 않는다. raw PID의 재사용을 같은 실행으로 취급하지 않는다.
 
-## 6. 운영 연결에 남는 경계
+## 6. 소비자 연결과 남는 경계
 
-plan 성공은 cfg 허가·번들 서명·실행 권한이 아니다. 후속 서버는 동일 frozen 입력으로 분류/승인 action을 구성하고 gate 뒤 spawn 직전에 파일/hash·디렉터리/빈 상태·실제 bundle manifest·route/lease를 다시 확인해야 한다. 무작위 marker 자체를 사용자 요청 지문으로 사용하지 않고 고정 생성 규칙과 실제 launch 신원에 결속한다.
+plan 성공은 cfg 허가·번들 서명·실행 권한이 아니다. 소비자는 동일 frozen 입력으로 분류/승인 action을 구성하고 gate 뒤 spawn 직전에 파일/hash·디렉터리/빈 상태·실제 bundle manifest·route/lease를 다시 확인해야 한다. 무작위 marker 자체를 사용자 요청 지문으로 사용하지 않고 고정 생성 규칙과 실제 launch 신원에 결속한다.
 
 직접 파일 SHA는 DLL·중첩 `source [find ...]`·bundle site/scripts 전체 pin이나 PE/라이선스 검증을 포함하지 않는다. Windows 자식의 실제 환경 전달·nested cfg 검색 충돌·강제 종료/PID 재사용은 별도 무장치 실행에서 확인해야 한다. 기존 D7 dummy/version 정상 EOF 결과가 이 전체 경계를 검증한 것은 아니다.
 
 stderr decoder는 이번 코어에 포함하지 않는다. 후속 runtime에서 UTF-8 우선·명시 ACP의 진단 해석을 구현하더라도 RPC stdout에는 ACP fallback을 적용하지 않는다.
 
-후속 Windows owner는 P3-A의 strict UTF-8 framed RPC client를 재사용할 수 있지만 Linux owner의 `/proc`/POSIX 종료 상태를 Windows 실제 종료로 대체할 수 없다. 준비 확인은 version 한 번 전송 후 동일 deadline에서 정상 응답과 완결된 `Info : accepting 'tcl' connection from pipe` 줄을 모두 확인한다. 상세는 [OpenOCD TCL RPC §6.4.1](openocd-tcl-rpc.md#641-pipe-준비-확인)을 따른다.
+Windows owner는 P3-A의 strict UTF-8 framed RPC client를 재사용하며 Linux owner의 `/proc`/POSIX 종료 상태를 Windows 실제 종료로 대체할 수 없다. 준비 확인은 version 한 번 전송 후 동일 deadline에서 정상 응답과 완결된 `Info : accepting 'tcl' connection from pipe` 줄을 모두 확인한다. 상세는 [OpenOCD TCL RPC §6.4.1](openocd-tcl-rpc.md#641-pipe-준비-확인)을 따른다.
 
-정상 EOF/exit0 뒤에도 정확 Windows 표식의 최종 부재 확인이 필요하다. 비정상은 POSIX wrapper가 뒤늦게 child를 만들 가능성을 먼저 닫은 뒤 Windows를 마지막으로 확인한다. 확인이 끝나지 않으면 owner/marker 경로/lease 예약을 유지한다. 이 수명 연결과 실제 spawn은 P3-B의 현재 구현 범위 밖이다.
+정상 EOF/exit0 뒤에도 정확 Windows 표식의 최종 부재 확인이 필요하다. 비정상은 POSIX wrapper가 뒤늦게 child를 만들 가능성을 먼저 닫은 뒤 Windows를 마지막으로 확인한다. 확인이 끝나지 않으면 owner/marker 경로/lease 예약을 유지한다. 고정 dummy 소비자는 이 수명을 연결한다. 실제 USB lease와 덤프 경로는 후속이다.

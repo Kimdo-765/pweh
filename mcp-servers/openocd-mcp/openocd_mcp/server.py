@@ -53,7 +53,7 @@ from pweh.mcpkit import (
 from pweh.runtime import Runtime, get_runtime
 from pweh.safety import Classification, Risk, worst
 
-from . import dumps, guard, parsers, process, semihosting
+from . import dumps, guard, parsers, process, semihosting, windows_start
 from .rpc import TclConnectionClosed, TclRpcClient
 from .session import REGISTRY, OcdSession
 from .tcl import TclReply, brace_quote_path, braces_balanced
@@ -151,6 +151,8 @@ def _check_ident(value: str | None, name: str) -> str | None:
 
 def _session(case_id: str) -> OcdSession:
     sess = REGISTRY.get(case_id)
+    if sess.windows and (sess.starting or sess.closing or sess.cleanup_pending):
+        raise Busy("Windows OpenOCD 세션이 시작 또는 정리 중입니다.")
     if sess.semihosting_failsafe is not None:
         raise _failsafe_error(sess)
     if sess.process_exited():
@@ -177,6 +179,9 @@ async def _authorize(case_id: str, tool: str, commands: list[str], *, ctx: Any, 
     """명령 목록을 분류하고(가장 위험한 것 기준) 안전 게이트를 통과시킨다. (decision, classification) 반환."""
     cls = classification or worst([_classify(c) for c in commands])
     action: dict[str, Any] = {"commands": list(commands)} if len(commands) != 1 else {"command": commands[0]}
+    sess = REGISTRY.find(case_id)
+    if sess is not None:
+        action.update(windows_start.action_fields(sess))
     if extra:
         action.update(extra)
     decision = await rt().authorize(tool=tool, action=action, classification=cls, case_id=case_id, approval_id=approval_id, ctx=ctx)
@@ -184,6 +189,8 @@ async def _authorize(case_id: str, tool: str, commands: list[str], *, ctx: Any, 
 
 
 async def _call(sess: OcdSession, cmd: str, *, timeout: float = DEFAULT_TIMEOUT, raw: bool = False) -> TclReply:
+    if sess.windows:
+        return await windows_start.call_session(sess, cmd, timeout=timeout, raw=raw)
     if sess.semihosting_check_pending:
         # 이전 명령이 시간 초과 등으로 끝을 확인하지 못했다 → 새 명령을 보내기 전에 semihosting 부터 다시 확인한다
         res = await _semihosting_enforce(sess, trigger="pending")
@@ -501,6 +508,11 @@ def _write_session_state(sess: OcdSession, case, **extra: Any) -> None:
             "version": (sess.version or {}).get("raw"),
         }
     )
+    if sess.windows:
+        doc.update(transport="windows-pipe", backend="windows", windows_profile=sess.windows_profile,
+                   starting=sess.starting, closing=sess.closing, cleanup_pending=sess.cleanup_pending,
+                   cleanup_reason=sess.cleanup_reason, bundle=windows_start.action_fields(sess),
+                   semihosting=dict(sess.semihosting))
     doc.update(extra)
     try:
         atomic_write_json(sess.state_file, doc)
@@ -521,7 +533,11 @@ def _write_session_state(sess: OcdSession, case, **extra: Any) -> None:
         "target_cfg 없이 extra_commands 로 'jtag newtap ...', 'target create ...' 를 주거나 아예 생략해 자동 탐색(AUTO 힌트)한다. "
         "transport: jtag|swd. adapter_speed_khz: 처음엔 100~1000 권장. tcl_port=0 이면 빈 포트 자동 선택. "
         "케이스 밖 사용자 cfg 파일은 내용을 위험도 분류기로 검사한다. 로그는 jtag/openocd-<n>.log. "
-        "반환: tcl_port, version, startup(TAP 검출, 오류/경고), diagnosis(배선/전원 힌트), scan_chain, targets, health."
+        "반환: tcl_port, version, startup(TAP 검출, 오류/경고), diagnosis(배선/전원 힌트), scan_chain, targets, health. "
+        "backend 기본 linux. windows는 등록 번들과 WSL interop에서 windows_profile='dummy-noinit-v1', "
+        "interface_cfg='interface/dummy.cfg', tcl_port=0으로만 사용한다. USB·하드웨어 초기화 없이 고정 조회와 상태·종료만 "
+        "지원하며 메모리·레지스터·flash·덤프 작업·수정은 거부한다. ready_timeout은 0초 초과 30초 이하. "
+        "Windows 반환 transport='windows-pipe', tcl_port=null, hardware_initialized=false."
     ),
     annotations=ANN_DEVICE,
 )
@@ -538,9 +554,20 @@ async def openocd_start(
     extra_cfgs: list[str] | None = None,
     ready_timeout: float = 30.0,
     approval_id: str | None = None,
+    backend: str = "linux",
+    windows_profile: str | None = None,
 ) -> dict[str, Any]:
     r = rt()
     case = r.case(case_id, hardware=True)
+    if backend not in ("linux", "windows"):
+        raise ValidationFailed("backend는 linux 또는 windows여야 합니다.")
+    if backend == "windows":
+        return await windows_start.start(r, case, ctx=ctx, approval_id=approval_id, ready_timeout=ready_timeout,
+            windows_profile=windows_profile, interface_cfg=interface_cfg, target_cfg=target_cfg,
+            extra_cfgs=extra_cfgs, extra_commands=extra_commands, transport=transport,
+            adapter_speed_khz=adapter_speed_khz, tcl_port=tcl_port)
+    if windows_profile is not None:
+        raise ValidationFailed("windows_profile은 Windows backend에서만 사용합니다.")
     if REGISTRY.find(case_id) is not None:
         cur = REGISTRY.get(case_id)
         if cur.process_exited():
@@ -898,6 +925,8 @@ async def openocd_attach(case_id: str, ctx: Context, host: str = "127.0.0.1", tc
     if host in LOOPBACK:
         for sf in sorted(jtag_dir.glob("openocd-*.json")):
             doc = read_json(sf) or {}
+            if doc.get("transport") == "windows-pipe":
+                continue  # 과거 Windows owner는 TCP PID/포트로 입양하지 않는다.
             pid = doc.get("pid")
             if doc.get("tcl_port") == tcl_port and isinstance(pid, int) and doc.get("stopped_at") is None and process.pid_alive(pid):
                 cmd = process.pid_cmdline(pid)
@@ -968,7 +997,8 @@ async def openocd_attach(case_id: str, ctx: Context, host: str = "127.0.0.1", tc
     description=(
         "OpenOCD 세션 종료. 이 서버가 띄운(또는 입양한) 프로세스는 TCL 'shutdown' → SIGTERM → SIGKILL 순서로 종료하고 로그를 "
         "아티팩트로 등록한다. 실행 중인 덤프 작업은 먼저 취소된다(부분 결과 보존). 외부에서 띄운 OpenOCD(attach)는 연결만 끊으며, "
-        "shutdown_attached=true 일 때만 'shutdown' 을 보낸다(MODIFY 게이트)."
+        "shutdown_attached=true 일 때만 'shutdown' 을 보낸다(MODIFY 게이트). Windows dummy는 실제 Windows owner 종료와 "
+        "진행 중 조회 종료를 모두 확인한 뒤 run을 제거한다. 확인 불가이면 cleanup_pending=true로 보존하며 다시 stop한다."
     ),
     annotations=ANN_LOCAL_WRITE,
 )
@@ -977,6 +1007,13 @@ async def openocd_stop(case_id: str, ctx: Context, shutdown_attached: bool = Fal
     r = rt()
     case = r.case(case_id)
     sess = REGISTRY.get(case_id)
+    if sess.windows:
+        result = await run_blocking(windows_start.close_session, sess)
+        if result["stopped"] and sess.log_path is not None and sess.log_path.exists():
+            result["log_artifact"] = case.register_artifact(sess.log_path, kind="other", producer=SERVER_NAME,
+                                                          description="Windows dummy OpenOCD 로그")
+        r.audit({"event": "openocd_stopped", "backend": "windows", "cleanup_pending": result["cleanup_pending"]}, case_id)
+        return result
     cancelled = []
     for j in _active_jobs(case_id):
         r.jobs.cancel(j["job_id"])
@@ -1051,6 +1088,12 @@ async def openocd_status(case_id: str, ctx: Context, log_lines: int = 40) -> dic
         if jdir.exists():
             for sf in sorted(jdir.glob("openocd-*.json")):
                 doc = read_json(sf) or {}
+                if doc.get("transport") == "windows-pipe":
+                    runs.append({"state_file": case.rel(sf), "transport": "windows-pipe", "tcl_port": None,
+                                 "state": "previous_owner_unverified", "still_running": None,
+                                 "cleanup_confirmed_at_stop": doc.get("cleanup_confirmed") is True,
+                                 "started_at": doc.get("started_at"), "stopped_at": doc.get("stopped_at")})
+                    continue
                 pid = doc.get("pid")
                 runs.append(
                     {
@@ -1068,6 +1111,17 @@ async def openocd_status(case_id: str, ctx: Context, log_lines: int = 40) -> dic
             hint = "이 케이스에서 띄운 OpenOCD 가 아직 실행 중입니다 — openocd_attach(tcl_port=...) 로 다시 연결(입양)할 수 있습니다."
         return {"ok": True, "active": False, "message": "OpenOCD 세션 없음 (openocd_start 또는 openocd_attach)", "previous_runs": runs, "hint": hint}
     out: dict[str, Any] = {"ok": True, "active": True, **sess.describe()}
+    if sess.windows:
+        out["semihosting"] = dict(sess.semihosting)
+        out["active_jobs"] = []
+        out["diagnostics"] = sess.windows_owner.diagnostics() if sess.windows_owner else {}
+        if sess.log_path:
+            out["log_path"] = case.rel(sess.log_path)
+        if not (sess.starting or sess.closing or sess.cleanup_pending) and sess.client and sess.client.connected:
+            targets = await _query_targets(case_id, sess, ctx, timeout=5.0)
+            out["targets"] = targets
+            out["target_state"] = _target_state(targets)
+        return out
     if sess.startup:
         out["startup"] = sess.startup.get("summary")
         out["startup_diagnosis"] = sess.startup.get("diagnosis")
@@ -1143,7 +1197,8 @@ async def _semihosting_live(sess: OcdSession) -> dict[str, Any]:
         "통과해야 실행된다: 조회(scan_chain, targets, mdw, read_memory, flash banks/info …)=허용, halt/reset/resume 등=MODIFY, "
         "mww/write_memory/flash write·erase/program/OTP·eFuse·옵션바이트 등=DESTRUCTIVE(기본 거부), dump_image/flash read_bank(호스트 "
         "파일 쓰기)=거부(→ openocd_dump_memory_start / openocd_flash_read_start 사용). 응답: output(capture 된 로그+결과), "
-        "실패면 ok=false, status='tcl_error', error, diagnosis. 긴 출력은 jtag/command-output-*.txt 로 저장된다."
+        "실패면 ok=false, status='tcl_error', error, diagnosis. 긴 출력은 jtag/command-output-*.txt 로 저장된다. "
+        "Windows dummy는 version/targets/scan_chain/jtag names/adapter name의 정확한 단일 조회만 허용한다."
     ),
     annotations=ANN_DEVICE,
 )
@@ -1154,6 +1209,8 @@ async def openocd_command(
     r = rt()
     case = r.case(case_id, hardware=True)
     sess = _session(case_id)
+    if sess.windows:
+        windows_start.require_query(command)
     if not isinstance(command, str) or not command.strip():
         raise ValidationFailed("command 가 비었습니다")
     if len(command) > 65536:
@@ -1166,7 +1223,7 @@ async def openocd_command(
     cls = _classify(command, sess)
     if cls.risk >= Risk.MODIFY:
         _ensure_no_job(case_id, "MODIFY 이상 명령")
-    decision = await r.authorize(tool="openocd_command", action={"command": command}, classification=cls, case_id=case_id, approval_id=approval_id, ctx=ctx)
+    decision = await r.authorize(tool="openocd_command", action={"command": command, **windows_start.action_fields(sess)}, classification=cls, case_id=case_id, approval_id=approval_id, ctx=ctx)
     if not decision.allowed:
         return gate_response(decision)
     check = _semihosting_wanted(cls)
@@ -1245,6 +1302,8 @@ async def openocd_scan_chain(case_id: str, ctx: Context) -> dict[str, Any]:
         hints.append("유효한 IDCODE 가 없습니다 — 배선(TDO/TDI 뒤바뀜, GND), 타깃 전원, VREF, JTAG 비활성(퓨즈/핀 먹스)을 확인하세요.")
     if any(t.get("mismatch") for t in taps):
         hints.append("IDCODE 가 cfg 의 expected 와 다른 TAP 이 있습니다 — 다른 칩용 cfg 일 수 있습니다.")
+    if sess.windows:
+        hints = ["고정 dummy TAP 조회이며 실제 체인·배선·IDCODE 검증은 수행하지 않았습니다."]
     return {"ok": True, "count": len(taps), "taps": taps, "hints": hints, "raw": reply.output}
 
 
@@ -1276,6 +1335,8 @@ async def openocd_targets(case_id: str, ctx: Context) -> dict[str, Any]:
 async def _modify_and_report(case_id: str, tool: str, cmd: str, *, ctx: Any, approval_id: str | None, timeout: float, target: str | None = None) -> dict[str, Any]:
     rt().case(case_id, hardware=True)
     sess = _session(case_id)
+    if sess.windows:
+        raise windows_start.unsupported()
     _ensure_no_job(case_id, tool)
     decision, cls = await _authorize(case_id, tool, [cmd], ctx=ctx, approval_id=approval_id)
     if not decision.allowed:
@@ -1348,6 +1409,8 @@ async def openocd_read_registers(
     r = rt()
     case = r.case(case_id, hardware=True)
     sess = _session(case_id)
+    if sess.windows:
+        raise windows_start.unsupported()
     target = _check_ident(target, "target")
     prefix = f"targets {target}; " if target else ""
     notes: list[str] = []
@@ -1425,6 +1488,8 @@ async def openocd_read_memory(
 ) -> dict[str, Any]:
     rt().case(case_id, hardware=True)
     sess = _session(case_id)
+    if sess.windows:
+        raise windows_start.unsupported()
     addr = _parse_int(address, "address", maximum=0xFFFFFFFFFFFFFFFF)
     width = _parse_int(width, "width")
     if width not in (8, 16, 32, 64):
@@ -1538,6 +1603,8 @@ async def openocd_dump_memory_start(
     r = rt()
     case = r.case(case_id, hardware=True)
     sess = _session(case_id)
+    if sess.windows:
+        raise windows_start.unsupported()
     _ensure_no_job(case_id, "새 덤프 작업 시작")  # RPC 를 보내기 전에 확인 (작업 중인 OpenOCD 를 기다리지 않도록)
     addr = _parse_int(address, "address", maximum=0xFFFFFFFFFFFFFFFF)
     length_i = _parse_int(length, "length", minimum=1, maximum=4 * 1024 * 1024 * 1024, size=True)
@@ -1604,6 +1671,8 @@ async def openocd_dump_memory_start(
 async def openocd_flash_banks(case_id: str, ctx: Context, probe: bool = False, info: bool = False) -> dict[str, Any]:
     rt().case(case_id, hardware=True)
     sess = _session(case_id)
+    if sess.windows:
+        raise windows_start.unsupported()
     decision, _ = await _authorize(case_id, "openocd_flash_banks", ["flash banks"], ctx=ctx)
     if not decision.allowed:
         return gate_response(decision)
@@ -1679,6 +1748,8 @@ async def openocd_flash_read_start(
     r = rt()
     case = r.case(case_id, hardware=True)
     sess = _session(case_id)
+    if sess.windows:
+        raise windows_start.unsupported()
     if sess.host not in LOOPBACK:
         raise ValidationFailed("원격 OpenOCD 에서는 flash read_bank 결과 파일을 읽을 수 없습니다",
                                hint="로컬에서 openocd_start 로 OpenOCD 를 실행하거나, 메모리 맵 플래시는 openocd_dump_memory_start(kind='flash-dump')를 쓰세요.")
@@ -1768,6 +1839,8 @@ async def openocd_write_memory(
 ) -> dict[str, Any]:
     rt().case(case_id, hardware=True)
     sess = _session(case_id)
+    if sess.windows:
+        raise windows_start.unsupported()
     addr = _parse_int(address, "address", maximum=0xFFFFFFFFFFFFFFFF)
     width = _parse_int(width, "width")
     if width not in (8, 16, 32, 64):
@@ -1822,6 +1895,8 @@ async def openocd_flash_write(
     r = rt()
     case = r.case(case_id, hardware=True)
     sess = _session(case_id)
+    if sess.windows:
+        raise windows_start.unsupported()
     p = case.resolve_path(path)
     if not p.is_file() or p.stat().st_size == 0:
         raise NotFound(f"쓸 이미지 파일이 없거나 비었습니다: {p}")

@@ -2,7 +2,7 @@
 
 ## 범위
 
-이미 추출한 고정 OpenOCD/sigrok Windows payload를 등록된 파일 목록·크기·SHA-256과 대조하고 관리 디렉터리에 복사한다. 새 다운로드나 Windows 설치 프로그램 실행 없이 로컬 설치 상태를 확인할 수 있다. 운영 Windows 백엔드 연결, USB/COM 사용, 드라이버 설치는 별도 단계다.
+이미 추출한 고정 OpenOCD/sigrok Windows payload를 등록된 파일 목록·크기·SHA-256과 대조하고 관리 디렉터리에 복사한다. 새 다운로드나 Windows 설치 프로그램 실행 없이 로컬 설치 상태를 확인할 수 있다. 이 설치는 Windows 실행·USB/COM 사용·드라이버 설치를 수행하지 않는다. 별도의 [OpenOCD 무장치 진단 세션](windows-openocd-dummy.md)이 검증된 설치본을 소비한다.
 
 등록된 SHA는 저장소의 manifest/index에서 가져온다. 입력 디렉터리의 현재 해시로 신뢰 기준을 새로 만들거나, 명시한 경로가 잘못됐을 때 시스템 설치로 대체하지 않는다. 검증 성공은 그 시점의 파일 집합 일치이며 서명·실행 가능·장치 지원의 증거가 아니다.
 
@@ -42,7 +42,7 @@ source 검증 → 검증한 동일 fd에서 별도 pending으로 복사·재검�
 
 `pweh doctor --windows-bundles-only`는 config·순수 환경값·도구 위치 포인터와 등록 manifest/번들만 읽는다. env.sh source, Windows EXE/PowerShell/wslpath 실행, COM/PnP 조회, 케이스/상태 디렉터리 생성은 하지 않는다. 일반 doctor 전체가 이 정적 범위로 바뀌는 것은 아니다.
 
-진단은 선택 설치 없음(`ok=null`), 등록 tree 일치(`ok=true`), 명시 경로/receipt/hash 오류(`ok=false`)를 구분한다. 실패 항목이 있으면 종료 코드가 비0이며 선택 설치 없음만 있으면0이다. 성공해도 Windows 실행은 미확인, 운영 backend는 미연결로 표시하며 sigrok의 알려진 제한을 보존한다. 고정 입력·파일·깊이·전체 바이트·deadline 상한은 검증 비용을 제한하지만 커널 I/O나 같은 OS 계정의 최종 검사 직후 변경을 강제로 막는 보장은 아니다.
+진단은 선택 설치 없음(`ok=null`), 등록 tree 일치(`ok=true`), 명시 경로/receipt/hash 오류(`ok=false`)를 구분한다. 실패 항목이 있으면 종료 코드가 비0이며 선택 설치 없음만 있으면0이다. 성공해도 Windows 실행은 미확인, 이 진단에서 backend를 활성화하지 않았음을 표시하며 sigrok의 알려진 제한을 보존한다. 고정 입력·파일·깊이·전체 바이트·deadline 상한은 검증 비용을 제한하지만 커널 I/O나 같은 OS 계정의 최종 검사 직후 변경을 강제로 막는 보장은 아니다.
 
 ## 검증 API와 한도
 

@@ -108,7 +108,7 @@
 
 ## pweh-openocd
 
-- **`openocd_start(case_id, interface_cfg, target_cfg?, transport?, adapter_speed_khz?, extra_commands?, tcl_port?, extra_cfgs?, ready_timeout?, approval_id?)`**  
+- **`openocd_start(case_id, interface_cfg, target_cfg?, transport?, adapter_speed_khz?, extra_commands?, tcl_port?, extra_cfgs?, ready_timeout?, approval_id?, backend?, windows_profile?)`**  
   OpenOCD 프로세스를 시작하고 TCL RPC 로 연결한다 (MODIFY: JTAG 초기화가 타깃 상태에 영향 가능). telnet/GDB 포트는 끄고 TCL 포트만 127.0.0.1 에 연다. interface_cfg 는 scripts 기준 상대경로(예: 'interface/ftdi/tigard.cfg', 'interface/jlink.cfg') 또는 절대경로. target_cfg 는 문
 - **`openocd_attach(case_id, host?, tcl_port?, approval_id?)`**  
   이미 실행 중인 OpenOCD 의 TCL 포트에 연결한다 (예: 사람이 직접 띄운 OpenOCD, 원격 Raspberry Pi). 이 케이스에서 전에 openocd_start 로 띄운 프로세스(서버 재시작 등)면 상태 파일로 찾아 '입양'해 openocd_stop 으로 종료할 수 있게 한다. 원격 호스트면 dump_image 파일을 읽을 수 없으므로 메모리 덤프는 read_memory 방식으

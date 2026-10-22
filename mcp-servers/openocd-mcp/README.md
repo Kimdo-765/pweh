@@ -8,6 +8,8 @@ OpenOCD 프로세스를 띄우고 TCL RPC(기본 포트 6666)로 JTAG/SWD 디버
   `~/pweh-tools/INSTALL_REPORT.md` (xPack OpenOCD 0.12.0-7 로 실측)
 - 실행: `pweh-openocd-mcp` 또는 `python -m openocd_mcp` (stdio). 로그는 stderr (`pweh.openocd`).
 
+WSL의 명시 Windows backend는 `dummy-noinit-v1` 진단 세션을 제공한다. 등록 번들로 시작·조회·status·stop만 지원하며 실제 USB 프로브·메모리·덤프는 포함하지 않는다. 인자와 결과는 [Windows 무장치 계약](../../docs/references/windows-openocd-dummy.md)을 따른다. 아래 준비·배선·덤프 절차는 기본 Linux backend에 적용한다.
+
 ## 1. 준비
 
 | 항목 | 내용 |
@@ -144,7 +146,7 @@ OpenOCD 프로세스를 띄우고 TCL RPC(기본 포트 6666)로 JTAG/SWD 디버
 
 ## 8. 테스트
 
-- `tests/servers/test_openocd_pipe_rpc.py`, `test_openocd_pipe_process.py`, `test_openocd_pipe_ready.py`: 내부 pipe client·Linux 직접 자식 owner·명령행 구성. 익명 pipe와 `fake_openocd_pipe.py`로 응답 예산, 취소·종료 경합, EOF/TERM/KILL, 리더보다 오래 사는 자식, 준비 진단과 version의 결합을 검증한다. 운영 MCP는 아직 이 기반을 호출하지 않는다.
+- `tests/servers/test_openocd_pipe_rpc.py`, `test_openocd_pipe_process.py`, `test_openocd_pipe_ready.py`: 내부 pipe client·Linux 직접 자식 owner·명령행 구성. 익명 pipe와 `fake_openocd_pipe.py`로 응답 예산, 취소·종료 경합, EOF/TERM/KILL, 리더보다 오래 사는 자식, 준비 진단과 version의 결합을 검증한다. Windows dummy 소비자는 이 pipe client와 별도 Windows owner를 연결한다.
 - `tests/servers/test_openocd_parsers.py`: 실측 바이트로 Tcl 리스트/봉투/파서/분류기/명령행 단위 테스트
 - `tests/servers/test_openocd_mcp.py`: `tests/servers/fake_openocd.py`(가짜 TCL 서버 + 가짜 실행 파일; xPack/0.12.0/0.11.0 프로파일,
   장애 주입)로 모든 도구·작업·게이트·프로세스 관리, stdio 스모크 테스트
@@ -166,7 +168,7 @@ OpenOCD 프로세스를 띄우고 TCL RPC(기본 포트 6666)로 JTAG/SWD 디버
 
 ## 9. 알려진 제한
 
-- P3-A의 `rpc_pipe.py`·`process_pipe.py`는 후속 Windows backend 통합을 위한 내부 기반이다. 자식 owner의 현재 지원 범위는 Linux이며, `waitid(WNOWAIT)`로 리더를 보존한 채 소유 그룹 부재를 확인한다. `close()`가 미확인으로 끝나면 owner를 보존하여 재시도한다. Windows wrapper 종료나 별도 세션으로 이탈한 프로세스 트리 전체의 부재를 증명하지 않는다.
+- P3-A의 `rpc_pipe.py`는 Windows dummy에도 쓰이며 `process_pipe.py`의 직접 자식 owner는 Linux 전용이다. 이 Linux owner는 `waitid(WNOWAIT)`로 리더를 보존한 채 소유 그룹 부재를 확인한다. `close()`가 미확인으로 끝나면 owner를 보존하여 재시도한다. Windows wrapper 종료나 별도 세션으로 이탈한 프로세스 트리 전체의 부재를 증명하지 않는다.
 - pipe 준비는 stderr reader를 시작하고 `version`을 한 번 전송한 뒤, 같은 deadline 안에서 완결된 `accepting 'tcl' connection from pipe` 진단 줄과 정상 version 응답을 모두 요구한다. 고정 OpenOCD는 stdin을 읽을 수 있을 때 연결 진단을 내므로 진단을 먼저 기다리면 연결되지 않는다. 준비 성공 뒤에도 호출자는 owner를 닫아야 하며, 기기 작업에는 별도의 운영 안전 게이트·semihosting 검증이 필요하다.
 
 - 실제 CPU 코어(ARM/MIPS)의 halt 메시지·레지스터 목록은 소스 포맷 기준이며 실기기로 검증하지 못했다(dummy/testee 는 메모리·레지스터가 없음).

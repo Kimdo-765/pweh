@@ -1183,7 +1183,7 @@ def windows_bundle_checks(config: Any, *, tools_root: Path | None = None, resolv
     rows = []
     for tool in ("openocd", "sigrok"):
         row: dict[str, Any] = {"check": f"bundle:{tool}-win", "ok": False,
-            "detail": "등록 번들 검증 실패 · Windows 실행 미확인 · backend 미연결 · 실기 미확인",
+            "detail": "등록 번들 검증 실패 · Windows 실행 미확인 · backend 활성화 없음 · 실기 미확인",
             "hint": "명시한 release root와 로컬 번들 설치 상태를 확인하세요.",
             "source": None, "problem": None, "tree_verified": False,
             "execution_verified": False, "backend_enabled": False, "hardware_verified": False,
@@ -1206,7 +1206,7 @@ def windows_bundle_checks(config: Any, *, tools_root: Path | None = None, resolv
             path, source = candidates[0]
             row["source"] = source
             bundle = verifier(Path(path), tool, deadline=end)
-            row.update(ok=True, detail="등록 tree 일치 · Windows 실행 미확인 · backend 미연결 · 실기 미확인",
+            row.update(ok=True, detail="등록 tree 일치 · Windows 실행 미확인 · backend 활성화 없음 · 실기 미확인",
                 hint="", tree_verified=True, release_id=bundle.release_id,
                 manifest_sha256=bundle.manifest_sha256, digest_basis=bundle.digest_basis,
                 known_limitations=list(bundle.known_limitations))
@@ -1215,7 +1215,7 @@ def windows_bundle_checks(config: Any, *, tools_root: Path | None = None, resolv
             row["problem"] = code if code in _BUNDLE_ERRORS else "bundle_io_failed"
             if code == "bundle_missing" and row["source"] == "pweh-tools":
                 row.update(ok=None, tree_verified=None,
-                    detail="선택 설치 없음 · Windows 실행 미확인 · backend 미연결 · 실기 미확인",
+                    detail="선택 설치 없음 · Windows 실행 미확인 · backend 활성화 없음 · 실기 미확인",
                     hint="기존 payload를 scripts/install.sh의 openocd-win 또는 sigrok-win 항목으로 명시 설치하세요.")
         rows.append(row)
     return rows

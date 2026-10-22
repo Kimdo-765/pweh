@@ -26,8 +26,8 @@ from .rpc import TclRpcClient
 class OcdSession:
     case_id: str
     mode: str  # spawned | adopted | attached
-    host: str
-    port: int
+    host: str | None
+    port: int | None
     client: TclRpcClient
     proc: OpenOcdProcess | None = None
     log_path: Path | None = None
@@ -54,27 +54,78 @@ class OcdSession:
     semihosting_check_pending: bool = False
     # semihosting 을 끄지 못해 서버가 OpenOCD 를 종료한 경우의 기록
     semihosting_failsafe: dict[str, Any] | None = None
+    # Windows dummy는 단일 pipe를 빌려 쓰며 종료 확인 전 registry에서 제거하지 않는다.
+    transport: str = "tcp"
+    windows_owner: Any = None
+    windows_layout: Any = None
+    windows_bundle: Any = None
+    windows_profile: str | None = None
+    starting: bool = False
+    closing: bool = False
+    cleanup_pending: bool = False
+    cleanup_reason: str | None = None
+    cancel_start: threading.Event = field(default_factory=threading.Event, repr=False)
+    _uses: int = field(default=0, repr=False)
+    _use_lock: Any = field(default_factory=lambda: threading.Condition(threading.RLock()), repr=False)
+    close_lock: Any = field(default_factory=threading.Lock, repr=False)
+
+    @property
+    def windows(self) -> bool:
+        return self.transport == "windows-pipe"
+
+    def reserve_use(self, *, startup: bool = False) -> None:
+        """caller가 예약하고 실제 worker가 끝난 뒤 한 번만 반환한다."""
+        with self._use_lock:
+            if self.closing or (self.starting and not startup):
+                raise Busy("Windows OpenOCD 세션이 시작 또는 정리 중입니다.")
+            self._uses += 1
+
+    def finish_use(self) -> None:
+        with self._use_lock:
+            if self._uses <= 0:
+                raise RuntimeError("OpenOCD 사용권 수명 불일치")
+            self._uses -= 1
+            self._use_lock.notify_all()
+
+    def begin_close(self) -> None:
+        with self._use_lock:
+            self.closing = True
+            self.cancel_start.set()
+
+    def wait_unused(self, deadline: float) -> bool:
+        with self._use_lock:
+            while self._uses and time.monotonic() < deadline:
+                self._use_lock.wait(min(.05, max(0, deadline - time.monotonic())))
+            return self._uses == 0
 
     @property
     def owned(self) -> bool:
+        if self.windows:
+            return self.windows_owner is not None
         return self.mode in ("spawned", "adopted") and self.proc is not None
 
     def new_client(self, name: str) -> TclRpcClient:
         """백그라운드 작업용 별도 연결 (OpenOCD 는 다중 TCL 연결을 받는다)."""
+        if self.windows:
+            raise DeviceError("Windows dummy는 작업용 연결을 지원하지 않습니다.", code="openocd_windows_unsupported")
         return TclRpcClient(self.host, self.port, name=name)
 
     def process_info(self) -> dict[str, Any] | None:
+        if self.windows:
+            return {"cleanup_pending": self.cleanup_pending, "cleanup_reason": self.cleanup_reason}
         if self.proc is None:
             return None
         info = {"pid": self.proc.pid, **self.proc.returncode_info()}
         return info
 
     def process_exited(self) -> bool:
+        if self.windows:
+            return False  # wrapper 종료는 Windows owner 부재 증거가 아니다.
         return self.proc is not None and not self.proc.alive
 
     def died_after_disconnect(self, wait: float = 1.5) -> bool:
         """연결이 끊겼을 때: 소유 프로세스가 (곧) 종료되는지 잠시 기다려 확인 (소켓이 프로세스 회수보다 먼저 닫히는 경쟁)."""
-        if self.proc is None:
+        if self.windows or self.proc is None:
             return False
         return self.proc.wait(wait)
 
@@ -103,11 +154,18 @@ class OcdSession:
             "mode": self.mode,
             "host": self.host,
             "tcl_port": self.port,
-            "connected": self.client.connected,
+            "connected": bool(self.client is not None and self.client.connected),
             "version": self.version.get("raw") if self.version else None,
             "started_at": self.started_at,
             "uptime_seconds": round(time.monotonic() - self.started_mono, 1),
         }
+        if self.windows:
+            out.update(transport=self.transport, backend="windows", windows_profile=self.windows_profile,
+                       starting=self.starting, closing=self.closing, cleanup_pending=self.cleanup_pending,
+                       cleanup_reason=self.cleanup_reason, hardware_initialized=False, usb_scope="not-applicable")
+            if self.windows_bundle is not None:
+                out["bundle"] = {"release_id": self.windows_bundle.release_id,
+                                 "manifest_sha256": self.windows_bundle.manifest_sha256}
         if self.proc is not None:
             out["process"] = self.process_info()
         if self.log_path is not None:
@@ -153,11 +211,18 @@ class SessionRegistry:
 
     def ports_in_use(self) -> set[tuple[str, int]]:
         with self._lock:
-            return {(s.host, s.port) for s in self._sessions.values()}
+            return {(s.host, s.port) for s in self._sessions.values() if not s.windows}
 
     def shutdown_all(self) -> None:
         """테스트/종료용: 모든 세션을 닫고 소유 프로세스를 종료."""
         for s in self.all():
+            if s.windows:
+                from .windows_start import close_session
+                try:
+                    close_session(s, timeout=8.0)
+                except Exception:
+                    s.cleanup_pending = True
+                continue
             try:
                 s.client.close()
             except Exception:

@@ -297,6 +297,30 @@ def build_pipe_argv(
     )
 
 
+def build_dummy_pipe_argv(binary: str, *, scripts_dir: str | Path,
+                          interface: CfgRef, owner: CfgRef) -> list[str]:
+    """고정 dummy/testee만 무초기화로 시작한다. 호출자는 cfg 지문·bundle을 검증해야 한다.
+
+    사용자 명령·transport·skip_init 인자는 없다. 기존 TCP/USB의 init·semihosting
+    순서를 건드리지 않고 전용 builder에서만 noinit을 생성한다.
+    """
+    from .dummy_profile import DUMMY_PROFILE
+
+    tap, target, noinit = DUMMY_PROFILE.commands
+    return [
+        binary, "-d3", "-s", str(scripts_dir),
+        "-c", "if {[catch {tcl port pipe}]} {tcl_port pipe}",
+        "-c", "if {[catch {telnet port disabled}]} {telnet_port disabled}",
+        "-c", "if {[catch {gdb port disabled}]} {gdb_port disabled}",
+        "-f", interface.arg,
+        "-c", f"transport select {DUMMY_PROFILE.transport}",
+        "-c", f"adapter speed {DUMMY_PROFILE.adapter_speed_khz}",
+        "-c", tap, "-c", target,
+        "-f", owner.arg,
+        "-c", noinit,
+    ]
+
+
 def _build_argv(
     binary: str,
     *,
