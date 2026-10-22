@@ -541,3 +541,28 @@ def test_redaction_never_logs_values(caplog):
         r.redact(ln, open_tail=True)
     text = caplog.text
     assert "SentinelPw123" not in text and SECRET.decode() not in text
+
+
+def test_credential_spans_hold_only_fixed_identity_and_positions():
+    """새 증거 seam은 원문·키·Match를 보유하지 않으며 콘솔 출력은 그대로다."""
+    text = 'api_key="Synthetic_VALUE_42"'
+    before = redact_line(text, None)
+    spans = R.credential_spans(text)
+    assert spans
+    for span in spans:
+        assert set(vars(span)) == {"pattern_id", "start", "end", "kind", "value_complete"}
+        assert span.pattern_id in R.CREDENTIAL_PATTERN_IDS
+        assert text[span.start:span.end] == "Synthetic_VALUE_42"
+        assert "Synthetic_VALUE_42" not in repr(span)
+        assert span.value_complete
+    assert redact_line(text, None) == before
+
+
+def test_credential_spans_reject_multiline_and_check_between_rules():
+    with pytest.raises(ValueError):
+        R.credential_spans("password=abc\nsecond line")
+    with pytest.raises(ValueError):
+        R.credential_spans("x" * 16385)
+    calls = []
+    R.credential_spans("password=abc", check=lambda: calls.append(True))
+    assert len(calls) >= len(R.CREDENTIAL_PATTERN_IDS)

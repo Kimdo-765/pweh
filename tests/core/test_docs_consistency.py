@@ -45,9 +45,9 @@ REA_RUNTIME_ASK = {"gdb_console", "cutter_command", "load_frida_script", "resume
 #: .claude/settings.json 에서 서버 전체(`mcp__<server>__*`)를 자동 허용하는 서버(기기에 닿지 않는 서버).
 #: 나머지 pweh 서버는 readOnlyHint와 아래에 명시한 로컬 기록 도구만 allow에 있다.
 FULL_ALLOW_SERVERS = ("pweh-case", "pweh-fwtriage")
-#: 사용자가 정지 그림·OCR 반환을 별도 승인 없이 허용한 도구. 로컬 산출물을 쓰므로 readOnlyHint 는 false 다.
+#: 정지 그림·앱 기록·선택 텍스트의 마스킹된 비밀값 후보 분석은 로컬 산출물을 쓰므로 readOnlyHint 는 false 다.
 LOCAL_WRITE_ALLOW = {f"mcp__pweh-forensics__{name}" for name in (
-    "forensics_image_hints", "forensics_sqlite_inventory", "forensics_android_artifacts", "forensics_timeline")}
+    "forensics_image_hints", "forensics_scan_secrets", "forensics_sqlite_inventory", "forensics_android_artifacts", "forensics_timeline")}
 # I5 1a는 서버 내부 모델과 로컬 JSON만 다루며 실제 전송 계층이 없다.
 LOCAL_WRITE_ALLOW |= {f"mcp__pweh-espprobe__{name}" for name in (
     "espprobe_connect", "espprobe_self_test", "espprobe_release_all", "espprobe_disconnect")}

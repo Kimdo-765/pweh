@@ -1810,8 +1810,10 @@ def main() -> None:
 
 
 from .android_tools import register_android_tools
+from .secrets_tools import register_secrets_tools
 
 register_android_tools(server, globals())
+register_secrets_tools(server, globals())
 
 
 if __name__ == "__main__":

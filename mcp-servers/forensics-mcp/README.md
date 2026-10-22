@@ -53,6 +53,7 @@
 | 도구 | 설명 / 주요 반환 |
 |---|---|
 | `forensics_image_hints(case_id, evidence_id, partition=None, ref=None, path=None, method="auto", ocr=True, ocr_lang="kor+eng", qr=True, preview=True, crop=None, max_seconds=45.0)` | EV 자체 사진 또는 선택한 파일 하나를 공통 이미지 worker로 분석한다. 입력·시간·픽셀 제한과 진입 무결성 검사, JSON/PNG 해시를 결속한 custody `image-hints`, 실제 MCP 이미지 콘텐츠. 전체 계약은 architecture §6.8, 알려진 한계는 safety §3.8 |
+| `forensics_scan_secrets(case_id, evidence_id, partition=None, ref=None, path=None, method="auto", xor_key=None, max_hits=200, max_seconds=45.0)` | 선택 텍스트 하나의 비밀값 후보를 원문 없이 검사한다. EV 자체 또는 FAT/exFAT·TAR/ZIP의 `ref`/`path` 하나, 완전 읽기 4 MiB·UTF-8(BOM 허용). `xor_key`는 생략 또는 정수144만, `max_hits` 1~200, 시간은 유한한 0 초과/45초 이하. 응답은 `report`(상태·출처 지문·규칙·후보·검사/미검사 범위)와 `analysis{path,sha256,size,custody_seq,custody_hash}`. 0444 JSON과 `secrets-scan` 보관 기록을 남긴다. 상세 한계는 아래 선택 텍스트 비밀값 검사 계약 |
 | `forensics_intake_start(case_id, image_path, purpose, legal_basis, site_type, business_purpose, role, imaging_log_path=None, label=None, verify_copy=True)` | 증거 접수 **job**. job 을 띄우기 전에 검사한다(동기 오류): `purpose`(목적)·`legal_basis`(법적 근거, 예: '소유자 본인 기기')·`business_purpose`(업무 목적, 가정용이면 '없음')는 앞뒤 공백을 뺀 3~500자(탭 말고 제어 문자 없음), `site_type` 은 `home`/`public`/`business`/`vehicle`/`mobile-business`/`unknown`(설치 장소에 따라 적용 법률이 다르다), `role` 은 `owner`/`processor`/`investigator`/`other`, `label` 은 제어 문자 없는 80자 이하. `image_path` 는 링크를 한 번 푼 비어 있지 않은 일반 파일이어야 한다 — 원시 디스크 경로, `/dev`·`/proc`·`/sys` 아래, 디렉터리·장치·FIFO·소켓, NUL 이 든 경로, E01(EWF) 서명, 케이스·상태 폴더 안의 파일, 정리한 이름이 증거 디렉터리 예약 이름(`EV-NNNN.json`·`imaging-log.txt`·`*.partial`)과 겹치는 파일은 `validation_failed`. 원본은 이때 한 번 연 fd 로만 읽는다(경로를 다시 열지 않음). `imaging_log_path`(FTK Imager·dc3dd·ewfacquire·ewfinfo·Guymager 로그)는 열기 전과 연 뒤 모두 케이스·상태 폴더 검사를 하고 fd 로 4 MiB 까지만 읽는다. 케이스 디스크에 이미지 + 256 MiB 의 여유가 있어야 하고, 보관 기록이 깨져 있으면 아무것도 만들지 않고 `custody_broken`. job: EV 번호 확보(§5) → 원본 fd 에서 확인한 크기만큼 읽으며 sha256·md5·sha1 계산과 `<이름>.partial` 복사(fsync, 0444 — 복사 중 원본의 크기·mtime 이 바뀌면 `integrity_failed`) → `verify_copy=true` 면 사본 재해시 → 이름 바꾸기 → 빠른 지문 → 이미징 로그 대조·사본 `imaging-log.txt` → 접수 기록 `EV-NNNN.json`(원본은 파일 이름·크기·mtime 만, 전체 경로 없음) → **보관 기록 `intake`(커밋 지점** — 해시·크기·저장 경로·빠른 지문·접수 기록 sha256·법적 정보) → 접수 잠금 파일을 지우고 디렉터리 0555 → 커밋 뒤 보조 기록(감사 로그, 사본 재해시가 다르면 `integrity-failed` 사건, 출처 원장 `imported-unattested`, 아티팩트 `evidence-image`, 같은 sha256 확인). 커밋 전의 실패·취소는 만든 파일과 EV 디렉터리를 지우고 번호를 돌려놓는다. 커밋 뒤에 온 취소는 무시하고(succeeded), 감사 로그 실패는 서버 로그만 남기고 그 밖의 보조 기록(`integrity-failed` 사건·출처 원장·아티팩트 색인·같은 sha256 확인) 실패는 `post_commit_errors`·`note` 로 알린다(접수는 그대로). 같은 원본의 접수가 진행 중이면 `busy`. `result`: `ok`(사본 재해시가 다를 때만 false), `evidence_id`, `stored_path`, `size`, `hashes`, `copy_verified`(`verify_copy=false` 면 null), `imaging_log{tool, comparison{status: match/mismatch/no-hashes, details}, conflicts}`(로그가 없으면 null), `custody_seq`, `provenance{seq, kind}`(원장 기록 실패면 `{error}`), `next_steps`, 같은 sha256 의 증거가 이미 있으면 `duplicate_of`·`warning`, 로그 해시가 다르면 `warning`(둘 다면 한 `warning` 에 ' / ' 로 잇는다), 사본 재해시가 다르면 `error` |
 | `forensics_verify_start(case_id, evidence_id)` | 사본 전체 재해시 **job**. 공통 입구에서 빠른 지문이 이미 다르면 job 없이 `integrity-failed` 를 기록하고 `integrity_failed`. 입구에서 연 그 fd 를 접수 크기만큼 다시 읽어 보관 기록 `intake` 사건의 sha256·md5·sha1 과 비교 → 보관 기록 `verify` → `result`: `ok`, `result`(`match`/`mismatch` — 크기가 바뀌어도 mismatch), `details{sha256, md5, sha1}`, `custody_seq`. 다르면 `integrity-failed` 사건도 남기고 그 증거의 내용 도구는 모두 거부된다(되돌리지 않는다 — 원본에서 다시 접수). 그 사건을 남기지 못하면 `post_commit_errors`·`note`(상태는 그래도 integrity-failed). 해시하는 도중의 취소는 아무것도 기록하지 않고 `cancelled`, 해시가 끝난 뒤의 취소는 무시하고 기록한다(succeeded). 같은 증거의 검증이 진행 중이면 `busy`. verify 는 그때 디스크에 있는 바이트만 증명한다 |
 | `forensics_acquisition_attest(case_id, evidence_id)` | 사람 증명 `write-blocker`: 쓰기 방지 장치를 거쳐 이미징했고 카드를 그 장치에만 넣었다(예여야 승인), 장치 제조사·모델, 희생용 카드로 시험했는지(예/아니오 — 정보 항목), 이미징 도구와 버전. 대상은 증거 id·보관 기록의 sha256·크기, 바인딩은 케이스, 90일 유효. 충족하면 `status: "approved"`, `attestation_id`, `blocker_tested`, `next_steps`. 아니면 `attestation_required`(사람이 `pweh attest <id>`) 또는 `denied` — 앞 증명이 거부·철회·만료됐으면 다시 부를 때 새 요청과 `previous` 가 온다. 보관 기록 `attest` 는 상태가 바뀔 때만 남는다(승인 — 모델·시험 여부·도구 답, 거부, 철회·만료). 증명은 기록일 뿐 다른 도구를 막지 않는다 |
@@ -106,7 +107,7 @@
 | `max_entries` | 전역 | 항목 수 합계 상한 | fs_list 는 `max_entries` 를 늘리거나 `partition` 으로 나눈다. image_check 는 `partition` 으로 나눈다 |
 | `max_total_slots` | 전역 | 순회 하나의 슬롯 합계 8,388,608 | 사람에게 알린다(조작 의심) |
 | `max_path_chars` | 전역 | 호출 전체의 경로 글자 수 268,435,456 | `partition` 으로 나누고 사람에게 알린다 |
-| `cancelled` | 전역 | 취소 — 엔진이 취소 함수를 받는 것은 추출뿐이다 | 필요하면 다시 부른다 |
+| `cancelled` | 전역 | 추출의 부분 결과 취소 사유 — 동기 목록·검사 요청 취소는 커밋 전에 결과 없이 끝난다 | 필요하면 다시 부른다 |
 | `max_depth` | 디렉터리 | 깊이 64 — 그 디렉터리 항목은 싣지만 안으로 내려가지 않는다(그 아래는 목록·ref 가 없다) | 고정 한도 — 사람에게 알리고 보고서 한계에 적는다 |
 | `max_dir_slots` | 디렉터리 | 디렉터리가 슬롯 한도에서 잘려 뒤쪽 항목이 없다(경고 `dir_slot_limit`) | 고정 한도 — 같음 |
 | `beyond_image` | 디렉터리 | 살아 있는 디렉터리 데이터가 읽을 수 있는 범위(파티션 표 항목과 이미지 끝 중 짧은 쪽) 끝 너머 — 원인은 볼륨 사유 `image_truncated`·`volume_exceeds_partition` 으로 본다 | 사람에게 알리고 보고서 한계(원인이 `image_truncated` 면 이미징이 끝까지 됐는지 사람이 확인 — 필요하면 다시 이미징) |
@@ -221,7 +222,7 @@
 - 이 경계는 위 서버들만 막는다. 에이전트의 파일 도구나 REA(`open_binary`·`read_bytes`)는 `forensics/` 를 읽을 수 있으므로, 전용 이미지 도구 외에 이미지 사본과 추출물을 직접 열지 않는 것은 에이전트 규칙이다. 정지 그림은 원본 EV의 선택자를 사용하고 반환된 정규화 미리보기만 본다.
   전체 파일 목록 JSON 은 메타데이터라 추출할 `ref` 를 고를 때 읽어도 되지만, 요약·보고서에는 개수·범위·해시만 옮긴다.
 - 증거 입구는 부모 디렉터리를 고정하고 하드링크를 거부한다. 다른 서버의 경로 가드와 같은 계정 경합의 남은 범위는 §8을 본다.
-- `.claude/settings.json`: 조회 전용 도구 `forensics_partitions`, `forensics_image_check`와 로컬 쓰기가 있는 명시적 예외 `forensics_job_status`·`forensics_jobs`·`forensics_image_hints`·`forensics_sqlite_inventory`·`forensics_android_artifacts`·`forensics_timeline`은 `allow`,
+- `.claude/settings.json`: 조회 전용 도구 `forensics_partitions`, `forensics_image_check`와 로컬 쓰기가 있는 명시적 예외 `forensics_job_status`·`forensics_jobs`·`forensics_image_hints`·`forensics_scan_secrets`·`forensics_sqlite_inventory`·`forensics_android_artifacts`·`forensics_timeline`은 `allow`,
   쓰는 도구 `forensics_intake_start`, `forensics_verify_start`, `forensics_acquisition_attest`, `forensics_evidence_list`, `forensics_fs_list`, `forensics_extract`, `forensics_job_cancel` 은 `ask` 다
   (Claude Code 에서는 bypass 모드에서도 묻는다). 클라이언트 권한은 보조 장치이고, 증거를 지키는 것은 보관 기록·지문·경계다.
 
@@ -244,7 +245,7 @@ job 의 실패는 `forensics_job_status` 의 `error` 에 있다(예상하지 못
 
 알려진 한계의 전체 목록과 정확한 조건은 [`docs/safety.md`](../../docs/safety.md) §3.6 에 있다. 여기에는 요약만 둔다.
 
-- 지원 범위: MBR/EBR·GPT·superfloppy, FAT12/16/32·exFAT와 논리 TAR/ZIP, 선택 SQLite·앱 기록 및 파일·앱 타임라인. ext4·NTFS·E01, 카빙(DHAV·XM·MPEG-PS·MP4·JPEG), CCTV 녹화 인덱스·이름 규칙과 그 타임라인, 비밀값 스캔·녹화 암호화 판정·침해 흔적 대조,
+- 지원 범위: MBR/EBR·GPT·superfloppy, FAT12/16/32·exFAT와 논리 TAR/ZIP, 선택 SQLite·앱 기록 및 파일·앱 타임라인. ext4·NTFS·E01, 카빙(DHAV·XM·MPEG-PS·MP4·JPEG), CCTV 녹화 인덱스·이름 규칙과 그 타임라인, 카드 전체 비밀값 자동 탐색·녹화 암호화 판정·침해 흔적 대조,
   외부 도구(TSK·PhotoRec·ewf-tools·ffprobe) 교차 확인은 아직 없다(설계 §4·§5.2). 삭제 파일 복구는 디렉터리 항목이 남은 파일만 다룬다.
 - 삭제한 FAT 파일은 보통 FAT 체인이 지워져 단편화 여부를 알 수 없다(Windows 는 FAT32 에서 시작 클러스터의 상위 16비트도 지운다). 후보(`contiguous`·`skip-allocated`·`skip-claimed`·`fat-chain`)마다 신뢰도와 설명이 매니페스트에 남지만 결과는 추정이다.
   `skip-allocated` 류 후보가 훑기 상한에서 멈추면 `status: "incomplete"`·`complete=false` 일 뿐 그 사유는 따로 없다. 미리 할당한 녹화 파일(링 버퍼)은 삭제 항목 복구로 아무것도 나오지 않을 수 있다.
@@ -289,3 +290,9 @@ job 의 실패는 `forensics_job_status` 의 `error` 에 있다(예상하지 못
 TAR/ZIP 목록·멤버 해시·선택 추출과 선택한 SQLite DB의 구조·앱 기록·타임라인을 지원한다. `forensics_sqlite_inventory`, `forensics_android_artifacts`, `forensics_timeline`은 같은 EV 무결성 입구에서 읽고 JSON을 보관 기록에 결속한다. 폰 내용은 전용 도구 응답으로 반환하며 원본·추출 DB를 직접 열지 않는다. 영상·음성은 여전히 사람이 확인한다. 복구 후보·미검사 범위·시각 기준을 보존한다.
 
 접수 기본은 copy, reference는 `forensics.reference_roots`의 실제 읽기 전용 마운트만 허용한다. 참조 EV가 있는 evidence-list는 전체 재해시 job 완료 후 확인서를 만든다. [계약](../../docs/architecture.md) §6.8, [설계·제한](../../docs/design/android-analysis.md), [Skill](../../skills/android-forensics/SKILL.md)을 따른다.
+
+## 선택 텍스트 비밀값 검사 계약
+
+`forensics_scan_secrets`로 EV 자체 또는 목록에서 고른 텍스트 하나를 검사한다. `ref`/`path`는 하나만, 직접 EV는 둘 다 생략한다. 결과는 `report.status`(`ok`/`partial`/`unsupported`), 마스킹된 후보·케이스 솔트 지문, 실제 검사/미검사 범위와 `analysis`의 저장 경로·해시·보관 기록 번호다. UTF-8(BOM 허용)4 MiB, 한 줄16 KiB,100,000줄,200후보, 최대45초로 제한하며 긴 줄·한도·복구 불확실성을 부분 결과로 남긴다. XOR는 사용자가 선택한 `xor_key=144` 보기만 지원한다.
+
+원문·파일명·키 이름·계정·URL·변환 파일은 새 결과에 남기지 않는다. 영상음성·바이너리 해독, 전체 카드 자동 검색, 비밀번호 사용/로그인은 없다. 후보0건도 안전을 뜻하지 않는다. 커밋 전 취소는 출력 없이, 커밋 후는 결과를 보존한다. 입력 EV와 출력 파일 신원을 함께 확인해 `secrets-scan` 사건으로 결속하고 증거 목록에서 대조한다. 상세 계약은 [architecture.md §6.8](../../docs/architecture.md#68-pweh-forensics-선택), 한계는 [safety.md §3.6](../../docs/safety.md#36-sd-카드-증거의-알려진-한계-pweh-forensics)다.

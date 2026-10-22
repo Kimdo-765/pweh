@@ -38,7 +38,8 @@ from __future__ import annotations
 
 import re
 import string
-from typing import Iterable
+from dataclasses import dataclass
+from typing import Callable, Iterable
 
 from ..console import decode_console, escape_controls, is_printable_char, strip_ansi
 from .masking import mask_secret
@@ -395,6 +396,103 @@ def _value_end(norm: str, m: re.Match[str], mode: str, memo: list[int], rlen: in
     return end
 
 
+# 증거 검사는 콘솔의 과잉 마스킹 구간을 양성 발견으로 바꾸지 않는다.
+_SCAN_EXPLICIT_RX = re.compile(
+    r"(?i)(?<![\w.-])(?P<key>[\w.-]{0,32}?(?:" + _CONSOLE_KEYS + r"))\b[\"']?"
+    r"\s{0,16}[=:]\s{0,16}(?P<q>[\"']?)(?P<val>[^\s\"'<>{};,&|]{1,64})")
+CREDENTIAL_PATTERN_IDS = tuple(p[0] for p in _PATTERNS) + ("scanner-explicit-credential",)
+
+
+@dataclass(frozen=True)
+class CredentialSpan:
+    """원문·키·정규식 객체를 보유하지 않는 한 줄 자격증명 후보 좌표."""
+
+    pattern_id: str
+    start: int
+    end: int
+    kind: str
+    value_complete: bool
+
+
+def _scan_quote_end(text: str, start: int, quote: str) -> tuple[int, bool]:
+    """이스케이프한 따옴표를 경계로 오인해 prefix 지문을 만들지 않는다."""
+    pos = start
+    while pos < len(text):
+        if text[pos] == "\\":
+            pos += 2
+        elif text[pos] == quote:
+            return pos, True
+        else:
+            pos += 1
+    return len(text), False
+
+
+def credential_spans(text: str, *, check: Callable[[], None] | None = None) -> list[CredentialSpan]:
+    """최대 16 KiB 한 줄에서 공유 규칙의 값 좌표만 반환한다.
+
+    콘솔 출력·기존 마스킹 함수는 바꾸지 않는다. 경계가 불명확한 quote/XML은
+    후보로만 반환하며, URL은 닫는 @가 있어야 한다. 정규화에서 빠진 Cf 등은
+    원문 값의 경계 안에 포함해 전체 값 지문을 계산할 수 있게 한다.
+    """
+    if not isinstance(text, str) or len(text) > 16384 or "\n" in text or "\r" in text:
+        raise ValueError("자격증명 좌표 검사는 제한된 한 줄만 받습니다.")
+    checkpoint = check or (lambda: None)
+    checkpoint()
+    norm, idx = _normalize(text)
+    if _CRED_HINT_RX.search(norm) is None:
+        return []
+    out: list[CredentialSpan] = []
+    memo = [-1, -1]
+    patterns = [*_PATTERNS, ("scanner-explicit-credential", _SCAN_EXPLICIT_RX, "token", True)]
+    for name, rx, mode, skip in patterns:
+        checkpoint()
+        for match in rx.finditer(norm):
+            checkpoint()
+            a = match.start("val")
+            q = match.groupdict().get("q")
+            complete = True
+            kind = "password"
+            key = match.groupdict().get("key", "").lower()
+            if "url-credential" in name:
+                stop = _URL_VALUE_STOP_RX.search(norm, a)
+                if stop is None or norm[stop.start()] != "@":
+                    continue
+                b, kind = stop.start(), "url-password"
+            elif "xml-" in name:
+                b = norm.find("<", a)
+                if b < 0:
+                    b = len(norm)
+                complete = norm[b:].lower().startswith("</" + key + ">")
+            elif q:
+                b, complete = _scan_quote_end(norm, a, q)
+            elif mode == "eol":
+                kind = "authorization"
+                if norm[a:a + 1] in ("'", '"'):
+                    q = norm[a]
+                    a += 1
+                    b, complete = _scan_quote_end(norm, a, q)
+                else:
+                    b = len(norm.rstrip())
+                    complete = not any(c in norm[a:b] for c in "\"'{}<>")
+            else:
+                b = _value_end(norm, match, mode, memo, len(norm.rstrip()))
+            if name in ("console-bearer", "console-jwt") or any(k in key for k in ("token", "key", "auth")):
+                if kind == "password":
+                    kind = "token"
+            value = norm[a:b]
+            if b <= a or (skip and _skip_value(value)):
+                continue
+            if name == "console-space-password" and value.lower() in {"incorrect", "invalid", "failed", "wrong", "missing"}:
+                continue
+            if idx is None:
+                da, db = a, b
+            else:
+                da = idx[a - 1] + 1 if a else 0
+                db = idx[b] if b < len(idx) else len(text)
+            out.append(CredentialSpan(name, da, db, kind, complete))
+    return out
+
+
 def _find_spans(disp: str, norm: str, idx: list[int] | None, known: KnownSecrets | None,
                 open_tail: bool) -> list[tuple[int, int, str, int]]:
     """마스킹 구간(표시 글 좌표): (시작, 끝, 종류 secret|value|eol|hold, 비밀 바이트 수)."""
@@ -647,6 +745,9 @@ class ConsoleRedactor:
 
 
 __all__ = [
+    "CREDENTIAL_PATTERN_IDS",
+    "CredentialSpan",
+    "credential_spans",
     "CONSOLE_CRED_RX",
     "CONSOLE_KEY_RX",
     "CRED_RX",

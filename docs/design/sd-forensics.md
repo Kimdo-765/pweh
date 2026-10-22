@@ -1,6 +1,6 @@
 # 설계안: SD 카드 포렌식 (증거 분석 + 보안 분석)
 
-> 상태: **F1 구현 및 C·D 확장, F2·F3 후속 설계**. 현재 도구 계약은 [architecture.md](../architecture.md) §6.8이며, 구현 범위와 남은 기능은 §4에 구분했다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md).
+> 상태: **F1·C·D 및 F2 선택 파일 비밀값 검사 구현, 나머지 F2·F3 후속 설계**. 현재 도구 계약은 [architecture.md](../architecture.md) §6.8이며, 구현 범위와 남은 기능은 §4에 구분했다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md).
 > 근거: 2026-10-19 조사 네 갈래(이미징·쓰기 방지, 파일 시스템·복구 도구, CCTV SD 형식, 보안 분석·통합·법률)와 갈래마다 적대적 검증(사실 확인 124건 중 수정 31건, 반박 2건 반영).
 > 개발 환경 에서 직접 확인한 것: FAT/exFAT 순수 파이썬 시제품(286줄)이 생성 이미지 6개·추출 20건에서 TSK 와 맞거나 더 정확했고, PhotoRec 7.1 을 헤드리스로 돌려 봤으며,
 > 실제 Hikvision `index00.bin` 두 개(v2·v3)를 해석했다. 실제 카드는 열지 않았다.
@@ -110,7 +110,7 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 > 저장은 `storage="copy"`가 기본이다. D의 `storage="reference"`는 비안전 설정 `forensics.reference_roots` 아래 실제 읽기 전용 마운트의 일반 파일만 제자리 참조하며 매번 정책·마운트를 재확인한다. 증거 목록의 전체 재해시가 끝나야 참조 EV의 성공 확인서를 만든다(§10 결정 2).
 > `case.json` 의 `evidence[]` 색인 대신 보관 기록(`intake` 사건이 해시·크기·지문의 권위 값)을 다시 읽어 상태를 정하고 접수 기록 파일은 그것과 대조한다.
 > 접수 아티팩트 kind는 사본의 `evidence-image`와 참조 기록의 `evidence-reference`다(추출물은 매니페스트로 센다). 발견사항 카테고리 `insecure-storage`·`privacy` 는 아직 없다. D의 `pweh-fwtriage` raw GPT 분할은 `pweh.fs`의 파티션 파서를 재사용한다(증거 파일 시스템 접근은 아님).
-> 남음: F2 — CCTV 형식(프레임 카버·인덱스·이름 규칙), 카빙, 녹화 인덱스 타임라인, §5.2 의 카드 쪽 비밀 스캔·암호화 판정·침해 흔적 대조(지금은 `fw_sd_surface` 의 `sd_paths_referenced` 를 `forensics_fs_list` 목록과 대조한다), E01·외부 도구(TSK·PhotoRec·ewf·ffprobe).
+> 남음: F2 — CCTV 형식(프레임 카버·인덱스·이름 규칙), 카빙, 녹화 인덱스 타임라인, §5.2의 카드 전체 비밀값 자동 탐색·암호화 판정·침해 흔적 대조(지금은 `fw_sd_surface` 의 `sd_paths_referenced` 를 `forensics_fs_list` 목록과 대조한다), E01·외부 도구(TSK·PhotoRec·ewf·ffprobe).
 > F3 — ext4(NTFS 목록도 없음), Windows 원시 읽기 헬퍼, 영상 내보내기. 장치에서 카드 식별 정보 읽기(sysfs cid/csd)도 아직 없다.
 > 유지보수 보강 구현: 출력 커밋 전 신원 재확인, `pweh.safeio`의 중간 디렉터리 고정, 출처 원장의 안전한 접수 기록 읽기, 지정 케이스의 종료된 job 기록 정리,
 > 동기 해석의 요청 취소, 증거 경계의 하드링크 거부, FAT12/16/32 디렉터리 교차 연결 검사. 같은 계정 경합·부분 FAT 색인 등 남은 범위는 safety.md §3.6에 적는다.
@@ -140,9 +140,11 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 
 ### 5.2 카드 쪽 (pweh-forensics)
 
-- `forensics_scan_secrets`: fwtriage 자격증명 패턴 + 토큰 휴리스틱 + **1바이트 XOR 탐색**(Wyze 0x90). 결과는 마스킹된 지문만(평문 저장 안 함), 교체 권고.
-- `forensics_encryption_assess`: "암호화 안 됨"은 **보호 신호가 없고**(encv/enca/sinf/schm/tenc/senc/pssh) **슬라이스 본문(앞 32바이트 이후)이 해석될 때만**. 그 밖은 "암호화됨/모름"(상자 구조와 NAL 헤더는 암호화돼도 남는다, 엔트로피는 결정적이지 않음).
-- `forensics_sd_ioc_scan`: 카드 파일(삭제 포함)을 펌웨어 sd_surface 결과와 대조 — 펌웨어가 실행·플래시할 파일이 카드에 있으면 강한 침해 흔적.
+- **구현 — `forensics_scan_secrets`**: 접수한 EV 자체 또는 FAT/exFAT·TAR/ZIP에서 명시적으로 고른 파일 하나를 완전히 읽은 뒤(최대 4 MiB), UTF-8 텍스트의 공통 자격증명·콘솔 토큰 패턴을 검사한다. BOM은 허용하며 UTF-16·바이너리·영상음성·중첩 압축은 지원하지 않는다. 기본은 평문이고 `xor_key=144`를 명시하면 0x90 보기만 검사한다. 자동 XOR 키 탐색·벤더 판정·fwtriage YAML 전체 규칙은 구현 범위에 없다.
+  결과는 원문 없는 위치·길이·고정 `<masked>`·경계가 완전한 값의 케이스 솔트 지문이다. 계정·키 이름·URL·파일명·변환 평문은 새 산출물에 남기지 않는다. 16 KiB를 넘는 줄은 전부 건너뛰며 시간·줄·후보·범위 상한과 복구 불확실성을 `partial` 및 검사/미검사 바이트 범위로 기록한다. 후보 0건도 파일 전체나 카드의 안전을 뜻하지 않는다.
+  분석 JSON은 `secrets-scan` 보관 기록에 해시로 결속한다. 복구한 자격증명으로 로그인하지 않는다. 정확한 인자·반환 계약은 architecture §6.8과 `schemas/secrets-scan.schema.json`이다.
+- **미구현 — `forensics_encryption_assess`**: "암호화 안 됨"은 **보호 신호가 없고**(encv/enca/sinf/schm/tenc/senc/pssh) **슬라이스 본문(앞 32바이트 이후)이 해석될 때만**. 그 밖은 "암호화됨/모름"(상자 구조와 NAL 헤더는 암호화돼도 남는다, 엔트로피는 결정적이지 않음).
+- **미구현 — `forensics_sd_ioc_scan`**: 카드 파일(삭제 포함)을 펌웨어 sd_surface 결과와 대조 — 펌웨어가 실행·플래시할 파일이 카드에 있으면 강한 침해 흔적.
 
 ### 5.3 장치 명령 분류기 강화 (유지보수자·사람이 결정 — 에이전트는 safety 설정을 바꾸지 않는다)
 
@@ -157,6 +159,7 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
   분리하는 이유: fwtriage 문자열 탐색이 복구한 개인 영상을 건드리지 않게, 0444 원본과 보관 기록을 한곳에, 케이스 종료 때 보존·파기를 단순하게.
 - 아티팩트 kind: `evidence-image`, `recovered-file`, `carved-file`(처음에는 `other` + `extra.type` 도 가능). 발견사항 카테고리 추가: `insecure-storage`, `privacy`(+ `sd-*` 태그).
 - Skill 하나: `sd-card-forensics`(mode = evidence / security / both), 요약 스키마 `sd-forensics`(mode 에 따른 if/then, `audio_decoded`·`face_plate_processing`·`uploads` 는 항상 false 상수).
+  선택 비밀값 검사 결과는 `secret_scan_results`에 결과 JSON 경로·해시·상태·후보 수·검사/미검사 바이트·사유만 기록하고 `privacy.secret_plaintext_returned=false`로 남긴다. 별도 Skill/phase는 만들지 않는다.
   SKILL_DATA_SCHEMAS 와 master-prompt §5 표에 함께 등록. 보고서에 증거 목록·보관 사슬·고지 섹션(report.py).
 
 ## 7. 법률·개인정보 (법률 자문 아님 — 2026-10-19 law.go.kr 원문 기준)
@@ -180,7 +183,7 @@ F1과 C·D의 추가 구현은 §4를 따른다. 아래의 `safety.forensics.*` 
 |---|---|---|
 | F0 | 공통 코어(증명: `write-blocker`·`provenance-import`, `safety.forensics.*`, master-prompt "SD 포렌식" 목표 분기), 에이전트 호스트 위험 규칙(§0) | 단위 테스트 |
 | F1 | 보안(펌웨어): fwtriage SD 표면 SD-01~09 + 빈틈 수정 + `uart_capture_boot` sd_events. 증거 핵심: 접수·해시·보관 기록·검증·오염 검사, 파티션·FAT/exFAT 목록·추출·삭제 파일, 증거 목록, `sd-card-forensics`(security + 기본 evidence) | `mkfs.fat --invariant`+mtools(SOURCE_DATE_EPOCH)로 결정적 FAT, `mkfs.exfat`+시험용 주입기, 가짜 sysfs/부팅 로그, 해시 사슬 변조 시험, 원본 불변 확인 |
-| F2 | 카빙(DHAV·XM·PS·Annex-B·MP4·JPEG), Hikvision·Dahua 인덱스, 이름 규칙, 녹화 인덱스 타임라인, 비밀 스캔·암호화 판정·침해 흔적, 외부 도구(TSK·PhotoRec·ewf·ffprobe) | ffmpeg testsrc 합성 영상(FFmpeg dhav.c 배치의 DHAV 포함), 합성 인덱스, `@pytest.mark.external` |
+| F2 | 카빙(DHAV·XM·PS·Annex-B·MP4·JPEG), Hikvision·Dahua 인덱스, 이름 규칙, 녹화 인덱스 타임라인, 비밀 스캔(선택 UTF-8 파일은 구현, §5.2)·암호화 판정·침해 흔적, 외부 도구(TSK·PhotoRec·ewf·ffprobe) | ffmpeg testsrc 합성 영상(FFmpeg dhav.c 배치의 DHAV 포함), 합성 인덱스, `@pytest.mark.external` |
 | F3 | ext4(디렉터리 + jbd2), (선택) Windows 원시 읽기 헬퍼, (선택) 한 번 쓰는 승인 기반 영상 내보내기 | `mke2fs -d`(원본 시각 고정 시 결정적) + debugfs |
 
 ## 9. 확인이 필요한 것

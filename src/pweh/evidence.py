@@ -100,8 +100,8 @@ _QUARANTINE_RE = re.compile(r"^EV-(\d{4,6})-")
 #: 이미지 사본 이름으로 쓸 수 없는 이름 (같은 디렉터리의 접수 기록·로그 사본·잠금·복사 중 이름과 겹침)
 RESERVED_NAME_RE = re.compile(r"(?i)^(?:EV-\d+\.json|imaging-log\.txt|\.intake\.lock|.*\.partial)$")
 #: 보관 기록 사건 종류 (닫힌 집합)
-ANALYSIS_EVENTS = frozenset({"sqlite-inventory", "android-artifacts", "timeline"})
-CUSTODY_EVENTS = ("intake", "intake-aborted", "verify", "integrity-failed", "attest", "check", "list", "extract", "image-hints", "sqlite-inventory", "android-artifacts", "timeline", "evidence-list", "note")
+ANALYSIS_EVENTS = frozenset({"sqlite-inventory", "android-artifacts", "timeline", "secrets-scan"})
+CUSTODY_EVENTS = ("intake", "intake-aborted", "verify", "integrity-failed", "attest", "check", "list", "extract", "image-hints", "sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "evidence-list", "note")
 CUSTODY_ACTORS = ("server", "agent", "human")
 #: 빠른 지문: 앞·뒤 1 MiB 의 sha256 + 크기·mtime_ns
 FINGERPRINT_BLOCK = 1 << 20
@@ -1566,13 +1566,45 @@ def recheck_opened(case: Case, opened: OpenedEvidence, entries: list[dict[str, A
         pass
 
 
+def _analysis_file_identity(st: os.stat_result) -> tuple[int, ...]:
+    """출력 seal의 메모리상 신원. inode·시각 등 호스트 값은 보고서에 넣지 않는다."""
+    return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns
+
+
+def _check_analysis_output(case: Case, directory: int, name: str, fd: int, sealed: os.stat_result) -> None:
+    """custody 잠금 안에서 출력 경로와 아직 열린 작성 fd를 seal에 대조한다.
+
+    디렉터리에는 다른 정상 분석 파일이 생길 수 있으므로 dev/ino만 대조한다. 파일은
+    단일 링크·쓰기 금지와 최종 크기/변경 시각까지 확인한다. 같은 OS 계정의 이후 변경을 막는 잠금은 아니다.
+    """
+    current_directory = open_forensics(case, "analysis")
+    try:
+        if not safeio.same_file(os.fstat(directory), os.fstat(current_directory)):
+            raise UnsafeFile("분석 출력 디렉터리가 기록 전에 바뀌었습니다.")
+        current = os.stat(name, dir_fd=current_directory, follow_symlinks=False)
+        written = os.fstat(fd)
+        if any(not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_mode & 0o222 or
+               _analysis_file_identity(st) != _analysis_file_identity(sealed) for st in (written, current)):
+            raise UnsafeFile("분석 출력 파일이 기록 전에 바뀌었습니다.")
+    finally:
+        os.close(current_directory)
+
+
+def _discard_analysis_output(directory: int, name: str, fd: int) -> None:
+    """작성 fd와 같은 파일 이름만 지운다. 다른 파일·링크로 바뀐 이름은 보존한다."""
+    current = os.stat(name, dir_fd=directory, follow_symlinks=False)
+    if stat.S_ISREG(current.st_mode) and safeio.same_file(current, os.fstat(fd)):
+        os.unlink(name, dir_fd=directory)
+
+
 def store_analysis(case: Case, opened: OpenedEvidence, report: dict[str, Any], *, event: str,
                    custody_log: CustodyLog, reference_roots: Any = (), check: Callable[[], None] | None = None,
                    on_commit: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """분석 JSON 을 0444 로 저장하고 같은 EV 를 재검증해 보관 기록에 결속한다.
 
-    내용은 JSON 에만 두고 보관 기록·아티팩트에는 해시/크기/출처만 남긴다. 커밋 전 실패만 생성 파일을 지우며,
-    커밋 뒤 감사·색인 오류나 취소는 이미 기록한 분석을 되돌리지 않는다.
+    내용은 JSON 에만 두고 보관 기록·아티팩트에는 해시/크기/출처만 남긴다. 작성 fd를 커밋까지 유지하고
+    custody 잠금 안에서 EV와 출력 seal을 재검증한다. 커밋 전 실패는 같은 신원의 생성 파일만 지우며,
+    커밋 뒤 감사·색인 오류나 취소는 이미 기록한 분석을 되돌리지 않는다. store_image_hints와는 별도 경로다.
     """
     if event not in ANALYSIS_EVENTS:
         raise ValidationFailed("지원하지 않는 분석 보관 기록 사건입니다.")
@@ -1602,8 +1634,9 @@ def store_analysis(case: Case, opened: OpenedEvidence, report: dict[str, Any], *
         safeio.write_all(fd, raw)
         os.fchmod(fd, 0o444)
         os.fsync(fd)
-        os.close(fd)
-        fd = None
+        sealed = os.fstat(fd)
+        if sealed.st_size != len(raw):
+            raise UnsafeFile("분석 출력 파일의 크기가 작성한 JSON과 다릅니다.")
         os.fsync(dfd)
         analysis = {"path": forensics_rel("analysis", name), "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)}
 
@@ -1611,6 +1644,7 @@ def store_analysis(case: Case, opened: OpenedEvidence, report: dict[str, Any], *
             if check:
                 check()
             recheck_opened(case, opened, entries, reference_roots=reference_roots)
+            _check_analysis_output(case, dfd, name, fd, sealed)
 
         entry = custody_log.append(event, evidence_id=opened.evidence_id,
                                    data={"analysis": analysis, "source": source, "status": report.get("status"), "params": report.get("params")},
@@ -1629,12 +1663,16 @@ def store_analysis(case: Case, opened: OpenedEvidence, report: dict[str, Any], *
             warnings.append("분석은 보존했으나 아티팩트 색인 등록에 실패했습니다.")
         return {"ok": True, "report": report, "analysis": analysis, "warnings": warnings}
     finally:
-        if fd is not None:
-            os.close(fd)
-        if not committed and name:
+        if not committed and name and fd is not None:
             with contextlib.suppress(OSError):
-                os.unlink(name, dir_fd=dfd)
-        os.close(dfd)
+                _discard_analysis_output(dfd, name, fd)
+        for closing in (fd, dfd):
+            if closing is not None:
+                try:
+                    os.close(closing)
+                except OSError:
+                    # 커밋한 파일은 fd 정리 실패로 되돌리지 않고, 커밋 전에는 원래 오류를 보존한다.
+                    _log.warning("분석 출력 fd 정리에 실패했습니다.")
 
 
 def store_image_hints(case: Case, report: dict[str, Any], previews: list[dict[str, Any]], *,

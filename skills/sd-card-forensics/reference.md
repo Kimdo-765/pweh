@@ -47,7 +47,7 @@
 | filesystems[].time_basis · time_range | 볼륨의 time_basis(local-unknown-tz / local+offset / mixed / unknown). time_range 는 state live 의 first·last — 바탕이 여럿(mixed)이면 null 로 두고 바탕별 범위를 notes 에 |
 | device_timezone | 근거가 있을 때만(펌웨어의 마운트 옵션 `tz=`·`time_offset=`, init 스크립트 TZ). 없으면 assumed·basis 모두 null |
 | contamination[] | `forensics_image_check` 의 volumes[].indicators[] → {evidence_id, indicator, strength}. path 는 싣지 않는다(카드 경로). image_check 가 truncated 면 "본 범위에서만"과 사유를 notes 에 |
-| recovered | `forensics_evidence_list` 의 derived[] 중 kind가 image-hints가 아닌 추출 항목에서 custody 가 recorded 인 항목의 합계: files, bytes, manifests = derived[].path + "/manifest.json" (경로만 — 열지 않음). mismatch·unrecorded·missing·unknown·error 항목은 notes 에 적고 사람에게 알린다 |
+| recovered | `forensics_evidence_list` 의 derived[] 중 recovered/ 아래 추출 매니페스트 항목에서 custody 가 recorded 인 항목의 합계: files, bytes, manifests = derived[].path + "/manifest.json" (경로만 — 열지 않음). mismatch·unrecorded·missing·unknown·error 항목은 notes 에 적고 사람에게 알린다 |
 | security.sd_surface_result | `fw_sd_surface` 의 result_path(`analysis/sd-surface-NNN.json`) |
 | security.checks_found | `risk_found`. SD-07 found(암호화 근거)는 넣지 않고 notes 에 |
 | security.sd_events_summary | 새 빈 시험 카드 부팅의 `sd_summary` 그대로. 관찰하지 않았으면 null |
@@ -155,7 +155,7 @@ case_add_finding(case_id="<id>", finding={
 | `validation_failed` (접수) | 원시 디스크·장치·커널 경로, 디렉터리·FIFO 등 일반 파일 아님, 빈 파일, E01(raw 로 내보내야 함), NUL 이 든 경로, 케이스·상태 폴더 안의 파일, 예약 이름(EV-NNNN.json·imaging-log.txt·*.partial), 접수 정보 길이·제어 문자·허용 값, label, 여유 공간, 이미징 로그(4 MiB 이하 일반 파일, 읽는 동안 커지면 거부), 확인하는 동안 바뀐 원본 | 메시지를 사람에게 전하고 고친 값으로 다시. 케이스 안 이미지는 사람이 밖으로 옮긴다 |
 | `validation_failed` (해석, 동기) | partition 값·범위(1~4096)·없는 index, acquisition_date 형식(YYYY-MM-DD), refs·paths 없음·합쳐 1000개 초과, region 값, method 형식, max_bytes 형식, 추출 여유 공간(max_bytes + 256 MiB), FAT/exFAT 파티션 없음(fs_list — 파티션이 이미지 끝 너머라 볼 수 없으면 메시지가 잘린 이미지라고 알린다), 고른 partition 의 시작이 이미지 끝 너머(잘린 이미지), 지원하지 않는 파일 시스템 | 인자를 고친다. 지원하지 않는 파일 시스템은 filesystems[] 와 notes 에 적고 멈춘다. 잘린 이미지면 사람에게 알리고 이미징이 끝까지 됐는지 확인하게 한다 |
 | `validation_failed` (추출 job — error.data.reason) | bad_argument(FAT/exFAT 파티션이 여럿인데 partition 없음), not_found(없는 partition), unsupported_fs(지원 파티션 없음·지원하지 않는 파일 시스템), beyond_image(고른 partition 의 시작이 이미지 끝 너머, 또는 파티션이 이미지 끝 너머라 볼 수 있는 FAT/exFAT 파티션이 없음 — 잘린 이미지), refs_unverifiable(확인 순회가 잘려 검증된 ref 가 없고 paths 도 없음 — ref 가 모두 bad_ref 인 것은 실패가 아니다) | partition 을 고치거나 paths= 로 다시. beyond_image 는 사람에게 알리고 이미징을 확인하게 한다. refs_unverifiable 이 계속되면 사람에게 알린다 |
-| `not_found` | 증거 id 가 없다 / job 이 이 서버 프로세스에 없다(서버가 다시 시작됨) | `forensics_evidence_list` 로 확인. job 기록(`jobs/<id>.json`)이 running 이어도 믿지 않는다 |
+| `not_found` | 증거 id 가 없다 / job이 이 서버 프로세스나 지정 케이스의 저장 기록에 없다 | `forensics_evidence_list` 로 확인. `forensics_job_status(job_id="<id>", case_id="<케이스 ID>")`로 저장 기록을 확인한다. recovery.owner_state가 unknown이면 실행 중 여부를 확정하지 않는다 |
 | `integrity_failed` (기록함) | 빠른 지문 불일치, 사본 없음·일반 파일 아님·읽을 수 없음, 접수 기록 없음·읽을 수 없음·보관 기록 intake 와 다름, 증거 디렉터리 경로 이상(EV 디렉터리가 링크·파일 — unsafe-path. 증거 목록에는 missing 으로 보인다) | SKILL.md 규칙 7·템플릿 F. 원본에서 다시 접수(새 EV). 사본을 고치지 않는다 |
 | `integrity_failed` (기록 없이 거부) | 이미 무결성 실패인 증거, EV 디렉터리가 지워짐(missing — '지워짐'), 보관 기록에 접수가 없는 EV 디렉터리(record-without-intake·intake-in-progress), 같은 번호의 접수 사건이 둘 이상. 접수 job 에서는 복사 중 원본 크기·mtime 변화(번호 반환) | 위와 같다. 상태별 할 일은 SKILL.md 요약 기록 절의 표 |
 | 재해시 result mismatch, 접수 결과 copy_verified false(ok false·error) | 사본 전체가 접수 때(접수 사본 재해시면 원본 해시)와 다르다 — 오류 코드가 아니라 job 결과다(job 은 succeeded). 서버가 integrity-failed 를 기록한다(접수는 intake 사건의 copy_verified=false 만으로도 상태 integrity-failed). 그 뒤 내용 도구는 `integrity_failed` 로 거부한다 | 위와 같다 |
@@ -176,7 +176,7 @@ case_add_finding(case_id="<id>", finding={
 | `pweh-fwtriage` 가 `forensics/` 경로를 거부, `case_import_file`·`case_hash_file`·`case_register_artifact` 가 거부 | 펌웨어 도구·케이스 도구는 증거 폴더를 읽지 않는다 | 정상이다. 다른 도구로 우회하지 않는다 |
 | `uart_capture_boot` 에 sd_events 없음, card_detected false | 감지 줄을 못 봤다(카드가 없다는 뜻은 아님) | 콘솔 로그 수준·관찰 시간(`duration`)을 확인하고, 결과는 그대로 적는다 |
 
-**아직 없는 것**(F2·F3 단계): 녹화 컨테이너·프레임 해석과 CCTV 인덱스(Hikvision·Dahua 등), 타임라인, 카드 쪽 녹화 암호화 판정·비밀 탐색·침해 흔적 자동 대조, 파일 시스템 메타데이터 밖의 카빙,
+**아직 없는 것**(F2·F3 단계): 녹화 컨테이너·프레임 해석과 CCTV 인덱스(Hikvision·Dahua 등), 녹화 타임라인, 카드 쪽 녹화 암호화 판정·전체 카드 비밀값 자동 탐색·침해 흔적 자동 대조, 파일 시스템 메타데이터 밖의 카빙,
 E01 입력과 외부 도구(TSK·PhotoRec·ewf·ffprobe), ext4·NTFS 목록, 장치에서 카드 식별 정보 읽기, Windows 원시 읽기 헬퍼, 영상 내보내기.
 이것들은 셸이나 외부 프로그램으로 대신하지 않는다. 필요했던 일은 요약 notes 와 `case_record_step` 의 blockers·next_actions 에 "아직 없음" 으로 적는다.
 
@@ -214,3 +214,31 @@ E01 입력과 외부 도구(TSK·PhotoRec·ewf·ffprobe), ext4·NTFS 목록, 장
   volumes 가 비었으면 truncated 와 상관없이 '보지 못함'으로 적는다(note 도 '본 볼륨이 없어 흔적을 보지 못했다' — 지원하는 FAT/exFAT 파티션이 없으면 truncated false, 파티션이 이미지 끝 너머면 image_truncated 로 true).
 - 추출 파일의 complete=false 는 상한·취소·짧은 후보·읽을 수 있는 범위(파티션 표 항목과 이미지 끝 중 짧은 쪽)의 끝 중 하나다. 끝 너머 바이트 수(bytes_beyond_image)는 매니페스트에만 있다 — 매니페스트는 열지 않으므로, max_bytes·cancelled 사유가 없는데
   그 볼륨이 image_truncated·volume_exceeds_partition·beyond_image 였으면 그 탓(잘린 이미지, 파티션 표보다 큰 파일 시스템)으로 보고 사람에게 알린다.
+
+## 9. 선택 텍스트 비밀값 검사
+
+`forensics_scan_secrets`는 선택 파일 하나만 읽는다. 인자·범위·고정 한도는 architecture §6.8, 결과 구조는 `schema_get(name="secrets-scan")`이다. 결과의 `ok`는 호출 성공이고 `report.status`가 검사 상태다. 비밀값·원래 파일명·계정·URL을 요약에 추가하지 않는다.
+
+| SD 요약 `secret_scan_results[]` | 도구 응답 출처 |
+|---|---|
+| evidence_id | report.source.evidence_id |
+| analysis_path / analysis_sha256 | analysis.path / analysis.sha256 |
+| status | report.status (ok / partial / unsupported) |
+| hits | report.summary.hits (후보 수, 한도면 하한) |
+| scanned_bytes / unscanned_bytes | report.coverage의 같은 필드 |
+| reasons | report.coverage.reasons의 고정 코드 |
+
+`privacy.secret_plaintext_returned`는 false다. 후보별 상세 위치·규칙·지문은 원문 없는 분석 JSON에 두고 요약에는 합계·범위·참조만 옮긴다. 경계가 불완전한 후보는 digest=null이며 비밀번호가 없다는 뜻이 아니다. `unsupported`/미검사 범위/복구 불확실성은 notes와 필요시 blockers에 남긴다. 보관 기록은 `secrets-scan` 사건이고 결과 SHA256은 `forensics_evidence_list`의 derived로 다시 확인한다.
+
+## 10. 운영 한계
+
+**알려진 한계** (전체는 `docs/safety.md` §3.6 — 관련되면 사용자에게 그대로 알리고 보고서 한계에 적는다):
+- 동기 조회 도구는 계산·직렬화·커밋 직전에 요청 취소를 확인한다. OS 호출은 강제로 중단하지 못하며 이미 커밋된 결과는 보존한다.
+- 빠른 지문은 크기·mtime·앞뒤 1 MiB·쓰기 권한만 본다(inode·ctime 없음) — 가운데만 바뀐 사본은 8단계 재해시만 찾고, 재해시는 그 시점의 바이트만 증명한다.
+- 서버 재시작 뒤 `forensics_jobs(case_id="<id>")`로 저장 기록을 확인한다. 소유자 종료가 확실한 활성 기록만 실패로 정리하고 불명확한 기록은 그대로 표시한다. 저장 기록 재개/취소는 제공하지 않는다. 입력·증거의 하드 링크와 열린 fd/이름 교체를 확인하지만 같은 OS 계정의 최종 확인 이후 조작까지 막지는 못한다.
+- 추출·목록·선택 텍스트 분석 출력은 보관 기록 직전에 열린 fd와 이름·부모를 재확인한다. 이후 교체 창은 남는다. 증거 목록 derived는 추출 매니페스트와 기록된 분석 결과 해시를 대조한다.
+- 엔진은 일부러 엄격하다(FAT 속성 비트 0x40/0x80, 하위 디렉터리의 볼륨 레이블, LFN 이상, exFAT 필드) — fsck 가 받는 디렉터리도 unvalidated_dirs(살아 있으면 dir_unvalidated)로 뺄 수 있다.
+- max_seconds 는 해석 시간이다(목록 파일 쓰기는 더 걸린다). skip-allocated 후보는 탐색 상한에서 사유 없이 status incomplete(complete=false)로 끝날 수 있다.
+- 보관 기록과 고정점을 함께 잃으면 증거 목록은 보관 기록 정상(0개) 옆에 record-without-intake 행을 보인다 — 사람이 알아채야 한다(위 표).
+
+`coverage.analysis_complete`와 `hits_are_lower_bound`는 선택한 바이트의 지원 패턴 검사에 한정된다. 복구 후보나 컨테이너 목록만 불확실하면 각각 true/false여도 report.status는 partial이다. 전체 컨테이너 검사·원본 파일 복구의 확실성을 뜻하지 않는다.
