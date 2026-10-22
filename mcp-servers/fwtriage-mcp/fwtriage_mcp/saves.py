@@ -9,7 +9,7 @@
 - ``find_checksums``: 바뀐 바이트로 체크섬 위치 후보를 만들고, 위치 바로 앞 ``[s, 위치)`` / 바로 뒤 ``[위치+폭, e)``
   범위의 합계·XOR·Fletcher·Adler·CRC 가 **모든** 스냅샷에서 저장값과 같은지 찾는다
 - ``find_seq_tables``: 치트 입력(버튼 시퀀스) 표 후보 (코나미형 AABBCDCDEF 등)
-- ``apply_raw_edits``: 원시 편집 + 체크섬 검증·재계산 (I2b 용, 아직 도구로 노출하지 않음)
+- ``apply_raw_edits``: 원시 편집 + 체크섬 검증·재계산 (fw_patch_build의 ESP raw-region 내부에서 사용, 일반 imported 파일용 공개 패치 API는 아님)
 
 모든 결과는 사람·에이전트가 디컴파일과 실기로 확인해야 하는 **후보**다. 입력은 신뢰할 수 없는 데이터로 다루고,
 길이 불일치·쓰레기 입력에는 예외 대신 ``warnings``/``notes`` 로 알린다 (인자 자체가 잘못되면 ``SaveFormatError``).

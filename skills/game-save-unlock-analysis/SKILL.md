@@ -20,15 +20,18 @@ description: Offline save and unlock analysis of an owned game console or toy (E
 - **쓴다**: 게임 콘솔 분석 목표이고 펌웨어나 세이브를 확보했거나 확보할 수 있을 때. "숨은 게임 해금 조건", "하이 스코어가 어디 저장되나", "세이브 체크섬" 요청.
 - **쓰지 않는다**
   - 케이스나 소유/허가 증명이 없다 → master-prompt Phase 0.
-  - 펌웨어가 아직 없다 → ESP32 면 `esp32-flash-dump`, 리눅스·MCU 기기면 master-prompt §4 Phase A·B 가 먼저다.
+  - 펌웨어도 세이브 스냅샷도 없다 → ESP32 면 `esp32-flash-dump`, 리눅스·MCU 기기면 master-prompt §4 Phase A·B 가 먼저다.
   - NFC 태그 읽기·에뮬레이션, 플레이 자동화 → 아직 없다(사용자에게 그렇게 알린다). 세이브 값 변경은 9단계(사용자가 명시적으로 원할 때만).
   - 시판 콘솔(Switch·PlayStation·Xbox)의 세이브 → 암호화·서명돼 있어 분석·수정 대상이 아니다(복제 방지 우회 경계).
+
+- 원시 세이브 스냅샷만 있어도 `case_import_file`로 등록한 뒤 5·6단계에서 분석할 수 있다. 펌웨어가 없으면 2~4단계를 생략하고 미확인 한계를 기록한다.
 
 ## 전제 조건
 
 - **case_id**: `case_get` 의 case.authorized 가 true 여야 한다. 아니면 멈춘다(master-prompt §1-1).
-- **이전 요약** (`case_get_step_results(case_id="<id>")`): firmware-dump-via-uart 요약의 data.output.path 를 펌웨어로 쓴다. verification.match 가 true 가 아니면 다시 읽기를 먼저 제안한다.
-- **MCP 서버**: pweh-case, pweh-fwtriage, rea(RISC-V ESP 칩·리눅스 기기의 디컴파일), 세이브 스냅샷을 다시 덤프하면 pweh-esp.
+- **입력**: `case_get_step_results(case_id="<id>")`로 이전 결과를 확인한다. 펌웨어 덤프를 쓸 때는 firmware-dump-via-uart 요약의 data.output.path 를 쓰고 verification.match 가 true 가 아니면 다시 읽기를 먼저 제안한다.
+  원시 세이브만 가져온 경우 덤프 요약은 필수가 아니며, `case_import_file` 응답의 artifact.path 를 시간순으로 쓴다. 읽기 전용 비교·체크섬 분석에 별도의 출처 증명(`pweh attest`)은 요구하지 않는다.
+- **MCP 서버**: pweh-case, pweh-fwtriage. rea는 펌웨어를 디컴파일할 때(RISC-V ESP 칩·리눅스 기기), pweh-esp는 ESP 세이브 스냅샷을 다시 덤프할 때 필요하다.
 
 ## 안전 규칙
 
@@ -47,6 +50,7 @@ description: Offline save and unlock analysis of an owned game console or toy (E
 | 도구 | 용도 |
 |---|---|
 | `case_get`, `case_get_step_results`, `case_set_phase` | 권한·이전 요약 확인, 단계 상태(phase 이름은 game-save-unlock-analysis) |
+| `case_import_file` | 케이스 밖 원시 세이브를 복사·등록하고 artifact.path 반환(imported-unattested) |
 | `fw_esp_partitions` | 파티션 표: NVS·원시 데이터·파일 시스템 파티션과 세이브 쓰기 분류(write_class) |
 | `fw_esp_image_info`, `fw_esp_to_elf` | 앱 이미지 헤더·세그먼트·앱 설명, ELF 변환(REA 입력) |
 | `fw_esp_nvs` | NVS 항목(namespace/key/값), 지운 이전 값, CRC 유효 개수. 비밀은 마스킹 |
@@ -64,6 +68,7 @@ description: Offline save and unlock analysis of an owned game console or toy (E
 
 `case_get(case_id="<id>")` 로 권한을, `case_get_step_results(case_id="<id>")` 로 펌웨어 경로와 칩(esp32-flash-dump 요약의 source.chip)을 확인한다.
 `case_set_phase(case_id="<id>", phase="game-save-unlock-analysis", status="in-progress")`. 기기 종류(device.kind)를 정한다: ESP32 장난감·휴대기 / MCU+EEPROM / 리눅스 휴대기 / 아케이드.
+원시 파일만 있으면 출처·스냅샷 순서·관찰값을 기록하고 5단계의 가져오기 경로로 간다. 기기 종류나 칩을 파일명으로 추정하지 않는다.
 
 ### 2. ESP 구조 (ESP32 기기)
 
@@ -97,7 +102,7 @@ fw_find_seq_tables(case_id="<id>", path="dumps/esp-flash.bin", partition="factor
 
 ### 5. 세이브 스냅샷 (값 위치 찾기)
 
-점수·진행이 바뀔 때마다 세이브 영역을 다시 덤프한다(3개 이상, 템플릿 A·B). ESP32 면 NVS 파티션 범위만 읽는다(수 초).
+이미 확보한 파일은 아래 가져오기 경로로 간다. 새 스냅샷이 필요하면 점수·진행이 바뀔 때마다 세이브 영역을 다시 덤프한다(3개 이상 권장, 템플릿 A·B). ESP32의 NVS 스냅샷은 해당 파티션 범위만 읽는다.
 ```
 esp_read_flash_start(case_id="<id>", port="COM3", offset="0x9000", size="0x6000", output_name="nvs-snap-01")
 ```
@@ -111,6 +116,29 @@ fw_save_diff(case_id="<id>", paths=["dumps/nvs-snap-01.bin", "dumps/nvs-snap-02.
   NVS 를 담은 범위(전체 플래시 포함)는 바이트로 비교하지 않는다(비밀값을 가릴 수 없어 서버가 거부) — NVS 는 nvs 모드, 그 밖의 영역은 offset/length 로 NVS 를 빼고 비교한다.
 - blob 안의 값이면 `fw_esp_nvs(…, export_blobs=true)` 로 blob 파일을 스냅샷마다 남겨 `mode="bytes"` 로 비교한다.
 
+**원시 세이브만 가진 경우**: EEPROM 덤프나 일반 세이브 파일을 시간순 2~16개 가져온다. 비교는 선택 범위 합계64 MiB, 체크섬 탐색은 합계8 MiB까지다.
+각 파일에 아래 호출을 하되 source_path는 사용자가 가진 케이스 밖 파일 경로로 바꾼다(02·03도 동일).
+
+```text
+case_import_file(case_id="<id>", source_path="<합성 예제 디렉터리>/raw-save-01.bin", kind="other", description="직접 생성한 합성 원시 세이브 1")
+```
+
+응답의 `artifact.path`를 이어 쓴다. 같은 이름이 이미 있으면 가져오기는 오류이며 자동 덮어쓰기·번호 변경을 하지 않는다.
+다음은 [64바이트 합성 예제](../../mcp-servers/fwtriage-mcp/README.md#가져온-원시-세이브-분석-예제)의 세 파일을 가져온 뒤 호출하는 예다. values는 실제 화면 관찰이 아닌 생성 시 정한 값이다.
+
+```text
+fw_save_diff(case_id="<id>", paths=["dumps/raw-save-01.bin", "dumps/raw-save-02.bin", "dumps/raw-save-03.bin"],
+             mode="bytes", offset=0, length=64,
+             observations=[{"label":"score", "values":[1000,70000,123456]}, {"label":"level", "values":[1,2,3]}])
+fw_checksum_find(case_id="<id>", paths=["dumps/raw-save-01.bin", "dumps/raw-save-02.bin", "dumps/raw-save-03.bin"],
+                 offset=0, length=64, algorithms=["sum32"])
+```
+
+- `observation_matches`에 score의 `offset_abs="0x10", encoding="u32le"`, level의 `offset_abs="0x14", encoding="u8"`가 나온다. level에는 `0x13`의 u16be·BCD 해석도 나와 유일한 인코딩으로 확정하지 않는다.
+- 체크섬 후보의 `location_abs="0x3c"`, `range_abs=["0x0","0x3c"]`, `endian="le"`, `stored_values=[2193,2089,2251]`를 확인한다. 범위 끝은 제외하며 `sum32`는 바이트 합 mod2^32다(`sum32le` 워드 합과 다름).
+- 가져온 파일은 `imported-unattested`다. 증명을 추가해도 현재 9단계의 ESP device-read 전용 패치 base로 쓸 수 없다. 이 분석 예제는 `patches=[]`로 끝낸다.
+- 원시 bytes 비교는 비밀값을 자동 마스킹하지 않는다. 실제 세이브는 케이스 안에 두고, `forensics/` 증거·복구물이나 `emu/` 기록을 이 경로로 옮기지 않는다.
+
 ### 6. 체크섬
 
 ```
@@ -118,7 +146,8 @@ fw_checksum_find(case_id="<id>", paths=["dumps/eeprom-01.bin", "dumps/eeprom-02.
 ```
 - NVS 항목은 NVS 자체 CRC 가 덮으므로 이 단계가 필요 없다(NVS 안의 blob 내부 체크섬은 내보낸 blob 파일로 찾는다).
 - `strong` 후보만 체크섬으로 기록한다. 8비트 체크섬은 저장값이 서로 다른 스냅샷 3개 이상, 16/32비트는 2개 이상부터 strong 이 될 수 있다(범위가 크면 더 필요). `weak` 이나 후보 없음은 limitations 에 적는다.
-- 큰 영역은 `offset`·`length`(세이브 블록) 나 `algorithms` 로 좁힌다(`truncated` 면 CRC 일부를 못 본 것이다).
+- 큰 영역은 `offset`·`length`(세이브 블록) 나 `algorithms` 로 좁힌다. 선택 범위의 스냅샷 합계는8 MiB 이하다. `location_abs`·`range_abs`는 파일 기준 절대 오프셋이고 범위 끝은 제외한다.
+- `truncated`는 검색 미완료 또는 표시 후보 수 잘림이다. 저장 JSON의 `timed_out`, `budget_exhausted`, `candidates_total`과 notes를 함께 보고 한계를 기록한다. strong도 구현된 탐색의 기대 오탐 기준이며 저장 루틴·실기 확인을 뜻하지 않는다.
 - 후보가 없고 해시·HMAC 단서(save-integrity 범주)가 있으면 키가 있는 MAC·서명일 수 있다 → strength `keyed-mac`/`signature`/`unknown` 으로 적고 재계산하지 않는다.
 
 ### 7. 발견사항

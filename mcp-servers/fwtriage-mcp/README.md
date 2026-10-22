@@ -4,7 +4,7 @@
 UART/JTAG/SPI 로 얻은 플래시 덤프나 벤더 펌웨어에서 "어디에 무엇이 있는지"와 "먼저 볼 곳"을 빠르게 뽑아
 `cctv-auth-bypass-hunt`, `firmware-static-analysis`, `game-save-unlock-analysis` Skill 의 1차 근거를 만든다.
 
-- 대상: 운영자가 **소유**하거나 **서면 허가**를 받은 기기의 펌웨어
+- 대상: 운영자가 **소유**하거나 **서면 허가**를 받은 기기의 펌웨어·세이브 스냅샷
 - 하드웨어를 건드리지 않는다 (안전 게이트 대상 아님). 펌웨어 안의 어떤 것도 **실행하지 않는다**.
   `fw_patch_build` 는 기기에 쓰지 않고, 검증된 새 백업과 사람 증명 뒤 사람이 별도 터미널에서 실행할 쓰기 명령만 보여 준다.
   우리가 실행하는 외부 프로그램은 `unsquashfs`/`sasquatch` 뿐이며 비root·시간 제한·디스크 사용량 감시 아래에서만 돈다.
@@ -65,6 +65,70 @@ jffs2/UBI/cramfs/ext 파티션은 `fw_carve` 로 분리한 뒤 REA `extract_firm
 한 기록 1MiB, 목록 512디렉터리 항목·256기록·누적 8MiB·2초로 제한하며 목록의 `recovery.truncated/reasons`가 확인하지 못한 범위를 알린다.
 이 두 도구는 로컬 기록을 정리하므로 `readOnlyHint=false`다. 파일·기기·외부 자식의 정리 여부는 별도로 확인한다.
 
+## 가져온 원시 세이브 분석 예제
+
+펌웨어 없이 원시 세이브 파일만 확보했어도 `case_import_file`로 가져온 뒤 `fw_save_diff`·`fw_checksum_find`를 쓸 수 있다.
+소유/허가가 기록된 케이스에서 분석하며, 가져온 파일의 출처는 `imported-unattested`다. 이 읽기 전용 분석에는 별도의 `pweh attest`가 필요하지 않다.
+현재 `fw_patch_build`의 base는 이 케이스의 `esp_read_flash_start`로 두 번 읽어 일치한 ESP 전체 플래시 덤프(offset0)만 받는다.
+가져온 원시 파일은 출처를 증명해도 패치 base가 되지 않는다.
+
+다음 코드는 **직접 만든 합성 형식**의 64바이트 스냅샷 세 개를 새 디렉터리에 만든다. 실제 게임·EEPROM 형식이나 화면 관찰값이 아니다.
+
+```python
+from pathlib import Path
+import struct
+
+out = Path("synthetic-raw-save")
+out.mkdir(exist_ok=False)
+for index, (score, level) in enumerate([(1000, 1), (70000, 2), (123456, 3)], 1):
+    data = bytearray(range(64))
+    data[0:4] = b"SAV1"
+    struct.pack_into("<I", data, 0x10, score)
+    data[0x14] = level
+    checksum = sum(data[:0x3c]) & 0xffffffff
+    struct.pack_into("<I", data, 0x3c, checksum)
+    (out / f"raw-save-{index:02}.bin").write_bytes(data)
+```
+
+생성한 디렉터리의 절대 경로로 source_path를 바꾸어 세 파일을 각각 가져온다(02·03도 같은 호출).
+
+```text
+case_import_file(case_id="<id>", source_path="<합성 예제 디렉터리>/raw-save-01.bin", kind="other", description="직접 생성한 합성 원시 세이브 1")
+```
+
+다음 도구에는 성공 응답의 `artifact.path`를 시간순으로 사용한다. 동일 basename이 케이스에 이미 있으면 오류이며 자동 덮어쓰기·번호 변경을 하지 않는다.
+아래 paths는 해당 이름으로 가져오기가 성공한 경우의 예다.
+
+```text
+fw_save_diff(case_id="<id>",
+  paths=["dumps/raw-save-01.bin", "dumps/raw-save-02.bin", "dumps/raw-save-03.bin"],
+  mode="bytes", offset=0, length=64,
+  labels=["synthetic-1", "synthetic-2", "synthetic-3"],
+  observations=[{"label":"score", "values":[1000,70000,123456]}, {"label":"level", "values":[1,2,3]}])
+fw_checksum_find(case_id="<id>",
+  paths=["dumps/raw-save-01.bin", "dumps/raw-save-02.bin", "dumps/raw-save-03.bin"],
+  offset=0, length=64, algorithms=["sum32"])
+```
+
+격리된 합성 케이스에서 실제 MCP 가져오기→비교→체크섬 탐색을 확인한 결과다.
+
+| 확인 대상 | 응답에서 확인할 값 |
+|---|---|
+| score | `observation_matches`: `offset_abs="0x10"`, `encoding="u32le"` |
+| level | `observation_matches`: `offset_abs="0x14"`, `encoding="u8"` — `0x13`의 u16be·bcd2be 해석도 나옴 |
+| checksum | 후보의 `algorithm="sum32"`, `endian="le"`, `location_abs="0x3c"`, `range_abs=["0x0","0x3c"]`, `matches=3`, `stored_values=[2193,2089,2251]` |
+
+`sum32`는 **바이트 합 mod2^32**, `sum32le`는 u32le 워드 합이다. `range_abs`의 끝은 제외하므로 이 예제는 `[0x0,0x3c)`를 덮는다.
+이 실행의 checksum 후보는 `strong`이었지만, strength는 탐색의 기대 오탐 기준이다. 실제 저장 루틴 확인이나 모든 형식에서의 유일성을 뜻하지 않는다.
+`expected_false_positives`, `range_variants`, `other_ranges`도 함께 기록한다. diff의 `snapshots`는 `{path,sha256}` 목록이고 checksum 응답의 `snapshots`는 경로 문자열 목록이다.
+
+시간순2~16개(3개 이상 권장)를 같은 offset/length로 분석한다. 선택 범위의 **스냅샷 합계**는 비교64 MiB, 체크섬8 MiB까지다.
+일반 원시 파일에는 ESP partition label을 쓰지 않는다. NVS를 담은 범위의 bytes 비교·체크섬 탐색은 거부된다.
+`truncated`는 검색 미완료 또는 표시 후보 수 잘림이므로 저장 JSON의 `timed_out`, `budget_exhausted`, `candidates_total`과 notes를 함께 확인한다.
+체크섬 탐색은 저장 필드 앞 `[s,location)` 또는 뒤 `[location+width,e)` 범위만 시험하며 자기 필드를 덮는 checksum·HMAC·서명을 찾지 않는다.
+원시 bytes 비교는 비밀값을 자동 마스킹하지 않는다. 실제 파일은 케이스 안에 두고 `forensics/` 증거·복구물이나 `emu/` 기록을 이 예제의 입력으로 옮기지 않는다.
+이 분석 예제를 Skill로 수행하면 결과·입력 출처·미확인 한계를 `save-analysis` 요약에 기록하고 `patches=[]`로 마친다.
+
 ## 데이터 파일
 
 - `src/pweh/data/cctv-hunt-patterns.yaml` — `docs/references/cctv-hunt-patterns.yaml`(사실 확인된 원본)을 **그대로 복사**한 것.
@@ -111,7 +175,8 @@ jffs2/UBI/cramfs/ext 파티션은 `fw_carve` 로 분리한 뒤 REA `extract_firm
 - REA 는 Xtensa(ESP32·S2·S3) ELF 를 열지 못한다. 이 칩들은 디컴파일 없이 문자열·패턴·표 도구와 세이브 비교로 분석한다.
 - 세이브 도구 결과는 후보다. 체크섬은 자기 필드를 덮는 형태·HMAC·서명은 찾지 않고, 큰 범위의 CRC 는 바이트 예산 안에서만 찾는다(`truncated`).
 - NVS 비밀값 마스킹은 키 이름 휴리스틱(+ 같은 원문을 담은 값)이다. 평범한 이름에 숨긴 비밀은 못 가릴 수 있다. 바이트 비교·체크섬 찾기는 NVS 를 담은 범위를 거부한다.
-  세이브 값 변경은 `fw_patch_build`·`fw_verify_writeback` — 이 서버는 기기에 쓰지 않고, 사람이 실행할 명령만 만든다(검증된 새 백업·사람 증명 뒤).
+  세이브 값 변경은 ESP NVS 정수와 raw-user-data 파티션에 한해 `fw_patch_build`·`fw_verify_writeback`을 쓴다. 가져온 원시 파일은 패치 base로 받지 않는다.
+  이 서버는 기기에 쓰지 않고, 사람이 실행할 명령만 만든다(검증된 새 백업·사람 증명 뒤).
 - SD 표면(`fw_sd_surface`)은 규칙 기반 정적 휴리스틱이다. 상한에 걸리면 not-found 대신 unknown 이지만, not-found 는 알려진 모양에 맞춰 끝까지 보았다는 뜻일 뿐 카드 경로가 없다는 증명이 아니다(간접 실행·내용 시험·압축 풀기 뒤 실행 같은 모양은 architecture §6.6 의 한계 목록 참고). mmc 장치 번호로 SD·eMMC 를 구분하지 못해 `media`·`storage` 같은 일반 이름의 마운트는 FAT 계열 fs 일 때만, `/dev/sdX` 는 장치 이름 디렉터리(`/mnt/sda1`)가 아닐 때만 SD 로 보며, 데몬이 mount(2) 로 마운트하면 옵션을 못 봐 SD-08 이 unknown 이고, 녹화 암호화는 '없음'을 단정하지 않는다. echo·logger 문구 속 `cd`·`sh x` 는 실행으로 보지 않지만, here-document 본문·여러 줄 문자열 속 명령 꼴 줄은 셸에 넘겨지는지 따지지 않고 명령처럼 본다(사용법 안내의 카드 경로 예시도 SD-01 근거가 될 수 있다 — 발췌로 확인).
   카드에 넣을 파일(boot.scr·uEnv·업데이트 이미지·트리거 파일)은 만들지 않고 안내하지도 않는다.
 

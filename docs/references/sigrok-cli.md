@@ -91,6 +91,36 @@ usbipd detach --busid <busid>
 
 WSL에서 `lsusb`로 확인한다. fx2lafw 장치는 펌웨어 업로드 후 USB 재열거(re-enumeration)를 하므로, WSL에 붙인 장치가 재열거 뒤 떨어질 수 있다 → 다시 attach하거나 usbipd-win의 자동 재연결 기능을 써야 할 수 있다 **(미확인: fx2lafw + usbipd 조합에서의 실제 동작)**.
 
+### 1.4 Windows 고정 취득본의 무장치 확인 (2026-10-22)
+
+사용자의 다운로드·무장치 시험 동의 후 [공식 다운로드 목록](https://sigrok.org/download/binary/sigrok-cli/)의
+`sigrok-cli-0.7.2-x86_64-installer.exe`(38,968,619바이트)를 취득했다.
+SHA-256은 `27ddf838c992381f3d9c52ad9d5a7ec7db382d9aea1905d44538a7c7bd368446`이다.
+공식 목록에 checksum·서명은 없어 이 값은 **최초 취득본 지문**이며 공급자 checksum 검증값은 아니다.
+
+설치 프로그램을 실행하지 않고 NSIS 파일 목록에서 CLI·Python·디코더·펌웨어·`COPYING`을 선택했다.
+p7zip 16.02는 `python34.zip`에서 `Data Error`를 내므로 불완전 결과를 보존하고 실행하지 않았다.
+별도 Linux 7-Zip 26.05로 경로·크기 상한을 적용해 290개 파일(34,159,405바이트)을 추출하고 파일별 SHA-256을 기록했다.
+Zadig·uninstaller·설치 플러그인은 제외했다. 실행한 CLI의 SHA-256은
+`54c6529790be7923e0f4b77710a2f0653c3534d1e6f19780db27d8f465356699`이다.
+
+전체 파일 해시를 대조한 독립 사본에서 자식 프로세스의 HOME·XDG·APPDATA·Python·디코더 검색 환경을 고정해 다음 두 명령만 실행했다.
+
+| 명령 | 관찰 | 판정 |
+|---|---|---|
+| `sigrok-cli.exe --version` | 종료 코드 0, stderr 0바이트. CLI 0.7.2·libsigrok 0.5.2·libsigrokdecode 0.5.3·Python 3.4.4 | 버전 조회 확인 |
+| `sigrok-cli.exe -L` | 종료 코드 0. 드라이버 159·입력 9·출력 13·변환 3·디코더 110개 목록, stderr 1,938바이트 | 목록 반환 확인, **전체 디코더 로드에는 실패** |
+
+`-L`의 stderr는 번들 `signature/pd.py:138`의 숫자 리터럴 구분자 `_`를 Python 3.4.4가 처리하지 못한
+`SyntaxError`를 세 번 보고했다. 따라서 종료 코드 0과 목록 개수만으로 전체 디코더가 정상이라고 판정하면 안 된다.
+두 실행 모두 WSL 자식 종료와 해당 Windows 프로세스 잔존 0개를 확인했고 강제 종료는 없었다.
+
+이 결과는 P3 운영 backend·Windows COM·USB 캡처 지원 완료를 뜻하지 않는다.
+`--scan`·장치·드라이버 설치·시스템 설정 변경은 없었다. DLL 검색 전체의 격리도 검증하지 않았다.
+PE import에 필요한 `MSVCR100.dll`은 추출 트리에 없으며, 이번 두 명령의 실행 성공이 다른 호스트의 런타임 제공을 보장하지 않는다.
+`sqlite3.dll`·`tcl86t.dll`·`tk86t.dll`은 `python34.zip` 내부에서만 확인했다.
+`COPYING`은 GPLv3 원문이며, 이 파일만으로 정적 링크된 모든 의존성의 라이선스 확인을 완료했다고 볼 수 없다.
+
 ---
 
 ## 2. 명령행 개요
