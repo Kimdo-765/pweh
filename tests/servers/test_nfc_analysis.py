@@ -65,7 +65,8 @@ def test_existing_device_read_cannot_be_promoted_to_import(env):
 
 def test_admission_receipt_has_no_path_identity_bytes_or_fd(env):
     row=register(env.case); value=admission(env,row)
-    assert vars(value)=={'artifacts':((row['id'],row['sha256']),),'binding':A._binding(env.tag),'warnings':()}
+    assert vars(value)=={'artifacts':((row['id'],row['sha256']),),'binding':A._binding(env.tag),'warnings':(),
+                         'mode':'imported-v4','required_attestation_sha256s':(row['sha256'],)}
     assert PRIVATE not in repr(value)
     for f in os.listdir('/proc/self/fd'):
         try: target=os.readlink('/proc/self/fd/'+f)

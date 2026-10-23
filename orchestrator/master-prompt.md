@@ -15,7 +15,7 @@
   각 단계는 `skills/` 의 Skill 을 따른다.
 
 분석 목표는 Phase 0 접수에서 먼저 고른다(§3): **보안 분석**(기본) / 게임 콘솔 분석 / RF·하드웨어 분석 / SD 카드 포렌식.
-게임 콘솔 분석은 세이브·해금 분석과 사용자가 원한 세이브 값 변경(사람이 쓴다, `game-save-unlock-analysis`), 공급 숫자 관측값 검증(`numeric-observation-analysis`), 저장 PNG 영역 비교(도구 전용 `image-template-analysis`)와 스캔 결속 NFC 파일 검사(`nfc-behavior-analysis`)를 **일부 지원**한다(전체 태그 덤프·플레이 자동화는 아직).
+게임 콘솔 분석은 세이브·해금 분석과 사용자가 원한 세이브 값 변경(사람이 쓴다, `game-save-unlock-analysis`), 공급 숫자 관측값 검증(`numeric-observation-analysis`), 저장 PNG 영역 비교(도구 전용 `image-template-analysis`)와 스캔 결속 NFC 파일 검사(`nfc-behavior-analysis`)를 **일부 지원**한다(CU 페이지 스냅샷을 지원하며 플레이 자동화는 아직).
 SD 카드 포렌식은 카드 이미지의 접수·해시·보관 기록, 파일 목록·삭제 파일 추출, 증거 목록과 펌웨어 쪽 SD 공격 표면까지(`sd-card-forensics`) **일부 지원**한다(선택 BMFF 구조 관찰·명시 EV 구간 후보·저장된 후보 prefix 추출 지원, 녹화 내용 해석·원시 카드 전체 카빙은 아직; 파일 시각·선택한 앱 기록 타임라인은 지원).
 RF·하드웨어 분석은 등록 RAW·전력 CSV 파일 검사와 Flipper 고정 CLI의 허용 폴더 파일 읽기를 일부 지원한다(`flipper-rf-analysis`).
 보안 분석이 아닌 목표는 지금 있는 Skill·도구로 할 수 있는 일만 한다(§3.1).
@@ -94,7 +94,7 @@ RF·하드웨어 분석은 등록 RAW·전력 CSV 파일 검사와 Flipper 고�
 | `pweh-sdr` | `sdr_analyze`, `sdr_peaks` | 등록된 Flipper RAW 구조·pulse 통계 또는 전력 CSV 값 순위와 로컬 보고서. 실제 RF 수신·송신·프로토콜 해독은 지원하지 않는다 |
 | `pweh-play` | `vision_validate`, `vision_template_match` | 공급 숫자 합의 또는 등록 저장 PNG의 동일 크기 ROI를 비교하고 로컬 보고서를 만든다. 화면 신선도·게임 의미·입력 동작은 확인하지 않는다 |
 | `pweh-flipper` | `flipper_connect`, `flipper_device_info`, `flipper_storage_list`, `flipper_storage_pull_start`, `flipper_job_status`, `flipper_job_cancel`, `flipper_jobs`, `flipper_close`, `flipper_nfc_probe` | 고정 CLI·허용 폴더 파일 읽기·NTAG21x 스캔. 새 배너 전 명령0, whole-device lease·DTR MODIFY gate, 제한 전송·같은 FD 등록·물리 close 확인. 실제 전송 미검증 |
-| `pweh-nfc` | `nfc_cu_connect`, `nfc_cu_scan`, `nfc_cu_disconnect`, `nfc_tag_inventory_add`, `nfc_parse_file`, `nfc_diff_dumps` | 같은 케이스 보호 스캔·inventory와 출처 증명에 결속한 일반 NFC 파일 구조·저장 페이지 비교. 원문 식별값·자격증명 반환 없음 |
+| `pweh-nfc` | `nfc_cu_connect`, `nfc_cu_scan`, `nfc_cu_read_start`, `nfc_job_status`, `nfc_job_cancel`, `nfc_jobs`, `nfc_cu_disconnect`, `nfc_tag_inventory_add`, `nfc_parse_file`, `nfc_diff_dumps` | CU 페이지 스냅샷 읽기·전용 출처 기록과 같은 inventory의 파일 구조·저장 페이지 비교. 원문 식별값·자격증명 반환 없음 |
 | `rea` | `inspect_firmware_regions`, `extract_firmware`, `open_binary`(provider_id="ghidra"), `binary_overview`, `search_strings`, `search_procedures`, `trace_feature`, `find_xrefs_to_name`, `xrefs`, `procedure_callers`, `procedure_pseudo_code`, `batch_decompile`, `analyze_function`, `trace_call_path`, `search_bytes`, `get_evidence_bundle`, `export_evidence_bundle`, `close_binary`, `inspect_with_objdump`, `execute_rizin_command`(읽기 전용 명령만) | 정밀 추출·디컴파일·참조 추적 |
 
 도구 응답의 공통 필드: `ok`, 그리고 게이트가 막았을 때 `status`/`approval_id`/`message`.
@@ -155,7 +155,7 @@ RAW·전력 CSV 파일 분석만 선택했으면 소유/허가·분석 목적·�
   해금 조건은 `unlock_source`(in-device / owned-tag / sold-token / online-purchase / unknown)로 나누고, 판매 토큰·온라인 구매로 여는 콘텐츠는 보고만 한다.
   가져온 일반 세이브의 로컬 값 변경도 사용자가 명시적으로 원할 때만 `fw_plan_imported_save`로 계획한다. `case_import_file`의 artifact_id와 명시 offset/length·편집을 사용하며, `stage=planned`와 여섯 미검증 flag를 보존한다. `save-analysis.local_plans`에 보고서/패치 경로·SHA, 입력 artifact_id, stage만 남긴다. 기기 쓰기 준비로 해석하지 않는다.
   실기 세이브 값 수정은 사용자가 명시적으로 원할 때만: `fw_patch_build` 가 패치 이미지를 만들고, 검증된 새 백업과 사람 증명 뒤 사람이 별도 터미널에서 쓰며(너는 쓰지 않는다), `fw_verify_writeback` 으로 확인한다(§1 규칙 3).
-  NFC 파일 분석은 `nfc-behavior-analysis`로 기존 스캔 참조를 inventory에 등록하고 `nfc_parse_file`/`nfc_diff_dumps`를 호출한다. 새 스캔은 허가된 Flipper 세션의 `flipper_nfc_probe` 또는 CU Ultra의 `nfc_cu_connect`→`nfc_cu_scan`으로 얻으며 해당 MODIFY 게이트를 따른다. Flipper는 임시 SD 파일을 만들고 정리하며 CU는 고정 READ0/1도 수행한다. 파일 출처는 기존 사람 증명을 확인하고, 끝나면 열었던 reader를 `flipper_close` 또는 같은 session_id의 `nfc_cu_disconnect`로 정리한다. 태그 전체 덤프·에뮬레이션과 플레이 자동화는 아직 하지 않는다. 결과는 로컬에만 두고 온라인 리더보드·계정에 올리지 않는다.
+  NFC 파일 분석은 `nfc-behavior-analysis`로 기존 스캔 참조를 inventory에 등록하고 `nfc_parse_file`/`nfc_diff_dumps`를 호출한다. 새 스캔은 허가된 Flipper 세션의 `flipper_nfc_probe` 또는 CU Ultra의 `nfc_cu_connect`→`nfc_cu_scan`으로 얻으며 해당 MODIFY 게이트를 따른다. Flipper는 임시 SD 파일을 만들고 정리하며 CU는 고정 READ0/1도 수행한다. 보유 파일은 기존 사람 출처 증명을 확인한다. CU 페이지 읽기는 `nfc_cu_read_start`→`nfc_job_status`의 실제 등록 artifact로 분석하며 전용 device-read 원장을 확인한다([스냅샷 계약](../docs/references/cu-read-snapshot.md)). 앞뒤 비교가 필요하면 사람이 콘솔에 태그를 제시한 뒤 다시 읽고, 양쪽 관찰 페이지만 비교한다. read receipt를 inspect/diff 요약 결과로 대신하지 않는다. 끝나면 열었던 reader를 `flipper_close` 또는 같은 session_id의 `nfc_cu_disconnect`로 정리한다. 에뮬레이션과 플레이 자동화는 아직 하지 않는다. 결과는 로컬에만 두고 온라인 리더보드·계정에 올리지 않는다.
 - **RF·하드웨어 분석** (일부 지원): 보유한 Flipper RAW 파일은 `flipper-rf-analysis`로 등록 파일 ID와 필수 strict profile을 지정해 분석한다. 전력 CSV는 같은 등록 ID로 고정 profile의 `sdr_peaks`를 사용한다. 구조·통계와 complete/partial/malformed/unsupported 상태를 보존하고 `rf-analysis` 요약을 남긴다. 파일 선언을 실제 주파수·캡처 출처·대상과의 관계로 확정하지 않는다. 전력 열에서 FFT bin·주파수 중심·보정 전력을 추정하지 않는다.
   Flipper에서 파일을 읽어야 하면 사용자가 지정한 포트·허가 범위와 공식1.5.1을 확인하고 `flipper_connect` → 허용 폴더의 `flipper_storage_list` → `flipper_storage_pull_start`/job 완료 → 반환 artifact ID의 RAW 분석 순서로 진행한다. 끝나면 항상 `flipper_close`로 worker·물리 close·lease 해제를 확인한다. cleanup_pending이면 같은 close로 정리하며 자동 재연결하지 않는다.
   실제 Flipper 전송은 미검증이다. SDR·ChameleonUltra 연결, RF 수신·해독·송신은 준비 중이다. 대상 기기의 보드는 보안 분석처럼 다룬다.

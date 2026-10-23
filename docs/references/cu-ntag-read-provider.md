@@ -1,7 +1,7 @@
 # ChameleonUltra 고정 NTAG 읽기 경로
 
 `pweh-nfc`는 ChameleonUltra의 고정 USB 프로토콜로 연결·NTAG213/215/216 스캔과
-기존 inventory 연결을 제공한다. 구현 검증은 가짜 transport·합성 태그로 수행한다.
+기존 inventory 연결·유한 페이지 스냅샷 읽기를 제공한다. 구현 검증은 가짜 transport·합성 태그로 수행한다.
 실제 USB 채널·RF 동작·진품이나 물리적으로 같은 태그를 확인했다는 뜻은 아니다.
 
 ## 공개 흐름
@@ -10,12 +10,14 @@
 |---|---|---|
 | `nfc_cu_connect` | `case_id, port, approval_id=None` | 허가·현재 포트 신원·전체 USB 잠금·MODIFY 게이트 뒤 고정 네 조회로 모델·버전·reader 모드를 확인 |
 | `nfc_cu_scan` | `case_id, session_id, approval_id=None` | 같은 세션의 MODIFY 게이트 뒤 새 scan·GET_VERSION·READ0/1과 식별값 일치를 확인하고 보호 scan 사실 기록 |
+| `nfc_cu_read_start` | `case_id, session_id, tag_ref, approval_id=None` | 같은 inventory·세션·MODIFY 게이트 뒤 유한 페이지 snapshot job 시작 |
 | `nfc_cu_disconnect` | `case_id, session_id` | 사용권 종료·물리 close·lease 해제를 확인. 허가 철회 뒤에도 같은 세션 정리 가능 |
 
 connect의 실제 `session_id`로 scan을 호출하고, 실제 `scan_ref`를
 `nfc_tag_inventory_add`에 전달한다. 기존 `nfc_parse_file`/`nfc_diff_dumps`의 파일
 출처 증명·같은 FD 검증은 [NFC 분석 계약](nfc-inventory-analysis.md)을 그대로 따른다.
 CU scan을 사용해도 가져온 파일을 CU에서 읽었다고 기록하지 않는다.
+read job의 조회·취소, snapshot의 전용 출처·등록과 분석은 [스냅샷 계약](cu-read-snapshot.md)을 따른다.
 
 connect 성공의 `device`는 고정 모델·허용 버전·reader 모드만 표시한다.
 `firmware_claim_verified=false`이며 버전 자기 보고는 펌웨어 서명 검증이 아니다.
@@ -77,8 +79,8 @@ UID 뒤4B를 앞선 scan과 비교한다. AUTH0·물리 끝에서 READ가 돌아
 
 내부 읽기 provider는 새 admission 뒤45/135/231개 시작 page에서 각각4B를 수집하고
 실패 뒤 나머지를 unread로 남긴다. 이때 admission READ1은 field를 유지하여 page2로
-이어간다. 이미 field를 해제한 공개 probe 결과를 재사용하지 않는다. 이 provider는
-공개 read job이나 파일 게시 도구가 아니다. Signature·Counter·Tearing을 만들어
+이어간다. 이미 field를 해제한 공개 probe 결과를 재사용하지 않는다. 공개 read job은 이
+provider를 소비하며 별도 snapshot·원장·등록 단계에서 부분성과 receipt를 보존한다. Signature·Counter·Tearing을 만들어
 완전한 Flipper 파일을 생성하지 않으며, PWD/PACK의0도 자격증명0으로 해석하지 않는다.
 
 ## scan 사실과 한계

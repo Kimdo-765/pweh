@@ -57,7 +57,8 @@ timeout·취소·framing 실패는 terminal이다. 추가 exit/remove/ETX·재�
 
 두 서버는 같은 케이스 보호 출처 원장을 사용한다. scan은 고정 source/tool/profile의
 device-fact이며 generic 파일 복사·ESP device-read·사용자 선언을 scan으로 승격하지 않는다.
-private UID/ATQA/SAK/version은 보호 원장 안에만 보존한다. 공개 결과의 `identity_digest`는
+scan의 private UID/ATQA/SAK/version은 보호 원장 안에 보존한다. CU 읽기 snapshot에도
+전용 분석용 identity·page가 있으므로 에이전트가 그 파일을 직접 열지 않는다. 공개 결과의 `identity_digest`는
 케이스 솔트 표시값이며 exact 식별값의 권위를 대신하지 않는다.
 
 inventory는 scan의 명시 ref·seq·전체 entry SHA와 결속한다. entry SHA와 fact data의 SHA는
@@ -69,7 +70,7 @@ inventory는 scan의 명시 ref·seq·전체 entry SHA와 결속한다. entry SH
 lock에서 제한·대상 scan을 재검증한다. 기존 일반 소비자의 기본 원장 동작은 바꾸지 않는다. 기록이 commit된 뒤 FD 정리를 확인하지 못하면 receipt를 보존하고 `provenance_close_unconfirmed` 경고를 반환한다. 이 경고는 원장 내용이나 해시를 바꾸지 않는다.
 이 상한은 협력적 시간 검사이며 JSON·커널 I/O를 강제 중단하는 watchdog은 아니다.
 
-## 파일 admission과 저장
+## 가져온 파일 admission과 저장
 
 일반 파일은 `case_import_file(..., dest_subdir="nfc", kind="other")` 또는 기존 Flipper storage pull의
 artifact ID로 고른다. 입력 하나는1MiB, diff 합은2MiB 이하다. forensics/emu/보호 경로·링크·
@@ -94,7 +95,7 @@ scan은 `nfc-scan`, inventory는 `nfc-inventory` schema의 마스킹 projection�
 성공 결과는 `ok, report, analysis, warnings`, `analysis`는 `path,sha256,size,artifact_id`다.
 `report`는 `nfc-file-analysis` 봉투 안에 기존 `inspection`을 그대로 담는다.
 
-- `source.files`는 입력 순서의 artifact ID·크기·SHA·출처 종류·원장 seq·증명 id다. 입력 원시 경로는 없다.
+- `source.files`는 입력 순서의 artifact ID·크기·SHA·출처 종류·원장 seq와 imported 증명 id 또는 CU 원장 entry SHA다. 입력 원시 경로는 없다.
 - `inventory_binding_verified=true`는 기록·파일 식별값 결속이며 `physical_same_tag_verified=false`다.
 - partial read의 0값은 읽기 증거가 아니며 페이지 비교의 unknown/null을 유지한다.
 - ISO14443-3A 헤더에는 페이지 배치가 없으므로 diff의 `no_page_layout`은 그대로다.
@@ -106,4 +107,4 @@ scan은 `nfc-scan`, inventory는 `nfc-inventory` schema의 마스킹 projection�
 
 ## CU 스캔을 사용하는 경우
 
-[CU 고정 읽기 계약](cu-ntag-read-provider.md)의 connect→scan→disconnect로 받은 실제 scan_ref도 같은 inventory 입구에 전달한다. CU는 READ0/1과 reader CRC 검증을 포함하는 별도 source/profile이며 Flipper의 page READ 없음·scratch 정리·host CRC 규칙을 바꾸지 않는다. 기존 파일 식별값·출처 증명·최종 FD 검사는 동일하다. CU에서 전체 파일을 읽거나 가져온 파일을 device-read로 승격한 것으로 보고하지 않는다.
+[CU 고정 읽기 계약](cu-ntag-read-provider.md)의 connect→scan→disconnect로 받은 실제 scan_ref도 같은 inventory 입구에 전달한다. CU는 READ0/1과 reader CRC 검증을 포함하는 별도 source/profile이며 Flipper의 page READ 없음·scratch 정리·host CRC 규칙을 바꾸지 않는다. 기존 imported 파일의 식별값·출처 증명·최종 FD 검사는 동일하다. [CU 페이지 스냅샷](cu-read-snapshot.md)은 read job이 직접 만든 등록 artifact와 최신 동일 경로의 전용 device-read 원장·현재 inventory를 확인한다. CU끼리의 diff는 양쪽 관찰 페이지만 비교하고 읽기/비교 미완료의 null을 유지한다. imported와 CU snapshot의 혼합 비교는 거부하며 가져온 파일을 device-read로 승격하지 않는다.

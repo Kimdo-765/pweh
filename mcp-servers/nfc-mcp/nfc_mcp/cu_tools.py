@@ -27,6 +27,8 @@ _CODES = frozenset((
     'cu_reader_required', 'cu_identity_unknown', 'cu_cleanup_unknown',
     'nfc_input_invalid', 'nfc_input_limit', 'nfc_scan_invalid', 'nfc_family_unsupported',
     'nfc_identity_mismatch', 'nfc_provenance_invalid', 'nfc_failed',
+    'nfc_snapshot_invalid', 'nfc_source_mismatch', 'nfc_artifact_registration_failed',
+    'nfc_scan_required', 'nfc_input_changed', 'nfc_cleanup_pending',
     'cancelled', 'time_limit', 'authorization_required', 'not_found', 'case_error', 'config_error',
     'safety_denied', 'instrument_port', 'instrument_identity_unknown', 'port_role_conflict',
     'port_role_unknown', 'port_scope_unknown', 'port_lease_invalid', 'route_changed', 'busy',
@@ -274,6 +276,14 @@ def register_cu_tools(server, namespace):
             _args(case_id, session_id=session_id)
             from .cu_owner import close_cu_session
             with anyio.CancelScope(shield=True):
+                def cancel_jobs():
+                    runtime = namespace['rt']()
+                    for job in runtime.jobs.list(active_only=True):
+                        if (job.get('kind') == 'nfc-cu-read' and job.get('case_id') == case_id
+                                and type(job.get('meta')) is dict
+                                and job['meta'].get('session_id') == session_id):
+                            runtime.jobs.cancel(job['job_id'])
+                await run_blocking(cancel_jobs)
                 result = await run_blocking(lambda: close_cu_session(case_id, session_id,
                                             deadline=time.monotonic() + CLOSE_SECONDS))
             data = _close_projection(result)

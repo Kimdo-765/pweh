@@ -564,3 +564,29 @@ def match_file_identity(bound: BoundTag, identity: _NfcFileIdentity) -> None:
             or identity.profile != "iso14443-3a" and
             (identity.profile != bound.family or identity.mifare_version != expected.mifare_version)):
         raise error("nfc_identity_mismatch")
+
+
+def check_inventory_entries(runtime, case, bound, entries, *, check) -> None:
+    """이미 잠금 안에서 검증한 항목으로 결속을 재확인한다. 원장을 다시 열지 않는다."""
+    try:
+        if (type(bound) is not BoundTag or type(entries) is not list or len(entries) > MAX_LEDGER_ENTRIES
+                or not callable(check) or any(type(entry) is not dict for entry in entries)):
+            raise error("nfc_input_invalid")
+        if check() is not None:
+            raise error("nfc_input_invalid")
+        scans, inventories = _index(entries, case, check)
+        inv = inventories.get(bound.tag_ref)
+        if inv is None:
+            raise error("nfc_scan_required")
+        fresh = _bound(runtime, case, scans[inv["data"]["scan_ref"]], inv)
+        for name in ("tag_ref", "scan_ref", "family", "identity_digest", "scan_seq", "scan_entry_sha256",
+                     "inventory_seq", "inventory_entry_sha256", "identity"):
+            if type(getattr(bound, name)) is not type(getattr(fresh, name)) or getattr(bound, name) != getattr(fresh, name):
+                raise error("nfc_identity_mismatch")
+        if check() is not None:
+            raise error("nfc_input_invalid")
+    except Exception as exc:
+        failure = _fixed(exc)
+    else:
+        return
+    raise failure from None

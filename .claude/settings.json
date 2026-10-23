@@ -114,7 +114,9 @@
       "mcp__pweh-flipper__flipper_jobs",
       "mcp__pweh-nfc__nfc_tag_inventory_add",
       "mcp__pweh-nfc__nfc_parse_file",
-      "mcp__pweh-nfc__nfc_diff_dumps"
+      "mcp__pweh-nfc__nfc_diff_dumps",
+      "mcp__pweh-nfc__nfc_job_status",
+      "mcp__pweh-nfc__nfc_jobs"
     ],
     "ask": [
       "mcp__pweh-uart__uart_write",
@@ -170,7 +172,9 @@
       "mcp__rea__close_gdb_session",
       "mcp__rea__cutter_command",
       "mcp__rea__close_rizin_debug_session",
-      "mcp__rea__execute_rizin_command"
+      "mcp__rea__execute_rizin_command",
+      "mcp__pweh-nfc__nfc_cu_read_start",
+      "mcp__pweh-nfc__nfc_job_cancel"
     ],
     "deny": []
   },

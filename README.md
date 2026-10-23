@@ -29,7 +29,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
    ├─ pweh-sdr         등록된 Flipper RAW·전력 CSV의 구조·통계 분석, 로컬 보고서 저장 (선택)
    ├─ pweh-play        공급 숫자 합의 검증·저장 PNG 영역 비교, 로컬 보고서 저장 (선택)
    ├─ pweh-flipper     고정 CLI 연결·파일 읽기·NTAG21x 스캔 (선택)
-   ├─ pweh-nfc         CU 고정 NTAG 스캔·inventory에 결속한 NFC 파일 검사·비교 (선택)
+   ├─ pweh-nfc         CU NTAG 스냅샷·inventory에 결속한 NFC 파일 검사·비교 (선택)
    └─ rea              REA(rea-agents): binwalk/unblob 추출, Ghidra 디컴파일, 참조 추적, 신호 디코딩
             │
       [대상 기기]  (또는 pweh-mock-device 시뮬레이터. pweh-forensics 는 사람이 만든 카드 이미지 파일만 받는다)
@@ -69,7 +69,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
 보안 분석이 아닌 목표는 일부만 지원한다(`orchestrator/master-prompt.md` §3·§3.1).
 - **게임 콘솔 분석** — `game-save-unlock-analysis`: 세이브·해금 오프라인 분석과 사용자가 원한 세이브 값 변경(기기에는 사람이 쓴다). ESP32 기기는 `esp32-flash-dump` 로 먼저 덤프한다.
   이미 공급된 숫자 관측값은 [numeric-observation-analysis](skills/numeric-observation-analysis/SKILL.md)로 최근 창·TTL·신뢰도·득표를 검증한다. 이 경로는 장비나 펌웨어 없이 진행하며, 결과 시각은 사용자가 제공한 시간축이다. 화면 신선도·게임 의미·버튼 동작은 확인하지 않는다. 등록된 image-hints의 저장 PNG는 [영역 비교](docs/references/stored-png-template.md)로 같은 크기 ROI의 RGB 절대차를 계산하고 별도 `template-analysis` 요약을 남긴다.
-  NTAG213/215/216 파일은 [nfc-behavior-analysis](skills/nfc-behavior-analysis/SKILL.md)로 Flipper 또는 CU의 고정 스캔·inventory와 출처 증명에 결속해 검사·비교한다. CU 연결·스캔은 [고정 읽기 계약](docs/references/cu-ntag-read-provider.md)을 따르며 전체 덤프 게시나 게임 반응 확인은 제공하지 않는다.
+  NTAG213/215/216 파일은 [nfc-behavior-analysis](skills/nfc-behavior-analysis/SKILL.md)로 Flipper 또는 CU의 고정 스캔·inventory와 출처 증명에 결속해 검사·비교한다. CU 연결·스캔은 [고정 읽기 계약](docs/references/cu-ntag-read-provider.md)을 따르고, [CU 스냅샷](docs/references/cu-read-snapshot.md)의 유한 페이지 읽기·출처 기록·등록과 같은 inventory의 비교를 지원한다. 물리 동일 태그·진품·게임 반응은 확인하지 않는다.
 - **SD 카드 포렌식** — `sd-card-forensics`: 사람이 하드웨어 쓰기 방지 장치를 거쳐 만든 카드 이미지를 pweh-forensics 로 접수하고(해시·보관 기록·쓰기 방지 장치 사람 증명),
   파티션·FAT/exFAT 파일 목록·시각·호스트 오염 흔적, 필요한 파일만 삭제 파일까지 추출, 해시값 확인서가 붙은 증거 목록을 만든다. 영상·음성 내용은 열지 않는다. 정지 그림의 미리보기·OCR·QR은 `image-hints-analysis`로 분석한다.
   명시한 EV 텍스트 구간은 `forensics_scan_secrets(offset=..., length=...)`로 검사한다. 내용 선택·경계 peek는 구간 안에 한정하고 기존 EV 무결성 읽기는 유지한다. 선택 SHA와 접수 SHA의 의미, 미검사 경계 줄은 [구간 계약](docs/references/secrets-evidence-range.md)을 따른다.

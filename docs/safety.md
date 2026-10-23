@@ -891,11 +891,11 @@ SAK/UID 전제가 맞지 않으면 GET_VERSION을 보내지 않는다. 이후 ra
 정상 문맥에서 임시 파일의 크기·MD5와 제거 뒤 부재를 확인한 경우만 scan 사실을 기록한다.
 취소·timeout·terminal 뒤에는 자동 exit/remove/ETX를 보내지 않으며 파일이 남을 수 있다.
 고정 stage와 정리 미확인만 보고하고 host close를 RF field off로 설명하지 않는다.
-원시 CLI·UID·ATQA·SAK·version·페이지·PWD/PACK는 공개 응답이나 케이스 사본에 남기지 않는다.
+Flipper probe의 원시 CLI·UID·ATQA·SAK·version·페이지·PWD/PACK는 공개 응답이나 케이스 사본에 남기지 않는다.
 스캔 private 식별값은 보호 출처 원장에만 보존하며 케이스 솔트 digest는 표시용이다.
 
 `pweh-nfc`는 명시 scan/tag 참조와 같은 케이스 artifact만 받는다. source/chain/entry SHA·
-식별값·계열을 확인하고 기존 provenance-import 증명을 전체 파일 SHA별로 요구한다.
+식별값·계열을 확인한다. imported-v4는 기존 provenance-import 증명을 전체 파일 SHA별로 요구하고, CU snapshot은 전용 device-read 원장과 등록 사실을 확인한다.
 일반 Flipper 파일 복사·사용자 UID·producer·inventory.json 사본만으로 허용하지 않는다.
 증명 대기 중 입력 FD를 닫고 새 worker가 같은 입력과 현재 증명을 다시 검증한다.
 원장 조회는16MiB/10000행·64KiB 읽기 상한과 기존 체인 검증을 함께 적용한다.
@@ -908,7 +908,7 @@ SAK/UID 전제가 맞지 않으면 GET_VERSION을 보내지 않는다. 이후 ra
 
 ### CU 고정 NTAG 읽기
 
-`nfc_cu_connect`와 `nfc_cu_scan`은 소유/허가·명시 세션·현재 CDC 신원·전체 USB lease와
+`nfc_cu_connect`, `nfc_cu_scan`, `nfc_cu_read_start`는 소유/허가·명시 세션·현재 CDC 신원·전체 USB lease와
 MODIFY 게이트를 따른다. 고정 Ultra APP2.2/GIT v2.2.0·reader 모드만 받으며 모드·slot을
 바꾸지 않는다. 연결 설정 DTR=true의 영향은 승인 지문에 포함한다.
 
@@ -918,11 +918,19 @@ firmware scan 내부는 SAK bit0x20에서 호스트 거부 전 RATS를 수행할
 검산은 구분하며 후자는 false다. READ16B 중 시작 page4B만 사용하고 나머지12B는
 AUTH0/끝 roll-over 때문에 다른 페이지에 귀속하지 않는다.
 
-내부 읽기 provider는 새 admission과 같은 field를 유지해 시작 페이지별4B를 모으지만
-공개 read job·파일 게시·완전한 Flipper 덤프 생성은 제공하지 않는다. 태그 쓰기·PWD_AUTH·
-Classic·키 탐색·임의 RAW·에뮬레이션은 없다. 파일의 기존 import 증명은 그대로 요구한다.
+`nfc_cu_read_start`는 새 admission과 같은 field를 유지해 시작 페이지별4B를 모은다.
+wire45초 뒤 host 검증/저장5초를 한 번 사용하고, admission 뒤 time_limit·nfc_scan_invalid만
+partial로 보존한다. snapshot의 미관찰 suffix는 null이며 모든 페이지가 있어도 마지막 확인이
+실패하면 읽기 미완료다. 원시 identity·페이지가 있는 `nfc/cu-read-NNN.json`은 전용 도구로만
+분석하고 에이전트가 직접 열지 않는다. Signature·Counter·Tearing을 만들어 채우지 않는다.
+
+전용 device-read 원장 append 뒤 artifact 등록 순서이며 별도 commit이다. 등록 실패는 실제
+원장 receipt와 파일을 보존하고 registered=false를 알린다. 등록된 snapshot은 최신 동일 경로의
+원장 kind/source/extra·SHA·현재 inventory를 확인하며 imported JSON·producer 표기로 대신하지
+못한다. imported 파일의 기존 사람 증명은 유지하고 두 형식의 혼합 diff는 거부한다.
+태그 쓰기·PWD_AUTH·Classic·키 탐색·임의 RAW·에뮬레이션은 없다.
 
 취소·timeout·프레이밍/신원 오류 뒤에는 새 RF-off·재선택·자동 재접속을 하지 않는다.
 `nfc_cu_disconnect`는 허가 철회 뒤에도 정확한 case/session을 정리하고 미확인 owner·
 transport·lease를 보존한다. 호스트 close를 실제 RF-off·장치 명령 종료로 표시하지 않는다.
-세부 한도와 공개·내부 읽기의 차이는 [CU 계약](references/cu-ntag-read-provider.md)을 따른다.
+세부 한도와 출처·부분성은 [CU 전송](references/cu-ntag-read-provider.md)과 [스냅샷 계약](references/cu-read-snapshot.md)을 따른다.

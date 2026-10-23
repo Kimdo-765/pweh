@@ -1446,30 +1446,46 @@ snapshot_atomic/device_file_origin_verified는 false이며 NFC inventory·펌웨
 포렌식 EV 출처로 승격하지 않는다. 등록 후 늦은 취소·감사 실패에도 receipt를 보존한다.
 RAW 파일이면 반환 artifact ID를 `sdr_analyze`로 넘긴다. [전송 계약](references/flipper-read-transport.md).
 
-### 6.14 pweh-nfc (CU 고정 스캔·스캔 결속 파일 분석)
+### 6.14 pweh-nfc (CU 페이지 스냅샷·스캔 결속 파일 분석)
 
 `mcp-servers/nfc-mcp/`는 NTAG213/215/216의 보호 스캔 기록과 같은 케이스 등록 파일을
-결속한다. CU Ultra의 고정 연결·스캔도 이 서버가 소유한다. 기존 유효 inventory의 파일 검사에는 live reader가 필요하지 않다.
+결속한다. CU Ultra의 고정 연결·스캔·페이지 스냅샷 읽기도 이 서버가 소유한다.
+기존 유효 inventory에 결속한 파일 분석에는 live reader가 필요하지 않다.
 
 | 도구 | 계약 |
 |---|---|
 | `nfc_cu_connect(case_id, port, approval_id=None)` | 현재 CDC 신원·전체 USB lease·MODIFY 게이트 뒤115200/8N1/DTR=true/RTS=false로 연다. 네 고정 조회가 Ultra·APP2.2·GIT v2.2.0·reader mode1일 때만 ready다. |
 | `nfc_cu_scan(case_id, session_id, approval_id=None)` | 정확한 세션의 MODIFY 게이트 뒤 mode·새 scan·GET_VERSION·READ0/1을 검증한다. UID/BCC와 세 NTAG 계열 일치 뒤 CU 전용 보호 scan 사실을 기록한다. |
-| `nfc_cu_disconnect(case_id, session_id)` | 허가 철회 뒤에도 같은 세션을 정리한다. worker·물리 close·lease를 각각 확인하며 미확인 owner는 보존한다. RF off나 장치 명령 종료 증명은 false다. |
+| `nfc_cu_read_start(case_id, session_id, tag_ref, approval_id=None)` | 기존 세션·현재 inventory와 MODIFY 게이트 뒤 유한 페이지 읽기 job을 시작한다. 전용 device-read 원장 기록 후 snapshot artifact를 등록한다. |
+| `nfc_job_status(job_id, wait_seconds=0.0, case_id=None)` | 작업과 저장 기록 조회. wait_seconds는0..50초다. |
+| `nfc_job_cancel(job_id)` | 실행 중 작업 취소 요청. 실제 commit 이후 결과는 보존한다. |
+| `nfc_jobs(active_only=False, case_id=None)` | 작업 목록·저장 기록 복구 상태 조회. |
+| `nfc_cu_disconnect(case_id, session_id)` | 허가 철회 뒤에도 같은 세션의 읽기 작업을 취소하고 정리한다. worker·물리 close·lease를 각각 확인하며 미확인 owner는 보존한다. |
 | `nfc_tag_inventory_add(case_id, scan_ref)` | 같은 케이스의 고정 성공 scan을 검사하고 inventory 사실을 등록한다. 같은 scan 재등록은 기존 tag_ref를 반환한다. nfc/inventory.json은 최근32개 마스킹 조회 사본이다. |
-| `nfc_parse_file(case_id, artifact_id, tag_ref, max_seconds=5)` | 등록 일반 파일≤1MiB의 전체 SHA·private 식별값·최신 출처와 기존 provenance-import 증명을 검사한 뒤 기존 NFC 구조 결과를 저장한다. |
-| `nfc_diff_dumps(case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds=5)` | 두 파일 합≤2MiB, 같은 inventory와 두 SHA의 증명을 각각 확인해 기존 저장 페이지 비교 결과를 저장한다. |
+| `nfc_parse_file(case_id, artifact_id, tag_ref, max_seconds=5)` | 등록 일반 파일≤1MiB의 전체 SHA·private 식별값·최신 출처를 확인한다. imported-v4는 기존 사람 증명, CU snapshot은 전용 device-read 원장을 요구한다. |
+| `nfc_diff_dumps(case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds=5)` | 두 파일 합≤2MiB, 같은 inventory와 각 출처를 확인한다. imported끼리 또는 CU snapshot끼리만 비교하며 혼합은 거부한다. |
 
-inventory·parse·diff 세 도구는 소유/허가 확인 뒤 로컬 결과를 쓰며 `ANN_LOCAL_WRITE`다. 임의 UID·계열·키·
-attested 인자를 받지 않는다. 증명 대기 전에 FD를 닫고, 만족 후 새 worker가 입력·원장·증명을
-다시 검사한다. 입력 작업은 최대5초, 마지막 같은 FD/원장/출력 검증·등록은 별도5초 한 번이다.
-원장 snapshot은16MiB/10000entries/64KiB 읽기로 제한하며 기존 체인 검증을 생략하지 않는다.
+inventory·parse·diff는 소유/허가 확인 뒤 로컬 결과를 쓰는 `ANN_LOCAL_WRITE`다.
+임의 UID·계열·키·attested 인자는 없다. imported 증명 대기 전에 FD를 닫고 새 worker에서
+입력·원장·증명을 재검증한다. 입력 작업은 최대5초, 마지막 같은 FD/원장/출력 검증·등록은
+별도5초 한 번이다. 원장 snapshot은16MiB/10000entries/64KiB 읽기와 기존 체인 검증을 적용한다.
 
-보고서는 `nfc-file-analysis`, 스캔·inventory 반환은 `nfc-scan`/`nfc-inventory`, Skill 요약은
-`nfc-analysis`다. `inventory_binding_verified=true`와 `physical_same_tag_verified=false`를
-구분하고 기존 부분 읽기·미비교·null을 보존한다. 전체 태그 읽기·동작/진품·RF off는 증명하지
-않는다. 원문 UID·페이지·자격증명은 공개 응답에 없으며 등록 후 receipt를 보존한다.
-[파일 분석 계약](references/nfc-inventory-analysis.md). CU는 시작5초·스캔45초·명령2초·close10초의 유한 대기와 terminal 뒤 새 명령0을 적용한다. 내부 읽기 provider의45/135/231 시작 페이지4B 수집은 공개 read job·파일 게시가 아니다. [CU 전송 계약](references/cu-ntag-read-provider.md).
+CU wire 읽기는45초, 명령 하나는 남은 시간과2초 중 작은 예산을 사용한다. admission 뒤
+`time_limit` 또는 `nfc_scan_invalid`만 partial로 게시할 수 있으며 취소·프로토콜·허가·신원 오류는
+게시하지 않는다. READ16B의 첫4B만 시작 페이지에 귀속하고 나머지 페이지는 null로 남긴다.
+`nfc/cu-read-NNN.json`은64KiB 이하·0444이며 private identity·page를 포함한다.
+호스트 검증·저장은 별도5초 한 번이고, 원장 append와 artifact 등록은 별도 commit이다.
+원장 commit 뒤 등록 실패는 파일·실제 원장 receipt를 보존하고 `registered=false` partial_result로
+알린다. artifact commit 뒤에는 실제 receipt와 고정 warning을 보존한다.
+
+보고서는 `nfc-file-analysis`, 스캔·inventory는 `nfc-scan`/`nfc-inventory`, snapshot은
+`nfc-cu-snapshot`, Skill 요약은 기존 `nfc-analysis`다. CU 분석의 새 profile은
+`cu-ntag21x-snapshot-analysis-v1`이며 양쪽 관찰 페이지만 비교한다. `stored_pages_equal`은
+양쪽 읽기와 전체 비교가 완료된 때만 bool이고 나머지는 null이다. read receipt를 inspect/diff
+요약으로 대신하지 않는다. `inventory_binding_verified=true`와 물리 동일 태그·진품·게임 반응은
+구분한다. 원문 UID·페이지·자격증명은 공개 결과에 없고 host close·reader CRC는 RF off·host CRC
+검산 증명이 아니다. [파일 분석](references/nfc-inventory-analysis.md),
+[CU 전송](references/cu-ntag-read-provider.md), [스냅샷 계약](references/cu-read-snapshot.md)을 따른다.
 
 ## 7. REA 연동
 

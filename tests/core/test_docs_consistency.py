@@ -60,7 +60,7 @@ LOCAL_WRITE_ALLOW |= {f"mcp__pweh-nfc__{name}" for name in (
     "nfc_tag_inventory_add", "nfc_parse_file", "nfc_diff_dumps")}
 # 상태 조회의 기존 자동 허용을 유지한다. 선택 case_id의 종료 기록만 정리하며 기기·작업은 실행하지 않는다.
 LOCAL_WRITE_ALLOW |= {f"mcp__pweh-{prefix}__{prefix}_{suffix}"
-                      for prefix in ("uart", "openocd", "sigrok", "jtagulator", "esp", "forensics", "flipper")
+                      for prefix in ("uart", "openocd", "sigrok", "jtagulator", "esp", "forensics", "flipper", "nfc")
                       for suffix in ("job_status", "jobs")}
 #: architecture §6 에 시그니처(모든 인자)까지 적어야 하는 서버. 다른 서버는 도구 이름만 있으면 된다.
 FULL_SIGNATURE_SERVERS = ("pweh-uart", "pweh-case")

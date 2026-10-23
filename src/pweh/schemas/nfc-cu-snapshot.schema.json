@@ -1,0 +1,407 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.nfc-cu-snapshot/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile",
+    "binding",
+    "reader",
+    "identity",
+    "pages_total",
+    "pages",
+    "pages_observed",
+    "read_complete",
+    "stop_reason",
+    "unobserved_fields",
+    "snapshot_atomic",
+    "physical_same_tag_verified",
+    "device_command_termination_verified",
+    "rf_off_verified",
+    "host_crc_verified",
+    "tag_content_written",
+    "authentication_attempted",
+    "emulation_performed"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pweh.nfc-cu-snapshot/v1"
+    },
+    "profile": {
+      "const": "cu-ntag21x-pages-v1"
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag_ref",
+        "scan_ref",
+        "identity_digest",
+        "scan_seq",
+        "scan_entry_sha256",
+        "inventory_seq",
+        "inventory_entry_sha256"
+      ],
+      "properties": {
+        "tag_ref": {
+          "type": "string",
+          "pattern": "^NT-[0-9a-f]{32}$(?![\\s\\S])"
+        },
+        "scan_ref": {
+          "type": "string",
+          "pattern": "^NS-[0-9a-f]{32}$(?![\\s\\S])"
+        },
+        "identity_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{16}$(?![\\s\\S])"
+        },
+        "scan_seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "scan_entry_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+        },
+        "inventory_seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "inventory_entry_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+        }
+      }
+    },
+    "reader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "profile_sha256",
+        "firmware_commit",
+        "app_version",
+        "git_version"
+      ],
+      "properties": {
+        "profile": {
+          "const": "cu-ntag21x-v2.2.0-v1"
+        },
+        "profile_sha256": {
+          "const": "d7e590dce5e5f9723cbff12aa0fcea46d5a9550e392a33cf7b0de5102dffd73c"
+        },
+        "firmware_commit": {
+          "const": "f349dbeeaa315776b272ae8fb851cc4042d55f07"
+        },
+        "app_version": {
+          "const": "2.2"
+        },
+        "git_version": {
+          "const": "v2.2.0"
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "uid",
+        "atqa_msb",
+        "sak",
+        "mifare_version"
+      ],
+      "properties": {
+        "family": {
+          "enum": [
+            "ntag213",
+            "ntag215",
+            "ntag216"
+          ]
+        },
+        "uid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{14}$(?![\\s\\S])"
+        },
+        "atqa_msb": {
+          "const": "0044"
+        },
+        "sak": {
+          "const": "00"
+        },
+        "mifare_version": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$(?![\\s\\S])"
+        }
+      }
+    },
+    "pages_total": {
+      "enum": [
+        45,
+        135,
+        231
+      ]
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 45,
+      "maxItems": 231,
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}$(?![\\s\\S])"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "pages_observed": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 231
+    },
+    "read_complete": {
+      "type": "boolean"
+    },
+    "stop_reason": {
+      "enum": [
+        null,
+        "time_limit",
+        "nfc_scan_invalid"
+      ]
+    },
+    "unobserved_fields": {
+      "const": [
+        "signature",
+        "counters",
+        "tearing"
+      ]
+    },
+    "snapshot_atomic": {
+      "const": false
+    },
+    "physical_same_tag_verified": {
+      "const": false
+    },
+    "device_command_termination_verified": {
+      "const": false
+    },
+    "rf_off_verified": {
+      "const": false
+    },
+    "host_crc_verified": {
+      "const": false
+    },
+    "tag_content_written": {
+      "const": false
+    },
+    "authentication_attempted": {
+      "const": false
+    },
+    "emulation_performed": {
+      "const": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "read_complete": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "stop_reason": {
+            "type": "null"
+          },
+          "pages": {
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}$(?![\\s\\S])"
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "stop_reason": {
+            "enum": [
+              "time_limit",
+              "nfc_scan_invalid"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "family": {
+                "const": "ntag213"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "mifare_version": {
+                "const": "0004040201000f03"
+              }
+            }
+          },
+          "pages_total": {
+            "const": 45
+          },
+          "pages": {
+            "minItems": 45,
+            "maxItems": 45
+          },
+          "pages_observed": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 45
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "read_complete": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "pages_observed": {
+                  "const": 45
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "family": {
+                "const": "ntag215"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "mifare_version": {
+                "const": "0004040201001103"
+              }
+            }
+          },
+          "pages_total": {
+            "const": 135
+          },
+          "pages": {
+            "minItems": 135,
+            "maxItems": 135
+          },
+          "pages_observed": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 135
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "read_complete": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "pages_observed": {
+                  "const": 135
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "family": {
+                "const": "ntag216"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "mifare_version": {
+                "const": "0004040201001303"
+              }
+            }
+          },
+          "pages_total": {
+            "const": 231
+          },
+          "pages": {
+            "minItems": 231,
+            "maxItems": 231
+          },
+          "pages_observed": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 231
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "read_complete": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "pages_observed": {
+                  "const": 231
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

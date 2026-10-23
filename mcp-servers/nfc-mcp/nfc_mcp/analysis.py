@@ -11,10 +11,11 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from pweh import nfc_formats, safeio, schemas
+from pweh import cu_protocol, nfc_cu_snapshot as CU, nfc_formats, safeio, schemas
 from pweh.errors import PwehError
 from pweh.evidence import under_any_case_protected
 from pweh.provenance import KIND_IMPORTED, PROVENANCE_IMPORT_QUESTIONS, provenance_import_target
+from pweh.safety.attestations import canonical_json
 
 MAX_INPUT_BYTES = 1 << 20
 MAX_OUTPUT_BYTES = 128 << 10
@@ -26,7 +27,8 @@ LEDGER_ENTRIES = 10000
 _CODES = frozenset({"nfc_input_invalid", "nfc_input_limit", "nfc_input_changed", "nfc_scan_required",
                     "nfc_scan_invalid", "nfc_family_unsupported", "nfc_identity_mismatch",
                     "nfc_provenance_required", "nfc_provenance_invalid", "nfc_failed",
-                    "nfc_cleanup_pending", "cancelled", "time_limit"})
+                    "nfc_cleanup_pending", "nfc_snapshot_invalid", "nfc_source_mismatch",
+                    "nfc_artifact_registration_failed", "cancelled", "time_limit"})
 
 
 def _error(code: str) -> PwehError:
@@ -96,6 +98,49 @@ def _projection(case, artifact_id: str) -> dict:
             or parts[0] in ("forensics", "emu")):
         raise _error("nfc_input_invalid")
     return projected
+
+
+def _analysis_projection(case, artifact_id):
+    """CU 전용 등록 정보를 별도로 고정하며 기존 v4 경로 투영은 보존한다."""
+    projected = _projection(case, artifact_id)
+    rows = [r for r in case.load()['artifacts'] if r.get('id') == artifact_id]
+    if len(rows) != 1 or any(rows[0].get(k) != v for k, v in projected.items()):
+        raise _error('nfc_input_changed')
+    projected['_registration'] = {k: rows[0].get(k) for k in ('kind', 'producer', 'extra')}
+    return projected
+
+
+def _mode(rows):
+    modes = []
+    for item in rows:
+        row = item['row']
+        meta = row['_registration']
+        special = (row['path'].startswith('nfc/cu-read-')
+                   or type(meta['extra']) is dict and meta['extra'].get('type') == 'nfc-cu-snapshot')
+        if special:
+            match = re.fullmatch(r'nfc/cu-read-([0-9]{3,5})\.json', row['path'])
+            if (match is None or not 1 <= int(match[1]) <= 99999
+                    or match[1] != f'{int(match[1]):03d}'
+                    or meta != {'kind': 'other', 'producer': 'pweh-nfc', 'extra': {'type': 'nfc-cu-snapshot'}}
+                    or not 1 <= row['size'] <= CU.MAX_INPUT_BYTES
+                    or item['seal'][5] & 0o777 != 0o444):
+                raise _error('nfc_source_mismatch')
+            modes.append('cu-snapshot')
+        else:
+            modes.append('imported-v4')
+    if len(set(modes)) != 1:
+        raise _error('nfc_source_mismatch')
+    return modes[0]
+
+
+def _exact(left, right):
+    if type(left) is not type(right):
+        return False
+    if type(left) is dict:
+        return left.keys() == right.keys() and all(_exact(left[k], right[k]) for k in left)
+    if type(left) in (list, tuple):
+        return len(left) == len(right) and all(_exact(a, b) for a, b in zip(left, right))
+    return left == right
 
 
 def _file_seal(value) -> tuple:
@@ -202,6 +247,8 @@ class Admission:
     artifacts: tuple[tuple[str, str], ...]
     binding: tuple
     warnings: tuple[str, ...] = ()
+    mode: str = 'imported-v4'
+    required_attestation_sha256s: tuple[str, ...] = ()
 
 
 def _binding(bound):
@@ -215,7 +262,7 @@ class _Inputs:
         self.dirs = _Directories(case, deadline, cancel)
         try:
             for aid in artifact_ids:
-                row = _projection(case, aid)
+                row = _analysis_projection(case, aid)
                 parts = row['path'].split('/')
                 parent = self.dirs.descend(parts[:-1], deadline, cancel)
                 fd, initial = safeio.open_regular(parts[-1], dir_fd=parent, reject_hardlinks=True)
@@ -248,7 +295,7 @@ class _Inputs:
         self.dirs.check(deadline, cancel)
         for item in self.rows:
             row = item['row']
-            if _projection(self.case, row['id']) != row:
+            if not _exact(_analysis_projection(self.case, row['id']), row):
                 raise _error('nfc_input_changed')
             _check_file(item['fd'], item['parent'], item['name'], item['seal'])
             if rehash and _read_fd(item['fd'], row['size'], deadline, cancel)[0] != row['sha256']:
@@ -294,6 +341,48 @@ def _record(entries, row):
     return rec
 
 
+def _cu_sources(runtime, case, inputs, bound, entries, deadline, cancel):
+    """최신 동일 경로 행을 먼저 선택하고 CU 전용 출처·snapshot 결속을 검사한다."""
+    from pweh.nfc_inventory import _reader_binding, check_inventory_entries, match_file_identity
+    check_inventory_entries(runtime, case, bound, entries, check=lambda: _tick(deadline, cancel))
+    binding = {key: getattr(bound, key) for key in CU.BINDING_FIELDS}
+    snapshots, files = [], []
+    for item in inputs.rows:
+        _tick(deadline, cancel)
+        row = item['row']
+        rec = next((e for e in reversed(entries) if e.get('path') == row['path']), None)
+        if (rec is None or rec.get('kind') != 'device-read'
+                or not _exact(rec.get('source'), {'server': 'nfc-mcp', 'tool': 'nfc_cu_read_start'})
+                or rec.get('attestation_id') is not None
+                or not _exact(rec.get('size'), row['size']) or rec.get('sha256') != row['sha256']
+                or type(rec.get('seq')) is not int or not 1 <= rec['seq'] <= (1 << 63) - 1):
+            raise _error('nfc_source_mismatch')
+        snapshot = CU.parse_cu_snapshot(item['data'], deadline=deadline, cancel=cancel)
+        if not _exact(dict(snapshot.binding), binding):
+            raise _error('nfc_source_mismatch')
+        match_file_identity(bound, snapshot.identity)
+        extra = rec.get('extra')
+        expected = {'snapshot_profile': CU.SNAPSHOT_PROFILE,
+                    'reader_profile': cu_protocol.PROFILE,
+                    'reader_profile_sha256': cu_protocol.PROFILE_SHA256,
+                    'firmware_commit': cu_protocol.FIRMWARE_COMMIT,
+                    'session_id': extra.get('session_id') if type(extra) is dict else None,
+                    'reader_binding': extra.get('reader_binding') if type(extra) is dict else None,
+                    'binding': binding, 'family': snapshot.family, 'pages_total': snapshot.pages_total,
+                    'pages_observed': snapshot.pages_observed, 'read_complete': snapshot.read_complete,
+                    'stop_reason': snapshot.stop_reason}
+        session = expected['session_id']
+        if (not _exact(extra, expected) or type(session) is not str or not 1 <= len(session) <= 128
+                or any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in session)):
+            raise _error('nfc_source_mismatch')
+        _reader_binding(expected['reader_binding'])
+        snapshots.append(snapshot)
+        files.append({'artifact_id': row['id'], 'size': row['size'], 'sha256': row['sha256'],
+                      'provenance_kind': 'device-read', 'ledger_seq': rec['seq'],
+                      'ledger_entry_sha256': hashlib.sha256(canonical_json(rec).encode('utf-8')).hexdigest()})
+    return snapshots, files
+
+
 def _attestation(runtime, case, digest):
     kind, subject, binding = provenance_import_target(case.id, digest)
     value = runtime.attestations.require(kind, subject, binding, questions=list(PROVENANCE_IMPORT_QUESTIONS))
@@ -314,8 +403,12 @@ def prepare_admission(runtime, case, artifact_ids, tag_ref, *, deadline, cancel=
         _tick(deadline, cancel)
         bound = resolve_inventory(runtime, case, tag_ref, deadline=deadline, cancel=cancel)
         inputs = _Inputs(case, artifact_ids, deadline, cancel)
-        inputs.identities(bound, deadline, cancel)
-        for item in inputs.rows:
+        mode = _mode(inputs.rows)
+        if mode == 'cu-snapshot':
+            _cu_sources(runtime, case, inputs, bound, _entries(runtime, case, deadline, cancel), deadline, cancel)
+        else:
+            inputs.identities(bound, deadline, cancel)
+        for item in inputs.rows if mode == 'imported-v4' else ():
             row = item['row']
             rec = _record(_entries(runtime, case, deadline, cancel), row)
             if rec is None:
@@ -330,8 +423,9 @@ def prepare_admission(runtime, case, artifact_ids, tag_ref, *, deadline, cancel=
                 if "provenance_close_unconfirmed" in getattr(receipt, "warnings", ()):
                     warnings.append("provenance_close_unconfirmed")
         inputs.check(deadline, cancel, rehash=True)
-        result = Admission(tuple((i['row']['id'], i['row']['sha256']) for i in inputs.rows),
-                           _binding(bound), tuple(dict.fromkeys(warnings)))
+        artifacts = tuple((i['row']['id'], i['row']['sha256']) for i in inputs.rows)
+        required = tuple(dict.fromkeys(sha for _, sha in artifacts)) if mode == 'imported-v4' else ()
+        result = Admission(artifacts, _binding(bound), tuple(dict.fromkeys(warnings)), mode, required)
     except Exception as exc:
         failure = _fixed(exc)
     finally:
@@ -377,6 +471,71 @@ def _validate_relations(report, sizes):
                                                 summary['after']['summary']['stored_valid_pages']))
 
 
+def _validate_cu_relations(report, snapshots):
+    """새 profile의 exact 수치·관찰/비교 완료도를 저장 직전에 대조한다."""
+    def require(value):
+        if not value:
+            raise _error('nfc_failed')
+    def numbers(value):
+        if type(value) is dict:
+            for child in value.values():
+                numbers(child)
+        elif type(value) is list:
+            for child in value:
+                numbers(child)
+        elif type(value) is float:
+            raise _error('nfc_failed')
+    inspection = report['inspection']
+    numbers(inspection)
+    require(type(inspection['schema_version']) is int and inspection['schema_version'] == 1)
+    require(report['operation'] == inspection['operation'] and report['status'] == inspection['status'])
+    require(report['params']['profile'] == inspection['profile'] == CU.ANALYSIS_PROFILE)
+    cov, summary = inspection['coverage'], inspection['summary']
+    require(cov['input_bytes'] == cov['consumed_bytes'] == sum(s.input_size for s in snapshots))
+    require(cov['unexamined_bytes'] == 0)
+    first = snapshots[0]
+    require(summary['family'] == first.family and summary['pages_total'] == first.pages_total)
+    for src, snapshot in zip(report['source']['files'], snapshots):
+        require(type(src['size']) is int and src['size'] == snapshot.input_size)
+    read_partial = any(not s.read_complete for s in snapshots)
+    if inspection['operation'] == 'inspect':
+        require(len(snapshots) == 1 and cov['input_exhausted'] is True)
+        require(summary['pages_observed'] == first.pages_observed
+                and summary['read_complete'] is first.read_complete
+                and summary['stop_reason'] == first.stop_reason
+                and summary['unobserved_fields'] == list(CU.UNOBSERVED_FIELDS))
+        require(cov['pages_unobserved'] == first.pages_total - first.pages_observed)
+        expected_reasons = ['read_partial'] if read_partial else []
+        partial = read_partial
+    else:
+        require(len(snapshots) == 2)
+        for key, snapshot in zip(('before', 'after'), snapshots):
+            require(_exact(summary[key], {'pages_observed': snapshot.pages_observed,
+                    'read_complete': snapshot.read_complete, 'stop_reason': snapshot.stop_reason}))
+        counts = ('pages_compared', 'before_only_pages', 'after_only_pages', 'neither_observed_pages',
+                  'comparison_unexamined_pages')
+        require(all(type(summary[k]) is int and summary[k] >= 0 for k in counts))
+        require(sum(summary[k] for k in counts) == first.pages_total)
+        processed = first.pages_total - summary['comparison_unexamined_pages']
+        before_count, after_count = (s.pages_observed for s in snapshots)
+        require(summary['pages_compared'] == min(processed, before_count, after_count))
+        require(summary['before_only_pages'] == max(0, min(processed, before_count) - after_count))
+        require(summary['after_only_pages'] == max(0, min(processed, after_count) - before_count))
+        require(summary['neither_observed_pages'] == max(0, processed - max(before_count, after_count)))
+        changes = summary['changed_pages']
+        require(all(type(p) is int and 0 <= p < summary['pages_compared'] for p in changes)
+                and changes == sorted(set(changes)))
+        complete = summary['comparison_unexamined_pages'] == 0
+        require(cov['comparison_complete'] is complete and cov['changes_complete'] is complete
+                and cov['changed_pages_count_is_lower_bound'] is (not complete))
+        equal = (not changes) if not read_partial and complete else None
+        require(summary['stored_pages_equal'] is equal)
+        expected_reasons = (['read_partial'] if read_partial else []) + ([] if complete else ['time_limit'])
+        partial = read_partial or not complete
+    require(cov['reasons'] == expected_reasons)
+    require(inspection['status'] == ('partial' if partial else 'ok'))
+
+
 def analyze_files(runtime, case, artifact_ids, tag_ref, admission, *, max_seconds=5, cancel=None):
     """증명 후 새 FD로 재선택하고 현재 증명·출처·같은 FD를 commit까지 확인한다."""
     from pweh.nfc_inventory import resolve_inventory
@@ -392,20 +551,37 @@ def analyze_files(runtime, case, artifact_ids, tag_ref, admission, *, max_second
             raise _error('nfc_input_invalid')
         if admission.warnings not in ((), ('provenance_close_unconfirmed',)):
             raise _error('nfc_input_invalid')
+        if (type(admission.mode) is not str or admission.mode not in ('imported-v4', 'cu-snapshot')
+                or type(admission.artifacts) is not tuple
+                or len(admission.artifacts) != len(artifact_ids)
+                or any(type(p) is not tuple or len(p) != 2 or any(type(v) is not str for v in p)
+                       for p in admission.artifacts)):
+            raise _error('nfc_input_invalid')
+        expected_required = (tuple(dict.fromkeys(sha for _, sha in admission.artifacts))
+                             if admission.mode == 'imported-v4' else ())
+        if not _exact(admission.required_attestation_sha256s, expected_required):
+            raise _error('nfc_input_invalid')
         warnings.extend(admission.warnings)
         deadline = time.monotonic() + max_seconds
         _arguments(artifact_ids, tag_ref, deadline, cancel)
         _tick(deadline, cancel)
         bound = resolve_inventory(runtime, case, tag_ref, deadline=deadline, cancel=cancel)
-        if _binding(bound) != admission.binding:
+        if not _exact(_binding(bound), admission.binding):
             raise _error('nfc_input_changed')
         inputs = _Inputs(case, artifact_ids, deadline, cancel)
         if tuple((i['row']['id'], i['row']['sha256']) for i in inputs.rows) != admission.artifacts:
             raise _error('nfc_input_changed')
-        inputs.identities(bound, deadline, cancel)
+        mode = _mode(inputs.rows)
+        if mode != admission.mode:
+            raise _error('nfc_source_mismatch')
         entries = _entries(runtime, case, deadline, cancel)
         files = []
-        for item in inputs.rows:
+        snapshots = None
+        if mode == 'cu-snapshot':
+            snapshots, files = _cu_sources(runtime, case, inputs, bound, entries, deadline, cancel)
+        else:
+            inputs.identities(bound, deadline, cancel)
+        for item in inputs.rows if mode == 'imported-v4' else ():
             row = item['row']
             rec = _record(entries, row)
             if rec is None:
@@ -414,17 +590,25 @@ def analyze_files(runtime, case, artifact_ids, tag_ref, admission, *, max_second
                           'provenance_kind': KIND_IMPORTED, 'ledger_seq': rec['seq'],
                           'attestation_id': _attestation(runtime, case, row['sha256'])})
         datas = [i['data'] for i in inputs.rows]
-        inspection = (nfc_formats.inspect_nfc(datas[0], deadline=deadline, cancel=cancel) if len(datas) == 1
-                      else nfc_formats.diff_nfc(*datas, deadline=deadline, cancel=cancel))
+        if mode == 'cu-snapshot':
+            inspection = (CU.inspect_cu_snapshot(snapshots[0], deadline=deadline, cancel=cancel) if len(datas) == 1
+                          else CU.diff_cu_snapshots(*snapshots, deadline=deadline, cancel=cancel))
+        else:
+            inspection = (nfc_formats.inspect_nfc(datas[0], deadline=deadline, cancel=cancel) if len(datas) == 1
+                          else nfc_formats.diff_nfc(*datas, deadline=deadline, cancel=cancel))
         final_end = time.monotonic() + FINAL_SECONDS
         report = {'schema': 'pweh.nfc-file-analysis/v1', 'operation': inspection['operation'],
                   'status': inspection['status'], 'source': {'kind': 'case-artifact', 'tag_ref': tag_ref,
                   'scan_ref': bound.scan_ref, 'scan_entry_sha256': bound.scan_entry_sha256,
                   'inventory_entry_sha256': bound.inventory_entry_sha256, 'files': files},
-                  'params': {'profile': PROFILE, 'max_seconds': max_seconds}, 'inspection': inspection,
+                  'params': {'profile': CU.ANALYSIS_PROFILE if snapshots else PROFILE, 'max_seconds': max_seconds},
+                  'inspection': inspection,
                   'inventory_binding_verified': True, 'physical_same_tag_verified': False}
         schemas.validate('nfc-file-analysis', report)
-        _validate_relations(report, [len(d) for d in datas])
+        if snapshots:
+            _validate_cu_relations(report, snapshots)
+        else:
+            _validate_relations(report, [len(d) for d in datas])
         encoded = json.dumps(report, ensure_ascii=True, separators=(',', ':'), allow_nan=False).encode('ascii')
         if len(encoded) > MAX_OUTPUT_BYTES:
             raise _error('nfc_failed')
@@ -459,10 +643,16 @@ def analyze_files(runtime, case, artifact_ids, tag_ref, admission, *, max_second
         def check(entry):
             inputs.check(final_end, cancel, rehash=True)
             current = resolve_inventory(runtime, case, tag_ref, deadline=final_end, cancel=cancel)
-            if _binding(current) != admission.binding:
+            if not _exact(_binding(current), admission.binding):
                 raise _error('nfc_input_changed')
             current_entries = _entries(runtime, case, final_end, cancel)
-            for item, src in zip(inputs.rows, files):
+            if _mode(inputs.rows) != admission.mode:
+                raise _error('nfc_source_mismatch')
+            if mode == 'cu-snapshot':
+                _, current_files = _cu_sources(runtime, case, inputs, current, current_entries, final_end, cancel)
+                if not _exact(current_files, files):
+                    raise _error('nfc_source_mismatch')
+            for item, src in zip(inputs.rows, files) if mode == 'imported-v4' else ():
                 rec = _record(current_entries, item['row'])
                 if rec is None or rec['seq'] != src['ledger_seq']:
                     raise _error('nfc_provenance_invalid')

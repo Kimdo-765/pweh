@@ -473,13 +473,19 @@ class ProvenanceLedger:
         }
 
     def record_device_read(self, case: Case, path: str | Path, source: dict[str, Any], extra: dict[str, Any] | None = None, *,
-                           sha256: str | None = None, attestation_id: str | None = None) -> dict[str, Any]:
+                           sha256: str | None = None, attestation_id: str | None = None,
+                           max_bytes=None, max_entries=None, deadline=None,
+                           check=None, check_entries=None) -> dict[str, Any]:
         """기기 읽기 코드 경로가 만든 산출물을 기록한다(device-read).
 
         sha256: 서버가 읽을 때 계산한 해시. 주면 지금 파일의 해시와 같아야 기록한다(읽은 뒤 바뀐 파일을 기기 읽기로 남기지 않게).
         """
         cid = _case_id_of(case)
-        return self._append(cid, self._file_body(case, path, KIND_DEVICE_READ, source, extra, sha256, attestation_id))
+        bounded = any(v is not None for v in (max_bytes, max_entries, deadline, check, check_entries))
+        tick = _guard(max_bytes, max_entries, deadline, check) if bounded else None
+        body = self._file_body(case, path, KIND_DEVICE_READ, source, extra, sha256, attestation_id, check=tick)
+        return self._append(cid, body, max_bytes=max_bytes, max_entries=max_entries,
+                            deadline=deadline, check=check, check_entries=check_entries)
 
     def record_import(self, case: Case, path: str | Path, source: dict[str, Any], extra: dict[str, Any] | None = None, *,
                       sha256: str | None = None, max_bytes=None, max_entries=None, deadline=None,
