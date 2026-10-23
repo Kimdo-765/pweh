@@ -1422,6 +1422,13 @@ PNG는 제한된 별도 worker에서 해독한다. 입력 선택부터 자식 �
 `image-template-analysis` 선택 단계에 연결한다. 세 검증 flag는 항상false다.
 별도 Skill은 없으며 [선택·호출·요약 예제](references/stored-png-template.md)를 따른다.
 
+**내부 합성 frame 경로**: `pweh.rawvideo_frames`와 `play_mcp.frame_owner`는 고정 RGB24
+폭·높이1..1600의 bytes를 최신 pending frame 하나로 조립한다. 최대16frame·16MiB·read64KiB·5초,
+수신 시각 tie와 drop/partial EOF 회계를 보존한다. 필수 주입 source의 producer만 read·close하며,
+consumer close는 cancel/wake와 join≤0.1초 한 번으로 종료를 확인하고 미확정 owner는 보존한다.
+[frame·owner 계약](references/rawvideo-frame-owner.md)은 공개 숫자/PNG 도구와 별개이며
+실제 캡처·OCR·PNG 게시·입력 제어에 연결되지 않는다.
+
 ### 6.13 pweh-flipper (고정 CLI 읽기)
 
 `mcp-servers/flipper-mcp/`는 공식1.5.1 문법의 `flipper-cli-1.5.1-read-v1`만 제공한다.

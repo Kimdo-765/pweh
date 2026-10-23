@@ -51,6 +51,9 @@
 장치 트랙의 선행 기반으로 RAW 파일 통계·NFC 파일 구조/변화 비교·숫자 관찰값 합의의 순수 코어를 구현했다.
 범위는 [공통 코어 표](common-core.md#1-무엇을-코어로-올리나)를 따른다. 운영 입구로 RAW 파일 통계(`pweh-sdr`)와 공급 숫자 검증·[저장 PNG 영역 비교](../references/stored-png-template.md)(`pweh-play`), Flipper 고정 CLI 읽기 전송 및 NTAG213/215/216 스캔 결속 파일 분석(`pweh-nfc`)을 구현했다. [NFC 계약](../references/nfc-inventory-analysis.md)의 Flipper 스캔은 페이지 READ 없이 SELECT·GET_VERSION과 임시 SD 파일 정리를 수행한다. CU 고정 연결·NTAG 스캔([전송 계약](../references/cu-ntag-read-provider.md))과 [페이지 스냅샷](../references/cu-read-snapshot.md)의 read job·전용 출처/등록·동일 inventory 분석·비교도 구현했다. 미관찰 페이지와 부분성을 보존하며 진품·게임 반응을 확인하지 않는다. 실제 RF 수신·플레이 입력은 후속 범위이며 실기 검증은 별도다.
 
+[내부 RGB24 frame·owner](../references/rawvideo-frame-owner.md)는 명시 geometry와 주입 메모리 source에서
+최신 pending·수신 시각·drop/EOF·정지 수명을 검증한다. 실제 영상 취득·PNG 게시·인식·입력 연결은 후속이다.
+
 각 단계의 끝: 변경된 도구의 카탈로그·architecture §6·등록 문서를 맞추고 일관성·전체 테스트를 수행한다.
 구현 단위별 커밋·push는 누적 사용자 승인에 따라 진행하며, 실제 기기·시스템 변경과 아직 확인되지 않은 사실은 별도 관문으로 남긴다.
 

@@ -1,6 +1,6 @@
 # 설계안: 게임 콘솔 분석 + Flipper Zero·RF(주파수) 분석
 
-> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치·가져온 원시 세이브의 로컬 계획, §3.3의 등록 RAW 파일 분석, §3.4의 공급 숫자 관찰 요약·저장 PNG 영역 비교와 §3.1의 Flipper 고정 파일 읽기·NTAG21x 스캔과 §3.2의 스캔 결속 NFC 파일 검사와 CU 고정 NTAG 스캔·페이지 스냅샷 읽기/등록/분석은 구현됐다. imported 세이브의 기기 쓰기 준비·실제 화면/플레이·RF 수신은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
+> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치·가져온 원시 세이브의 로컬 계획, §3.3의 등록 RAW 파일 분석, §3.4의 공급 숫자 관찰 요약·저장 PNG 영역 비교·내부 합성 frame 수집과 §3.1의 Flipper 고정 파일 읽기·NTAG21x 스캔과 §3.2의 스캔 결속 NFC 파일 검사와 CU 고정 NTAG 스캔·페이지 스냅샷 읽기/등록/분석은 구현됐다. imported 세이브의 기기 쓰기 준비·실제 화면/플레이·RF 수신은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
 > 여러 서버가 함께 쓰는 기반(포트 라우팅, 증명, 출처 기록, 비밀 마스킹, 안전 설정 위치)은 [common-core.md](common-core.md), 환경 감지·포트 라우팅의 상세는 [port-routing.md](port-routing.md) 에 있다.
 > 1차 초안을 네 관점(안전·법, 기술 실현성, PWEH 구조 적합성, 요구사항 충족)으로 적대적 검토한 결과(지적 59건, 반박 0건)를 반영했다.
 > 근거: 공식 Flipper 펌웨어 **1.5.1** 소스, ChameleonUltra v2.2.0 소스, esptool·ESP-IDF NVS 형식, rtl-sdr-blog v1.4.0·rtl_433 25.12,
@@ -160,6 +160,12 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 고정5초 하나를 쓴다. matched=false도 정상 성공이며 도구 전용 image-template-analysis 단계의
 template-analysis 요약을 남긴다. 세 검증 flag는 false다. [선택·결과 계약](../references/stored-png-template.md).
 
+**내부 합성 frame 수집도 구현**: 고정 RGB24의 명시 geometry1..1600, 최대16frame·16MiB·5초와
+read64KiB 안에서 최신 pending 하나·drop·tail·EOF·수신 시각을 기록한다. producer가 주입 source를
+독점하고 정리 미확정 owner를 보존한다. [내부 계약](../references/rawvideo-frame-owner.md).
+같은 수신 시각을 허용하며 숫자 표본의 엄격 증가 시각으로 자동 변환하지 않는다.
+실제 캡처 source·PNG 게시·OCR·template 자동 연결·입력 제어는 없다.
+
 아래 입력 브리지·ffmpeg·OCR·플레이 job과 `safety.play_policy`는 **후속 설계**다.
 현재 숫자 분석 입구에 새 safety 키나 실제 입력 권한을 추가한 것이 아니다.
 
@@ -305,6 +311,7 @@ template-analysis 요약을 남긴다. 세 검증 flag는 false다. [선택·결
 | **1b CU 고정 읽기** | **소프트웨어 구현**: 고정 codec·단일 owner·probe→CU fact→기존 inventory/파일 검사. 유한 READ의 첫4B 귀속·snapshot/원장/등록·분석/비교와 terminal/cleanup을 검증한다. | 허가된 Ultra2.2 reader·명시 포트, 또는 기존 inventory | 가짜 POSIX/helper·세 NTAG·같은 MCP Client·기존 Flipper 회귀 |
 | **1b 후속 연결** | CU 페이지 스냅샷은 구현됐으며 pweh-sdr 실제 수신과 추가 태그 형식은 후속이다. 실기 DTR·1MiB md5와 CU GET_APP_VERSION 확인은 소프트웨어 시험과 별개다. | 사용자 Flipper/CU/수신기와 실제 사실 | 가짜 CU, 가짜 rtl 도구, 합성 NFC |
 | 2a | NFC 에뮬레이션 캡처: Flipper RPC(.shd), CU 스니프(단일 창), 필수 정리 | 1b | 가짜 Flipper RPC 상태 기계, 가짜 CU 창 초기화 |
+| **2b 선행 내부 frame** | **소프트웨어 구현**: 고정 RGB24 queue·최신 pending·수신 시각·유한 source owner와 close 확인. 공개 화면 도구·캡처·입력 브리지에는 연결하지 않는다. | 주입 메모리 source·명시 geometry, 장비 불필요 | 합성 bytes·Event/barrier·EOF/cap/late/종료 회계 |
 | 2b | 자동화 MVP: 화면 OBSERVE 도구, 보드 하나의 브리지 펌웨어(빌드·배포·플래시 절차 — ESP32 계측기 1c 의 `firmware/common`·빌드·고정 흐름 재사용), 세션 예산 안 즉석 입력 | 1b + §10 보드 결정 | 브리지 시뮬레이터(하트비트·한도·디스크립터 해시), 합성 프레임 |
 | 2c | 선언형 플레이 job(최대 2시간, play_policy) + `game-play-automation` | 2b | 합성 프레임 시퀀스, 시뮬레이터 |
 | 3 | 선택: `pweh-esp-write`(별도 서버), SRAM 한정 `openocd_ram_patch`(같은 목적·entitlement 경계), 단일 IR 신호 송신(DESTRUCTIVE, 내 리모컨의 같은 케이스 캡처만). Sub-GHz 송신·RFID 에뮬레이션은 계획 없음 | 사용자 opt-in | 가짜 esptool 쓰기·MD5 모델, "검증 전 앱 부팅 없음" 테스트 |
