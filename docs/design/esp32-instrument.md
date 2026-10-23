@@ -1,6 +1,6 @@
 # 설계안: ESP32 계측기 MCP (pweh-espprobe)
 
-> 상태: **1a 오프라인 구현과 이후 단계 설계**. 현재 서버 계약은 [architecture.md](../architecture.md) §6.10을 따른다. 이후 단계 설명은 구현 계약이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md), 증명·출처 원장·마스킹·안전 설정 위치는 [common-core.md](common-core.md),
+> 상태: **1a 오프라인 구현·내부 전송/버스 소프트웨어와 이후 실기 단계 설계**. 현재 서버 계약은 [architecture.md](../architecture.md) §6.10을 따른다. 이후 단계 설명은 구현 계약이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md), 증명·출처 원장·마스킹·안전 설정 위치는 [common-core.md](common-core.md),
 > 환경 감지·포트 라우팅(`pweh.hostenv`·`pweh.ports`·`pweh-serial-helper.exe`·`pweh.portlock`·역할 표지)은 [port-routing.md](port-routing.md), 입력 브리지·Flipper 와의 관계는 [game-console-flipper-rf.md](game-console-flipper-rf.md) 에 있다.
 > 요청: "esp32 기반 mcp도 추가해줘"(Flipper·RF 요청 직후). 조사 노트 셋(로컬 `research/esp32-instrument/` — 저장소에는 없음, 부록 B)을 합쳤고, 노트끼리 어긋난 곳은 이 문서에서 하나로 정했다.
 > 초안을 두 관점(안전·구조 23건, 사실·라이선스 31건)으로 적대적 검증했다. 부분 수정 24건, 반박 1건, 확인 불가 1건, 누락 6건(1건은 두 관점 공통)을 반영했다(부록 B.3).
@@ -737,3 +737,13 @@ USB 열거·해제 지연·Hi-Z를 증명하지 않는다. 이 항목은 1b에�
 
 `probe-hello` 0.1.0은 고정 소스와 툴체인으로 독립 2회 빌드한 산출물이 일치했고, 릴리스·설치 검증까지 끝났다.
 산출물은 `firmware/releases/espprobe/0.1.0/`, 재현 절차와 검사는 [espprobe-build.md](../references/espprobe-build.md)에 있다.
+
+### 내부 전송·버스 소프트웨어의 추가 범위
+
+[직렬 owner](../references/espprobe-serial-owner.md)는 등록 릴리스·입장 projection·HELLO/HB·worker/lease 정리를
+합성 POSIX/helper에서 검증한다. 실제 pin subject·flash 계획·전체 USB descriptor/service/aux 사실의 운영
+생산자가 없으면 입장에서 거부하며, 공개 여섯 sim 도구에 실제 포트를 추가하지 않는다.
+
+[버스 C 코어](../references/espprobe-bus-core.md)는 typed HAL에서 고정 SPI 읽기/SFDP·24Cxx 시퀀서,
+중복/credit·두 패스·VREF/HB/해제를 검증한다. 현재 hello dispatcher·wire op·CMake·release·caps는 유지한다.
+실제 GPIO/ADC·wire dispatch·덤프 job/출처 원장은 이 결과에 포함되지 않으며 1b 전기적 검증을 대신하지 않는다.

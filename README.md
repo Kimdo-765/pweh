@@ -233,3 +233,5 @@ Android 펌웨어의 형식·raw GPT/LP 배치·AN 정적 점검과, 사람이 �
 ESP 계측기 I5 1a의 오프라인 프로토콜 시험은 [pweh-espprobe](mcp-servers/espprobe-mcp/README.md)를 쓴다.
 실제 보드 연결·플래시는 포함하지 않으며, 시뮬레이터 결과를 실기 검증으로 취급하지 않는다.
 고정 툴체인으로 펌웨어를 재현 빌드하고 사전 빌드를 설치하는 절차는 [빌드 문서](docs/references/espprobe-build.md)에 있다.
+내부 [직렬 연결 수명](docs/references/espprobe-serial-owner.md)과 [SPI/I²C 코어](docs/references/espprobe-bus-core.md)는
+합성 transport/HAL로 시험한다. 현재 공개 시뮬레이터와 hello-only 릴리스의 범위는 유지한다.

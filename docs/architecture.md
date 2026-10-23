@@ -37,7 +37,7 @@ SD 카드 이미지 해석 엔진(`pweh.fs`), 증거 보관 기록·EV 번호·�
 
 | 경로 | 내용 |
 |---|---|
-| `src/pweh/` | 공통 코어: `config.py`, `case.py`, `safety/`(분류기·게이트·승인·사람 증명·비밀값 마스킹), `provenance.py`(출처 원장), `jobs.py`, `runtime.py`, `mcpkit.py`(서버 생성 — 네이티브 Windows·Cygwin·MSYS 는 시작 거부), `ports.py`(포트 문법·경로·열거), `portidentity.py`(PnP/sysfs 식별·USB 형제 범위), `usb_binding.py`(주입된 Windows USB 관찰의 유일 후보·전체 잠금 범위·fresh 검사), `portlock.py`(open 전 OS 잠금·역할 표지), `serialtransport.py`(직렬 핸들·TIOCEXCL), `procutil.py`(PID 신원·생존 확인, pidfd·프로세스 그룹 종료), `espfmt.py`(ESP 파티션·앱·NVS 공용 해석 — fwtriage 는 재노출 shim), `console.py`(줄 경계 커서·열린 프롬프트·반복 접기), `safety/redact.py`(공용 자격증명 패턴·콘솔 마스킹), `hostenv.py`(실행 환경 감지 — WSL1/2·interop·네트워킹 모드·usbipd·컨테이너, 추천 경로; `pweh env`·doctor·`pipeline_environment`·esp 가 쓴다), `toolsdir.py`(외부 도구 위치, esptool.exe 후보), `report.py`, `cli.py`, `clientcfg.py`(Codex 클라이언트 설정: Codex 홈 감지 — CLI·데스크톱 앱 WSL 모드·`--codex-home`, 프로젝트 `.codex/config.toml` 생성, 전역 `config.toml` 병합과 trust 항목(tomlkit 으로 주석·서식 유지, 백업·다시 읽어 검사·원자적 교체) — `cli.py` 의 `mcp-config --client codex`·`codex-trust`·`mcp-check`·doctor 가 쓴다, docs/mcp-setup.md §3), `audit.py`, `errors.py`, `fsutil.py`, `formats.py`(mtdparts·uImage·U-Boot env·md.b/crc32 출력 파서), `evidence.py`(SD 카드 증거: 보관 기록 해시 체인 + 상태 폴더 고정점(세 단계 덧붙이기), 접수 기록과 상태 재생·`status_label`, EV 번호 확보와 중단된 접수 정리, 내용 도구의 무결성 입구, 이미징 로그 해석, 입력 검사·빠른 지문 — pweh-forensics 와 보고서 §8.1 이 쓴다), `safeio.py`(믿을 수 없는 파일·디렉터리: 일반 파일만 lstat → `O_NOFOLLOW\|O_NONBLOCK` → fstat 대조로 열기, 디렉터리는 한 구성요소씩 `O_DIRECTORY\|O_NOFOLLOW`, 파일은 디렉터리 fd 기준 `O_EXCL` 로 만들고 fd 로 fchmod, flock 잠금 — `pweh.evidence`·pweh-forensics·case-mcp 의 증거 가드가 쓴다), `fs/`(카드 이미지 파일 시스템 엔진: MBR/EBR·GPT·superfloppy, FAT12/16/32·exFAT. 순수 파이썬·읽기 전용, 공개 사양만으로 새로 작성, 모든 반복은 `Limits` 로, 공개 호출 하나는 `Budget`(시간·볼륨별 단계 상한·취소)으로 묶음, 디렉터리 데이터는 단위마다 검증한 뒤 해석), `schemas/`, `mocktarget/`, `data/` |
+| `src/pweh/` | 공통 코어: `config.py`, `case.py`, `safety/`(분류기·게이트·승인·사람 증명·비밀값 마스킹), `provenance.py`(출처 원장), `jobs.py`, `runtime.py`, `mcpkit.py`(서버 생성 — 네이티브 Windows·Cygwin·MSYS 는 시작 거부), `ports.py`(포트 문법·경로·열거), `portidentity.py`(PnP/sysfs 식별·USB 형제 범위), `usb_binding.py`(주입된 Windows USB 관찰의 유일 후보·전체 잠금 범위·fresh 검사), `portlock.py`(open 전 OS 잠금·역할 표지), `serialtransport.py`(직렬 핸들·TIOCEXCL·read/write timeout 위임), `espprobe_release.py`·`espprobe_admission.py`(고정 계측기 릴리스·내부 입장/HELLO 검증), `procutil.py`(PID 신원·생존 확인, pidfd·프로세스 그룹 종료), `espfmt.py`(ESP 파티션·앱·NVS 공용 해석 — fwtriage 는 재노출 shim), `console.py`(줄 경계 커서·열린 프롬프트·반복 접기), `safety/redact.py`(공용 자격증명 패턴·콘솔 마스킹), `hostenv.py`(실행 환경 감지 — WSL1/2·interop·네트워킹 모드·usbipd·컨테이너, 추천 경로; `pweh env`·doctor·`pipeline_environment`·esp 가 쓴다), `toolsdir.py`(외부 도구 위치, esptool.exe 후보), `report.py`, `cli.py`, `clientcfg.py`(Codex 클라이언트 설정: Codex 홈 감지 — CLI·데스크톱 앱 WSL 모드·`--codex-home`, 프로젝트 `.codex/config.toml` 생성, 전역 `config.toml` 병합과 trust 항목(tomlkit 으로 주석·서식 유지, 백업·다시 읽어 검사·원자적 교체) — `cli.py` 의 `mcp-config --client codex`·`codex-trust`·`mcp-check`·doctor 가 쓴다, docs/mcp-setup.md §3), `audit.py`, `errors.py`, `fsutil.py`, `formats.py`(mtdparts·uImage·U-Boot env·md.b/crc32 출력 파서), `evidence.py`(SD 카드 증거: 보관 기록 해시 체인 + 상태 폴더 고정점(세 단계 덧붙이기), 접수 기록과 상태 재생·`status_label`, EV 번호 확보와 중단된 접수 정리, 내용 도구의 무결성 입구, 이미징 로그 해석, 입력 검사·빠른 지문 — pweh-forensics 와 보고서 §8.1 이 쓴다), `safeio.py`(믿을 수 없는 파일·디렉터리: 일반 파일만 lstat → `O_NOFOLLOW\|O_NONBLOCK` → fstat 대조로 열기, 디렉터리는 한 구성요소씩 `O_DIRECTORY\|O_NOFOLLOW`, 파일은 디렉터리 fd 기준 `O_EXCL` 로 만들고 fd 로 fchmod, flock 잠금 — `pweh.evidence`·pweh-forensics·case-mcp 의 증거 가드가 쓴다), `fs/`(카드 이미지 파일 시스템 엔진: MBR/EBR·GPT·superfloppy, FAT12/16/32·exFAT. 순수 파이썬·읽기 전용, 공개 사양만으로 새로 작성, 모든 반복은 `Limits` 로, 공개 호출 하나는 `Budget`(시간·볼륨별 단계 상한·취소)으로 묶음, 디렉터리 데이터는 단위마다 검증한 뒤 해석), `schemas/`, `mocktarget/`, `data/` |
 | `mcp-servers/<name>-mcp/<name>_mcp/` | 서버 패키지 (`server.py` 에 `server` 객체와 `main()`), `mcp-servers/<name>-mcp/README.md`. pweh-forensics 는 `pweh.fs` 위의 작업(볼륨 고르기·호출 예산·목록 요약·호스트 오염 흔적·ref 확인·추출)을 `mcp-servers/forensics-mcp/forensics_mcp/fsops.py` 에 둔다 |
 | `skills/<skill>/SKILL.md` | 에이전트용 워크플로 (`.claude/skills/`·`.agents/skills/` 에 심볼릭 링크 — `pweh skills install --target claude-project`, `pweh skills install --target agents`) |
 | `native/emu/` | simavr 고정 커밋을 정적 링크하는 `pweh_avr_run.c`. 플래시 경계 밖 접근 보완, GDB 소켓 코드 제외, Intel HEX 입력(§6.9) |
@@ -1228,7 +1228,7 @@ source의 EV 해시는 접수 기록이고 이번 전체 재해시가 아니다.
 
 ### 6.10 pweh-espprobe (I5 1a, 오프라인)
 
-서버 내부 `probe-hello` 모델의 HELLO/HB 프로토콜만 시험한다. 실제 포트·소켓·펌웨어 실행·플래시 기능은 없다.
+공개 도구는 서버 내부 `probe-hello` 모델의 HELLO/HB 프로토콜만 시험한다. 공개 실제 포트·소켓·펌웨어 실행·플래시 기능은 없다.
 도구는 6개이며 job 도구와 새 safety 설정은 없다. 프로토콜은 [references/espprobe-protocol.md](references/espprobe-protocol.md),
 사용 흐름은 [서버 README](../mcp-servers/espprobe-mcp/README.md)에 있다.
 
@@ -1248,7 +1248,19 @@ cleanup은 케이스 허가 철회 뒤에도 가능하며, 새 HELLO를 자동 �
 
 시뮬레이터의 고정 MAC/hash/commit은 합성 식별이다. 실제 릴리스 manifest의 허용 대상으로 승격하지 않는다.
 연결·자가시험·종료 JSON은 `probe/`에 `kind=other`로 등록하고, 주기 HB는 카운터만 남긴다.
-실기 전송 계층·instrument-pin 생성·배선·flash-plan 도구는 이후 단계다. 현재 여섯 도구만 Claude allow에 명시한다.
+현재 여섯 도구만 Claude allow에 명시한다.
+
+내부 `espprobe_mcp.serial_owner`는 등록 릴리스·입장 값을 소비해 실제 공통 SerialTransport의
+HELLO/HB/RELEASE/BYE·한 worker·정리/lease 수명을 구현한다. 합성 관찰과 POSIX/helper로 시험하며,
+운영 pin subject·flash 계획·완전한 USB descriptor/service/aux 관찰 생산자가 없어 현재 실제 포트 입장은
+누락 사실을 거부한다. 순수 값 객체가 원장·증명의 진위를 대신 검증하지 않는다.
+start/self-test 5초·cleanup 10초는 caller/협력 마감이며 물리 I/O 강제 종료 보장이 아니다.
+worker join과 transport 정리가 확인된 뒤만 lease를 반환한다. [내부 연결 계약](references/espprobe-serial-owner.md)을 따른다.
+
+`firmware/espprobe/bus/`는 SPI 제한 읽기·SFDP·24Cxx 읽기·credit/중복·전압/시간 해제를 처리하는
+호스트 시험용 C 코어다. typed HAL만 사용하며 현재 hello CMake/release·빈 정책·wire credit 0은 유지한다.
+실제 GPIO·버스 wire dispatcher·덤프 job/출처 연결은 포함하지 않는다.
+[버스 코어 계약](references/espprobe-bus-core.md)과 실제 1b·1c 확인을 구분한다.
 
 **공용 코드와 핀아웃 형식**
 

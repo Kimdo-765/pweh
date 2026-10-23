@@ -43,6 +43,7 @@
 | **D Android** | 구현: Android 형식·raw GPT/LP 분할·AN 정적 점검, TAR/ZIP·SQLite·앱 기록·타임라인과 읽기 전용 외부 증거 참조. 파일 시스템 엔진은 FAT/exFAT이며 ext4/EROFS/F2FS 추출은 미지원. 계약 [android-analysis.md](android-analysis.md) | 없음(사람이 확보한 파일 사용) |
 | **I5 1a 계측기 오프라인** | 구현: 프로토콜·C/HAL 경계·골든 벡터, `probe-hello` 펌웨어, in-process 시뮬레이터 전용 `pweh-espprobe` 도구 6개, 4개 기존 서버의 고정 계측기 거부 규칙, 공용 JTAG·신호 코드. 독립 2회 재현 빌드와 릴리스·설치 검증 완료. 실제 포트·핀·버스 동작은 미지원. 계약 architecture §6.10 | 없음(실기 확인은 다음 관문) |
 | **관문** | 포트 라우팅 P1·P2는 하드웨어 없는 검증. 다음 실기 관문: DTR → Flipper `>: `, 1 MB 왕복, CU 응답, USB-UART 루프백, ESP32 `probe-hello` 확인(MI_00/MI_02·부팅 창·다운로드 모드 핀·303a:1001 iSerial — esp32-instrument §9). 실패하면 중단하고 usbipd 경로를 검토(PowerShell 직렬 relay 미구현) | Flipper/CU/ESP32/USB-UART |
+| **I5 내부 소프트웨어** | 등록 릴리스·입장 값·직렬 owner와 합성 POSIX/helper 수명 시험, host C의 제한 SPI/SFDP·24Cxx·credit/해제 시험. 공개 sim6와 hello-only 릴리스는 유지. 실제 관찰 생산자·GPIO·bus wire/job은 별도 | 실제 보드 없이 소프트웨어 시험 |
 | **1b·1c 장치 트랙** | pweh-uart Windows COM, pweh-flipper(CLI), pweh-nfc(오프라인 + CU 읽기), pweh-sdr(RTL-SDR), NFC 읽기·비교 흐름 / pweh-espprobe 1차 역할(전압 조사·핀 활동·로직 캡처·SPI·I2C 읽기) | 장비별 |
 | **2 확장** | 2a NFC 에뮬레이션 캡처, 2b 자동화 MVP, 2c 플레이 job / SD F2(카빙·CCTV 인덱스·타임라인·비밀·암호화 판정) / 포트 P3(Windows 판 openocd·sigrok) / espprobe 2d(핀 스캔·UART 브리지) | 캡처 카드·브리지 보드 등 |
 | **3 선택** | pweh-esp-write(별도 서버), SRAM 패치, 단일 IR 송신, espprobe 라디오 프로필, SD F3(ext4·원시 읽기 헬퍼·내보내기), macOS | opt-in |

@@ -773,12 +773,19 @@ OCR·EXIF·QR·PNG 텍스트는 신뢰할 수 없는 데이터다. 문구의 지
 결과는 뒤늦은 취소·감사 오류에도 보존한다. 작업 최대5초와 검사 결과 후 최종5초는 협력
 검사 예산이며 모든 OS I/O가 그 시간 안에 강제로 끝난다는 보장은 아니다.
 
-### espprobe I5 1a의 오프라인 범위
+### espprobe I5 1a와 내부 소프트웨어의 범위
 
-현재 pweh-espprobe는 내부 모델만 만들고 실제 COM·tty·소켓을 받지 않는다. HELLO/HB의 합성 식별·해시와
+현재 pweh-espprobe의 공개 도구는 내부 모델만 만들고 실제 COM·tty·소켓을 받지 않는다. HELLO/HB의 합성 식별·해시와
 프로토콜 성공은 실제 기기·펌웨어 출처 증명이 아니다. 결과의 simulator_only/hardware_verified 표시를 보존한다.
 모델은 HB 만료·수명 상한·명시 종료 뒤 자동으로 재연결하지 않으며, 종료 도구는 허가 철회 뒤에도 동작한다.
 실기 USB 열거·부팅/ROM 모드·DTR/RTS·해제 지연·전기적 상태는 1b에서 별도로 확인한다.
+
+내부 직렬 owner는 고정 릴리스와 현재 pin·백업·security·전체 USB 관찰을 결속한 값을 요구한다.
+현재 운영 생산자가 없는 사실을 bool이나 합성 HELLO로 채우지 않는다. helper의 물리 정리와 worker join이
+확인되지 않으면 lease/owner를 보존한다. caller timeout은 OS I/O가 끝났다는 증거가 아니다.
+호스트 시험용 버스 C는 전압/시간 guard, 제한 SPI opcode와 주소 폭, I²C 반복 START·마지막 NACK,
+credit/중복·해제를 검사한다. 오류 복구용 STOP/bus-clear·재읽기와 해제 뒤 새 전송을 하지 않는다.
+이 코어는 현재 hello 이미지에 링크되지 않으며 실제 ADC·Hi-Z 지연·GPIO·버스 신뢰성을 증명하지 않는다.
 
 기존 ESP·UART·sigrok·JTAGulator 진입점은 권위 증명 저장소의 유효한 전역 instrument-pin을 읽는다.
 고정이 없으면 PnP 조회와 역할 표지 접근을 생략한다. 고정이 있으면 현재 USB 부모·serial·위치를 대조하고,

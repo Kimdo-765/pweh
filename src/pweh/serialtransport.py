@@ -169,6 +169,14 @@ class SerialTransport:
         self._raw.timeout = value
 
     @property
+    def write_timeout(self) -> float:
+        return self._raw.write_timeout
+
+    @write_timeout.setter
+    def write_timeout(self, value: float) -> None:
+        self._raw.write_timeout = value
+
+    @property
     def dtr(self) -> bool:
         return self._raw.dtr
 

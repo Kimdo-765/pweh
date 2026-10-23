@@ -57,6 +57,30 @@ def test_order_setters_and_transport_does_not_own_lease(setup):
     assert events[-2:] == [termios.TIOCNXCL, "close"] and not lease.closed
 
 
+@pytest.mark.parametrize("backend", ["posix", "helper"])
+def test_write_timeout_reaches_unopened_raw_transport(backend):
+    """포트를 열지 않고 실제 두 backend의 timeout 위임과 shadow 부재를 확인한다."""
+    if backend == "posix":
+        raw = T.serial.Serial(port=None, write_timeout=5.0)
+    else:
+        from pweh.winserial.binary import HelperBinary
+        from pweh.winserial.serial import HelperSerial
+        raw = HelperSerial(helper=HelperBinary("/synthetic/helper.exe", "synthetic",
+                                               "0" * 64, "0" * 40, (1, 0, 0)),
+                           write_timeout=5.0)
+    transport = T.SerialTransport(raw)
+    try:
+        assert transport.write_timeout == 5.0
+        transport.write_timeout = 0.125
+        assert raw.write_timeout == transport.write_timeout == 0.125
+        assert "write_timeout" not in vars(transport)
+        raw.write_timeout = 0.25
+        assert transport.write_timeout == 0.25
+        assert not raw.is_open
+    finally:
+        transport.close()
+
+
 def test_guard_denial_and_closed_lease_factory_zero(setup):
     route, lease, st = setup
     def denied(): raise DeviceError("guard denied")
