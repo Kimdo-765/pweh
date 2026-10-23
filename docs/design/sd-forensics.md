@@ -1,6 +1,6 @@
 # 설계안: SD 카드 포렌식 (증거 분석 + 보안 분석)
 
-> 상태: **F1·C·D 및 F2 선택/목록 비밀값 검사·보고서 이름 대조·BMFF 구조/후보/prefix 추출·DHAV 구조 후보/단일 record 추출·BMFF 및 JPEG/AVC/PS/XM EV streaming 검색 구현, 나머지 F2·F3 후속 설계**. 현재 도구 계약은 [architecture.md](../architecture.md) §6.8이며, 구현 범위와 남은 기능은 §4에 구분했다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md).
+> 상태: **F1·C·D 및 F2 선택 파일/명시 구간/목록 비밀값 검사·보고서 이름 대조·BMFF 구조/후보/prefix 추출·DHAV 구조 후보/단일 record 추출·BMFF 및 JPEG/AVC/PS/XM EV streaming 검색 구현, 나머지 F2·F3 후속 설계**. 현재 도구 계약은 [architecture.md](../architecture.md) §6.8이며, 구현 범위와 남은 기능은 §4에 구분했다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md).
 > 근거: 2026-10-19 조사 네 갈래(이미징·쓰기 방지, 파일 시스템·복구 도구, CCTV SD 형식, 보안 분석·통합·법률)와 갈래마다 적대적 검증(사실 확인 124건 중 수정 31건, 반박 2건 반영).
 > 개발 환경 에서 직접 확인한 것: FAT/exFAT 순수 파이썬 시제품(286줄)이 생성 이미지 6개·추출 20건에서 TSK 와 맞거나 더 정확했고, PhotoRec 7.1 을 헤드리스로 돌려 봤으며,
 > 실제 Hikvision `index00.bin` 두 개(v2·v3)를 해석했다. 실제 카드는 열지 않았다.
@@ -110,6 +110,7 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 > 저장은 `storage="copy"`가 기본이다. D의 `storage="reference"`는 비안전 설정 `forensics.reference_roots` 아래 실제 읽기 전용 마운트의 일반 파일만 제자리 참조하며 매번 정책·마운트를 재확인한다. 증거 목록의 전체 재해시가 끝나야 참조 EV의 성공 확인서를 만든다(§10 결정 2).
 > `case.json` 의 `evidence[]` 색인 대신 보관 기록(`intake` 사건이 해시·크기·지문의 권위 값)을 다시 읽어 상태를 정하고 접수 기록 파일은 그것과 대조한다.
 > 접수 아티팩트 kind는 사본의 `evidence-image`와 참조 기록의 `evidence-reference`다(추출물은 매니페스트로 센다). 발견사항 카테고리 `insecure-storage`·`privacy` 는 아직 없다. D의 `pweh-fwtriage` raw GPT 분할은 `pweh.fs`의 파티션 파서를 재사용한다(증거 파일 시스템 접근은 아님).
+> - **명시 텍스트 구간**: `forensics_scan_secrets(offset=..., length=...)`는 같은 EV의 1바이트~4 MiB 구간을 읽어 기존 마스킹 규칙을 적용한다. 선택 경계의 불완전한 줄은 후보·digest 없이 미검사하며, 내용 선택·문맥 peek만 구간 안에 한정한다. 기존 EV 무결성 읽기는 유지하고 구간 SHA와 접수 SHA를 구분한다([계약](../references/secrets-evidence-range.md)).
 > - **저장된 후보 추출**: `forensics_extract_media_candidate`가 같은 EV의 후보 보고서·선택 파일 또는 명시 구간을 다시 검증하고 지정 후보의 앞부분 하나를 파생 파일로 쓴다. 녹화 전체 복구·재생을 판정하지 않는다. [입출력·보관 기록 계약](../references/media-prefix-extract.md).
 > - **선택 연속 구조 후보**: `forensics_media_candidates`는 완전한 선택 파일 또는 명시 EV 구간(최대64 MiB)에서 ftyp·연속 최상위 상자 prefix 후보와 검색/검사/목록/관계 완료도를 기록한다. 구간은 offset/length·EV 크기·구간 SHA를 결속하며 [구간 계약](../references/media-evidence-range.md)을 따른다. 원본 파일 경계·녹화 복구·물리 카빙 검증은 아니며 계약은 architecture §6.8이다.
 > - **명시 exFAT 잔여 후보**: 세 후보 도구의 region=residual은 partition/ref가 지정한 파일의 VDL 뒤 전체(최대64 MiB)를 선택한다. DL/VDL·복구 신원·잔여 SHA를 닫힌19필드에 결속하고 기존 세 추출기로 한 후보만 재검증해 추출한다. 후보 위치는 잔여 상대이며 파일 논리 위치를 EV 물리 위치로 해석하지 않는다. 이전 녹화·삭제 여부는 확정하지 않는다([계약](../references/exfat-residual-candidates.md)).
@@ -154,8 +155,9 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 
 ### 5.2 카드 쪽 (pweh-forensics)
 
-- **구현 — `forensics_scan_secrets`**: 접수한 EV 자체 또는 FAT/exFAT·TAR/ZIP에서 명시적으로 고른 파일 하나를 완전히 읽은 뒤(최대 4 MiB), UTF-8 텍스트의 공통 자격증명·콘솔 토큰 패턴을 검사한다. BOM은 허용하며 UTF-16·바이너리·영상음성·중첩 압축은 지원하지 않는다. 기본은 평문이고 `xor_key=144`를 명시하면 0x90 보기만 검사한다. 자동 XOR 키 탐색·벤더 판정·fwtriage YAML 전체 규칙은 구현 범위에 없다.
+- **구현 — `forensics_scan_secrets`**: 접수한 EV 자체 또는 FAT/exFAT·TAR/ZIP에서 명시적으로 고른 파일 하나, 또는 offset/length를 함께 준 EV 텍스트 구간을 완전히 읽은 뒤(최대 4 MiB), UTF-8 텍스트의 공통 자격증명·콘솔 토큰 패턴을 검사한다. BOM은 허용하며 UTF-16·바이너리·영상음성·중첩 압축은 지원하지 않는다. 기본은 평문이고 `xor_key=144`를 명시하면 0x90 보기만 검사한다. 자동 XOR 키 탐색·벤더 판정·fwtriage YAML 전체 규칙은 구현 범위에 없다.
   결과는 원문 없는 위치·길이·고정 `<masked>`·경계가 완전한 값의 케이스 솔트 지문이다. 계정·키 이름·URL·파일명·변환 평문은 새 산출물에 남기지 않는다. 16 KiB를 넘는 줄은 전부 건너뛰며 시간·줄·후보·범위 상한과 복구 불확실성을 `partial` 및 검사/미검사 바이트 범위로 기록한다. 후보 0건도 파일 전체나 카드의 안전을 뜻하지 않는다.
+  명시 구간은 selector 없이 method=auto이며 앞뒤 불완전 논리줄을 selection_boundary로 미검사하고 후보·digest를 만들지 않는다. 선택 내용·문맥 peek만 구간 안에 한정하고 기존 앞뒤1 MiB EV 무결성 읽기는 유지한다. 선택 SHA는 이번 구간 해시, 접수 SHA는 EV 입수 기록이며 전체 재해시로 과장하지 않는다([구간 계약](../references/secrets-evidence-range.md)).
   분석 JSON은 `secrets-scan` 보관 기록에 해시로 결속한다. 복구한 자격증명으로 로그인하지 않는다. 정확한 인자·반환 계약은 architecture §6.8과 `schemas/secrets-scan.schema.json`이다.
 - **구현 — `forensics_scan_secrets_from_list`**: 같은 EV의 저장 FAT/exFAT 목록에서 고정 정책으로 파일을 자동 선정하고 새 도달성/metadata 검증 뒤 기존 마스킹 scanner를 적용한다. 최대32파일·합16 MiB·파일당4 MiB·총200후보이며 목록 누락·정책 제외·미검사를 각각 센다. exFAT ValidDataLength 뒤 잔여는 검사하지 않고 whole_card_examined=false를 유지한다. 입력 목록의 사건·전체 SHA를 최종 잠금에서 재검증하고 `secrets-survey` JSON 하나에 결속한다. [상세 계약](../references/secrets-survey.md).
 - 기존 inventory의 제한된 `pssh` 구조 관찰은 구현했다. SystemID/KID/data와 sample entry·sample 암호화는 미검사이며, 아래 제안 도구나 암호화 판정의 완료로 보지 않는다.
@@ -175,7 +177,7 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
   분리하는 이유: fwtriage 문자열 탐색이 복구한 개인 영상을 건드리지 않게, 0444 원본과 보관 기록을 한곳에, 케이스 종료 때 보존·파기를 단순하게.
 - 아티팩트 kind: `evidence-image`, `recovered-file`, `carved-file`(처음에는 `other` + `extra.type` 도 가능). 발견사항 카테고리 추가: `insecure-storage`, `privacy`(+ `sd-*` 태그).
 - Skill 하나: `sd-card-forensics`(mode = evidence / security / both), 요약 스키마 `sd-forensics`(mode 에 따른 if/then, `audio_decoded`·`face_plate_processing`·`uploads` 는 항상 false 상수).
-  목록 자동 검사 결과는 `secret_survey_results`에 참조·예정/완전 읽기/eligible 미읽기 수와 검사 범위를 기록하고 whole_card_examined=false를 유지한다. 선택 비밀값 검사 결과는 `secret_scan_results`에 결과 JSON 경로·해시·상태·후보 수·검사/미검사 바이트·사유만 기록하고 `privacy.secret_plaintext_returned=false`로 남긴다. 보고서 이름 대조 결과는 `ioc_scan_results`에 결과 위치·해시·상태·저장 후보 수·partition·입력 보고서 위치만 기록한다. 선택 미디어 구조는 `media_inventory_results`에 EV·결과 위치/해시·상태·선택 크기·보고 상자 수만 기록한다. BMFF 연속 후보 `media_candidate_results`와 DHAV 구조 후보 `dhav_candidate_results`는 각각 EV·결과 위치/해시·상태·선택 크기·저장 후보 수6필드만 기록한다. EV streaming 검색은 `dhav_scan_results`·`bmff_scan_results`에 각각 EV·결과 위치/해시·상태·EV 크기·저장 후보 수6필드를 기록하며 EV 크기를 검색량으로 보지 않는다. `media_unit_scan_results`는 EV·결과 위치/해시·상태·format·후보 수6필드이며 재개/미검사 범위는 원보고서와 notes에 남긴다. 별도 Skill/phase는 만들지 않는다.
+  목록 자동 검사 결과는 `secret_survey_results`에 참조·예정/완전 읽기/eligible 미읽기 수와 검사 범위를 기록하고 whole_card_examined=false를 유지한다. 선택 파일/구간 비밀값 검사 결과는 `secret_scan_results`의 기존8필드에 결과 JSON 경로·analysis_sha256·상태·후보 수·검사/미검사 바이트·사유(selection_boundary 포함)만 기록하고 `privacy.secret_plaintext_returned=false`로 남긴다. 보고서 이름 대조 결과는 `ioc_scan_results`에 결과 위치·해시·상태·저장 후보 수·partition·입력 보고서 위치만 기록한다. 선택 미디어 구조는 `media_inventory_results`에 EV·결과 위치/해시·상태·선택 크기·보고 상자 수만 기록한다. BMFF 연속 후보 `media_candidate_results`와 DHAV 구조 후보 `dhav_candidate_results`는 각각 EV·결과 위치/해시·상태·선택 크기·저장 후보 수6필드만 기록한다. EV streaming 검색은 `dhav_scan_results`·`bmff_scan_results`에 각각 EV·결과 위치/해시·상태·EV 크기·저장 후보 수6필드를 기록하며 EV 크기를 검색량으로 보지 않는다. `media_unit_scan_results`는 EV·결과 위치/해시·상태·format·후보 수6필드이며 재개/미검사 범위는 원보고서와 notes에 남긴다. 별도 Skill/phase는 만들지 않는다.
   SKILL_DATA_SCHEMAS 와 master-prompt §5 표에 함께 등록. 보고서에 증거 목록·보관 사슬·고지 섹션(report.py).
 
 ## 7. 법률·개인정보 (법률 자문 아님 — 2026-10-19 law.go.kr 원문 기준)
@@ -199,7 +201,7 @@ F1과 C·D의 추가 구현은 §4를 따른다. 아래의 `safety.forensics.*` 
 |---|---|---|
 | F0 | 공통 코어(증명: `write-blocker`·`provenance-import`, `safety.forensics.*`, master-prompt "SD 포렌식" 목표 분기), 에이전트 호스트 위험 규칙(§0) | 단위 테스트 |
 | F1 | 보안(펌웨어): fwtriage SD 표면 SD-01~09 + 빈틈 수정 + `uart_capture_boot` sd_events. 증거 핵심: 접수·해시·보관 기록·검증·오염 검사, 파티션·FAT/exFAT 목록·추출·삭제 파일, 증거 목록, `sd-card-forensics`(security + 기본 evidence) | `mkfs.fat --invariant`+mtools(SOURCE_DATE_EPOCH)로 결정적 FAT, `mkfs.exfat`+시험용 주입기, 가짜 sysfs/부팅 로그, 해시 사슬 변조 시험, 원본 불변 확인 |
-| F2 | BMFF 구조/후보/prefix 추출·DHAV 고정 구조 후보/EV streaming 검색/단일 record 추출·JPEG/AVC/PS/XM 선택 및 EV streaming 후보/단일 추출·선택/목록 비밀값·보고서 이름 대조 구현. 남음: 지원 subset 밖의 형식 변형·범용 카빙, Hikvision·Dahua 인덱스·이름 규칙·녹화 타임라인·암호화/침해 판정, 외부 도구(TSK·PhotoRec·ewf·ffprobe) | 구현한 DHAV subset은 순수 합성 bytes로 검증; 후속은 ffmpeg testsrc·합성 인덱스, 외부 실행은 `@pytest.mark.external` |
+| F2 | BMFF 구조/후보/prefix 추출·DHAV 고정 구조 후보/EV streaming 검색/단일 record 추출·JPEG/AVC/PS/XM 선택 및 EV streaming 후보/단일 추출·선택 파일/명시 구간/목록 비밀값·보고서 이름 대조 구현. 남음: 지원 subset 밖의 형식 변형·범용 카빙, Hikvision·Dahua 인덱스·이름 규칙·녹화 타임라인·암호화/침해 판정, 외부 도구(TSK·PhotoRec·ewf·ffprobe) | 구현한 DHAV subset은 순수 합성 bytes로 검증; 후속은 ffmpeg testsrc·합성 인덱스, 외부 실행은 `@pytest.mark.external` |
 | F3 | ext4(디렉터리 + jbd2), (선택) Windows 원시 읽기 헬퍼, (선택) 한 번 쓰는 승인 기반 영상 내보내기 | `mke2fs -d`(원본 시각 고정 시 결정적) + debugfs |
 
 ## 9. 확인이 필요한 것

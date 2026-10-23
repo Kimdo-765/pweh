@@ -6364,7 +6364,7 @@
    },
    {
     "name": "forensics_scan_secrets",
-    "description": "증거의 선택 텍스트 파일 1개에서 자격증명·토큰 후보를 오프라인 검사한다. 소유/허가·보관 기록·무결성 검사 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택하며, 둘 다 없으면 EV 자체를 읽는다. 완전한 파일만, 해제 크기 최대 4 MiB·UTF-8/BOM만 받는다. xor_key는 생략하거나 144(0x90)를 명시하며 자동 XOR 탐색은 없다. max_hits는 1~200, max_seconds는 0 초 초과·최대 45초(선택·읽기·검사 공통). 16 KiB를 넘는 줄과 한도로 못 본 범위는 partial로 표시한다. 결과는 위치·길이·규칙·고정 마스킹·케이스 솔트 지문뿐이며 원문·키·URL·경로는 반환/저장하지 않는다. 영상·음성 이름은 거부하고 미디어/바이너리 내용은 unsupported다. 후보 없음은 비밀 없음의 증명이 아니다. 마스킹 JSON을 forensics/analysis/에 0444로 저장하고 secrets-scan 보관 기록에 해시를 결속한다.",
+    "description": "증거의 선택 텍스트 파일 1개에서 자격증명·토큰 후보를 오프라인 검사한다. 소유/허가·보관 기록·무결성 검사 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택하며, 둘 다 없으면 EV 자체를 읽는다. 완전한 파일만, 해제 크기 최대 4 MiB·UTF-8/BOM만 받는다. offset/length를 함께 지정하면 EV 안의 1바이트~4MiB 명시 구간만 선택한다. 구간은 exact 정수이며 partition/ref/path와 혼용하지 않고 method=auto만 받는다. 구간 밖의 텍스트 문맥을 읽지 않으며 앞뒤 불완전 경계 줄은 미검사로 남긴다. 기존 EV 무결성 지문 검사는 유지하고, source의 접수 SHA와 선택 구간 SHA를 구분한다. xor_key는 생략하거나 144(0x90)를 명시하며 자동 XOR 탐색은 없다. max_hits는 1~200, max_seconds는 0 초 초과·최대 45초(선택·읽기·검사 공통). 16 KiB를 넘는 줄과 한도로 못 본 범위는 partial로 표시한다. 결과는 위치·길이·규칙·고정 마스킹·케이스 솔트 지문뿐이며 원문·키·URL·경로는 반환/저장하지 않는다. 영상·음성 이름은 거부하고 미디어/바이너리 내용은 unsupported다. 후보 없음은 비밀 없음의 증명이 아니다. 마스킹 JSON을 forensics/analysis/에 0444로 저장하고 secrets-scan 보관 기록에 해시를 결속한다.",
     "params": [
      {
       "name": "case_id",
@@ -6419,6 +6419,18 @@
       "type": "number/integer",
       "required": false,
       "default": 45
+     },
+     {
+      "name": "offset",
+      "type": "integer/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "length",
+      "type": "integer/null",
+      "required": false,
+      "default": null
      }
     ],
     "annotations": {

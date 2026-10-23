@@ -360,8 +360,8 @@ def test_maximum_population_of_32_child_reports_and_global_200_hits_fits():
 
 
 def test_source_less_child_definition_matches_existing_single_contract():
-    # 기존 공개 single schema의 의도한 두 필드와 survey 범위상한만 다르다.
-    expected = copy.deepcopy(schemas.load("secrets-scan"))
+    # 기존 파일 분기의 의도한 두 필드와 survey 범위상한만 다르다.
+    expected = copy.deepcopy(schemas.load("secrets-scan")["$defs"]["legacy_report"])
     for key in ("$schema", "$id", "title", "description"):
         expected.pop(key, None)
     expected["properties"].pop("source")

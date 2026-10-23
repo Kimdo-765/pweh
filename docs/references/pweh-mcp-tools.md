@@ -323,8 +323,8 @@
   선택한 증거 SQLite에서 SMS·통화·연락처·브라우저 기록을 스키마 프로필로 분석해 내용도 반환한다. 입력 선택·무결성·64MiB/45초 제한은 forensics_sqlite_inventory와 같다. families는 sms/calls/contacts/browser, include_deleted는 WAL 과거기록·freelist 복구 후보 포함이며 삭제 확정을 뜻하지 않는다. 최대 ma
 - **`forensics_timeline(case_id, evidence_id, partition?, analysis_paths?, max_events?, max_seconds?)`**  
   증거 FAT/exFAT·TAR/ZIP의 파일 시각과 명시한 앱 분석 JSON의 사건을 타임라인으로 묶는다. analysis_paths는 같은 EV의 android-artifacts 보관 기록·SHA256에 맞는 JSON만 받는다(최대16개, 합16MiB). 시각의 raw/단위/epoch/time_basis를 보존하며 FAT·ZIP DOS의 시간대는 추정하지 않는다. UTC로 바꿀 수 없는 사
-- **`forensics_scan_secrets(case_id, evidence_id, partition?, ref?, path?, method?, xor_key?, max_hits?, max_seconds?)`**  
-  증거의 선택 텍스트 파일 1개에서 자격증명·토큰 후보를 오프라인 검사한다. 소유/허가·보관 기록·무결성 검사 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택하며, 둘 다 없으면 EV 자체를 읽는다. 완전한 파일만, 해제 크기 최대 4 MiB·UTF-8/BOM만 받는다. xor_key는 생략하거나 144(0x90)를 명시하며 자동 XOR 탐색은 없다. max_hits는 1
+- **`forensics_scan_secrets(case_id, evidence_id, partition?, ref?, path?, method?, xor_key?, max_hits?, max_seconds?, offset?, length?)`**  
+  증거의 선택 텍스트 파일 1개에서 자격증명·토큰 후보를 오프라인 검사한다. 소유/허가·보관 기록·무결성 검사 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택하며, 둘 다 없으면 EV 자체를 읽는다. 완전한 파일만, 해제 크기 최대 4 MiB·UTF-8/BOM만 받는다. offset/length를 함께 지정하면 EV 안의 1바이트~4MiB 명시 구간만 선택한다. 구간은 e
 - **`forensics_scan_secrets_from_list(case_id, evidence_id, fs_list_path, partition?, xor_key?, max_seconds?)`**  
   같은 EV의 보관 기록에 결속된 FAT/exFAT fs-list 전체 JSON에서 파일을 자동 선정해 비밀값 후보를 검사한다. fs_list_path는 forensics/analysis/fs-list-EV-NNNN-NNN.json 생성 경로이며, partition 생략 시 저장 목록의 모든 지원 볼륨을 대상으로 한다. 목록의 순서대로 디렉터리·미디어 이름·빈 data·4MiB 초과 파일을 제
 - **`forensics_sd_ioc_scan(case_id, evidence_id, firmware_result_path, fs_list_path, partition?, max_matches?, max_seconds?)`**  

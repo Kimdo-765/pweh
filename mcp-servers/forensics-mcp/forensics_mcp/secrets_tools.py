@@ -10,7 +10,9 @@ import dataclasses
 import hashlib
 import json
 import math
+import os
 import re
+import stat
 import threading
 import time
 from pathlib import PurePosixPath
@@ -26,6 +28,10 @@ from . import fsops
 
 MAX_FILE_BYTES = 4 << 20
 MAX_REPORT_BYTES = 1 << 20
+MAX_RANGE_END = (1 << 63) - 1
+RANGE_CHUNK_BYTES = 64 << 10
+_RANGE_KEYS = frozenset({"kind", "evidence_id", "evidence_sha256", "evidence_size", "offset",
+                         "length", "selected_sha256", "selected_size", "complete"})
 _REF = re.compile(r"(?:arc:[0-9]{1,9}|[0-9a-z+]{1,40}/[0-9]{1,9})\Z")
 _HASH = re.compile(r"[0-9a-f]{64}\Z")
 _METHODS = frozenset({"auto", "chain", "nofatchain", "contiguous", "skip-allocated",
@@ -76,8 +82,12 @@ def _check(cancelled: threading.Event, deadline: float, *, time_limit: bool = Tr
 
 
 def _arguments(partition: Any, ref: Any, path: Any, method: Any, xor_key: Any,
-               max_hits: Any, max_seconds: Any) -> float:
+               max_hits: Any, max_seconds: Any, *, offset: Any = None, length: Any = None) -> float:
     """입력값을 오류 문자열에 넣지 않고 검증한 뒤 공통 deadline을 만든다."""
+    if offset is not None or length is not None:
+        _range_arguments(offset, length)
+        if partition is not None or ref is not None or path is not None or method != "auto":
+            raise ValidationFailed(_ERRORS["validation_failed"])
     if ref is not None and path is not None:
         raise ValidationFailed("ref 와 path 는 함께 지정하지 않습니다.")
     for item in (ref, path):
@@ -99,6 +109,81 @@ def _arguments(partition: Any, ref: Any, path: Any, method: Any, xor_key: Any,
     if type(max_seconds) not in (int, float) or not 0 < max_seconds <= 45 or not math.isfinite(max_seconds):
         raise ValidationFailed("max_seconds 는 0 초 초과, 45 초 이하의 유한한 값이어야 합니다.")
     return time.monotonic() + max_seconds
+
+
+def _range_arguments(offset: Any, length: Any) -> None:
+    if (type(offset) is not int or not 0 <= offset <= MAX_RANGE_END
+            or type(length) is not int or not 1 <= length <= MAX_FILE_BYTES
+            or length > MAX_RANGE_END - offset):
+        raise ValidationFailed(_ERRORS["validation_failed"])
+
+
+def _range_identity(st: os.stat_result) -> tuple[int, ...]:
+    return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_mode, st.st_nlink
+
+
+def _range_state(opened: E.OpenedEvidence, offset: int, length: int) -> int:
+    """초기 열린 fd와 접수 크기·구간 산술을 대조한다. 내용·경로를 다시 열지 않는다."""
+    _range_arguments(offset, length)
+    size = opened.intake["size"]
+    if type(size) is not int or not 1 <= size <= MAX_RANGE_END or length > size - offset:
+        raise ValidationFailed(_ERRORS["validation_failed"])
+    before, now = opened.st, os.fstat(opened.fd)
+    if (not stat.S_ISREG(before.st_mode) or not stat.S_ISREG(now.st_mode)
+            or before.st_nlink != 1 or now.st_nlink != 1 or before.st_size != size
+            or _range_identity(before) != _range_identity(now)):
+        raise E.IntegrityProblem("텍스트 구간 검사 중 증거의 파일 신원 또는 상태가 변경되었습니다.",
+                                 reason="source-changed")
+    return size
+
+
+def _check_secret_range(opened: E.OpenedEvidence, source: dict, *, deadline: float,
+                        cancelled: threading.Event, time_limit: bool = True) -> None:
+    """최종 취소·같은 fd seal·출처 상수를 확인하며 구간 밖 문맥은 읽지 않는다."""
+    _check(cancelled, deadline, time_limit=time_limit)
+    if (type(source) is not dict or set(source) != _RANGE_KEYS
+            or source["kind"] != "evidence" or source["complete"] is not True
+            or type(source["evidence_id"]) is not str
+            or re.fullmatch(r"EV-[0-9]{4,6}", source["evidence_id"]) is None
+            or source["evidence_id"] != opened.evidence_id
+            or any(type(source[k]) is not str or _HASH.fullmatch(source[k]) is None
+                   for k in ("evidence_sha256", "selected_sha256"))
+            or source["evidence_sha256"] != opened.intake["hashes"]["sha256"]
+            or type(source["evidence_size"]) is not int or type(source["selected_size"]) is not int
+            or source["selected_size"] != source["length"]):
+        raise ValidationFailed(_ERRORS["validation_failed"])
+    size = _range_state(opened, source["offset"], source["length"])
+    if source["evidence_size"] != size:
+        raise ValidationFailed(_ERRORS["validation_failed"])
+    _check(cancelled, deadline, time_limit=time_limit)
+
+
+def _read_secret_range(opened: E.OpenedEvidence, evidence_id: str, offset: int, length: int, *,
+                       deadline: float, cancelled: threading.Event) -> tuple[bytes, dict]:
+    """선택한 구간 전체만 최대64KiB씩 읽고 SHA를 한 번 계산한다. 짧은 읽기는 실패다."""
+    _check(cancelled, deadline)
+    size = _range_state(opened, offset, length)
+    chunks, digest = [], hashlib.sha256()
+    position = 0
+    while position < length:
+        _check(cancelled, deadline)
+        _range_state(opened, offset, length)
+        need = min(RANGE_CHUNK_BYTES, length - position)
+        chunk = os.pread(opened.fd, need, offset + position)
+        _range_state(opened, offset, length)
+        _check(cancelled, deadline)
+        if type(chunk) is not bytes or len(chunk) != need:
+            raise PwehError(_ERRORS["secrets_scan_failed"], code="secrets_scan_failed")
+        digest.update(chunk)
+        chunks.append(chunk)
+        position += len(chunk)
+    data = b"".join(chunks)
+    source = {"kind": "evidence", "evidence_id": evidence_id,
+              "evidence_sha256": opened.intake["hashes"]["sha256"], "evidence_size": size,
+              "offset": offset, "length": length, "selected_sha256": digest.hexdigest(),
+              "selected_size": len(data), "complete": True}
+    _check_secret_range(opened, source, deadline=deadline, cancelled=cancelled)
+    return data, source
 
 
 def _reject_media_name(name: Any) -> None:
@@ -181,11 +266,15 @@ def _selection_coverage(report: dict, source: dict) -> None:
 
 async def _scan_run(S: Any, *, case_id: str, evidence_id: str, partition: int | None,
                     ref: str | None, path: str | None, method: str, xor_key: int | None,
-                    max_hits: int, max_seconds: float) -> dict:
-    from pweh.secretscan import ScanLimits, scan_secrets
+                    max_hits: int, max_seconds: float, offset: int | None = None,
+                    length: int | None = None) -> dict:
+    from pweh.secretscan import (RANGE_PROFILE, ScanLimits, SelectionBoundary, scan_secrets,
+                                validate_secrets_range_accounting)
 
-    deadline = _arguments(partition, ref, path, method, xor_key, max_hits, max_seconds)
+    deadline = _arguments(partition, ref, path, method, xor_key, max_hits, max_seconds,
+                          offset=offset, length=length)
     cancelled = threading.Event()
+    ranged = offset is not None
 
     def work() -> dict:
         try:
@@ -196,29 +285,62 @@ async def _scan_run(S: Any, *, case_id: str, evidence_id: str, partition: int | 
                     _reject_media_name(path)
                     if ref is None and path is None:
                         _reject_media_name(opened.intake.get("source_name"))
-                    data, member = fsops.read_selected_file(
-                        opened.fd, partition=partition, ref=ref, path=path, method=method,
-                        max_bytes=MAX_FILE_BYTES, deadline=deadline, cancel=cancelled.is_set)
-                    _reject_media_name(member.get("path"))
+                    if ranged:
+                        data, source = _read_secret_range(opened, evidence_id, offset, length,
+                                                          deadline=deadline, cancelled=cancelled)
+                        expected_source = dict(source)
+                        boundary = SelectionBoundary(offset == 0, offset + length == source["evidence_size"])
+                    else:
+                        data, member = fsops.read_selected_file(
+                            opened.fd, partition=partition, ref=ref, path=path, method=method,
+                            max_bytes=MAX_FILE_BYTES, deadline=deadline, cancel=cancelled.is_set)
+                        _reject_media_name(member.get("path"))
+                        _check(cancelled, deadline)
+                        source = _source(opened, evidence_id, member, data)
                     _check(cancelled, deadline)
-                    source = _source(opened, evidence_id, member, data)
                     limits = dataclasses.replace(ScanLimits(), max_hits=max_hits,
                                                  max_output_bytes=MAX_REPORT_BYTES - (16 << 10))
                     report = scan_secrets(data, digest=lambda value: S.rt().secret_digest(case_id, value),
                                           xor_key=xor_key, limits=limits, deadline=deadline,
-                                          cancel=cancelled.is_set)
-                    report["source"] = source
+                                          cancel=cancelled.is_set,
+                                          **({"boundary": boundary} if ranged else {}))
+                    report["source"] = dict(source)
                     report["params"]["max_seconds"] = max_seconds
-                    _selection_coverage(report, source)
+                    if not ranged:
+                        _selection_coverage(report, source)
                     schemas.validate("secrets-scan", report)
+                    if ranged:
+                        validate_secrets_range_accounting(report)
+                        expected_params = {"xor_key": xor_key, "max_hits": max_hits, "decoder": "utf-8",
+                                           "max_seconds": max_seconds, "prefix_complete": boundary.prefix_complete,
+                                           "suffix_complete": boundary.suffix_complete}
+                        if (report["profile"] != RANGE_PROFILE or report["source"] != expected_source
+                                or any(type(report["source"][k]) is not type(v) for k, v in expected_source.items())
+                                or report["params"] != expected_params
+                                or any(type(report["params"][k]) is not type(v) for k, v in expected_params.items())
+                                or len(data) != expected_source["selected_size"]):
+                            raise ValidationFailed(_ERRORS["validation_failed"])
                     raw = json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-                    if len(raw.encode("utf-8")) > MAX_REPORT_BYTES:
+                    if len(raw.encode("utf-8")) + int(ranged) > MAX_REPORT_BYTES:
                         raise ValidationFailed("분석 보고서 크기 상한을 넘었습니다.")
                     _check(cancelled, deadline, time_limit=False)
+                    def final_check() -> None:
+                        if ranged:
+                            _check_secret_range(opened, expected_source, deadline=deadline,
+                                                cancelled=cancelled, time_limit=False)
+                            if report["source"] != expected_source or any(
+                                    type(report["source"][k]) is not type(v) for k, v in expected_source.items()):
+                                raise ValidationFailed(_ERRORS["validation_failed"])
+                            if (report["profile"] != RANGE_PROFILE or report["params"] != expected_params
+                                    or any(type(report["params"][k]) is not type(v)
+                                           for k, v in expected_params.items())):
+                                raise ValidationFailed(_ERRORS["validation_failed"])
+                        else:
+                            _check(cancelled, deadline, time_limit=False)
                     return E.store_analysis(
                         case, opened, report, event="secrets-scan", custody_log=S.custody(case),
                         reference_roots=lambda: S._reference_roots(),
-                        check=lambda: _check(cancelled, deadline, time_limit=False),
+                        check=final_check,
                         on_commit=lambda entry: S._audit_custody(case, entry))
                 except E.IntegrityProblem as exc:
                     S._record_integrity_failure(case, evidence_id, exc, found_by="secrets-scan")
@@ -246,6 +368,10 @@ def register_secrets_tools(server: Any, namespace: dict[str, Any]) -> None:
             "증거의 선택 텍스트 파일 1개에서 자격증명·토큰 후보를 오프라인 검사한다. "
             "소유/허가·보관 기록·무결성 검사 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택하며, "
             "둘 다 없으면 EV 자체를 읽는다. 완전한 파일만, 해제 크기 최대 4 MiB·UTF-8/BOM만 받는다. "
+            "offset/length를 함께 지정하면 EV 안의 1바이트~4MiB 명시 구간만 선택한다. "
+            "구간은 exact 정수이며 partition/ref/path와 혼용하지 않고 method=auto만 받는다. "
+            "구간 밖의 텍스트 문맥을 읽지 않으며 앞뒤 불완전 경계 줄은 미검사로 남긴다. "
+            "기존 EV 무결성 지문 검사는 유지하고, source의 접수 SHA와 선택 구간 SHA를 구분한다. "
             "xor_key는 생략하거나 144(0x90)를 명시하며 자동 XOR 탐색은 없다. "
             "max_hits는 1~200, max_seconds는 0 초 초과·최대 45초(선택·읽기·검사 공통). "
             "16 KiB를 넘는 줄과 한도로 못 본 범위는 partial로 표시한다. "
@@ -261,10 +387,11 @@ def register_secrets_tools(server: Any, namespace: dict[str, Any]) -> None:
         ref: str | None = None, path: str | None = None, method: str = "auto",
         xor_key: StrictInt | None = None, max_hits: StrictInt = 200,
         max_seconds: StrictFloat | StrictInt = 45,
+        offset: StrictInt | None = None, length: StrictInt | None = None,
     ) -> dict:
         return await _scan_run(S, case_id=case_id, evidence_id=evidence_id, partition=partition,
                                ref=ref, path=path, method=method, xor_key=xor_key,
-                               max_hits=max_hits, max_seconds=max_seconds)
+                               max_hits=max_hits, max_seconds=max_seconds, offset=offset, length=length)
 
     namespace["forensics_scan_secrets"] = forensics_scan_secrets
     try:

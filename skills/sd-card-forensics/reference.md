@@ -203,7 +203,7 @@ E01 입력과 외부 도구(TSK·PhotoRec·ewf·ffprobe), ext4·NTFS 목록, 장
 
 ## 9. 선택 텍스트 비밀값 검사
 
-`forensics_scan_secrets`는 선택 파일 하나만 읽는다. 인자·범위·고정 한도는 architecture §6.8, 결과 구조는 `schema_get(name="secrets-scan")`이다. 결과의 `ok`는 호출 성공이고 `report.status`가 검사 상태다. 비밀값·원래 파일명·계정·URL을 요약에 추가하지 않는다.
+`forensics_scan_secrets`는 완전한 선택 파일 하나 또는 [§25](#25-명시-ev-텍스트-구간의-비밀값-검사)의 명시 EV 텍스트 구간을 검사한다. 인자·범위·고정 한도는 architecture §6.8, 결과 구조는 `schema_get(name="secrets-scan")`이다. 결과의 `ok`는 호출 성공이고 `report.status`가 검사 상태다. 비밀값·원래 파일명·계정·URL을 요약에 추가하지 않는다.
 
 | SD 요약 `secret_scan_results[]` | 도구 응답 출처 |
 |---|---|
@@ -214,7 +214,7 @@ E01 입력과 외부 도구(TSK·PhotoRec·ewf·ffprobe), ext4·NTFS 목록, 장
 | scanned_bytes / unscanned_bytes | report.coverage의 같은 필드 |
 | reasons | report.coverage.reasons의 고정 코드 |
 
-`privacy.secret_plaintext_returned`는 false다. 후보별 상세 위치·규칙·지문은 원문 없는 분석 JSON에 두고 요약에는 합계·범위·참조만 옮긴다. 경계가 불완전한 후보는 digest=null이며 비밀번호가 없다는 뜻이 아니다. `unsupported`/미검사 범위/복구 불확실성은 notes와 필요시 blockers에 남긴다. 보관 기록은 `secrets-scan` 사건이고 결과 SHA256은 `forensics_evidence_list`의 derived로 다시 확인한다.
+`privacy.secret_plaintext_returned`는 false다. 후보별 상세 위치·규칙·지문은 원문 없는 분석 JSON에 두고 요약에는 합계·범위·참조만 옮긴다. 기존 파일 안의 값 경계가 불완전한 후보는 digest=null이며 비밀번호가 없다는 뜻이 아니다. 명시 구간의 선택 경계 줄은 후보·digest 자체를 만들지 않고 selection_boundary로 제외한다. `unsupported`/미검사 범위/복구 불확실성은 notes와 필요시 blockers에 남긴다. 보관 기록은 `secrets-scan` 사건이고 결과 SHA256은 `forensics_evidence_list`의 derived로 다시 확인한다.
 
 ## 10. 운영 한계
 
@@ -503,3 +503,25 @@ source.offset+candidate.offset, length/unit_subtype/boundary_kind/framing_status
 candidates_reported(report.summary)의6필드, 최대100개다. EV 크기·단위 bytes·완료값은 넣지 않는다.
 기존 candidate 결과·recovered는 그대로 사용하며 추출물을 직접 열지 않는다.
 [출력·예산·재개 계약](../../docs/references/media-unit-scan.md)을 따른다.
+
+## 25. 명시 EV 텍스트 구간의 비밀값 검사
+
+`forensics_scan_secrets`의 offset/length를 함께 지정한다. exact int·offset≥0·length 1바이트~4 MiB,
+선택 끝≤실제 EV 크기이며 partition/ref/path 없이 method=auto다. 둘 다 생략하면 기존 파일 선택이다.
+범위를 자동으로 찾거나 원시 EV를 직접 읽지 않는다. 원 EV 미디어 이름 거부와 raw/XOR 전체
+UTF-8/media 검사를 유지하며 선택 밖 문맥을 읽거나 trim·대체 decode하지 않는다.
+
+서버가 offset==0 및 offset+length==EVsize로 두 경계 flag를 만든다. 시작이0이 아니면 첫 논리줄,
+끝이 EV 끝이 아니고 CR/LF로 끝나지 않으면 마지막 줄을 selection_boundary로 통째로 미검사한다.
+같은 한 줄이면 한 번만 제외하며 후보·digest는 만들지 않는다. 안쪽 완전 줄의 기존 규칙만 적용한다.
+partial·검사/미검사 계수·hits_are_lower_bound를 보존하고 후보0건으로 비밀 부재를 단정하지 않는다.
+
+새 profile=utf8-masked-secrets-ev-range-v1과 source 9필드/params 6필드은 원보고서에만 둔다.
+selected_sha256은 이번 구간 전체의 XOR 전 해시, evidence_sha256은 접수 EV 해시다.
+no_outside_range_read는 텍스트 선택·경계 peek 한정이며 기존 앞뒤 1 MiB EV 무결성 읽기는 유지한다.
+빠른 재확인과 접수 해시를 이번 EV 전체 재해시로 설명하지 않는다.
+
+§9의 secret_scan_results 8필드 그대로, analysis_sha256=analysis.sha256이며 reasons에
+selection_boundary를 보존한다. 구간/경계 미검사 의미는 notes에 남기고 원문·키·URL은 추가하지 않는다.
+같은 45초/최종 취소·무결성/0444·secrets-scan 사건·late commit 보존은 기존 계약이다.
+[입력·경계·저장·요약 계약](../../docs/references/secrets-evidence-range.md)을 따른다.

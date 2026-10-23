@@ -479,7 +479,8 @@
                 "unsupported_media",
                 "invalid_utf8",
                 "unsupported_encoding",
-                "unsupported_unicode"
+                "unsupported_unicode",
+                "selection_boundary"
               ]
             }
           }

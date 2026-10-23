@@ -74,7 +74,7 @@ description: Analyze authorized SD images and firmware SD surfaces using pweh-fo
 | `forensics_partitions`, `forensics_image_check` | 파티션 구조·볼륨 정보, 호스트 오염 흔적 (읽기 전용) |
 | `forensics_fs_list` / `forensics_allocation_window` / `forensics_cluster_report` | 파일 목록 / 명시 FAT/exFAT 창의 할당 상태 / 현재 live 참조·할당 대조. 창은 [reference.md §21](reference.md#21-명시-구간의-현재-할당-상태), 참조 대조는 [§22](reference.md#22-현재-live-참조와-할당-일관성)의 완료 상태·미검사·후속 후보 규칙을 따른다 |
 | `forensics_extract` | 고른 파일만 추출(job) → `forensics/recovered/` (직접 열지 않음) |
-| `forensics_scan_secrets` / `forensics_scan_secrets_from_list` | 선택 텍스트 하나 / 저장 FAT/exFAT 목록의 자동 선정·마스킹된 후보·검사/미검사 범위 기록 |
+| `forensics_scan_secrets` / `forensics_scan_secrets_from_list` | 선택 파일·명시 EV 텍스트 구간 / 저장 FAT/exFAT 목록의 자동 선정·마스킹된 후보·검사/미검사 범위 기록 |
 | `forensics_sd_ioc_scan` | 검증된 카드 목록과 기존 펌웨어 보고서의 이름 후보·검사 한계만 기록 |
 | `forensics_media_inventory` | 완전한 선택 파일 하나의 BMFF 상자 구조·검사/opaque/미검사 범위만 기록 |
 | `forensics_media_candidates` / `forensics_bmff_scan` | 선택 파일/구간의 ftyp prefix 후보 / 큰 EV의 bounded 검색. stream은 절대 위치·재개·미검색 범위를 기록 |
@@ -216,7 +216,7 @@ forensics_fs_list(case_id="<id>", evidence_id="EV-0001")
 
 ### 6a. 비밀값 후보가 필요한 경우
 
-`forensics_scan_secrets(case_id="<id>", evidence_id="EV-0001", ref="<목록의 ref>")`로 목적에 필요한 UTF-8 텍스트 하나만 검사한다(최대4 MiB). 원문을 직접 열거나 앞부분만 검사하지 않는다. ref/path는 배타적, 작은 텍스트 EV 자체는 둘 다 생략한다. 기본은 평문이고 근거가 있을 때만 `xor_key=144`를 명시한다. 저장 FAT/exFAT 목록에서 자동 검사할 때는 `forensics_scan_secrets_from_list(case_id="<id>", evidence_id="EV-0001", fs_list_path="<응답의 result_path>")`를 쓰며 [reference.md §15](reference.md#15-저장-목록의-자동-비밀값-검사)에 따라 `secret_survey_results`에 기록한다. 목록 누락·정책 제외·미검사를 보존하며 whole_card_examined=false를 유지한다.
+`forensics_scan_secrets(case_id="<id>", evidence_id="EV-0001", ref="<목록의 ref>")`로 목적에 필요한 UTF-8 텍스트 하나만 검사한다(최대4 MiB). 선택 파일은 원문을 직접 열거나 자동으로 앞부분만 잘라 검사하지 않는다. ref/path는 배타적, 작은 텍스트 EV 자체는 둘 다 생략한다. 큰 EV의 명시 텍스트 구간은 offset/length를 함께 지정하고 partition/ref/path 없이 method=auto를 쓴다([reference.md §25](reference.md#25-명시-ev-텍스트-구간의-비밀값-검사)). 경계 줄은 후보·지문을 만들지 않고 selection_boundary로 미검사하며 기존 EV 무결성 읽기는 유지한다. 기본은 평문이고 근거가 있을 때만 `xor_key=144`를 명시한다. 저장 FAT/exFAT 목록에서 자동 검사할 때는 `forensics_scan_secrets_from_list(case_id="<id>", evidence_id="EV-0001", fs_list_path="<응답의 result_path>")`를 쓰며 [reference.md §15](reference.md#15-저장-목록의-자동-비밀값-검사)에 따라 `secret_survey_results`에 기록한다. 목록 누락·정책 제외·미검사를 보존하며 whole_card_examined=false를 유지한다.
 - 마스킹된 후보·케이스 솔트 지문·검사/미검사 범위를 [reference.md §9](reference.md#9-선택-텍스트-비밀값-검사)에 따라 `secret_scan_results`에 기록하고 `privacy.secret_plaintext_returned=false`를 유지한다. 후보0건도 비밀 없음/안전 판정이 아니다. 원문 키·값·계정·URL을 요약에 넣거나 자격증명으로 로그인하지 않는다.
 
 ### 6b. 선택 미디어의 구조·후보가 필요한 경우
