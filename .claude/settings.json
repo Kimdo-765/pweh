@@ -114,6 +114,7 @@
       "mcp__pweh-forensics__forensics_fs_list",
       "mcp__pweh-forensics__forensics_extract",
       "mcp__pweh-forensics__forensics_extract_media_candidate",
+      "mcp__pweh-forensics__forensics_extract_dhav_candidate",
       "mcp__pweh-forensics__forensics_job_cancel",
       "mcp__pweh-emu__emu_start",
       "mcp__pweh-emu__emu_write",

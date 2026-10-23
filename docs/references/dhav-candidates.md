@@ -99,7 +99,8 @@ encryption_assessed, original_file_boundary_verified, complete_recording.
 기존 privacy.audio_decoded·recording_content_viewed는 false로 유지한다.
 
 기존 BMFF inventory/candidates/prefix 추출과 독립 도구다. `forensics_extract_media_candidate`는
-BMFF 보고서만 받으며 DHAV record 추출은 아직 제공하지 않는다. 전체 카드 카빙·조각 재조립·
+BMFF 보고서만 받는다. DHAV 후보 하나의 파생 추출은 별도
+[`forensics_extract_dhav_candidate`](dhav-record-extract.md)를 사용한다. 전체 카드 카빙·조각 재조립·
 Dahua 인덱스·녹화 타임라인·암호화 판정·영상 해독도 이 기능의 완료 범위가 아니다.
 
 ## 소스 근거와 해석의 한계

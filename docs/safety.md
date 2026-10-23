@@ -579,6 +579,12 @@ pweh-forensics 와 그 코어(`pweh.fs`·`pweh.evidence`·`pweh.safeio`)가 지�
 - 출력은 `recovered/media-prefix-NNN/`의 고정 이름 두 파일이다. 같은 custody 잠금 안에서 입력·사건·출력의 부모/이름/열린 fd·seal·전체 해시를 확인한다. 커밋 전 실패는 확인한 자기 inode만 정리하고, 교체물·모르는 파일은 보존한다. 커밋 뒤 늦은 취소·보조 오류는 기록한 출력을 지우지 않는다.
 - prefix 작성 완료는 원본 경계·완전한 녹화·재생 검증이 아니다. 추출 내용은 반환하거나 직접 열지 않는다. `derived.recorded`는 매니페스트와 사건의 결속이며 이후 바이너리 전체 재해시 보장이 아니다. 고정 한도와 같은 OS 계정의 최종 검사 뒤 변경 가능성은 [계약](references/media-prefix-extract.md)에 따른다.
 
+**저장된 DHAV record 추출**
+
+- `forensics_extract_dhav_candidate`는 같은 EV의 유일한 DHAV 후보 사건·보고서 SHA와 원래 완전 선택 bytes의 SHA·크기·출처를 재대조한다. 저장된 정수 후보 번호 하나의 offset·record_length만 사용하며 새 범위나 복구 방법을 받지 않는다.
+- 출력은 `recovered/dhav-record-NNN/{record-000.bin,manifest.json}` 두 파일이다. 같은 custody 잠금에서 EV·보고서·원래 사건·출력의 FD/부모/이름·전체 해시를 재검증한다. 커밋 전 실패·취소는 자기 inode만 정리하고 교체물은 보존한다. 커밋 후 취소·감사 오류는 기록 결과를 유지한다.
+- 원래 부분성과 재선택 불확실성을 보존하며 record 복사 완료를 영상·음성 해독·재생·시각·암호화·완전 녹화 검증으로 해석하지 않는다. 추출물을 직접 열지 않는다. `derived.recorded`는 매니페스트·사건 결속이며 이후 바이너리 재해시 보장이 아니다. [한도·출처·실패 계약](references/dhav-record-extract.md).
+
 **펌웨어 FIT 서명 구조 관찰**
 
 - `fw_sd_surface.fit_security`는 제한된 비압축 FDT v17의 선언 구조를 본다. key hint·required 표지·서명 노드가 있어도 실제 키 신뢰, 서명 유효성, 부팅 검증 강제나 SD 업데이트 경로 연결을 증명하지 않는다. `verify=n`도 환경값 관찰이며 대상의 빌드·부팅 경로와 신뢰 키가 추가로 필요하다.

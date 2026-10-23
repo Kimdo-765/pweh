@@ -316,5 +316,23 @@ JSON은 `dhav-candidates` 사건과 결속되며 evidence-list derived에서 생
 
 공통45초·anchor probe1024·후보128·구조 필드 판독1 MiB·JSON1 MiB 한도와9개 false 값,
 footer 반복 길이의 PWEH 추론은 [DHAV 후보 계약](../../docs/references/dhav-candidates.md)을 따른다.
-이는 메타데이터 분석이며 DHAV record 추출·영상 해독·녹화 타임라인·암호화 판정은 미지원이다.
+이는 메타데이터 분석이며 저장 후보 한 record의 추출은 다음 §17을 따른다. 영상 해독·녹화 타임라인·암호화 판정은 미지원이다.
 기존 `forensics_extract_media_candidate`는 BMFF 보고서만 받는다.
+
+## 17. 저장된 DHAV record 추출
+
+`forensics_extract_dhav_candidate(case_id, evidence_id, analysis_path, candidate_index)`는 같은 EV의
+저장된 DHAV 후보 하나만 선택한다. analysis_path는 후보 분석 응답의 analysis.path이며,
+번호는 실제 report.candidates에 있는 정수다. 새 offset/length나 복구 방법을 넣지 않는다.
+job_id를 받아 `forensics_job_status`로 확인하고 필요한 경우 `forensics_job_cancel`로 취소한다.
+
+원래 선택 파일/명시 구간 전체의 SHA·크기·선택 신원을 다시 대조해 record_length bytes만
+복사한다. 출력은 `dhav-record-NNN/record-000.bin`과 매니페스트다. source/candidate/coverage와
+원래·새 불확실성을 보존한다. complete=true는 복사 완료이며 원본 경계·완전 녹화·재생 판정이 아니다.
+원시 시각·채널·본문을 반환하지 않으며 에이전트는 추출물을 직접 열지 않는다.
+
+기존 `recovered`의 files/bytes/manifests에 합산하고 partial·미확인 사항은 notes에 적는다.
+`dhav_candidate_results`는 후보 분석 참조6필드를 유지한다. 증거 목록의 derived.recorded는
+매니페스트·extract 사건 결속이며 이후 바이너리 재해시 보장이 아니다.
+입력64 MiB·보고서1 MiB·매니페스트64 KiB·공통45초·출력1개와 취소·정리 계약은
+[DHAV record 추출](../../docs/references/dhav-record-extract.md)을 따른다.
