@@ -61,6 +61,10 @@ class _Result(Exception):
         self.group, self.reason = group, reason
 
 
+class _SelectionLimit(Exception):
+    """stream의 anchor별 재검증 범위가 부족하다. 실제 EOF/문법 오류가 아니다."""
+
+
 def _reject(reason="invalid_header"):
     raise _Result("rejected", reason)
 
@@ -90,9 +94,12 @@ def _new(size: int, format: str) -> dict:
 
 
 class _Scanner:
-    def __init__(self, data, format, limits, deadline, cancel):
-        self.data, self.size, self.format = data, len(data), format
+    def __init__(self, data, format, limits, deadline, cancel, *, input_size=None,
+                 read_at=None, max_selection_bytes=None):
+        self.data, self.size, self.format = data, len(data) if input_size is None else input_size, format
         self.limits, self.deadline, self.cancel = limits, deadline, cancel
+        self.read_at, self.max_selection_bytes = read_at, max_selection_bytes
+        self.selection_start = self.selection_end = 0
         self.report = _new(self.size, format)
         self.cov, self.summary, self.rows = (self.report[k] for k in ("coverage", "summary", "candidates"))
 
@@ -124,23 +131,64 @@ class _Scanner:
             raise _Stop("step_limit")
         self.cov["structure_steps"] += 1
 
+    def witness(self, end):
+        if self.read_at is not None:
+            if self.max_selection_bytes is not None and end - self.selection_start > self.max_selection_bytes:
+                raise _SelectionLimit()
+            self.selection_end = max(self.selection_end, end)
+
+    def eof(self):
+        self.witness(self.size)
+
+    def extent(self, end):
+        """본문을 읽지 않는 선언 범위도 재검증 선택 끝에 결속한다."""
+        if end > self.size:
+            self.eof()
+            _incomplete("unit_beyond_selection")
+        self.witness(end)
+
+    def fetch(self, start, size):
+        return self.data[start:start + size] if self.read_at is None else self.read_at(start, size)
+
     def read(self, start, size):
         if start < 0 or size < 0 or start + size > self.size:
+            self.eof()
             _incomplete()
+        self.witness(start + size)
         self.charge(size)
-        return self.data[start:start + size]
+        # pack stuffing/header가0B일 수 있다. 외부 reader의 leaf는 항상 양수다.
+        return self.fetch(start, size) if size else b""
 
     def find(self, needle, start, end, *, search=False):
         """작은 창만 예약하며 marker 사이 긴 본문을 Python byte 루프로 순회하지 않는다."""
-        while start < end:
-            stop = min(end, start + _WINDOW - len(needle) + 1)
-            read_end = min(end, stop + len(needle) - 1)
+        boundary = end
+        if self.read_at is not None and self.max_selection_bytes is not None:
+            boundary = min(end, self.selection_start + self.max_selection_bytes)
+        while start < boundary:
+            stop = min(boundary, start + _WINDOW - len(needle) + 1)
+            read_end = min(boundary, stop + len(needle) - 1)
             self.charge(read_end - start, search=search)
-            found = self.data.find(needle, start, read_end)
+            if self.read_at is None:
+                found = self.data.find(needle, start, read_end)
+            else:
+                local = self.fetch(start, read_end - start).find(needle)
+                found = -1 if local < 0 else start + local
             if found >= 0:
+                self.witness(found + len(needle))
                 return found
+            self.witness(read_end)
             start = stop
+        if boundary < end:
+            raise _SelectionLimit()
         return -1
+
+    def probe_unit(self, start):
+        """기존 parser 한 벌로 row와 재검증에 필요한 exclusive 끝을 반환한다."""
+        self.selection_start = self.selection_end = start
+        parser = {"jpeg": self.jpeg, "avc-annexb": self.avc, "mpeg2-ps": self.ps, "xm": self.xm}[self.format]
+        row = parser(start)
+        self.witness(start + row["length"])
+        return row, self.selection_end
 
     def row(self, start, end, subtype, boundary, *, framing="closed", reason=None):
         return {"index": len(self.rows), "offset": start, "length": end - start, "format": self.format,
@@ -163,6 +211,7 @@ class _Scanner:
         while True:
             self.step()
             if pos >= self.size:
+                self.eof()
                 _incomplete("open_tail")
             if scanned:
                 found = self.find(b"\xff", pos, self.size)
@@ -207,8 +256,7 @@ class _Scanner:
             if length < 2:
                 _reject("invalid_length")
             end = pos + length
-            if end > self.size:
-                _incomplete("unit_beyond_selection")
+            self.extent(end)
             if code == 0xc0:
                 if frame is not None:
                     _reject("invalid_sequence")
@@ -278,6 +326,7 @@ class _Scanner:
                 break
             self.step()
             if pair + 2 >= self.size:
+                self.eof()
                 _incomplete("open_tail")
             third = self.read(pair + 2, 1)[0]
             if third in (0, 1):
@@ -292,12 +341,14 @@ class _Scanner:
             else:
                 pos = pair + 2
         if end is None:
+            self.eof()
             _incomplete("open_tail")
         # 최초 종료0부터 delimiter까지 모두0이어야 한다. 다른 자료를 건너뛰지 않는다.
         nxt = end
         while nxt < self.size and self.read(nxt, 1) == b"\0":
             nxt += 1
         if nxt >= self.size:
+            self.eof()
             _incomplete("open_tail")
         if self.read(nxt, 1) != b"\1" or nxt - end < 2:
             _reject("invalid_escape")
@@ -333,6 +384,7 @@ class _Scanner:
         while True:
             self.step()
             if pos == self.size:
+                self.eof()
                 if media:
                     return self.row(start, pos, "mpeg2_pack", "validated_prefix", framing="prefix", reason="selection_end")
                 _incomplete("open_tail")
@@ -357,8 +409,7 @@ class _Scanner:
                 if is_media and not length:
                     _unsupported("zero_length_packet")
                 end = pos + 6 + length
-                if end > self.size:
-                    _incomplete("unit_beyond_selection")
+                self.extent(end)
                 if stream in (0xbb, 0xbc) and length < (6 if stream == 0xbb else 10):
                     _reject("invalid_length")
                 if is_media:
@@ -407,8 +458,7 @@ class _Scanner:
         if not length:
             _reject("empty_payload")
         end = start + header_size + length
-        if end > self.size:
-            _incomplete("unit_beyond_selection")
+        self.extent(end)
         return self.row(start, end, "type_" + format(kind, "02x"), "declared_length")
 
     def scan(self):

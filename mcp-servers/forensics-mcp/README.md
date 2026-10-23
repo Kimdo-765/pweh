@@ -7,6 +7,7 @@
 - 대상: 운영자가 **소유**했거나 **서면 허가**를 받은 기기의 카드. 카드에는 제3자의 영상·음성(개인정보)이 들어 있다.
 - 코드: `forensics_mcp/server.py`(도구, 접수·검증·증거 목록, 서버 시작·종료), `forensics_mcp/fsops.py`(볼륨 고르기·호출 예산·목록 요약·잘림 사유·호스트 오염 흔적·추출).
   파일 시스템 엔진은 코어 `src/pweh/fs/`, 보관 기록·증거 목록은 `src/pweh/evidence.py`, 믿을 수 없는 파일을 열고 쓰는 저수준 도구는 `src/pweh/safeio.py`.
+- 도구:30개. 전체195개 MCP 도구의 인자·설명은 아래 카탈로그에서 확인한다.
 - 계약: [`docs/architecture.md`](../../docs/architecture.md) §3(케이스 디렉터리)·§4(SD 카드 증거)·§6.8(도구). 설계: [`docs/design/sd-forensics.md`](../../docs/design/sd-forensics.md) §3·§4·§6·§7.
   인자·설명 원문: [`docs/references/pweh-mcp-tools.md`](../../docs/references/pweh-mcp-tools.md). 안전·데이터 취급: [`docs/safety.md`](../../docs/safety.md) §3.5·§3.6(알려진 한계 전체)·§7.
 - 실행: `pweh-forensics-mcp` 또는 `python -m forensics_mcp` (stdio). 증거 접수·파일 시스템은 순수 파이썬이며 정지 이미지 해독은 Pillow, OCR·바코드는 선택 설치한 Tesseract·ZBar를 쓴다.
@@ -65,6 +66,7 @@
 | `forensics_bmff_scan(case_id, evidence_id, start_offset=0, max_scan_bytes=1073741824, max_seconds=45)` | 같은 EV fd에서 ftyp 시작점을 streaming 검색한다. 검색 읽기8..1 GiB·구조 읽기 별도1 MiB·45초·1024probe·128후보, 완전한 상자 경계의 prefix≤64 MiB. EV 절대 위치·재개·미검사 범위를 기록하고 bmff-scan 사건과 결속한다. 기존 구간 후보로 다시 검증한 뒤 추출한다. [계약](../../docs/references/bmff-scan.md) |
 | `forensics_allocation_window(case_id, evidence_id, partition, offset, length, max_seconds=45)` | 명시 FAT/exFAT 데이터 창의 현재 할당 metadata를 allocated/unallocated/bad/unknown으로 분류한다. EV 절대 offset·길이1~64 MiB, metadata4 MiB·행128·45초·JSON1 MiB. 창 완료와 상태 판정 완료, 미검사 suffix를 구분하고 allocation-window 사건에 결속한다. 과거 파일 소속·복구·재생은 판정하지 않는다. [계약](../../docs/references/allocation-window.md) |
 | `forensics_cluster_report(case_id, evidence_id, partition, max_seconds=45)` | 명시 FAT/exFAT 파티션의 현재 live 참조와 할당 metadata를 대조한다. 참조 순회·지도·할당·행 표본의 완료를 구분하며 불완전 지도에서 미참조 수는 null이다. metadata32 MiB·클러스터1,048,576·행128·45초·JSON1 MiB. cluster-report 사건에 결속하며 고아 파일·과거 소속·녹화/재생을 확정하지 않는다. [계약](../../docs/references/cluster-report.md) |
+| `forensics_media_unit_scan(case_id, evidence_id, format, start_offset=0, max_scan_bytes=1073741824, max_seconds=45)` | 명시 JPEG/AVC/PS/XM subset을 같은 EV fd에서 streaming 검색한다. 검색≤1 GiB·구조 읽기/작업량 각각128 MiB·45초·행128·선택64 MiB. EV 절대 위치·재검증 선택 범위·재개를 media-unit-scan 사건에 결속하고 기존 구간 검사→추출로 연결한다. [계약](../../docs/references/media-unit-scan.md) |
 | `forensics_media_unit_candidates(case_id, evidence_id, format, partition=None, ref=None, path=None, method="auto", max_seconds=45, offset=None, length=None, region="data")` | 완전한 선택 파일/EV 구간에서 JPEG·AVC Annex B·MPEG-2 PS·XM 중 명시한 subset의 단위 후보를 찾는다. 선택64 MiB·1024probe·128후보·8192구조단계·작업량128 MiB·JSON1 MiB·45초. closed/prefix와 미검사·출처 불확실성을 구분하고 media-unit-candidates 사건에 결속한다. [계약](../../docs/references/media-unit-candidates.md). `region="residual"`은 명시 exFAT partition/ref의 VDL 뒤 선택이다([잔여 계약](../../docs/references/exfat-residual-candidates.md)). |
 | `forensics_extract_media_unit(case_id, evidence_id, analysis_path, candidate_index)` | job. 같은 EV의 저장된 미디어 단위 후보·선택 전체 SHA·출처를 재검증하고 후보 상대 offset/length 하나만 추출한다. unit-000.bin과 manifest, 기존 extract 사건의 media_unit. 원래 부분성을 보존하며 영상/음성을 반환하지 않는다. 보고서1 MiB·선택64 MiB·manifest64 KiB·공통45초. [계약](../../docs/references/media-unit-extract.md) |
 | `forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)` | job. 같은 EV의 저장된 `media-candidates` 보고서에서 후보 번호 하나의 검증된 prefix를 추출한다. 원래 선택 파일 또는 EV 구간 전체의 해시·출처를 다시 대조. 출력은 고정 이름 바이너리와 매니페스트, 기존 `extract` 보관 기록. 입력64 MiB·보고서1 MiB·매니페스트64 KiB·공통45초. 내용 반환·녹화 복구/재생 판정 없음 |
@@ -237,7 +239,7 @@
 - 이 경계는 위 서버들만 막는다. 에이전트의 파일 도구나 REA(`open_binary`·`read_bytes`)는 `forensics/` 를 읽을 수 있으므로, 전용 이미지 도구 외에 이미지 사본과 추출물을 직접 열지 않는 것은 에이전트 규칙이다. 정지 그림은 원본 EV의 선택자를 사용하고 반환된 정규화 미리보기만 본다.
   전체 파일 목록 JSON 은 메타데이터라 추출할 `ref` 를 고를 때 읽어도 되지만, 요약·보고서에는 개수·범위·해시만 옮긴다.
 - 증거 입구는 부모 디렉터리를 고정하고 하드링크를 거부한다. 다른 서버의 경로 가드와 같은 계정 경합의 남은 범위는 §8을 본다.
-- `.claude/settings.json`: 조회 전용 도구 `forensics_partitions`, `forensics_image_check`와 로컬 쓰기가 있는 명시적 예외 `forensics_job_status`·`forensics_jobs`·`forensics_image_hints`·`forensics_scan_secrets`·`forensics_scan_secrets_from_list`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`·`forensics_dhav_candidates`·`forensics_dhav_scan`·`forensics_bmff_scan`·`forensics_media_unit_candidates`·`forensics_allocation_window`·`forensics_cluster_report`·`forensics_sqlite_inventory`·`forensics_android_artifacts`·`forensics_timeline`은 `allow`,
+- `.claude/settings.json`: 조회 전용 도구 `forensics_partitions`, `forensics_image_check`와 로컬 쓰기가 있는 명시적 예외 `forensics_job_status`·`forensics_jobs`·`forensics_image_hints`·`forensics_scan_secrets`·`forensics_scan_secrets_from_list`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`·`forensics_dhav_candidates`·`forensics_dhav_scan`·`forensics_bmff_scan`·`forensics_media_unit_candidates`·`forensics_media_unit_scan`·`forensics_allocation_window`·`forensics_cluster_report`·`forensics_sqlite_inventory`·`forensics_android_artifacts`·`forensics_timeline`은 `allow`,
   쓰는 도구 `forensics_intake_start`, `forensics_verify_start`, `forensics_acquisition_attest`, `forensics_evidence_list`, `forensics_fs_list`, `forensics_extract`, `forensics_extract_media_candidate`, `forensics_extract_dhav_candidate`, `forensics_job_cancel` 은 `ask` 다
   (Claude Code 에서는 bypass 모드에서도 묻는다). 클라이언트 권한은 보조 장치이고, 증거를 지키는 것은 보관 기록·지문·경계다.
 
@@ -358,6 +360,24 @@ offset/length는 선택 상대다. closed와 PS prefix, 검색/관찰 후보 처
 복사 완료일 뿐이다. 요약은 media_unit_candidate_results의7필드 및 기존 recovered·notes다.
 
 [subset·출처·예산](../../docs/references/media-unit-candidates.md)과 [파생 추출·보관 계약](../../docs/references/media-unit-extract.md)을 따른다.
+
+## EV의 미디어 단위 스트리밍 검색
+
+`forensics_media_unit_scan`은 명시 JPEG/AVC/PS/XM subset을 같은 EV fd에서 검색한다.
+검색 읽기4bytes..1 GiB·구조 읽기와 작업량 각각128 MiB·45초·1024probe·128후보를 호출 전체에
+적용한다. 후보 offset/length는 EV 절대 위치/검증 단위 길이이며 selection_offset/selection_length는
+같은 후보를 구간에서 재검증할 범위다(최대64 MiB). 선행 읽기 끝과 선택 끝을 혼동하지 않는다.
+
+next_offset은 처리 재개 위치다. 요청 시작 이후 검색과 start0인 이번 호출의 전체 검색,
+관찰한 anchor 검사와 후보 목록 완료를 구분한다. PS prefix는 검사가 끝나도 partial일 수 있다.
+source4의 SHA는 접수 EV 해시이며 이번 전체 재해시가 아니다. 원문·시각·단위 해시·본문 의미를
+반환하지 않고 할당·삭제·원본 경계·재생·암호화·완전 녹화를 판정하지 않는다.
+
+media-unit-scan 사건에 결속한 결과의6필드 참조(EV, 결과 위치/해시, 상태, format, 후보 수)를
+media_unit_scan_results에 남긴다. 필요한 행의 selection_offset/selection_length를 같은 format의
+기존 구간 후보에 넘긴 뒤 절대 위치·길이·분류가 일치하는 실제 행 번호를 고른다.
+evidence_end는 구간 selection_end에 대응한다. 그 새 보고서만 기존 추출기에 전달하며 scan
+보고서 직접 추출과 row0 가정은 허용하지 않는다. [예산·재개·재검증 계약](../../docs/references/media-unit-scan.md).
 
 ## EV의 BMFF 스트리밍 검색
 

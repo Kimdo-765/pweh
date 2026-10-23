@@ -107,7 +107,7 @@ analysis.path와 index를 넘겨 추출한다. 추출물은 직접 열지 않는
 candidates_reported의7필드만 남기고 상세 한계는 보고서와 notes에 보존한다.
 
 큰 EV의 자동 전체 검색·미할당 분류·조각 재조립·녹화 타임라인은 이 도구의 범위가 아니다.
-선택 명시 구간과 [DHAV 스트리밍 검색](dhav-scan.md)은 각각 별도 계약을 따른다.
+선택 명시 구간과 [네 subset의 EV 스트리밍 검색](media-unit-scan.md)·[DHAV 스트리밍 검색](dhav-scan.md)은 각각 별도 계약을 따른다.
 
 ## 문헌 근거
 

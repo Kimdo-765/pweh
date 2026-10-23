@@ -343,6 +343,8 @@
   접수한 EV 이미지에서 ftyp 기반 BMFF 연속 최상위 상자 prefix 후보를 나눠 읽어 검색한다. start_offset은 EV 절대 위치(기본0), max_scan_bytes는 연속 검색 읽기 합계8 bytes..1 GiB(기본1 GiB)다. 64 KiB 이하 창과 메모리 carry로 창 경계 표지를 확인한다. 구조 필드는 별도1 MiB까지 읽으며 검색 창 밖이라도 EV 안의 헤더/
 - **`forensics_media_unit_candidates(case_id, evidence_id, format, partition?, ref?, path?, method?, max_seconds?, offset?, length?, region?)`**  
   선택한 완전 파일 또는 EV 명시 구간에서 format 하나의 고정 미디어 단위 구조 후보를 관찰한다. format은 jpeg, avc-annexb, mpeg2-ps, xm만 받으며 자동 형식 판정은 하지 않는다. ref/path는 FAT/exFAT·TAR/ZIP 파일 하나, 둘 다 없으면 EV 전체다. offset/length는 exact int로 함께 지정하고 selector·partit
+- **`forensics_media_unit_scan(case_id, evidence_id, format, start_offset?, max_scan_bytes?, max_seconds?)`**  
+  접수한 EV 이미지에서 명시 format(jpeg, avc-annexb, mpeg2-ps, xm)의 고정 미디어 단위 후보를 나눠 읽어 검색한다. start_offset은 EV 절대 위치(기본0), max_scan_bytes는 연속 검색 읽기 합계4 bytes..1GiB(기본1GiB)다. leaf는64KiB 이하이며 검색 창 밖의 구조 읽기와 논리 검사량은 각각128MiB로 따로 제한한다. 
 - **`forensics_extract_media_unit(case_id, evidence_id, analysis_path, candidate_index)`**  
   보관 기록에 결속된 media-unit-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). analysis_path는 같은 케이스·EV의 생성 보고서이며 index는 저장 후보0~127이다. format과 bytes 범위는 저장된 보고서만 사용하며 새 selector/offset/길이를 받지 않는다. 원래 ref/partition/복구 방법, 명시 exF
 - **`forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)`**  

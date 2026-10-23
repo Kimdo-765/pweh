@@ -47,7 +47,7 @@ REA_RUNTIME_ASK = {"gdb_console", "cutter_command", "load_frida_script", "resume
 FULL_ALLOW_SERVERS = ("pweh-case", "pweh-fwtriage")
 #: 정지 그림·앱 기록·선택 텍스트의 마스킹된 비밀값 후보·보고서 이름 대조·미디어 구조 분석은 로컬 산출물을 쓰므로 readOnlyHint 는 false 다.
 LOCAL_WRITE_ALLOW = {f"mcp__pweh-forensics__{name}" for name in (
-    "forensics_image_hints", "forensics_scan_secrets", "forensics_scan_secrets_from_list", "forensics_sd_ioc_scan", "forensics_media_inventory", "forensics_media_candidates", "forensics_dhav_candidates", "forensics_dhav_scan", "forensics_bmff_scan", "forensics_media_unit_candidates", "forensics_allocation_window", "forensics_cluster_report", "forensics_sqlite_inventory", "forensics_android_artifacts", "forensics_timeline")}
+    "forensics_image_hints", "forensics_scan_secrets", "forensics_scan_secrets_from_list", "forensics_sd_ioc_scan", "forensics_media_inventory", "forensics_media_candidates", "forensics_dhav_candidates", "forensics_dhav_scan", "forensics_bmff_scan", "forensics_media_unit_candidates", "forensics_media_unit_scan", "forensics_allocation_window", "forensics_cluster_report", "forensics_sqlite_inventory", "forensics_android_artifacts", "forensics_timeline")}
 # I5 1a는 서버 내부 모델과 로컬 JSON만 다루며 실제 전송 계층이 없다.
 LOCAL_WRITE_ALLOW |= {f"mcp__pweh-espprobe__{name}" for name in (
     "espprobe_connect", "espprobe_self_test", "espprobe_release_all", "espprobe_disconnect")}

@@ -733,6 +733,67 @@
         }
       }
     },
+    "media_unit_scan_results": {
+      "type": "array",
+      "maxItems": 100,
+      "description": "접수 EV의 명시 미디어 subset streaming 검색 보고서 참조. 선택 범위·미검색 위치·완료 여부는 원보고서에 보존하며 저장 후보 수는 파일·프레임·녹화 수가 아니다.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^EV-[0-9]{4,6}$",
+            "maxLength": 9,
+            "not": {
+              "pattern": "[\\r\\n]"
+            }
+          },
+          "analysis_path": {
+            "type": "string",
+            "pattern": "^forensics/analysis/media-unit-scan-EV-[0-9]{4,6}-[0-9]{3,9}\\.json$",
+            "maxLength": 100,
+            "not": {
+              "pattern": "[\\r\\n]"
+            }
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "partial",
+              "unsupported"
+            ]
+          },
+          "format": {
+            "enum": [
+              "jpeg",
+              "avc-annexb",
+              "mpeg2-ps",
+              "xm"
+            ]
+          },
+          "candidates_reported": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 128
+          }
+        },
+        "required": [
+          "evidence_id",
+          "analysis_path",
+          "sha256",
+          "status",
+          "format",
+          "candidates_reported"
+        ]
+      }
+    },
     "media_unit_candidate_results": {
       "type": "array",
       "maxItems": 100,

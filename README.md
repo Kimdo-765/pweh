@@ -79,6 +79,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
   선택 파일·증거 구간의 제한된 DHAV record 구조는 `forensics_dhav_candidates`로 찾는다. 후보의 위치·길이와 미검사 범위만 기록하며 영상 복구·재생을 판정하지 않는다. [지원 범위](docs/references/dhav-candidates.md). 저장된 후보 하나는 `forensics_extract_dhav_candidate`로 출처를 재확인해 추출한다([계약](docs/references/dhav-record-extract.md)).
   큰 EV는 `forensics_dhav_scan`으로 bounded streaming 검색할 수 있다. 절대 위치 후보를 기존 구간 검사로 다시 결속한 뒤 한 record만 추출한다. 검색 예산·재개·전체 완료의 구분은 [DHAV 검색 계약](docs/references/dhav-scan.md)을 따른다.
   BMFF는 `forensics_bmff_scan`으로 큰 EV의 ftyp 시작점을 검색하고, 완전한 상자 경계의 prefix를 기존 구간 검사·추출로 연결한다. [검색량·완료·재개 계약](docs/references/bmff-scan.md).
+  JPEG·AVC·PS·XM subset의 큰 EV는 `forensics_media_unit_scan`으로 검색한다. 재검증 선택 범위→같은 format의 구간 후보→일치 행의 단일 추출을 따르며 [예산·재개 계약](docs/references/media-unit-scan.md)에 미검사 범위를 남긴다.
   JPEG·AVC Annex B·MPEG-2 PS·XM의 제한된 단위는 `forensics_media_unit_candidates`로 찾고 `forensics_extract_media_unit`로 한 단위만 추출한다([후보](docs/references/media-unit-candidates.md)·[추출](docs/references/media-unit-extract.md)). 닫힌 구조와 PS의 검증된 prefix를 구분하며 미디어 내용은 해독하지 않는다.
   알려진 한계(잘린 이미지·손상된 카드, 같은 계정 프로세스의 경합 창 등)는 [안전 가이드](docs/safety.md) §3.6 에 있다.
 - **RF·하드웨어 분석** — 보유한 Flipper RAW 파일의 구조·통계를 일부 지원한다. 보드 단위 콘솔·신호·덤프는 기존 Skill을 쓴다.

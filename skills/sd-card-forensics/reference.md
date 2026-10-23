@@ -481,3 +481,25 @@ extract 사건의 region=residual 및 원래 status/coverage를 보존한다. �
 후보 참조 배열·recovered의 기존 필드를 사용하며 잔여 의미·partial·복구 신뢰도와 부모 상태를
 notes에 남긴다. 잔여 바이트를 이전 녹화·삭제 시점·완전 복구·재생 근거로 표현하지 않는다.
 6종 profile·상한·선택 및 추출 계약은 [잔여 참조](../../docs/references/exfat-residual-candidates.md)를 따른다.
+
+## 24. EV의 미디어 단위 스트리밍 검색
+
+`forensics_media_unit_scan(case_id, evidence_id, format, start_offset=0,
+max_scan_bytes=1073741824, max_seconds=45)`는 JPEG/AVC/PS/XM 중 명시한 subset을 검색한다.
+검색 읽기≤1 GiB·구조 읽기/작업량 각각≤128 MiB·행128·45초이며 같은 EV fd를 유지한다.
+원문·시각·단위 해시는 반환하지 않으며 접수 SHA를 이번 EV 전체 재해시로 표시하지 않는다.
+
+next_offset은 처리 재개 위치이고 read-ahead의 끝이 아니다. search_complete는 요청 시작 이후,
+whole_evidence_search_complete는 start0인 이번 호출의 전체 검색이다. candidate_checks_complete는
+관찰한 anchor의 검사 완료이며 candidate_list_complete는 검색과 검사가 모두 끝났다는 뜻이다.
+PS prefix는 이 값들이 true여도 partial이다. pending·선택 상한·미검사 범위를 notes에 남긴다.
+
+행의 selection_offset/selection_length로 같은 format의 기존 구간 후보를 새로 검사한다.
+source.offset+candidate.offset, length/unit_subtype/boundary_kind/framing_status/end_reason가
+맞는 행을 고르며 evidence_end만 selection_end에 대응한다. row0을 가정하지 않는다.
+그 새 보고서/index만 기존 forensics_extract_media_unit에 넘긴다. scan은 직접 추출 권위가 아니다.
+
+`media_unit_scan_results[]`는 evidence_id, analysis_path/sha256(analysis), status/format(report),
+candidates_reported(report.summary)의6필드, 최대100개다. EV 크기·단위 bytes·완료값은 넣지 않는다.
+기존 candidate 결과·recovered는 그대로 사용하며 추출물을 직접 열지 않는다.
+[출력·예산·재개 계약](../../docs/references/media-unit-scan.md)을 따른다.

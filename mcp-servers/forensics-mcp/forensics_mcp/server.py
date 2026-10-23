@@ -1820,6 +1820,7 @@ from .dhav_record_tools import register_dhav_record_tools
 from .dhav_scan_tools import register_dhav_scan_tools
 from .bmff_scan_tools import register_bmff_scan_tools
 from .media_unit_tools import register_media_unit_tools
+from .media_unit_scan_tools import register_media_unit_scan_tools
 from .media_unit_extract_tools import register_media_unit_extract_tools
 from .media_prefix_tools import register_media_prefix_tools
 from .allocation_tools import register_allocation_tools
@@ -1836,6 +1837,7 @@ register_dhav_record_tools(server, globals())
 register_dhav_scan_tools(server, globals())
 register_bmff_scan_tools(server, globals())
 register_media_unit_tools(server, globals())
+register_media_unit_scan_tools(server, globals())
 register_media_unit_extract_tools(server, globals())
 register_media_prefix_tools(server, globals())
 register_allocation_tools(server, globals())

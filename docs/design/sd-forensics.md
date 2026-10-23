@@ -1,6 +1,6 @@
 # 설계안: SD 카드 포렌식 (증거 분석 + 보안 분석)
 
-> 상태: **F1·C·D 및 F2 선택/목록 비밀값 검사·보고서 이름 대조·BMFF 구조/후보/prefix 추출·DHAV 구조 후보/EV streaming 검색/단일 record 추출 구현, 나머지 F2·F3 후속 설계**. 현재 도구 계약은 [architecture.md](../architecture.md) §6.8이며, 구현 범위와 남은 기능은 §4에 구분했다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md).
+> 상태: **F1·C·D 및 F2 선택/목록 비밀값 검사·보고서 이름 대조·BMFF 구조/후보/prefix 추출·DHAV 구조 후보/단일 record 추출·BMFF 및 JPEG/AVC/PS/XM EV streaming 검색 구현, 나머지 F2·F3 후속 설계**. 현재 도구 계약은 [architecture.md](../architecture.md) §6.8이며, 구현 범위와 남은 기능은 §4에 구분했다. 개요는 [README.md](README.md), 공통 기반은 [common-core.md](common-core.md).
 > 근거: 2026-10-19 조사 네 갈래(이미징·쓰기 방지, 파일 시스템·복구 도구, CCTV SD 형식, 보안 분석·통합·법률)와 갈래마다 적대적 검증(사실 확인 124건 중 수정 31건, 반박 2건 반영).
 > 개발 환경 에서 직접 확인한 것: FAT/exFAT 순수 파이썬 시제품(286줄)이 생성 이미지 6개·추출 20건에서 TSK 와 맞거나 더 정확했고, PhotoRec 7.1 을 헤드리스로 돌려 봤으며,
 > 실제 Hikvision `index00.bin` 두 개(v2·v3)를 해석했다. 실제 카드는 열지 않았다.
@@ -120,9 +120,10 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 > - **DHAV 구조 후보**: `forensics_dhav_candidates`는 같은 파일/명시 EV 구간 선택에서 f0/fc/fd의 고정 record 길이·앞뒤 표지·범위 후보를 기록한다. 원시 header 시각·채널·확장/payload 의미는 해석하지 않으며 possible과 검색/관찰 anchor 검사/목록 완료도를 분리한다. FFmpeg n7.1 배치와 PWEH의 보수적 footer 반복 길이 조건을 구분하는 [후보 계약](../references/dhav-candidates.md)을 따른다. `forensics_extract_dhav_candidate`는 저장된 후보 한 record만 원래 선택 bytes와 재결속해 파생 저장한다([추출 계약](../references/dhav-record-extract.md)). 재조립·재생·촬영시각·암호화 판정은 포함하지 않는다.
 >
 > - **큰 EV의 DHAV 검색**: `forensics_dhav_scan`은 연속 검색 읽기≤1 GiB·별도 구조 읽기≤1 MiB·45초로 전체 이미지의 가능한 시작 위치를 bounded 처리한다. EV 절대 후보/next_offset과 요청 시작 전·검사 prefix·미검색 tail을 구분한다. 필요한 row는 기존 구간 후보 검사로 SHA를 결속한 뒤 추출한다([계약](../references/dhav-scan.md)). 전체 완료 flag도 할당 상태·파일 경계·녹화 복원을 뜻하지 않는다.
+> - **큰 EV의 미디어 단위 검색**: `forensics_media_unit_scan`은 명시 JPEG/AVC/PS/XM subset을 같은 EV fd에서 검색한다. 검색 읽기≤1 GiB·구조 읽기/작업량 각각128 MiB·45초·후보128·선택64 MiB이며 원시 내용은 반환하지 않는다. selection_offset/selection_length→같은 format 구간 후보→일치 행의 기존 추출로 이어진다. search/check/list 완료와 PS prefix의 partial을 분리하며 [계약](../references/media-unit-scan.md)을 따른다.
 > - **큰 EV의 BMFF 검색**: `forensics_bmff_scan`은 ftyp 시작점을 검색창≤64 KiB·carry7·연속 검색 읽기≤1 GiB·별도 구조 읽기≤1 MiB·45초로 처리한다. 전역 box/brand/probe 한도를 유지하고 검증된 완전 상자 prefix≤64 MiB만 후보로 남긴다. EV 절대 offset/validated_prefix_length→기존 구간 후보 검사→저장 prefix 추출로 연결하며 scan 보고서는 직접 추출하지 않는다. 검색·anchor 검사·목록 완료와 미검사 chain·한도 partial을 구분하고 접수 SHA를 이번 전체 재해시로 보지 않는다([계약](../references/bmff-scan.md)).
 >
-> 남음: F2 — 추가 형식/프레임·인덱스·이름 규칙, DHAV·BMFF 제한 검색 밖의 범용 카빙·조각 재조립, 녹화 인덱스 타임라인, §5.2의 목록 밖/미지원 영역 비밀값 탐색·암호화 판정·카드 내용의 침해 판정(기존 보고서 이름 대조·선택 BMFF 및 DHAV 구조 후보는 구현), E01·외부 도구(TSK·PhotoRec·ewf·ffprobe).
+> 남음: F2 — 추가 형식/프레임·인덱스·이름 규칙, DHAV·BMFF·JPEG/AVC/PS/XM 제한 검색 밖의 범용 카빙·조각 재조립, 녹화 인덱스 타임라인, §5.2의 목록 밖/미지원 영역 비밀값 탐색·암호화 판정·카드 내용의 침해 판정(기존 보고서 이름 대조·선택 BMFF 및 DHAV 구조 후보는 구현), E01·외부 도구(TSK·PhotoRec·ewf·ffprobe).
 > F3 — ext4(NTFS 목록도 없음), Windows 원시 읽기 헬퍼, 영상 내보내기. 장치에서 카드 식별 정보 읽기(sysfs cid/csd)도 아직 없다.
 > 유지보수 보강 구현: 출력 커밋 전 신원 재확인, `pweh.safeio`의 중간 디렉터리 고정, 출처 원장의 안전한 접수 기록 읽기, 지정 케이스의 종료된 job 기록 정리,
 > 동기 해석의 요청 취소, 증거 경계의 하드링크 거부, FAT12/16/32 디렉터리 교차 연결 검사. 같은 계정 경합·부분 FAT 색인 등 남은 범위는 safety.md §3.6에 적는다.
@@ -174,7 +175,7 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
   분리하는 이유: fwtriage 문자열 탐색이 복구한 개인 영상을 건드리지 않게, 0444 원본과 보관 기록을 한곳에, 케이스 종료 때 보존·파기를 단순하게.
 - 아티팩트 kind: `evidence-image`, `recovered-file`, `carved-file`(처음에는 `other` + `extra.type` 도 가능). 발견사항 카테고리 추가: `insecure-storage`, `privacy`(+ `sd-*` 태그).
 - Skill 하나: `sd-card-forensics`(mode = evidence / security / both), 요약 스키마 `sd-forensics`(mode 에 따른 if/then, `audio_decoded`·`face_plate_processing`·`uploads` 는 항상 false 상수).
-  목록 자동 검사 결과는 `secret_survey_results`에 참조·예정/완전 읽기/eligible 미읽기 수와 검사 범위를 기록하고 whole_card_examined=false를 유지한다. 선택 비밀값 검사 결과는 `secret_scan_results`에 결과 JSON 경로·해시·상태·후보 수·검사/미검사 바이트·사유만 기록하고 `privacy.secret_plaintext_returned=false`로 남긴다. 보고서 이름 대조 결과는 `ioc_scan_results`에 결과 위치·해시·상태·저장 후보 수·partition·입력 보고서 위치만 기록한다. 선택 미디어 구조는 `media_inventory_results`에 EV·결과 위치/해시·상태·선택 크기·보고 상자 수만 기록한다. BMFF 연속 후보 `media_candidate_results`와 DHAV 구조 후보 `dhav_candidate_results`는 각각 EV·결과 위치/해시·상태·선택 크기·저장 후보 수6필드만 기록한다. EV streaming 검색은 `dhav_scan_results`·`bmff_scan_results`에 각각 EV·결과 위치/해시·상태·EV 크기·저장 후보 수6필드를 기록하며 EV 크기를 검색량으로 보지 않는다. 별도 Skill/phase는 만들지 않는다.
+  목록 자동 검사 결과는 `secret_survey_results`에 참조·예정/완전 읽기/eligible 미읽기 수와 검사 범위를 기록하고 whole_card_examined=false를 유지한다. 선택 비밀값 검사 결과는 `secret_scan_results`에 결과 JSON 경로·해시·상태·후보 수·검사/미검사 바이트·사유만 기록하고 `privacy.secret_plaintext_returned=false`로 남긴다. 보고서 이름 대조 결과는 `ioc_scan_results`에 결과 위치·해시·상태·저장 후보 수·partition·입력 보고서 위치만 기록한다. 선택 미디어 구조는 `media_inventory_results`에 EV·결과 위치/해시·상태·선택 크기·보고 상자 수만 기록한다. BMFF 연속 후보 `media_candidate_results`와 DHAV 구조 후보 `dhav_candidate_results`는 각각 EV·결과 위치/해시·상태·선택 크기·저장 후보 수6필드만 기록한다. EV streaming 검색은 `dhav_scan_results`·`bmff_scan_results`에 각각 EV·결과 위치/해시·상태·EV 크기·저장 후보 수6필드를 기록하며 EV 크기를 검색량으로 보지 않는다. `media_unit_scan_results`는 EV·결과 위치/해시·상태·format·후보 수6필드이며 재개/미검사 범위는 원보고서와 notes에 남긴다. 별도 Skill/phase는 만들지 않는다.
   SKILL_DATA_SCHEMAS 와 master-prompt §5 표에 함께 등록. 보고서에 증거 목록·보관 사슬·고지 섹션(report.py).
 
 ## 7. 법률·개인정보 (법률 자문 아님 — 2026-10-19 law.go.kr 원문 기준)
@@ -198,7 +199,7 @@ F1과 C·D의 추가 구현은 §4를 따른다. 아래의 `safety.forensics.*` 
 |---|---|---|
 | F0 | 공통 코어(증명: `write-blocker`·`provenance-import`, `safety.forensics.*`, master-prompt "SD 포렌식" 목표 분기), 에이전트 호스트 위험 규칙(§0) | 단위 테스트 |
 | F1 | 보안(펌웨어): fwtriage SD 표면 SD-01~09 + 빈틈 수정 + `uart_capture_boot` sd_events. 증거 핵심: 접수·해시·보관 기록·검증·오염 검사, 파티션·FAT/exFAT 목록·추출·삭제 파일, 증거 목록, `sd-card-forensics`(security + 기본 evidence) | `mkfs.fat --invariant`+mtools(SOURCE_DATE_EPOCH)로 결정적 FAT, `mkfs.exfat`+시험용 주입기, 가짜 sysfs/부팅 로그, 해시 사슬 변조 시험, 원본 불변 확인 |
-| F2 | BMFF 구조/후보/prefix 추출·DHAV 고정 구조 후보/EV streaming 검색/단일 record 추출·선택/목록 비밀값·보고서 이름 대조 구현. 남음: 네 선택 subset 밖의 형식 변형·전체 이미지/추가 MP4 카빙, Hikvision·Dahua 인덱스·이름 규칙·녹화 타임라인·암호화/침해 판정, 외부 도구(TSK·PhotoRec·ewf·ffprobe) | 구현한 DHAV subset은 순수 합성 bytes로 검증; 후속은 ffmpeg testsrc·합성 인덱스, 외부 실행은 `@pytest.mark.external` |
+| F2 | BMFF 구조/후보/prefix 추출·DHAV 고정 구조 후보/EV streaming 검색/단일 record 추출·JPEG/AVC/PS/XM 선택 및 EV streaming 후보/단일 추출·선택/목록 비밀값·보고서 이름 대조 구현. 남음: 지원 subset 밖의 형식 변형·범용 카빙, Hikvision·Dahua 인덱스·이름 규칙·녹화 타임라인·암호화/침해 판정, 외부 도구(TSK·PhotoRec·ewf·ffprobe) | 구현한 DHAV subset은 순수 합성 bytes로 검증; 후속은 ffmpeg testsrc·합성 인덱스, 외부 실행은 `@pytest.mark.external` |
 | F3 | ext4(디렉터리 + jbd2), (선택) Windows 원시 읽기 헬퍼, (선택) 한 번 쓰는 승인 기반 영상 내보내기 | `mke2fs -d`(원본 시각 고정 시 결정적) + debugfs |
 
 ## 9. 확인이 필요한 것

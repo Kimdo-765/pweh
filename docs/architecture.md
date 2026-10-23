@@ -169,7 +169,7 @@ cases/<case_id>/
 | firmware-emulation (선택 단계) | `schemas/emulation.schema.json` |
 | android-forensics (선택 단계) | `schemas/android-forensics.schema.json` (입수·분석 해시, 앱 내용 반환 여부, 복구 후보·범위·시각 기준) |
 | image-hints-analysis (선택 단계) | `schemas/image-hints.schema.json` (도구 사실·모델 시각 관찰·가설을 분리) |
-| sd-card-forensics (선택 단계) | `schemas/sd-forensics.schema.json` (`mode`: evidence/security/both — evidence·both 면 `legal`·`evidence`·`custody_ok`, security·both 면 `security` 가 필수. `privacy` 의 네 값 `audio_decoded`·`face_plate_processing`·`uploads`·`recording_content_viewed`는 항상 false(영상·음성·별도 신원 식별·외부 제공). 정지 그림은 `still_image_content_viewed`·`still_image_ocr_returned`로 별도 기록. 선택 비밀값 검사는 `secret_scan_results`와 `secret_plaintext_returned=false`, 보고서 이름 대조는 `ioc_scan_results`, 선택 미디어 구조는 `media_inventory_results`, 연속 구조 후보는 `media_candidate_results`, 선택 DHAV 후보는 `dhav_candidate_results`, EV streaming 검색은 `dhav_scan_results`) |
+| sd-card-forensics (선택 단계) | `schemas/sd-forensics.schema.json` (`mode`: evidence/security/both — evidence·both 면 `legal`·`evidence`·`custody_ok`, security·both 면 `security` 가 필수. `privacy` 의 네 값 `audio_decoded`·`face_plate_processing`·`uploads`·`recording_content_viewed`는 항상 false(영상·음성·별도 신원 식별·외부 제공). 정지 그림은 `still_image_content_viewed`·`still_image_ocr_returned`로 별도 기록. 선택 비밀값 검사는 `secret_scan_results`와 `secret_plaintext_returned=false`, 보고서 이름 대조는 `ioc_scan_results`, 선택 미디어 구조는 `media_inventory_results`, 연속 구조 후보는 `media_candidate_results`, 선택 DHAV 후보는 `dhav_candidate_results`, EV streaming 검색은 `dhav_scan_results`·`bmff_scan_results` 및 format을 보존하는 닫힌6필드 `media_unit_scan_results`) |
 
 - firmware-dump-via-uart 밖에서 얻은 덤프(JTAG, SPI 클립, ESP32 esptool)도 다음 Skill 이 찾을 수 있게 `skill="firmware-dump-via-uart"` 로 firmware-dump 요약을 남긴다(master-prompt §5).
   `esp32-flash-dump` Skill 은 따로 요약 스키마를 두지 않고 이 규칙을 따른다: `method` `esptool-read-flash`, `verification.method` `double-read`
@@ -993,7 +993,7 @@ SD 카드 이미지의 증거 분석이다(설계 `docs/design/sd-forensics.md` 
   - 서버를 끝낼 때(stdin EOF·SIGTERM — 실행 중인 job 을 취소하고 job 마다 10초까지 기다린다. SIGTERM 이면 모두 합쳐 최대 약 15초를 기다린 뒤 끝난다) 커밋 전 접수는 되돌린다. SIGKILL 이면 남은 접수 디렉터리를 다음 정리가 옮긴다(위). job 상태는 `cases/<id>/jobs/<job_id>.json` 에도 남는다. 재시작 뒤 `forensics_job_status(..., case_id=...)` 또는 `forensics_jobs(case_id=...)`로 저장 기록을 확인하면 종료가 확실한 소유 서버의 활성 기록만 failed로 정리한다(위 공통 job 계약). 소유자가 없거나 확인 불가면 원본 상태를 보존하고 unknown으로 표시한다. 이는 증거 접수의 커밋·정리 여부를 증명하지 않는다(docs/safety.md §3.6).
 - **영상·음성 내용은 돌려주지 않는다**: 파일 목록 응답은 개수·범위·이름·경로와 해시다. 선택한 폰 앱 기록은 `forensics_android_artifacts`로 내용도 반환한다. 정지 그림은 `forensics_image_hints`에서 미리보기·마스킹하지 않은 OCR·QR·메타데이터를 반환한다. 추출물은 `forensics/recovered/`에만 쓰며 직접 열지 않는다. 전체 파일 목록은 `forensics/analysis/` 의 JSON 에만 있다. 응답의 긴 경로(`sample`·`cut_dirs`·흔적의 `path`)는 앞·뒤만 남겨 300자로 줄인다.
   다른 서버의 `forensics/` 거부(pweh-fwtriage, pweh-sigrok, `case_import_file`·`case_hash_file`·`case_register_artifact`)와 그 밖의 경로가 막히지 않는 한계는 §4 다.
-- **권한**: 조회 전용(`readOnlyHint`) 도구 `forensics_partitions`, `forensics_image_check`와 명시적 예외 `forensics_job_status`·`forensics_jobs`·`forensics_image_hints`·`forensics_scan_secrets`·`forensics_scan_secrets_from_list`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`·`forensics_dhav_candidates`·`forensics_dhav_scan`·`forensics_bmff_scan`·`forensics_media_unit_candidates`·`forensics_allocation_window`·`forensics_cluster_report`·`forensics_sqlite_inventory`·`forensics_android_artifacts`·`forensics_timeline`이 `.claude/settings.json`의 `allow`다. 예외 도구는 저장 기록 정리 또는 로컬 분석/보관 기록 쓰기가 있어 readOnlyHint는 false다.
+- **권한**: 조회 전용(`readOnlyHint`) 도구 `forensics_partitions`, `forensics_image_check`와 명시적 예외 `forensics_job_status`·`forensics_jobs`·`forensics_image_hints`·`forensics_scan_secrets`·`forensics_scan_secrets_from_list`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`·`forensics_dhav_candidates`·`forensics_dhav_scan`·`forensics_bmff_scan`·`forensics_media_unit_candidates`·`forensics_media_unit_scan`·`forensics_allocation_window`·`forensics_cluster_report`·`forensics_sqlite_inventory`·`forensics_android_artifacts`·`forensics_timeline`이 `.claude/settings.json`의 `allow`다. 예외 도구는 저장 기록 정리 또는 로컬 분석/보관 기록 쓰기가 있어 readOnlyHint는 false다.
   쓰는 도구 10개(`forensics_intake_start`, `forensics_verify_start`, `forensics_acquisition_attest`, `forensics_evidence_list`, `forensics_fs_list`, `forensics_extract`, `forensics_extract_media_candidate`, `forensics_extract_dhav_candidate`, `forensics_extract_media_unit`, `forensics_job_cancel`)는 `ask` 다(매번 사람이 확인).
   모든 도구가 `openWorldHint=false` 이고 파괴적(`destructiveHint`) 도구는 없다.
 
@@ -1017,6 +1017,7 @@ SD 카드 이미지의 증거 분석이다(설계 `docs/design/sd-forensics.md` 
 | `forensics_bmff_scan(case_id, evidence_id, start_offset=0, max_scan_bytes=1073741824, max_seconds=45)` | 같은 EV fd에서 ftyp 시작점을 streaming 검색한다. 검색 읽기8..1 GiB·구조 읽기 별도1 MiB·45초·1024probe·128후보, 완전한 상자 경계의 prefix≤64 MiB. EV 절대 위치·재개·미검사 범위를 기록하고 bmff-scan 사건과 결속한다. 기존 구간 후보로 다시 검증한 뒤 추출한다. [계약](references/bmff-scan.md) |
 | `forensics_allocation_window(case_id, evidence_id, partition, offset, length, max_seconds=45)` | 명시 FAT/exFAT 데이터 창의 현재 할당 metadata를 allocated/unallocated/bad/unknown으로 분류한다. EV 절대 offset·길이1~64 MiB, metadata4 MiB·행128·45초·JSON1 MiB. 창 완료와 상태 판정 완료, 미검사 suffix를 구분하고 allocation-window 사건에 결속한다. 과거 파일 소속·복구·재생은 판정하지 않는다. [계약](references/allocation-window.md) |
 | `forensics_cluster_report(case_id, evidence_id, partition, max_seconds=45)` | 명시 FAT/exFAT 파티션의 현재 live 참조와 할당 metadata를 대조한다. 참조 순회·지도·할당·행 표본의 완료를 구분하며 불완전 지도에서 미참조 수는 null이다. metadata32 MiB·클러스터1,048,576·행128·45초·JSON1 MiB. cluster-report 사건에 결속하며 고아 파일·과거 소속·녹화/재생을 확정하지 않는다. [계약](references/cluster-report.md) |
+| `forensics_media_unit_scan(case_id, evidence_id, format, start_offset=0, max_scan_bytes=1073741824, max_seconds=45)` | 명시 JPEG/AVC/PS/XM subset을 같은 EV fd에서 streaming 검색한다. 검색≤1 GiB·구조 읽기/작업량 각각128 MiB·45초·행128·선택64 MiB. EV 절대 위치·재검증 선택 범위·재개를 media-unit-scan 사건에 결속하고 기존 구간 검사→추출로 연결한다. [계약](references/media-unit-scan.md) |
 | `forensics_media_unit_candidates(case_id, evidence_id, format, partition=None, ref=None, path=None, method="auto", max_seconds=45, offset=None, length=None, region="data")` | 완전한 선택 파일/EV 구간에서 JPEG·AVC Annex B·MPEG-2 PS·XM 중 명시한 subset의 단위 후보를 찾는다. 선택64 MiB·1024probe·128후보·8192구조단계·작업량128 MiB·JSON1 MiB·45초. closed/prefix와 미검사·출처 불확실성을 구분하고 media-unit-candidates 사건에 결속한다. [계약](references/media-unit-candidates.md). `region="residual"`은 명시 exFAT partition/ref의 VDL 뒤 선택이다([잔여 계약](references/exfat-residual-candidates.md)). |
 | `forensics_extract_media_unit(case_id, evidence_id, analysis_path, candidate_index)` | job. 같은 EV의 저장된 미디어 단위 후보·선택 전체 SHA·출처를 재검증하고 후보 상대 offset/length 하나만 추출한다. unit-000.bin과 manifest, 기존 extract 사건의 media_unit. 원래 부분성을 보존하며 영상/음성을 반환하지 않는다. 보고서1 MiB·선택64 MiB·manifest64 KiB·공통45초. [계약](references/media-unit-extract.md) |
 | `forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)` | job. 같은 EV의 저장된 `media-candidates` 보고서에서 후보 번호 하나의 검증된 prefix를 추출한다. 원래 선택 파일 또는 EV 구간 전체의 해시·출처를 다시 대조. 출력은 고정 이름 바이너리와 매니페스트, 기존 `extract` 보관 기록. 입력64 MiB·보고서1 MiB·매니페스트64 KiB·공통45초. 내용 반환·녹화 복구/재생 판정 없음 |
@@ -1105,6 +1106,24 @@ offset/length는 선택 상대다. closed와 PS prefix, 검색/관찰 후보 처
 복사 완료일 뿐이다. 요약은 media_unit_candidate_results의7필드 및 기존 recovered·notes다.
 
 [subset·출처·예산](references/media-unit-candidates.md)과 [파생 추출·보관 계약](references/media-unit-extract.md)을 따른다.
+
+#### EV의 미디어 단위 스트리밍 검색
+
+`forensics_media_unit_scan`은 명시 JPEG/AVC/PS/XM subset을 같은 EV fd에서 검색한다.
+검색 읽기4bytes..1 GiB·구조 읽기와 작업량 각각128 MiB·45초·1024probe·128후보를 호출 전체에
+적용한다. 후보 offset/length는 EV 절대 위치/검증 단위 길이이며 selection_offset/selection_length는
+같은 후보를 구간에서 재검증할 범위다(최대64 MiB). 선행 읽기 끝과 선택 끝을 혼동하지 않는다.
+
+next_offset은 처리 재개 위치다. 요청 시작 이후 검색과 start0인 이번 호출의 전체 검색,
+관찰한 anchor 검사와 후보 목록 완료를 구분한다. PS prefix는 검사가 끝나도 partial일 수 있다.
+source4의 SHA는 접수 EV 해시이며 이번 전체 재해시가 아니다. 원문·시각·단위 해시·본문 의미를
+반환하지 않고 할당·삭제·원본 경계·재생·암호화·완전 녹화를 판정하지 않는다.
+
+media-unit-scan 사건에 결속한 결과의6필드 참조(EV, 결과 위치/해시, 상태, format, 후보 수)를
+media_unit_scan_results에 남긴다. 필요한 행의 selection_offset/selection_length를 같은 format의
+기존 구간 후보에 넘긴 뒤 절대 위치·길이·분류가 일치하는 실제 행 번호를 고른다.
+evidence_end는 구간 selection_end에 대응한다. 그 새 보고서만 기존 추출기에 전달하며 scan
+보고서 직접 추출과 row0 가정은 허용하지 않는다. [예산·재개·재검증 계약](references/media-unit-scan.md).
 
 #### EV의 BMFF 스트리밍 검색
 

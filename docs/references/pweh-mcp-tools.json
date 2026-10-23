@@ -726,7 +726,7 @@
    },
    {
     "name": "schema_get",
-    "description": "PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, cluster-report, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, imported-save-plan, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, nfc-analysis, nfc-file-analysis, nfc-inventory, nfc-scan, numeric-analysis, numeric-validation, pinout-scan, rf-analysis, rf-power-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, template-analysis, template-match, uart-recon.",
+    "description": "PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, cluster-report, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, imported-save-plan, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, media-unit-scan, nfc-analysis, nfc-file-analysis, nfc-inventory, nfc-scan, numeric-analysis, numeric-validation, pinout-scan, rf-analysis, rf-power-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, template-analysis, template-match, uart-recon.",
     "params": [
      {
       "name": "name",
@@ -6926,6 +6926,55 @@
       "type": "string",
       "required": false,
       "default": "data"
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "forensics_media_unit_scan",
+    "description": "접수한 EV 이미지에서 명시 format(jpeg, avc-annexb, mpeg2-ps, xm)의 고정 미디어 단위 후보를 나눠 읽어 검색한다. start_offset은 EV 절대 위치(기본0), max_scan_bytes는 연속 검색 읽기 합계4 bytes..1GiB(기본1GiB)다. leaf는64KiB 이하이며 검색 창 밖의 구조 읽기와 논리 검사량은 각각128MiB로 따로 제한한다. 공통45초·1024 anchor·8192 구조단계·128 후보·JSON1MiB이며 전체 EV를 메모리에 올리지 않는다. offset/length는 EV 절대 단위 위치/길이, selection_offset/selection_length는 같은 후보의 재검증에 필요한 64MiB 이하 구간이다. 다음 delimiter/header가 필요한 AVC/PS에서는 두 길이가 다르다. 미검사 prefix/tail·next_offset·이번 검색과 전체EV 검색 완료를 구분한다. 선택 상한을 실제EOF로 취급하지 않으며 원본 파일·미할당·삭제·잔여·완전 녹화를 판정하지 않는다. source는 접수EV 해시이며 이번 전체 또는 개별 단위 재해시가 아니다. 보고서를 forensics/analysis에0444로 저장하고 media-unit-scan 사건에 결속한다. 시간 partial의 bounded 직렬화·최종seal 검사는 처리 시간 뒤 끝내되 취소를 계속 확인한다. 추출은 selection_offset/selection_length로 같은 format의 forensics_media_unit_candidates를 호출한 뒤 좌표·길이·경계가 일치하는 새 보고서의 행을 찾아 forensics_extract_media_unit에 전달한다. 이 검색 보고서는 직접 추출할 수 없다. 원시 헤더·본문·시각·채널을 반환하지 않으며 프레임/음성 해독·재생·암호화·형식 전체 적합성·조각 재조립을 검증하지 않는다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "evidence_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "format",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "start_offset",
+      "type": "integer",
+      "required": false,
+      "default": 0
+     },
+     {
+      "name": "max_scan_bytes",
+      "type": "integer",
+      "required": false,
+      "default": 1073741824
+     },
+     {
+      "name": "max_seconds",
+      "type": "number/integer",
+      "required": false,
+      "default": 45
      }
     ],
     "annotations": {

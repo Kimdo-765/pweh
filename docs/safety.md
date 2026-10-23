@@ -586,6 +586,12 @@ pweh-forensics 와 그 코어(`pweh.fs`·`pweh.evidence`·`pweh.safeio`)가 지�
 - prefix는 완전한 상자 경계에서만64 MiB까지 인정한다. size0을 EV EOF로 확장하지 않으며, 검색 처리 위치·pending·chain 제한·다음 재개 위치를 구분한다. 원본 파일 끝·전체 녹화·재생·암호화 검증이나 후보 간 관계를 주장하지 않는다.
 - source SHA는 접수값이다. same FD와 최종 custody 잠금 검사를 거쳐 bmff-scan에 저장하고, 추출 전 필요한 범위를 기존 후보 도구로 다시 읽어 구간 SHA에 결속한다. scan 보고서는 기존 extractor 입력이 아니다. [완료도·출처 계약](references/bmff-scan.md).
 
+**JPEG·AVC·PS·XM 스트리밍 검색**
+
+- `forensics_media_unit_scan`은 명시 subset의 EV 시작점을 검색한다. 검색 읽기≤1 GiB와 구조 읽기/논리 작업량 각각128 MiB,45초를 분리해 제한하고 미처리 위치·선택 상한·pending을 보존한다. next_offset은 처리 재개 위치이며 물리 읽기의 끝이 아니다.
+- 후보의 EV 절대 offset/length와 재검증 selection_offset/selection_length를 구분한다. 필요한 선택 범위를 같은 format 구간 후보에 다시 넘겨 전체 SHA와 일치 행을 확인한 뒤 기존 추출기를 사용한다. scan 보고서를 직접 추출하거나 행0을 가정하지 않는다.
+- 요청 이후 검색·관찰 anchor 검사·목록 완료는 녹화 완료와 다르며 PS prefix는 검사 완료여도 partial이다. 접수 SHA는 이번 전체 재해시가 아니고 단위 SHA를 만들지 않는다. 할당·삭제·본문 의미·시각·암호화·재생·물리 카빙 검증은 없다. [계약](references/media-unit-scan.md).
+
 **DHAV 스트리밍 검색**
 
 - `forensics_dhav_scan`은 접수 EV의 바이트를 검색한다. 검색 읽기는 최대1 GiB, 구조 필드 읽기는 별도1 MiB이며 구조 확인이 검색창 밖에 도달할 수 있다. 읽기량과 처리한 magic 시작 위치의 완료 prefix를 구분한다. 원시 디스크·파일 시스템 할당 상태·조각 재조립은 다루지 않는다.
