@@ -257,7 +257,8 @@ async def _inventory_run(S: _ServerAPI, *, case_id: str, evidence_id: str,
         case = await S._case(case_id)
 
         def work_body() -> dict:
-            from pweh.media import MediaLimits, inventory_isobmff
+            from pweh.media import (MediaLimits, inventory_isobmff,
+                                    validate_media_protection_accounting)
 
             _check(cancelled, deadline)
             entries = S.custody(case).entries()
@@ -275,6 +276,7 @@ async def _inventory_run(S: _ServerAPI, *, case_id: str, evidence_id: str,
                     report["params"] = {"partition": partition, "method": method, "max_seconds": max_seconds}
                     _selection_coverage(report, source)
                     schemas.validate("media-inventory", report)
+                    validate_media_protection_accounting(report)
                     raw = json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
                     if len(raw.encode("utf-8")) + 1 > MAX_REPORT_BYTES:
                         raise ValidationFailed(_ERRORS["validation_failed"])
@@ -312,8 +314,12 @@ def register_media_tools(server: Any, namespace: dict[str, Any]) -> None:
             "크기·부모 경계·알려진 상자 종류와 header/skipped/unexamined 범위를 기록하고 "
             "브랜드 인식과 구조 검사 완료를 구분한다. 허용 계층의 mvhd/mdhd에서 시간 단위·길이 선언과 "
             "생성/수정 시각의 zero/nonzero/unread 상태, moov/moof 직계 pssh의 제한 구조를 관찰한다. "
-            "선언 길이는 실제 재생 길이가 아니며 절대 시각·SystemID/KID·보호 data는 반환하지 않는다. "
-            "declarations에 순회/필드 완료도를 따로 기록하고 기존 box-v1 보고서와 새 declarations-v1 프로필을 구분한다. "
+            "정확한 stsd/encv·enca/sinf/schm·schi/tenc 경로에서는 고정 prefix와 제한 보호 선언만 관찰한다. "
+            "scheme은 cenc/cbcs/other/unread, 기본 보호 상태는 zero/one/other/unread로 분류하며 "
+            "실제 sample·전체 tenc·constant-IV·sample group·auxiliary data는 검사하지 않는다. "
+            "선언 길이는 실제 재생 길이가 아니며 절대 시각·SystemID/KID/IV·보호 data와 개별 해시는 반환하지 않는다. "
+            "declarations와 protection에 순회/필드 완료도를 따로 기록하며 보호 값·부재를 암호화/평문 판정으로 쓰지 않는다. "
+            "새 protection-declarations-v1은 깊이 10까지 관찰하고 기존 box-v1/declarations-v1 저장물과 구분한다. "
             "삭제 파일·삭제된 부모·복구 불확실성과 "
             "전체 컨테이너 목록 미검사를 따로 표시한다. 빈 파일·지원 밖 형식도 unsupported로 기록할 수 있다. "
             "프레임·음성·썸네일을 해독하지 않으며 재생·녹화 시각·암호화·형식 적합성은 판정하지 않는다. "

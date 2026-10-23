@@ -74,6 +74,7 @@ def check(report):
     assert report["summary"]["boxes_reported"] == len(report["boxes"])
     assert report["profile"] == M.PROFILE
     declarations = report["declarations"]
+    protection = declarations["protection"]
     rows = declarations["timing"] + declarations["pssh"]
     assert len({row["box_index"] for row in rows}) == len(rows) <= len(report["boxes"])
     for row in rows:
@@ -82,11 +83,14 @@ def check(report):
         assert row["parent_index"] == item["parent_index"]
         assert row.get("kind", "pssh") == item["kind"]
     assert declarations["coverage"]["traversal_complete"] == cov["structure_complete"]
-    assert declarations["coverage"]["fields_complete"] == all(row["status"] == "complete" for row in rows)
+    assert declarations["coverage"]["fields_complete"] == (
+        all(row["status"] == "complete" for row in rows) and protection["coverage"]["fields_complete"])
     assert (declarations["status"] == "complete") == (declarations["coverage"]["traversal_complete"] and
                                                       declarations["coverage"]["fields_complete"])
-    assert not any(declarations[field] for field in ("absolute_times_returned", "sample_entries_examined",
-                                                    "sample_encryption_examined"))
+    assert declarations["sample_entries_examined"] == any(row["prefix_kind"] in ("visual", "audio-v0")
+                                                           for row in protection["entries"])
+    assert not any(declarations[field] for field in ("absolute_times_returned", "sample_encryption_examined"))
+    M.validate_media_protection_accounting(report)
     assert not any(report[field] for field in ("media_decoded", "playback_verified", "recording_time_verified",
                                                "encryption_assessed", "format_conformance_assessed"))
     validate("media-inventory", envelope(report))
@@ -304,7 +308,7 @@ def test_output_limit_is_partial_and_does_not_drop_coverage():
 
 def test_output_stop_does_not_pollute_unknown_brand_distinct_count():
     data = ftyp(b"ABCD") + box() * 30 + ftyp(b"EFGH", [b"IJKL"])
-    result = check(run(data, limits=M.MediaLimits(max_output_bytes=4096)))
+    result = check(run(data, limits=M.MediaLimits(max_output_bytes=8192)))
     assert result["brands"]["unknown_distinct_count"] == 1
     assert result["brands"]["unknown_count"] == 1
 

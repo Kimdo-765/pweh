@@ -560,8 +560,9 @@ pweh-forensics 와 그 코어(`pweh.fs`·`pweh.evidence`·`pweh.safeio`)가 지�
 - 보고서 크기·JSON 복잡도를 파싱 전에 제한하고 두 입력 fd/이름/부모 및 목록 사건을 커밋 전에 다시 검사한다. JSON 파싱·커널 대기의 강제 시간/RSS 제한이나 동일 OS 계정의 최종 검사 직후 변경 방지까지 보장하지 않는다. 입력 해시·출력 해시 검증은 검사 시점의 바이트에 대한 확인이다.
 
 **선택 미디어 구조 관찰**
-- `forensics_media_inventory`는 선택 파일 하나의 ISO-BMFF 상자 경계와 허용 계층의 mvhd/mdhd timing prefix·pssh 구조만 제한 관찰한다. 형식 선언·상자 경계가 맞아도 영상·음성·샘플·재생·녹화 시각·진위·암호화·표준 적합성을 검증한 것이 아니다. 원시 FourCC·UUID·사용자 메타데이터·내용은 새 결과에 넣지 않는다.
-- 길이 선언은 재생 길이가 아니며 생성/수정 시각은 zero/nonzero/unread 상태만 반환한다. PSSH의 SystemID/KID/data는 읽어 반환하지 않고 존재·부재를 암호화/평문 판정에 쓰지 않는다. sample entry·암호화 sample은 미검사다. 과거 box-v1 보고서는 새 선언 검사를 받지 않았으며 프로필과 완료도로 구분한다([계약](references/media-declarations.md)).
+- `forensics_media_inventory`는 선택 파일 하나의 ISO-BMFF 상자 경계와 허용 계층의 mvhd/mdhd timing·pssh와 stsd/encv·enca/sinf/schm·schi/tenc 보호 prefix만 제한 관찰한다. 형식 선언·상자 경계가 맞아도 영상·음성·샘플·재생·녹화 시각·진위·암호화·표준 적합성을 검증한 것이 아니다. 원시 FourCC·UUID·사용자 메타데이터·내용은 새 결과에 넣지 않는다.
+- 길이 선언은 재생 길이가 아니며 생성/수정 시각은 zero/nonzero/unread 상태만 반환한다. PSSH의 SystemID/KID/data는 읽어 반환하지 않고 존재·부재를 암호화/평문 판정에 쓰지 않는다. 지원 encv/enca prefix가 게시되면 sample_entries_examined=true지만 모든 entry·전체 보호 필드 검사가 아니다. 전체 tenc·constant-IV·KID/IV·sample groups/auxiliary/body는 미검사이며 보호 값 zero/one도 실제 암호화/평문을 확정하지 않는다. 옛 box-v1/declarations-v1은 새 보호 검사를 받지 않았으며 새 protection-declarations-v1의 깊이 10과 구별한다([계약](references/media-declarations.md)).
+- 보호 순회 완료는 전체 framing을 보수적으로 따르되 필드 오류는 실제 보호 행에서만 가져온다. timing/PSSH의 같은 version/flags/truncated 사유를 보호 reasons로 복사하지 않는다. known 종류도 허용 entry가 아니면 other·opaque이며 자식을 검색하지 않는다. 전체 및 보호 상태가 complete이거나 배열이 비어 있어도 보호 부재 검증이 아니다.
 - 완전한64 MiB 이하 파일만 받는다. 고정 상한·구조 오류·시간 한도는 검사/opaque/미검사 범위로 남기며, opaque payload는 검사 완료 바이트가 아니다. 미지원/0개 결과는 미디어 없음·안전 판정이 아니다. 실제 벤더 변형/녹화 표본 검증을 대신하지 않는다.
 - 선택 bytes의 해시는 복구 방법이 구성한 바이트를 나타내며 원본 녹화 복구 성공을 증명하지 않는다. 삭제 파일/삭제된 부모/알 수 없는 부모 상태·불완전 아카이브 목록의 불확실성을 보존한다. 목표 파일을 찾은 순회는 카드 전체 목록 완료가 아니다.
 - 기존 EV 무결성 입구·출력 seal·보관 기록을 사용한다.64 MiB는 입력 크기 상한이며 전체 RSS 또는 커널 I/O의 강제 시간 상한은 아니다. 같은 OS 계정의 최종 검사 뒤 변경 가능성은 공통 한계로 남는다.

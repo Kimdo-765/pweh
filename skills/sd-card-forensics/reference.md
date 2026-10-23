@@ -241,17 +241,21 @@ E01 입력과 외부 도구(TSK·PhotoRec·ewf·ffprobe), ext4·NTFS 목록, 장
 
 ## 12. 선택 미디어 구조 관찰
 
-`forensics_media_inventory`는 EV 자체 또는 FAT/exFAT·TAR/ZIP에서 선택한 완전한 파일 하나의 상자 경계와 허용 계층의 `mvhd/mdhd` 시간 단위·길이 선언, `pssh` 구조를 본다. ref/path 중 하나를 주거나 직접 EV에서는 둘 다 생략한다. 직접 EV는 partition 없이 method=auto다. 최대64 MiB이고 불완전 읽기·한도 초과를 앞부분 성공으로 바꾸지 않는다. 빈 선택 파일은 미지원 결과다.
+`forensics_media_inventory`는 EV 자체 또는 FAT/exFAT·TAR/ZIP에서 선택한 완전한 파일 하나의 상자 경계와 timing/PSSH·제한 보호 선언 prefix를 본다. ref/path 중 하나를 주거나 직접 EV에서는 둘 다 생략한다. 직접 EV는 partition 없이 method=auto다. 최대 64 MiB이며 불완전 읽기·한도 초과를 앞부분 성공으로 바꾸지 않는다. 빈 선택 파일은 미지원 결과다.
 
-schema `pweh.media-inventory/v1`은 유지한다. 새 profile `mp4-quicktime-declarations-v1`은 `declarations`가 필수이고, 옛 `mp4-quicktime-box-v1`은 그 section 없이 기존 형식으로 계속 읽는다. 옛 보고서가 새 선언 검사를 받은 것으로 해석하지 않는다.
+schema `pweh.media-inventory/v1`은 유지한다. 새 profile `mp4-quicktime-protection-declarations-v1`은 timing/PSSH와 `declarations.protection`이 필수다. 옛 box-v1은 declarations가 없고 옛 declarations-v1은 protection이 없다. 세 profile의 어휘·limitations·깊이 제약을 섞지 않으며 과거 보고서에 새 보호 검사를 소급하지 않는다. 공개 profile 선택 인자는 없다.
 
-`report.status`의 ok/partial/unsupported, `framing_status`, `recognition`, `coverage`와 `declarations.status`를 구분한다. 선언 필드가 미지원·불완전하면 상자 경계가 complete여도 전체 partial이다. 선언0개/complete는 보호 신호 부재·평문 확인이 아니다. timing의 timescale/duration_units는 선언 정수이며 재생 길이나 녹화 시작/끝으로 변환하지 않는다. creation/modification는 zero/nonzero/unread만, PSSH는 index/version/status/issues만 반환한다. 원시 시각·식별자·payload는 나오지 않는다.
+허용한 `moov/trak/mdia/minf/stbl/stsd/(encv|enca)/sinf/(schm|schi/tenc)` 경로만 연다. stsd v0·flags0, encv 78B·enca audio-v0 28B, schm v0·flags0·정확히 12B, tenc v0/v1·flags0·최소 24B의 제한 필드만 관찰한다. 그 밖의 entry는 known 종류여도 other로 두고 opaque payload를 검색하지 않는다. scheme은 cenc/cbcs/other/unread, 기본 보호 상태는 zero/one/other/unread뿐이다.
 
-opaque payload는 검사 바이트와 다르며 timing도20/32bytes prefix 외 필드는 미검사다. brand나 moov/moof/PSSH가 있다고 영상 정상·재생 가능·녹화 시각·암호화를 판정하지 않는다. 삭제·삭제된 부모·알 수 없는 부모·복구 신뢰도의 불확실성은 선언 검사 상태와 별도로 overall partial에 남는다. 전체 컨테이너 미검사를 전체 목록 완료로 쓰지 않는다.
+보호 배열의 box_index/parent_index/entry_index는 게시된 boxes에 결속한다. entry_index는 sample-entry box index이며 별도 순번이나 track ID가 아니다. stsd의 선언 수·보고한 직접 entry 수·순회 완료를 구분하고, 중복 schm/tenc 상자는 각각 남기되 유일성·활성 선택·상속을 추정하지 않는다.
 
-`media_inventory_results[]`에는 `evidence_id`, `analysis_path`/`sha256`(응답 analysis), `status`(report.status), `selected_size`(source.selected_size), `boxes_reported`(보고한 상자 수)만 기록한다. 원래 파일명·경로·시각·FourCC·UUID·메타데이터 원문은 추가하지 않는다. 범위별 한계는 결과 JSON을 참조하고 증거 목록의 derived에서 media-inventory 결과 해시/보관 기록을 확인한다. 기존 privacy.audio_decoded·recording_content_viewed는 false로 유지한다.
+`report.status`의 ok/partial/unsupported, framing, recognition, declarations와 protection의 순회·필드 완료를 구분한다. 지원 prefix를 하나 이상 게시하면 sample_entries_examined=true일 수 있으나 모든 entry나 sample body를 검사한 것은 아니다. 보호 reasons는 실제 보호 행의 issues와 전체 구조/예산 사유만 반영한다. timing/PSSH만 malformed이면 framing complete인 빈 protection은 complete일 수 있고 바깥 declarations만 partial이다. 선언 0개/complete·기본 상태 zero/one도 보호 부재·평문/암호화 확인이 아니다.
 
-상자4096·깊이8·brand 표당64/전체256·범위8193·JSON1 MiB·공통 최대45초의 제한이 있다. timing/PSSH row 합계는 반환 상자 수 이하이며 상자당1개다. 구조 실패/한도에서 검증한 범위와 미검사 tail을 구분한다. 지원 밖을 외부 decoder/파일 도구로 대신하지 않는다. 상세 필드·false 검증 값·구버전은 [선언 관찰](../../docs/references/media-declarations.md), 전체 보관 계약은 architecture §6.8, 한계는 safety §3.6이다. 후보·prefix 도구와 녹화 타임라인 입력은 바뀌지 않는다.
+실제 읽은 고정 필드만 header이고 건너뛴 prefix·예약·패턴·KID/IV·tail은 skipped다. 전체 tenc·constant-IV·sample groups·auxiliary·sample bytes는 검사하지 않는다. full_tenc_examined/sample_auxiliary_examined/identifiers_returned 및 기존 암호화·재생·해독·시각·적합성 판정값은 false다. timing도 20/32B prefix 밖은 미검사이며 선언 길이를 재생 길이·녹화 시작/끝으로 바꾸지 않는다. 원시 시각·식별자·payload·개별 해시는 나오지 않는다.
+
+삭제·삭제된 부모·알 수 없는 부모·복구 신뢰도의 불확실성은 선언 검사와 별도로 overall partial에 남는다. 전체 컨테이너 미검사를 전체 목록 완료로 쓰지 않는다. `media_inventory_results[]`에는 기존 evidence_id, analysis_path/sha256(응답 analysis), status(report.status), selected_size(source.selected_size), boxes_reported(report.summary)의 6필드만 옮긴다. 보호 필드·이름·시각·FourCC·UUID를 요약에 추가하지 않는다. 한계는 notes와 결과 JSON에 두고 evidence-list의 derived로 해시/보관 기록을 확인한다. privacy.audio_decoded·recording_content_viewed는 false다.
+
+상자 4096·새 profile 깊이 10(옛 두 profile은 8)·brand 표당 64/전체 256·범위 8193·JSON 1 MiB·공통 최대 45초다. 보호 네 배열 합계는 게시 상자 수 이하며 한도에서 현재 box+row+ranges를 원자적으로 보류한다. depth 9 이하의 내부 한도에서는 정상 tenc 경로도 partial일 수 있다. 지원 밖을 외부 decoder/파일 도구로 대신하지 않는다. [선언 관찰](../../docs/references/media-declarations.md)의 exact 필드·15 limitations를 따르며 후보·stream·prefix 추출·타임라인에는 새 해석을 전파하지 않는다.
 
 ## 13. 선택 미디어 연속 후보
 

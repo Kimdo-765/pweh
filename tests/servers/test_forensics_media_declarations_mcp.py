@@ -62,9 +62,9 @@ def assert_private(public):
 def assert_declarations(report):
     from pweh import schemas
     schemas.validate("media-inventory", report)
-    assert report["profile"] == "mp4-quicktime-declarations-v1"
+    assert report["profile"] == "mp4-quicktime-protection-declarations-v1"
     declared = report["declarations"]
-    assert declared["scope"] == "mvhd-mdhd-pssh-selected-contexts"
+    assert declared["scope"] == "mvhd-mdhd-pssh-sample-protection-selected-contexts"
     assert declared["absolute_times_returned"] is False
     assert declared["sample_entries_examined"] is False
     assert declared["sample_encryption_examined"] is False
