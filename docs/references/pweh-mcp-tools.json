@@ -726,7 +726,7 @@
    },
    {
     "name": "schema_get",
-    "description": "PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, nfc-analysis, nfc-file-analysis, nfc-inventory, nfc-scan, numeric-analysis, numeric-validation, pinout-scan, rf-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, uart-recon.",
+    "description": "PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, imported-save-plan, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, nfc-analysis, nfc-file-analysis, nfc-inventory, nfc-scan, numeric-analysis, numeric-validation, pinout-scan, rf-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, uart-recon.",
     "params": [
      {
       "name": "name",
@@ -5222,6 +5222,79 @@
       "type": "string",
       "required": true,
       "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "fw_plan_imported_save",
+    "description": "케이스에 가져온 일반 세이브 파일의 로컬 변경 계획을 만든다. artifact_id로 등록 파일 하나를 고르고 기존 imported-unattested 출처·같은 FD의 SHA와 크기를 확인한다. 입력은 1바이트~8MiB, 선택 offset/length와 편집·체크섬 좌표는 파일 기준 정수다. edits는 offset/encoding/value의1~16개 객체이며 정수·BCD 인코딩을 사용한다. checksum은 null 또는 algorithm/endian/location/range 객체로 원래 규칙을 재현한 뒤 다시 계산한다. purpose는 score/progress/in-device-unlock, unlock_source는 in-device/owned-tag, online_capable은 no/unknown만 허용한다. 처리 예산 max_seconds는0초 초과30초 이하(기본30), 등록 직전 최종 무결성 검증은 별도 최대5초다. patches/imported-save-plan-NNN/의 planned.bin과 manifest.json을 만들고 manifest 하나만 아티팩트로 등록한다. 의도한 편집 전후 정수값은 보고하며 원본 경로·바이트/hex는 반환하지 않는다. stage는 planned이며 실기 연결·독립 백업·쓰기 주소·write-ready·장치 쓰기·게임 수용은 검증하지 않는다. 새 출처/증명·운영 patch-plan·쓰기 명령을 만들지 않는다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "artifact_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "offset",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "length",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "edits",
+      "type": "array",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "purpose",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "unlock_source",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "online_capable",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "checksum",
+      "type": "?/null",
+      "required": false,
+      "default": null
+     },
+     {
+      "name": "max_seconds",
+      "type": "integer/number",
+      "required": false,
+      "default": 30
      }
     ],
     "annotations": {

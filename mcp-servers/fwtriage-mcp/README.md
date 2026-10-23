@@ -5,6 +5,7 @@ UART/JTAG/SPI 로 얻은 플래시 덤프나 벤더 펌웨어에서 "어디에 �
 `cctv-auth-bypass-hunt`, `firmware-static-analysis`, `game-save-unlock-analysis` Skill 의 1차 근거를 만든다.
 
 - 대상: 운영자가 **소유**하거나 **서면 허가**를 받은 기기의 펌웨어·세이브 스냅샷
+- `fw_plan_imported_save`는 명시한 원시 세이브 값을 바꾼 로컬 planned 사본을 만든다. 기기 쓰기 권위나 독립 백업을 만들지 않는다.
 - 하드웨어를 건드리지 않는다 (안전 게이트 대상 아님). 펌웨어 안의 어떤 것도 **실행하지 않는다**.
   `fw_patch_build` 는 기기에 쓰지 않고, 검증된 새 백업과 사람 증명 뒤 사람이 별도 터미널에서 실행할 쓰기 명령만 보여 준다.
   우리가 실행하는 외부 프로그램은 `unsquashfs`/`sasquatch` 뿐이며 비root·시간 제한·디스크 사용량 감시 아래에서만 돈다.
@@ -54,6 +55,7 @@ jffs2/UBI/cramfs/ext 파티션은 `fw_carve` 로 분리한 뒤 REA `extract_firm
 | `fw_checksum_find(case_id, paths, offset=None, length=None, partition=None, algorithms=None, max_results=20, max_seconds=120, background=False)` | 모든 스냅샷에서 `저장값 = 알고리즘(범위)` 인 체크섬 후보(합·xor·CRC-8/16/32·adler32·fletcher16 등 24종). 위치 후보는 바뀐 바이트에서만. 시험한 후보 수, 기대 오탐 수, `strong`/`weak`. 합계 8 MiB 까지, NVS 를 담은 범위는 거부 | `analysis/checksum-find-NNN.json` |
 | `fw_find_seq_tables(case_id, path, offset=None, length=None, partition=None, base_addr=None, min_len=6, max_results=50, max_seconds=120, background=False)` | 치트 입력(버튼 시퀀스) 표 후보: 작은 알파벳의 배열, 코나미형 모양 점수. ESP 앱 이미지면 코드가 아닌 세그먼트를 load 주소(디컴파일러 주소)로 훑는다 | `analysis/seq-tables-NNN.json` |
 | `fw_patch_build(case_id, base_path, target, edits, purpose, unlock_source, online_capable, backup_path=None, description=None)` | 세이브 값 패치(사용자가 원할 때만). base = 기기에서 두 번 읽어 일치한 전체 플래시 덤프(출처 원장 확인), target = NVS 정수 항목 또는 사용자 데이터 파티션(+체크섬). backup_path 없이 → 계획(패치 이미지), 새 백업과 사람 증명 뒤 → 출처 원장 `patch-plan` 기록 + 사람이 실행할 쓰기 명령(sha256 확인 → esptool write-flash, 에이전트는 실행하지 않음) | `patches/<label>-patch-NNN.bin`, `analysis/patch-build-NNN.json` |
+| `fw_plan_imported_save(case_id, artifact_id, offset, length, edits, purpose, unlock_source, online_capable, checksum=None, max_seconds=30)` | 가져온 원시 파일 1바이트~8MiB의 명시 정수 편집 1~16개·선택 checksum으로 전체 로컬 사본 생성. 모든 좌표는 파일 기준, 원본과 선택 밖 bytes는 유지. stage=planned만 지원하며 manifest 한 파일을 등록. NVS·ESP 표 입력 및 온라인/판매 콘텐츠 해금 거부 | `patches/imported-save-plan-NNN/planned.bin`, 같은 디렉터리의 `manifest.json` |
 | `fw_verify_writeback(case_id, patch_path, readback_path)` | 쓴 뒤 다시 읽은 덤프를 출처 원장의 패치 sha256 과 비교 → applied / not-applied / differs | `analysis/patch-verify-NNN.json` |
 | `fwtriage_job_status(job_id, wait_seconds=0, case_id=None)`, `fwtriage_job_cancel(job_id)`, `fwtriage_jobs(active_only=False, case_id=None)` | `background=true` 로 시작한 작업 폴링/취소. `result` 는 인라인 응답과 같다 | `jobs/<job_id>.json` |
 
@@ -70,7 +72,7 @@ jffs2/UBI/cramfs/ext 파티션은 `fw_carve` 로 분리한 뒤 REA `extract_firm
 펌웨어 없이 원시 세이브 파일만 확보했어도 `case_import_file`로 가져온 뒤 `fw_save_diff`·`fw_checksum_find`를 쓸 수 있다.
 소유/허가가 기록된 케이스에서 분석하며, 가져온 파일의 출처는 `imported-unattested`다. 이 읽기 전용 분석에는 별도의 `pweh attest`가 필요하지 않다.
 현재 `fw_patch_build`의 base는 이 케이스의 `esp_read_flash_start`로 두 번 읽어 일치한 ESP 전체 플래시 덤프(offset0)만 받는다.
-가져온 원시 파일은 출처를 증명해도 패치 base가 되지 않는다.
+가져온 원시 파일은 출처를 증명해도 그 ESP 패치 base가 되지 않는다. 별도 `fw_plan_imported_save`의 로컬 계획은 아래 선택 절차로 만든다.
 
 다음 코드는 **직접 만든 합성 형식**의 64바이트 스냅샷 세 개를 새 디렉터리에 만든다. 실제 게임·EEPROM 형식이나 화면 관찰값이 아니다.
 
@@ -129,6 +131,29 @@ fw_checksum_find(case_id="<id>",
 원시 bytes 비교는 비밀값을 자동 마스킹하지 않는다. 실제 파일은 케이스 안에 두고 `forensics/` 증거·복구물이나 `emu/` 기록을 이 예제의 입력으로 옮기지 않는다.
 이 분석 예제를 Skill로 수행하면 결과·입력 출처·미확인 한계를 `save-analysis` 요약에 기록하고 `patches=[]`로 마친다.
 
+### 명시한 값으로 로컬 사본 만들기
+
+위 합성 세 번째 파일의 score 123456을 999999로 바꾸라는 요청이 있으면
+`case_get(case_id="<id>", include_artifacts=true)`에서 `dumps/raw-save-03.bin` 행의 크기·SHA를
+확인하고 `id`를 선택한다. 다음 `artifact_id`를 그 실제 ID로 바꾼다.
+
+```text
+fw_plan_imported_save(case_id="<id>", artifact_id="<선택한 입력 artifact ID>",
+  offset=0, length=64, edits=[{"offset":16,"encoding":"u32le","value":999999}],
+  checksum={"algorithm":"sum32","endian":"le","location":60,"range":[0,60]},
+  purpose="score", unlock_source="in-device", online_capable="unknown", max_seconds=30)
+```
+
+선택·편집·checksum 좌표는 모두 파일 기준이며 범위 끝은 제외한다. `stage=planned` 성공의
+`analysis`는 manifest artifact, `patch`는 그 manifest의 SHA에 결속된 전체 64바이트 사본이다.
+생성 경로·SHA와 입력 artifact ID를 `save-analysis.local_plans[]`의 6필드에 옮기고 `patches=[]`는 유지한다.
+보고서에는 변경한 정수와 checksum 숫자가 보이며 raw hex·전체 파일 내용은 복사하지 않는다.
+
+입력은 같은 케이스 import 원장·SHA와 대조하며 새 증명을 요구하지 않는다. NVS 비밀값·ESP 표
+입력은 거부한다. `max_seconds` 처리 예산과 별도 최종5초 검증을 사용하며 helper 계산/OS I/O
+즉시 중단을 보장하지 않는다. 결과가 독립 백업·장치 주소·ready·게임 수용을 증명하는 것은 아니다.
+정확한 반환·한도·요약·오류는 [로컬 계획 계약](../../docs/references/imported-save-plan.md)을 따른다.
+
 ## 데이터 파일
 
 - `src/pweh/data/cctv-hunt-patterns.yaml` — `docs/references/cctv-hunt-patterns.yaml`(사실 확인된 원본)을 **그대로 복사**한 것.
@@ -175,7 +200,7 @@ fw_checksum_find(case_id="<id>",
 - REA 는 Xtensa(ESP32·S2·S3) ELF 를 열지 못한다. 이 칩들은 디컴파일 없이 문자열·패턴·표 도구와 세이브 비교로 분석한다.
 - 세이브 도구 결과는 후보다. 체크섬은 자기 필드를 덮는 형태·HMAC·서명은 찾지 않고, 큰 범위의 CRC 는 바이트 예산 안에서만 찾는다(`truncated`).
 - NVS 비밀값 마스킹은 키 이름 휴리스틱(+ 같은 원문을 담은 값)이다. 평범한 이름에 숨긴 비밀은 못 가릴 수 있다. 바이트 비교·체크섬 찾기는 NVS 를 담은 범위를 거부한다.
-  세이브 값 변경은 ESP NVS 정수와 raw-user-data 파티션에 한해 `fw_patch_build`·`fw_verify_writeback`을 쓴다. 가져온 원시 파일은 패치 base로 받지 않는다.
+  ESP NVS 정수와 raw-user-data 기기 쓰기 경로는 `fw_patch_build`·`fw_verify_writeback`을 쓴다. 가져온 원시 파일은 그 base로 받지 않으며, `fw_plan_imported_save`는 명시 요청의 로컬 planned 사본만 만든다.
   이 서버는 기기에 쓰지 않고, 사람이 실행할 명령만 만든다(검증된 새 백업·사람 증명 뒤).
 - SD 표면(`fw_sd_surface`)은 규칙 기반 정적 휴리스틱이다. 상한에 걸리면 not-found 대신 unknown 이지만, not-found 는 알려진 모양에 맞춰 끝까지 보았다는 뜻일 뿐 카드 경로가 없다는 증명이 아니다(간접 실행·내용 시험·압축 풀기 뒤 실행 같은 모양은 architecture §6.6 의 한계 목록 참고). mmc 장치 번호로 SD·eMMC 를 구분하지 못해 `media`·`storage` 같은 일반 이름의 마운트는 FAT 계열 fs 일 때만, `/dev/sdX` 는 장치 이름 디렉터리(`/mnt/sda1`)가 아닐 때만 SD 로 보며, 데몬이 mount(2) 로 마운트하면 옵션을 못 봐 SD-08 이 unknown 이고, 녹화 암호화는 '없음'을 단정하지 않는다. echo·logger 문구 속 `cd`·`sh x` 는 실행으로 보지 않지만, here-document 본문·여러 줄 문자열 속 명령 꼴 줄은 셸에 넘겨지는지 따지지 않고 명령처럼 본다(사용법 안내의 카드 경로 예시도 SD-01 근거가 될 수 있다 — 발췌로 확인).
   카드에 넣을 파일(boot.scr·uEnv·업데이트 이미지·트리거 파일)은 만들지 않고 안내하지도 않는다.

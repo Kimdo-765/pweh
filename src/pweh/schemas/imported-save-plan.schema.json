@@ -1,0 +1,931 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/imported-save-plan.schema.json",
+  "title": "가져온 세이브 로컬 변경 계획",
+  "description": "가져온 아티팩트와 원장 항목에 결속한 로컬 계획. 장치 쓰기·독립 백업·게임 수용을 확인하지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile",
+    "stage",
+    "source",
+    "params",
+    "edits",
+    "checksum",
+    "output",
+    "device_association_verified",
+    "independent_backup_verified",
+    "write_address_verified",
+    "write_ready",
+    "device_written",
+    "game_acceptance_verified"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pweh.imported-save-plan/v1"
+    },
+    "profile": {
+      "const": "raw-save-local-plan-v1"
+    },
+    "stage": {
+      "const": "planned"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "artifact_id",
+        "size",
+        "sha256",
+        "import_provenance"
+      ],
+      "properties": {
+        "kind": {
+          "const": "case-artifact"
+        },
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^A-[0-9]{4,8}(?![\\s\\S])",
+          "minLength": 6,
+          "maxLength": 10
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8388608
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "import_provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "seq",
+            "record_sha256"
+          ],
+          "properties": {
+            "kind": {
+              "const": "imported-unattested"
+            },
+            "seq": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "record_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
+              "minLength": 64,
+              "maxLength": 64
+            }
+          }
+        }
+      }
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "offset",
+        "length",
+        "purpose",
+        "unlock_source",
+        "online_capable",
+        "max_seconds"
+      ],
+      "properties": {
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8388607
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8388608
+        },
+        "purpose": {
+          "enum": [
+            "score",
+            "progress",
+            "in-device-unlock"
+          ]
+        },
+        "unlock_source": {
+          "enum": [
+            "in-device",
+            "owned-tag"
+          ]
+        },
+        "online_capable": {
+          "enum": [
+            "no",
+            "unknown"
+          ]
+        },
+        "max_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 30
+        }
+      }
+    },
+    "edits": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "$ref": "#/$defs/edit"
+      }
+    },
+    "checksum": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/checksum"
+        }
+      ]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "name": {
+          "const": "planned.bin"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8388608
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}(?![\\s\\S])",
+          "minLength": 64,
+          "maxLength": 64
+        }
+      }
+    },
+    "device_association_verified": {
+      "const": false
+    },
+    "independent_backup_verified": {
+      "const": false
+    },
+    "write_address_verified": {
+      "const": false
+    },
+    "write_ready": {
+      "const": false
+    },
+    "device_written": {
+      "const": false
+    },
+    "game_acceptance_verified": {
+      "const": false
+    }
+  },
+  "$defs": {
+    "edit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "offset",
+        "encoding",
+        "before_value",
+        "after_value",
+        "in_checksum_range"
+      ],
+      "properties": {
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8388607
+        },
+        "encoding": {
+          "enum": [
+            "u8",
+            "i8",
+            "u16le",
+            "u16be",
+            "i16le",
+            "i16be",
+            "u32le",
+            "u32be",
+            "i32le",
+            "i32be",
+            "bcd2le",
+            "bcd2be",
+            "bcd4le",
+            "bcd4be"
+          ]
+        },
+        "before_value": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "after_value": {
+          "type": "integer"
+        },
+        "in_checksum_range": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "u8"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388607
+              },
+              "before_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "i8"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388607
+              },
+              "before_value": {
+                "type": "integer",
+                "minimum": -128,
+                "maximum": 127
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": -128,
+                "maximum": 127
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "u16le"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388606
+              },
+              "before_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "u16be"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388606
+              },
+              "before_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "i16le"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388606
+              },
+              "before_value": {
+                "type": "integer",
+                "minimum": -32768,
+                "maximum": 32767
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": -32768,
+                "maximum": 32767
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "i16be"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388606
+              },
+              "before_value": {
+                "type": "integer",
+                "minimum": -32768,
+                "maximum": 32767
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": -32768,
+                "maximum": 32767
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "u32le"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388604
+              },
+              "before_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "u32be"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388604
+              },
+              "before_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "i32le"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388604
+              },
+              "before_value": {
+                "type": "integer",
+                "minimum": -2147483648,
+                "maximum": 2147483647
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": -2147483648,
+                "maximum": 2147483647
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "i32be"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388604
+              },
+              "before_value": {
+                "type": "integer",
+                "minimum": -2147483648,
+                "maximum": 2147483647
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": -2147483648,
+                "maximum": 2147483647
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "bcd2le"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388606
+              },
+              "before_value": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9999
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9999
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "bcd2be"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388606
+              },
+              "before_value": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9999
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9999
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "bcd4le"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388604
+              },
+              "before_value": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 99999999
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 99999999
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "encoding": {
+                "const": "bcd4be"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388604
+              },
+              "before_value": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 99999999
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "after_value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 99999999
+              }
+            }
+          }
+        }
+      ]
+    },
+    "checksum": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "endian",
+        "location",
+        "range",
+        "before",
+        "after",
+        "original_rule_reproduced",
+        "patched_rule_reproduced"
+      ],
+      "properties": {
+        "algorithm": {
+          "enum": [
+            "sum8",
+            "negsum8",
+            "notsum8",
+            "xor8",
+            "crc8",
+            "crc8-maxim",
+            "sum16",
+            "sum16le",
+            "sum16be",
+            "fletcher16",
+            "crc16-ccitt-false",
+            "crc16-xmodem",
+            "crc16-kermit",
+            "crc16-x25",
+            "crc16-modbus",
+            "crc16-arc",
+            "sum32",
+            "sum32le",
+            "sum32be",
+            "adler32",
+            "crc32",
+            "crc32-jamcrc",
+            "crc32-mpeg2",
+            "crc32-bzip2"
+          ]
+        },
+        "endian": {
+          "enum": [
+            null,
+            "le",
+            "be"
+          ]
+        },
+        "location": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8388607
+        },
+        "range": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 8388607
+            },
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8388608
+            }
+          ],
+          "items": false
+        },
+        "before": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "after": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "original_rule_reproduced": {
+          "const": true
+        },
+        "patched_rule_reproduced": {
+          "const": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "algorithm": {
+                "enum": [
+                  "sum8",
+                  "negsum8",
+                  "notsum8",
+                  "xor8",
+                  "crc8",
+                  "crc8-maxim"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "endian": {
+                "type": "null"
+              },
+              "location": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388607
+              },
+              "before": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              },
+              "after": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "algorithm": {
+                "enum": [
+                  "sum16",
+                  "sum16le",
+                  "sum16be",
+                  "fletcher16",
+                  "crc16-ccitt-false",
+                  "crc16-xmodem",
+                  "crc16-kermit",
+                  "crc16-x25",
+                  "crc16-modbus",
+                  "crc16-arc"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "endian": {
+                "enum": [
+                  "le",
+                  "be"
+                ]
+              },
+              "location": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388606
+              },
+              "before": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              },
+              "after": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "algorithm": {
+                "enum": [
+                  "sum32",
+                  "sum32le",
+                  "sum32be",
+                  "adler32",
+                  "crc32",
+                  "crc32-jamcrc",
+                  "crc32-mpeg2",
+                  "crc32-bzip2"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "endian": {
+                "enum": [
+                  "le",
+                  "be"
+                ]
+              },
+              "location": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8388604
+              },
+              "before": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              },
+              "after": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "checksum": {
+            "type": "null"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "edits": {
+            "items": {
+              "properties": {
+                "in_checksum_range": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "edits": {
+            "items": {
+              "properties": {
+                "in_checksum_range": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

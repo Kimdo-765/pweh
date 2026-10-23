@@ -1,11 +1,11 @@
 ---
 name: game-save-unlock-analysis
-description: Offline save and unlock analysis of an owned game console or toy (ESP32 toys, MCU+EEPROM devices, Linux handhelds) with pweh-fwtriage - ESP partitions/app/NVS (fw_esp_partitions, fw_esp_image_info, fw_esp_nvs, fw_esp_to_elf), the game string pack (fw_strings_hunt patterns="game"), cheat-input tables (fw_find_seq_tables), save snapshot diffs against on-screen values (fw_save_diff) and save checksums (fw_checksum_find); classifies unlocks by unlock_source and records the save-analysis summary. Save value changes only on explicit request - fw_patch_build makes the patch and, after a fresh verified backup and the human's attestation, shows a write command the human runs in a separate terminal (never the agent); fw_verify_writeback checks the readback. No NFC, no play automation, sold-token content report-only, results stay local. Triggers - hidden game unlock, high score, save file, NVS, cheat code. 게임 세이브 분석, 해금 조건, 하이 스코어, 숨은 게임, 치트 입력.
+description: 소유·허가된 게임기·장난감의 펌웨어와 세이브에서 해금 조건, 점수·진행 값의 위치·인코딩·체크섬을 분석하고 save-analysis 요약을 기록한다. 사용자가 값 변경을 명시하면 가져온 원시 세이브의 로컬 planned 사본을 만들거나 기존 ESP 백업·사람 쓰기·읽기 검증 경로를 안내한다. 숨은 게임, 하이 스코어, 세이브 파일, NVS, 치트 입력 분석에 사용한다. 판매 토큰 콘텐츠는 보고만 하며 NFC·플레이 자동화는 이 Skill 범위 밖이다.
 ---
 
 # 게임 세이브·해금 분석 (game-save-unlock-analysis)
 
-`orchestrator/master-prompt.md` §3.1 의 게임 콘솔 분석 경로다. 소유/서면 허가가 기록된 케이스에서만 쓴다. 기기에는 에이전트가 아무것도 쓰지 않는다 — 사용자가 원한 세이브 값 변경은 사람이 쓴다(9단계).
+`orchestrator/master-prompt.md` §3.1 의 게임 콘솔 분석 경로다. 소유/서면 허가가 기록된 케이스에서만 쓴다. 사용자가 명시한 값 변경은 로컬 계획을 만들 수 있으며, 실제 기기 쓰기는 사람이 한다(9단계).
 결과는 연구·방어용이고 로컬에만 둔다(온라인 리더보드·대회·계정에 제출하지 않는다). 설계 근거는 `docs/design/game-console-flipper-rf.md` §1.3·§1.4·§3.5·§4 다.
 
 ## 목적
@@ -21,7 +21,7 @@ description: Offline save and unlock analysis of an owned game console or toy (E
 - **쓰지 않는다**
   - 케이스나 소유/허가 증명이 없다 → master-prompt Phase 0.
   - 펌웨어도 세이브 스냅샷도 없다 → ESP32 면 `esp32-flash-dump`, 리눅스·MCU 기기면 master-prompt §4 Phase A·B 가 먼저다.
-  - NFC 태그 읽기·에뮬레이션, 플레이 자동화 → 아직 없다(사용자에게 그렇게 알린다). 세이브 값 변경은 9단계(사용자가 명시적으로 원할 때만).
+  - NFC 태그 읽기·파일 비교 → `nfc-behavior-analysis`의 지원 범위로 연결한다. 에뮬레이션·플레이 자동화는 이 Skill에서 수행하지 않는다. 세이브 값 변경은 9단계(사용자가 명시적으로 원할 때만).
   - 시판 콘솔(Switch·PlayStation·Xbox)의 세이브 → 암호화·서명돼 있어 분석·수정 대상이 아니다(복제 방지 우회 경계).
 
 - 원시 세이브 스냅샷만 있어도 `case_import_file`로 등록한 뒤 5·6단계에서 분석할 수 있다. 펌웨어가 없으면 2~4단계를 생략하고 미확인 한계를 기록한다.
@@ -36,8 +36,8 @@ description: Offline save and unlock analysis of an owned game console or toy (E
 ## 안전 규칙
 
 1. **소유/허가 확인과 `case_create` 가 먼저다.** 스냅샷을 다시 덤프할 때의 하드웨어 규칙은 `esp32-flash-dump` 를 그대로 따른다(연결마다 칩 리셋).
-2. **기기에는 사람만 쓴다.** 에이전트는 세이브·플래시·eFuse 에 쓰지 않고, 쓰기 명령을 실행하지 않는다(셸이 있어도). 값 변경은 사용자가 명시적으로 원할 때만 `fw_patch_build` 로 패치를 만들고,
-   서버가 검증된 새 백업과 사람 증명을 확인한 뒤 보여 주는 명령을 사람이 별도 터미널에서 실행한다(master-prompt §1 규칙 3 의 예외). 그 밖의 쓰기 명령은 만들거나 건네지 않는다.
+2. **기기에는 사람만 쓴다.** 값 변경을 명시한 요청이 있을 때만 `fw_plan_imported_save`로 로컬 사본을 만들거나 `fw_patch_build`로 ESP 패치를 만든다. 분석 요청만으로 편집값·체크섬 후보를 임의 선택하지 않는다.
+   ESP는 서버가 검증된 새 백업과 사람 증명을 확인한 뒤 보여 주는 명령을 사람이 별도 터미널에서 실행한다(master-prompt §1 규칙 3 의 예외). 에이전트는 기기 쓰기 명령을 실행하거나 별도로 만들지 않는다. 로컬 계획에는 쓰기 명령·ready·독립 백업 권위가 없다.
 3. **범위 밖 (항상 거부)**: 결제·교통·출입·호텔·신분 자격증명, 남의 태그·피규어 복제, 다운로드한 덤프 에뮬레이션, amiibo 류 콘솔 키 기반 태그 암호(복호·재암호·재서명),
    판매 토큰·DLC·온라인 구매로 여는 콘텐츠(entitlement)의 해금, 온라인 동기화되는 서명·HMAC 위조, 키 복구·PWD 무차별 대입. 이런 단서는 **보고만** 한다.
 4. **게이트**: 스냅샷 덤프가 `status: approval_required` 면 무엇을·왜·위험을 설명하고, 사용자가 **별도 터미널**에서 `pweh approve <approval_id>` 하면 같은 인자 + `approval_id` 로 한 번만 재시도한다.
@@ -58,6 +58,8 @@ description: Offline save and unlock analysis of an owned game console or toy (E
 | `fw_find_seq_tables` | 치트 입력(버튼 시퀀스) 표 후보 — 코나미형 모양 점수 |
 | `fw_save_diff` | 세이브 스냅샷 비교(bytes·nvs)와 화면 관찰값 매칭 |
 | `fw_checksum_find` | 세이브 체크섬 후보(합·xor·CRC·adler·fletcher), 기대 오탐 수 |
+| `fw_plan_imported_save` | 명시한 원시 세이브 값·파일 범위·체크섬으로 전체 로컬 planned 사본 생성 |
+| `fw_patch_build`, `fw_verify_writeback` | 기존 ESP 기기 출처의 패치 계획·사람 쓰기 후 읽기 검증 |
 | `esp_read_flash_start`, `esp_job_status` | 세이브 스냅샷 덤프(NVS 파티션 범위만, `esp32-flash-dump` 규칙) |
 | `open_binary`, `search_strings`, `xrefs`, `procedure_pseudo_code`, `close_binary` | REA 디컴파일로 후보 확인 (RISC-V·리눅스 기기) |
 | `case_add_finding`, `case_add_note`, `case_record_step` | 발견사항, 사람 관찰 기록, 최종 summary |
@@ -136,7 +138,7 @@ fw_checksum_find(case_id="<id>", paths=["dumps/raw-save-01.bin", "dumps/raw-save
 
 - `observation_matches`에 score의 `offset_abs="0x10", encoding="u32le"`, level의 `offset_abs="0x14", encoding="u8"`가 나온다. level에는 `0x13`의 u16be·BCD 해석도 나와 유일한 인코딩으로 확정하지 않는다.
 - 체크섬 후보의 `location_abs="0x3c"`, `range_abs=["0x0","0x3c"]`, `endian="le"`, `stored_values=[2193,2089,2251]`를 확인한다. 범위 끝은 제외하며 `sum32`는 바이트 합 mod2^32다(`sum32le` 워드 합과 다름).
-- 가져온 파일은 `imported-unattested`다. 증명을 추가해도 현재 9단계의 ESP device-read 전용 패치 base로 쓸 수 없다. 이 분석 예제는 `patches=[]`로 끝낸다.
+- 가져온 파일은 `imported-unattested`다. 증명을 추가해도 ESP device-read 전용 패치 base로 쓸 수 없다. 분석만 했다면 `patches=[]`로 끝낸다. 값 변경을 명시한 요청이 있으면 9A의 로컬 계획을 사용할 수 있다.
 - 원시 bytes 비교는 비밀값을 자동 마스킹하지 않는다. 실제 세이브는 케이스 안에 두고, `forensics/` 증거·복구물이나 `emu/` 기록을 이 경로로 옮기지 않는다.
 
 ### 6. 체크섬
@@ -172,8 +174,21 @@ case_add_finding(case_id="<id>", finding={
 
 ### 9. 값 변경 (선택 — 사용자가 명시적으로 원할 때만)
 
-ESP NVS 정수 항목(`target={"type": "nvs", "partition": "nvs"}`)이나 사용자 데이터 파티션(`raw-region` + 6단계의 strong 체크섬)만 바꾼다. 순서를 건너뛰지 않는다.
-1. 사용자에게 무엇을 어떤 값으로 바꿀지 확인한다(템플릿 B 와 같은 `[확인 필요]`). `unlock_source` 가 in-device·owned-tag 가 아니거나 `online_capable` 이 yes 면 만들지 않는다.
+무엇을 어떤 값으로 바꿀지 기존 요청에서 확인하고, 빠진 편집 정보만 묻는다. `unlock_source`가 in-device·owned-tag가 아니거나 `online_capable`이 yes면 만들지 않는다. 온라인 여부를 근거 없이 no로 채우지 않는다.
+
+#### 9A. 가져온 원시 세이브의 로컬 계획
+
+1. `case_get(case_id="<id>", include_artifacts=true)`에서 같은 케이스에 가져온 원시 파일의 경로·크기·SHA를 확인하고 그 행의 `id`를 선택한다. 비교 도구의 path와 새 도구의 artifact_id를 혼동하지 않는다.
+2. [로컬 계획 계약·합성 예제](../../docs/references/imported-save-plan.md)에 따라 `fw_plan_imported_save`를 호출한다. 입력은 1바이트~8MiB, 편집은 1~16개이며 선택 범위·편집·checksum 좌표는 모두 **파일 기준 정수**다. `fw_checksum_find`의 `location_abs/range_abs`를 쓰고 탐색 후보 전체를 넘기지 않는다.
+3. 성공한 `stage=planned`의 `analysis`·`patch` 경로와 SHA를 기록한다. 원본 규칙 재현·수정 뒤 checksum 재계산은 게임 수용이나 유일한 저장 루틴의 증명이 아니다. checksum이 없으면 무결성 구조 미검사로 남긴다.
+4. `save-analysis.local_plans[]`에 `{analysis_path,report_sha256,patch_path,patch_sha256,input_artifact_id,stage:"planned"}`를 반환값에서 옮긴다. 로컬 계획만 만들었다면 `patches=[]`를 유지한다. 추가 import·증명·기기 쓰기는 이 완료 조건에 없다.
+
+보고서에는 편집한 정수의 before/after와 checksum 숫자가 보인다. 모든 원시 비밀값을 마스킹하는 도구가 아니다. NVS·ESP 파티션 표 입력은 거부하며 NVS 비밀 키 제한을 이 경로로 우회하지 않는다. 두 번 import한 사본은 독립 백업이 아니고, 결과를 ESP base·patch-plan·writeback 기대값으로 쓰지 않는다.
+
+#### 9B. ESP 기기 쓰기를 위한 기존 경로
+
+ESP NVS 정수 항목(`target={"type": "nvs", "partition": "nvs"}`)이나 사용자 데이터 파티션(`raw-region` + 6단계의 strong 체크섬)을 대상으로 순서를 따른다.
+1. 이 케이스에서 실제로 두 번 읽어 일치한 전체 플래시 base를 선택한다. 9A의 로컬 사본을 base로 쓰지 않는다.
 2. 계획: `fw_patch_build(case_id="<id>", base_path="dumps/esp-flash.bin", target={"type": "nvs", "partition": "nvs"}, edits=[{"namespace": "game", "key": "hiscore", "value": 999999}], purpose="score", unlock_source="in-device", online_capable="unknown")`
    → stage `planned`(패치 이미지, 바뀌는 값, 플래시 암호화 근거). 거부되면(암호화·nvs_keys·CRC 규칙 불일치·비밀 키) 우회하지 않고 보고한다.
 3. 쓰기 직전 백업: 템플릿 D 로 네트워크를 끊게 한 뒤 응답 `next_steps` 의 `esp_read_flash_start(…, verify="double", after="no-reset")` 로 대상 범위를 새로 읽는다(칩이 다운로드 모드에 머문다).
@@ -240,7 +255,7 @@ ESP NVS 정수 항목(`target={"type": "nvs", "partition": "nvs"}`)이나 사용
 
 ## 출력 (요약 기록)
 
-data 는 `save-analysis` 스키마다(`schema_get(name="save-analysis")`). `patches` 는 9단계로 만든 패치만 적는다(없으면 빈 목록).
+data 는 `save-analysis` 스키마다(`schema_get(name="save-analysis")`). `patches`는 9B의 ESP 경로만 적는다(없으면 빈 목록). 9A 결과는 별도 `local_plans`에 기록하고, 분석만 했으면 생략하거나 빈 목록으로 둔다.
 아래 예시는 합성 데이터(`tests/fwtriage/esp_builders.py`, ESP32-S3 흉내)로 이 서버를 돌린 흐름을 바탕으로 한 값이다. 실제 기기 값이 아니다. 이 data 는 save-analysis 스키마 검증을 통과한다.
 
 ```json
@@ -277,7 +292,7 @@ case_record_step(case_id="<id>", skill="game-save-unlock-analysis", step="summar
 
 ## 다음 단계
 
-- `report_generate(case_id="<id>")` 후 master-prompt §10 형식으로 보고한다. 한 일과 아직 할 수 없는 일(값 수정·NFC·플레이 자동화)을 나눠 쓴다.
+- `report_generate(case_id="<id>")` 후 master-prompt §10 형식으로 보고한다. 분석·로컬 계획·실제 ESP 쓰기 검증 중 수행한 범위와 아직 확인하지 않은 기기 동작을 구분한다.
 - 결과를 온라인(리더보드·계정)으로 보내지 않도록 다시 알린다.
 
 ## 참고

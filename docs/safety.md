@@ -354,7 +354,8 @@ pweh-emu 의 고정 argv 허용 목록 위반도 `gate.via: "emu-policy"`, `stat
     `cases/<id>/attestations.json`(사람이 보는 읽기 전용 사본 — 보고서 생성기는 아직 읽지 않는다), 승인 id 는 증거가 아니다. 서버가 확인 항목을 늘리면 예전 증명은 쓰이지 않고 다시 묻는다. 증명을 결정하거나 조회하는 MCP 도구는 없다.
 - **출처 원장**(`.pweh/state/provenance/<case_id>.jsonl`)은 기기 읽기 코드 경로가 쓴 산출물(device-read — 지금은 끝까지 성공한 pweh-esp 덤프)과
   기기 사실(device-fact — `esp_chip_info`·`esp_security_info` 결과)을 해시 체인으로 남긴다. `case_import_file` 로 가져온 파일은 `imported-unattested` 다.
-  출처가 중요한 작업(에뮬레이션·올리기·패치 base·계측기 플래시 절차)을 하는 서버는 가져온 파일을 사람의 `provenance-import` 증명이 있을 때만 쓴다(`fw_patch_build` 는 가져온 파일을 base 로 쓰지 않는다 — 기기에서 이중으로 읽은 덤프만).
+  실행·기기 쓰기 출처가 중요한 작업(에뮬레이션·올리기·운영 패치 base·계측기 플래시 절차)을 하는 서버는 가져온 파일을 사람의 `provenance-import` 증명이 있을 때만 쓴다(`fw_patch_build` 는 가져온 파일을 base 로 쓰지 않는다 — 기기에서 이중으로 읽은 덤프만).
+  `fw_plan_imported_save`는 가져온 일반 세이브의 비실행 로컬 계획이다. 같은 FD의 크기·SHA와 최신 imported-unattested 원장을 대조하되 사람 증명을 새로 요청하거나 출처를 승격하지 않는다. 계획은 항상 planned이며 기기 연계·독립 백업·쓰기 주소·준비·실제 쓰기·게임 수용 검증은 모두 false다. manifest 등록은 운영 patch-plan 원장 기록을 대신하지 않는다([상세](references/imported-save-plan.md)).
   `emu_start` 는 입력을 한 번 읽어 `verify(data=…)` 로 확인하고 그 바이트만 봉인한 memfd 로 넘긴다. 가져온 파일은 케이스·sha256 에 묶인 사람 증명이 필요하며, 단일 읽기는 `single_read` 경고와 함께 허용한다.
   체인이 하나라도 깨지면 그 케이스의 출처 확인은 모두 실패한다(fail closed). 기록한 뒤 바뀐 파일도 신뢰하지 않는다. 출처 확인은 `case.json` 의 `producer` 를 보지 않는다.
   device-read 는 출처(기기에서 읽음)이지 무결성이 아니다 — 이중 읽기가 어긋난 덤프(`source.match=false`)는 기록하지만 출처 확인에서 신뢰하지 않는다(`device-read-mismatch`).

@@ -53,7 +53,7 @@
 - **`approvals_pending()`** — [읽기전용]  
   대기 중인 승인 요청 목록 (확인 코드는 제외).
 - **`schema_get(name)`** — [읽기전용]  
-  PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, media-candidates, media-inventory
+  PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, imported-save-plan, media-candida
 
 ## pweh-uart
 
@@ -269,6 +269,8 @@
   세이브 값 패치 이미지 만들기(소유 기기, 사용자가 명시적으로 원할 때만). base_path = 이 케이스에서 esp_read_flash_start 로 두 번 읽어 일치한 전체 플래시 덤프(offset 0). target = {type: 'nvs', partition} (기존 정수 NVS 항목, edits=[{namespace, key, value}]) 또는 {type: 'raw-regio
 - **`fw_verify_writeback(case_id, patch_path, readback_path)`**  
   세이브 패치를 쓴 결과 확인: patch_path = fw_patch_build(stage=ready) 가 출처 원장(patch-plan)에 남긴 패치, readback_path = 쓰기 명령 뒤 esp_read_flash_start 로 대상 범위를 두 번 읽은 덤프(같은 MAC, 원장에서 patch-plan 보다 뒤). 기대값은 원장의 sha256 만 쓴다(패치 파일·결과 파일은 증거가 아
+- **`fw_plan_imported_save(case_id, artifact_id, offset, length, edits, purpose, unlock_source, online_capable, checksum?, max_seconds?)`**  
+  케이스에 가져온 일반 세이브 파일의 로컬 변경 계획을 만든다. artifact_id로 등록 파일 하나를 고르고 기존 imported-unattested 출처·같은 FD의 SHA와 크기를 확인한다. 입력은 1바이트~8MiB, 선택 offset/length와 편집·체크섬 좌표는 파일 기준 정수다. edits는 offset/encoding/value의1~16개 객체이며 정수·BCD 인코딩을 사용한
 
 ## pweh-esp
 

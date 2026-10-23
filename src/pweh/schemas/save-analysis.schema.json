@@ -498,6 +498,48 @@
       "items": {
         "type": "string"
       }
+    },
+    "local_plans": {
+      "type": "array",
+      "maxItems": 64,
+      "description": "fw_plan_imported_save의 로컬 계획 참조. 기기 쓰기 준비·실행·게임 수용을 뜻하지 않으며 기존 ESP patches와 구분한다.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "analysis_path",
+          "report_sha256",
+          "patch_path",
+          "patch_sha256",
+          "input_artifact_id",
+          "stage"
+        ],
+        "properties": {
+          "analysis_path": {
+            "type": "string",
+            "pattern": "^patches/imported-save-plan-(?:00[1-9]|0[1-5][0-9]|06[0-4])/manifest\\.json$(?![\\s\\S])"
+          },
+          "report_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+          },
+          "patch_path": {
+            "type": "string",
+            "pattern": "^patches/imported-save-plan-(?:00[1-9]|0[1-5][0-9]|06[0-4])/planned\\.bin$(?![\\s\\S])"
+          },
+          "patch_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+          },
+          "input_artifact_id": {
+            "type": "string",
+            "pattern": "^A-[0-9]{4,8}$(?![\\s\\S])"
+          },
+          "stage": {
+            "const": "planned"
+          }
+        }
+      }
     }
   },
   "additionalProperties": true

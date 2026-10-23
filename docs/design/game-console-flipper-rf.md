@@ -1,6 +1,6 @@
 # 설계안: 게임 콘솔 분석 + Flipper Zero·RF(주파수) 분석
 
-> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치, §3.3의 등록 RAW 파일 분석, §3.4의 공급 숫자 관찰 요약과 §3.1의 Flipper 고정 파일 읽기·NTAG21x 스캔과 §3.2의 스캔 결속 NFC 파일 검사와 CU 고정 NTAG 스캔은 구현됐다. 전체 태그 덤프 게시·실제 화면/플레이·RF 수신은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
+> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치·가져온 원시 세이브의 로컬 계획, §3.3의 등록 RAW 파일 분석, §3.4의 공급 숫자 관찰 요약과 §3.1의 Flipper 고정 파일 읽기·NTAG21x 스캔과 §3.2의 스캔 결속 NFC 파일 검사와 CU 고정 NTAG 스캔은 구현됐다. imported 세이브의 기기 쓰기 준비·전체 태그 덤프 게시·실제 화면/플레이·RF 수신은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
 > 여러 서버가 함께 쓰는 기반(포트 라우팅, 증명, 출처 기록, 비밀 마스킹, 안전 설정 위치)은 [common-core.md](common-core.md), 환경 감지·포트 라우팅의 상세는 [port-routing.md](port-routing.md) 에 있다.
 > 1차 초안을 네 관점(안전·법, 기술 실현성, PWEH 구조 적합성, 요구사항 충족)으로 적대적 검토한 결과(지적 59건, 반박 0건)를 반영했다.
 > 근거: 공식 Flipper 펌웨어 **1.5.1** 소스, ChameleonUltra v2.2.0 소스, esptool·ESP-IDF NVS 형식, rtl-sdr-blog v1.4.0·rtl_433 25.12,
@@ -23,10 +23,10 @@
 | 대상 | 1a NFC | 1b 해금 조건 | 1c 저장값 | 1c 플레이 | 필요한 것 |
 |---|---|---|---|---|---|
 | ESP32 장난감·휴대기 | 가능 | 가능(정적·동적) | **구현: NVS 정수·raw-user-data 파티션** — FAT/SPIFFS/LittleFS 는 파일 시스템 해석 전까지 분석만 | 가능 | pweh-esp(이미 있음), Flipper/CU |
-| STM32 등 MCU + EEPROM | 가능 | 가능(덤프가 있으면) | 구현: 가져온 원시 덤프 비교·체크섬 후보 분석. 패치·쓰기 준비는 후속 | 가능 | SPI/I2C 덤프(사람·JTAG) |
-| 리눅스 휴대기(SD 세이브) | 가능 | 가능 | 구현: 가져온 일반 세이브 파일 비교·체크섬 후보 분석. 패치·쓰기 준비는 후속 | 가능 | UART 셸 또는 케이스 밖 세이브 파일 |
+| STM32 등 MCU + EEPROM | 가능 | 가능(덤프가 있으면) | 구현: 가져온 원시 덤프 비교·체크섬 후보 분석·명시 값의 로컬 계획. 기기 쓰기 준비는 후속 | 가능 | SPI/I2C 덤프(사람·JTAG) |
+| 리눅스 휴대기(SD 세이브) | 가능 | 가능 | 구현: 가져온 일반 세이브 파일 비교·체크섬 후보 분석·명시 값의 로컬 계획. 기기 쓰기 준비는 후속 | 가능 | UART 셸 또는 케이스 밖 세이브 파일 |
 | 시판 콘솔(Switch/PS/Xbox) | 가능(태그 쪽만) | 정적 분석 불가(암호화) | **불가** — 세이브가 암호화·서명돼 있어 수정은 복제 방지 우회 경계를 넘는다 | 가능(입력 경로가 맞으면) | 캡처 카드, 입력 방식 |
-| 아케이드 기판 | 해당 없음이 많음 | 가능(덤프가 있으면) | 구현: NVRAM 원시 파일 비교·체크섬 후보 분석. 패치·쓰기 준비는 후속 | 가능(free-play 설정, 동전 라인 금지) | JAMMA 접점 |
+| 아케이드 기판 | 해당 없음이 많음 | 가능(덤프가 있으면) | 구현: NVRAM 원시 파일 비교·체크섬 후보 분석·명시 값의 로컬 계획. 기기 쓰기 준비는 후속 | 가능(free-play 설정, 동전 라인 금지) | JAMMA 접점 |
 
 NFC·플레이 열의 “가능”은 후속 설계의 기대치다. 현재 NFC 구현은 NTAG21x 스캔과 등록 파일 검사·비교에 한정된다. 현재 세이브 도구의 입력·패치 제한은 §3.5를 따른다.
 
@@ -54,7 +54,7 @@ pweh-flipper (구현)  고정1.5.1 CLI 연결·파일 읽기·NTAG21x 스캔. RF
 pweh-nfc     (구현)  CU 고정 NTAG 스캔·inventory·NFC v4 파일 검사/비교. .shd·프레임 해석은 후속
 pweh-sdr     (구현)  등록 RAW 파일 오프라인 분석. RTL-SDR 수신(1b)·HackRF 수신은 후속
 pweh-play    (구현)  공급 숫자 관찰 요약. 입력 브리지·화면 인식·플레이 job은 후속(2b·2c)
-pweh-fwtriage(확장)  ESP 파티션·앱 이미지·NVS, 세이브 비교, 체크섬, 패치 빌드, 쓰기 검증, 게임 패턴 팩
+pweh-fwtriage(확장)  ESP 파티션·앱 이미지·NVS, 세이브 비교·체크섬·로컬 계획, ESP 패치·쓰기 검증, 게임 패턴 팩
 pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브리지·일반 USB-UART 어댑터를 usbipd 없이 (port-routing.md §5.2)
 공통 코어            환경 감지(hostenv)·포트 라우팅(ports)·winserial·wininterop·portlock·증명·출처 원장·비밀 마스킹·safety.rf·nfc·rf 파서 (common-core)
 ```
@@ -178,7 +178,7 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 > 아래 설계의 Ghidra headless 대체(`fw_ghidra_decompile`)는 fwtriage 에 넣지 않는다 — Xtensa 디컴파일 경로는 따로 정할 일이다(사용자 결정).
 > 설계와 다른 점: 비밀로 보이는 NVS 값은 응답·결과 파일 모두 마스킹 + 케이스 솔트 다이제스트(게임 값 credits·tokens·stage_passed 등은 가리지 않는다).
 > 체크섬 찾기는 알고리즘 24종, 위치 후보는 스냅샷 사이에 바뀐 바이트에서만, 기대 오탐 수로 strong/weak 를 나눈다.
-> **구현 상태 (I2b)**: `fw_patch_build`·`fw_verify_writeback`. 대상은 ESP NVS 정수 항목과 사용자 데이터 파티션(+체크섬)이고, 가져온 원시 세이브(EEPROM·SD)는 아직 아니다.
+> **구현 상태 (I2b)**: `fw_patch_build`·`fw_verify_writeback`의 기기 쓰기 경로는 ESP NVS 정수 항목과 사용자 데이터 파티션(+체크섬) 대상이다. 가져온 원시 세이브(EEPROM·SD)는 별도 `fw_plan_imported_save`로 로컬 planned 사본만 만든다.
 > 설계와 다른 점: base 의 '마지막 읽기 after=no-reset-stub' 조건은 쓰지 않고(기본 이중 읽기는 hard-reset 으로 끝남) **쓰기 직전 새 백업**에 건다(다른 job, 원장 seq 가 뒤, after=no-reset-stub,
 > 같은 MAC, 대상 범위가 base 와 같음). 플래시 암호화를 모르면(원조 ESP32) 거부하지 않고 파티션 단위 근거(encrypted 플래그·nvs_keys 없음, 표 MD5, NVS CRC 자기검증)를 manifest 에 남긴다.
 > 쓰기 명령은 사람이 WSL bash 에서 실행한다(케이스 폴더로 cd → `sha256sum -c` → esptool `--after no-reset-stub write-flash` — 읽기 확인 전에 게임이 세이브를 다시 쓰지 않게).
@@ -190,12 +190,15 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
   `location_abs`·`range_abs`는 파일 기준 절대 오프셋이고 범위 끝은 제외한다. 결과는 후보이며 `truncated`는 검색 미완료 또는 후보 표시 수 잘림이다.
   [합성 원시 세이브 예제](../../mcp-servers/fwtriage-mcp/README.md#가져온-원시-세이브-분석-예제)는 실제 MCP 가져오기→비교→체크섬 탐색으로 확인했다.
   가져온 파일은 `imported-unattested`로 기록되며 읽기 전용 분석에 별도의 출처 증명은 필요하지 않다. `forensics/` 증거·복구물과 `emu/` 기록을 fwtriage로 옮기는 경로는 제공하지 않는다.
-- 현재 패치: `fw_patch_build`, `fw_verify_writeback`. 대상은 `{type: "nvs", partition: <label>}`의 기존 정수 항목 또는 `{type: "raw-region", partition: <label>, checksum?: <후보>}`의 ESP raw-user-data 파티션이다.
+- 현재 로컬 계획: 사용자가 값 수정을 명시하면 `fw_plan_imported_save`로 같은 케이스에 가져온 1바이트~8MiB 원시 파일의 정수 1~16개를 편집한다. `case_get(include_artifacts=true)`에서 입력 artifact ID를 고르고 명시한 파일 범위·인코딩·checksum 규칙을 사용한다.
+  원본은 유지하고 전체 길이의 사본과 manifest를 `patches/imported-save-plan-NNN/`에 만든다. manifest 하나를 등록하며 별도 출처 증명·device-read/patch-plan 기록·쓰기 명령은 만들지 않는다.
+  편집 숫자와 checksum 숫자는 보고서에 남는다. NVS·ESP 파티션 표는 거부하고 기존 비밀값·온라인/판매 콘텐츠 경계를 유지한다. [상세 계약](../references/imported-save-plan.md)의 local_plans 요약으로 끝내며 독립 백업·기기 쓰기·게임 수용을 주장하지 않는다.
+- 현재 ESP 패치: `fw_patch_build`, `fw_verify_writeback`. 대상은 `{type: "nvs", partition: <label>}`의 기존 정수 항목 또는 `{type: "raw-region", partition: <label>, checksum?: <후보>}`의 ESP raw-user-data 파티션이다.
   - **base는 이 케이스의 `esp_read_flash_start`로 두 번 읽어 일치한 ESP 전체 플래시 덤프(offset0)**다. 출처 원장의 `device-read`·double-read·match·job id를 검증한다.
     가져온 원시 파일은 이중으로 가져오거나 출처를 증명해도 base가 되지 않는다. `after=no-reset-stub` 조건은 base가 아니라 **쓰기 직전 새 백업**에 적용한다.
   - `stage=planned`는 패치 이미지와 백업 절차를 만든다. base보다 뒤의 다른 job에서 얻은 같은 MAC의 새 백업(대상 범위가 base와 같음)과 사람 증명 뒤 `stage=ready`에서 사람이 실행할 WSL bash 명령을 보여 준다.
     이후 다시 읽어 `fw_verify_writeback`으로 확인한다. `online_capable=yes`와 판매 토큰·온라인 구매 해금은 거부하며, 에이전트는 쓰기 명령을 실행하지 않는다.
-- 후속 설계(미구현): 일반 imported EEPROM/FRAM/NVRAM/SD 세이브의 `{offset,length}` 패치·쓰기 준비 및 다른 획득기의 패치 base 지원.
+- 후속 설계(미구현): 일반 imported EEPROM/FRAM/NVRAM/SD 세이브의 기기 주소·독립 백업·쓰기/readback 준비 및 다른 획득기의 operational 패치 base 지원.
   현재 ESP 파티션 API를 그 경로로 사용할 수 있다는 뜻이 아니다.
 - 게임 패턴 팩은 데이터 파일(`src/pweh/data/game-hunt-patterns.yaml`)로 두고 `fw_strings_hunt(patterns="game")` 로 쓴다. `fw_hunt_patterns` 는 목록 도구로 남기고 선택 인자 `pack` 만 더한다. CCTV 기본 팩과 섞지 않는다.
 - 디컴파일: RISC-V는 `fw_esp_to_elf(rea_compat=true)` 결과를 REA `open_binary`로 연다. Xtensa는 REA 미지원이므로 문자열·표·세이브 비교의 후보와 한계를 기록한다.
@@ -209,7 +212,7 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 4. **NFC 동작(1b)**: 내 태그 probe → 계열 판정 → 인증 없이 읽기 → [사람] 실제 태그를 콘솔에 댐 → 다시 읽기 → `nfc_diff_dumps`(콘솔 쓰기·카운터·잠금/CFG 변화) + UART 로그·사진 → 정적 분석 분기와 대조.
    한계: `-k` 없이는 AUTH0/PROT=1 뒤 페이지를 못 읽고, NTAG 카운터 변화에는 PWEH 자신의 읽기도 들어간다. 에뮬레이션 캡처(.shd·CU 스니프)는 2a.
 5. **세이브 스냅샷**: 점수·진행이 바뀔 때마다 덤프(≥3회) → `fw_save_diff` → 인코딩·위치 → `fw_checksum_find` → 디컴파일로 확인.
-6. **값 수정(선택, 현재 ESP 대상만)**: `fw_patch_build`(목적·unlock_source 선언) → 서버가 새 백업·사람 증명을 확인 → 사람이 쓰기 → 다시 읽기 → `fw_verify_writeback` → 오프라인 상태에서 화면 확인. imported 분석만 수행한 경우 `patches=[]`로 끝낸다.
+6. **값 수정(명시 요청이 있을 때)**: imported 파일은 `fw_plan_imported_save` → 실제 manifest/binary 경로·SHA를 `local_plans[]`에 기록하고 `patches=[]`로 끝낸다. ESP 기기 쓰기는 `fw_patch_build`(목적·unlock_source 선언) → 서버가 새 백업·사람 증명을 확인 → 사람이 쓰기 → 다시 읽기 → `fw_verify_writeback` → 오프라인 상태에서 화면 확인. 분석만 수행하면 두 계획 배열은 비어 있다.
 7. **공급 숫자 분석(현재 지원)**: 이미 제공된 숫자 표본·같은 시간축의 now → `vision_validate` → `numeric-analysis` 요약. 이 경로만 수행하면 접수 뒤 바로 호출하고, 펌웨어·세이브·실제 화면 검증이나 play-run을 완료한 것으로 기록하지 않는다.
 8. **플레이 자동화(선택, 후속 2b·2c)**: 배선(사람) → 증명 → 점수 숫자·상태 화면 모델 학습·검증 → 선언형 스크립트 → 계획 승인 → 플레이 job → 점수 시계열·입력 로그·키프레임을 케이스에.
 8. 각 Skill 은 `case_record_step(step="summary")` 로 끝내고 결과는 로컬 보고서에만.
@@ -381,5 +384,5 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 | `input_script_validate`, `input_script_start` | MODIFY · job(계획 승인, §4 예외) | |
 | `play_job_status/cancel/jobs` | — | 취소 = 전부 해제 |
 
-**pweh-fwtriage 구현 도구**: `fw_esp_partitions`, `fw_esp_image_info`, `fw_esp_to_elf`, `fw_esp_nvs`, `fw_save_diff`, `fw_checksum_find`, `fw_patch_build`, `fw_verify_writeback`, `fw_find_seq_tables`,
+**pweh-fwtriage 구현 도구**: `fw_esp_partitions`, `fw_esp_image_info`, `fw_esp_to_elf`, `fw_esp_nvs`, `fw_save_diff`, `fw_checksum_find`, `fw_plan_imported_save`, `fw_patch_build`, `fw_verify_writeback`, `fw_find_seq_tables`,
 `fw_strings_hunt(patterns="game")`, `fw_hunt_patterns(pack=...)` — 모두 오프라인. 패치 입력 제한은 §3.5를 따른다. `fw_ghidra_decompile`는 등록된 도구가 아니다.

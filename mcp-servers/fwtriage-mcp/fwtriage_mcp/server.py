@@ -18,6 +18,7 @@ import re
 import shlex
 import stat
 import struct
+import sys
 import threading
 from pathlib import Path
 from typing import Any, Callable
@@ -37,6 +38,7 @@ from pweh.safety.masking import mask_secret as core_mask_secret
 from pweh.toolsdir import tools_env
 
 from . import elfinfo, espfmt, saves
+from .imported_save_tools import register_imported_save_tools
 from .androidlayout import android_layout, carve_android, check_output_budget
 from .androidsurface import AndroidSurface
 from .androidformats import hash_buffer
@@ -2775,6 +2777,9 @@ async def fw_verify_writeback(case_id: str, patch_path: str, readback_path: str)
         return out
 
     return await _execute(kind="fw_verify_writeback", case_id=case.id, background=False, max_seconds=120.0, description=f"fw_verify_writeback {case.rel(case.resolve_path(patch_path))}", fn=work)
+
+
+register_imported_save_tools(server, sys.modules[__name__])
 
 
 def main() -> None:
