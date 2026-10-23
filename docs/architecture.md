@@ -616,6 +616,8 @@ Windows 계획 기반은 `pweh.wininterop`과 `openocd_mcp.windows_plan`에 있�
 
 내부 덤프 job은 TCP의 작업별 독립 client와 세션에서 빌린 단일 pipe client의 수명을 구분한다. 빌린 pipe는 worker가 끝날 때 사용권만 반환하고 닫지 않는다. 내부 `read_memory` 합성 시험은 청크·해시·부분 기록과 취소·시작 실패·stop 경합을 다룬다. terminal 상태가 된 pipe에는 청크를 다시 보내거나 재연결하지 않으며, 전송 전 lock 대기 timeout처럼 연결이 오염되지 않은 실패의 유한 재시도와 구별한다. Windows stop은 새 사용권을 막고 해당 케이스 job에 취소를 전달한 뒤 실제 worker 사용권 0·owner 종료·run 정리를 모두 확인해야 lease를 해제한다. `cancelled_jobs`는 취소를 요청한 job ID 목록이며 worker 종료 증거가 아니다. 이 내부 연결은 아래 공개 Windows 덤프 거부나 타깃 지원 범위를 바꾸지 않는다.
 
+내부 파일 출력은 `windows_output.py`·`windows_file_job.py`가 같은 owner의 고정 `dump_image`/`flash read_bank`/`flash verify_bank`와 보유 FD를 연결한다. 청크 크기·신원·해시와 v2 checkpoint를 검증하고, 실제 owner 종료 뒤 checked artifact를 등록한다. 이 작업은 세션을 소비하며, worker 사용권 반환→출력 정리→run 정리까지 확인해야 lease를 해제한다. 정리 미확인·미게시 결과는 보존하고 다음 명시 stop에서만 정리한다. 공개 Windows 도구에는 연결하지 않았으며 실제 Windows 파일 공유·타깃 수용은 미검증이다([파일 출력 계약](references/windows-openocd-output.md)).
+
 Windows `backend="windows"`는 `tcl_port=0`으로 아래 두 고정 pipe 프로필만 받는다. `target_cfg`·`extra_cfgs`·`extra_commands`는 생략 또는 빈 목록이며 사용자 cfg·Tcl을 추가할 수 없다. Windows halt/reset/resume·레지스터·메모리·플래시·덤프 job·attach·재연결은 지원하지 않는다. host/tcl_port는 null이다.
 
 | Windows 프로필 | 고정 설정·지원 범위 |

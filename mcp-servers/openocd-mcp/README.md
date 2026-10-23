@@ -148,6 +148,7 @@ WSL의 명시 Windows backend는 [dummy-noinit-v1 무장치 진단](../../docs/r
 
 - `tests/servers/test_openocd_pipe_rpc.py`, `test_openocd_pipe_process.py`, `test_openocd_pipe_ready.py`: 내부 pipe client·Linux 직접 자식 owner·명령행 구성. 익명 pipe와 `fake_openocd_pipe.py`로 응답 예산, 취소·종료 경합, EOF/TERM/KILL, 리더보다 오래 사는 자식, 준비 진단과 version의 결합을 검증한다. Windows dummy 소비자는 이 pipe client와 별도 Windows owner를 연결한다.
 - `tests/servers/test_openocd_pipe_dumps.py`, `test_openocd_pipe_jobs.py`: Linux `fake_openocd_pipe_dump.py`와 합성 client로 내부 `read_memory` job의 다중 청크·해시·부분 기록, 취소·시작 실패·stop 경합을 검증한다. worker는 세션의 단일 pipe client를 빌려 사용권만 반환하고 닫지 않는다. terminal 오류 뒤 추가 청크·재연결은 없으며, 기존 TCP job의 독립 client 종료·유한 재시도는 유지한다. 공개 Windows dummy/Tigard의 타깃·메모리·플래시·덤프 거부도 그대로 검사한다.
+- `tests/servers/test_openocd_windows_output.py`, `test_openocd_windows_file_jobs.py`, `test_openocd_pipe_file_integration.py`: 내부 파일 출력의 같은 FD·경로 쌍·v2 checkpoint·checked artifact, 사용권/종료 경합을 검증한다. 실제 owner·JobManager·Case와 Linux 가짜 writer를 연결하며, 정상 전체 결과는 owner 종료 확인 뒤 등록한다. 상세 수명과 한계는 [파일 출력 계약](../../docs/references/windows-openocd-output.md)에 있다.
 - `tests/servers/test_openocd_parsers.py`: 실측 바이트로 Tcl 리스트/봉투/파서/분류기/명령행 단위 테스트
 - `tests/servers/test_openocd_mcp.py`: `tests/servers/fake_openocd.py`(가짜 TCL 서버 + 가짜 실행 파일; xPack/0.12.0/0.11.0 프로파일,
   장애 주입)로 모든 도구·작업·게이트·프로세스 관리, stdio 스모크 테스트
@@ -171,7 +172,7 @@ WSL의 명시 Windows backend는 [dummy-noinit-v1 무장치 진단](../../docs/r
 
 - P3-A의 `rpc_pipe.py`는 Windows dummy에도 쓰이며 `process_pipe.py`의 직접 자식 owner는 Linux 전용이다. 이 Linux owner는 `waitid(WNOWAIT)`로 리더를 보존한 채 소유 그룹 부재를 확인한다. `close()`가 미확인으로 끝나면 owner를 보존하여 재시도한다. Windows wrapper 종료나 별도 세션으로 이탈한 프로세스 트리 전체의 부재를 증명하지 않는다.
 - pipe 준비는 stderr reader를 시작하고 `version`을 한 번 전송한 뒤, 같은 deadline 안에서 완결된 `accepting 'tcl' connection from pipe` 진단 줄과 정상 version 응답을 모두 요구한다. 고정 OpenOCD는 stdin을 읽을 수 있을 때 연결 진단을 내므로 진단을 먼저 기다리면 연결되지 않는다. 준비 성공 뒤에도 호출자는 owner를 닫아야 하며, 기기 작업에는 별도의 운영 안전 게이트·semihosting 검증이 필요하다.
-- 내부 pipe job 연결은 합성 메모리 응답으로 검증하며 공개 Windows 덤프 기능은 제공하지 않는다. Windows stop은 새 사용권을 막고 job 취소를 전달하지만, 실제 worker 사용권 0과 Windows owner 종료·run 정리까지 확인하기 전에는 lease를 해제하지 않는다. 미확인이면 세션·owner·run·lease를 보존한다. Windows `dump_image`/`flash read_bank`의 출력 경로·파일 게시와 실제 타깃 검증은 별도 후속이다.
+- 내부 pipe job 연결은 합성 메모리 응답으로 검증하며 공개 Windows 덤프 기능은 제공하지 않는다. Windows stop은 새 사용권을 막고 job 취소를 전달하지만, 실제 worker 사용권 0과 Windows owner 종료·run 정리까지 확인하기 전에는 lease를 해제하지 않는다. 미확인이면 세션·owner·run·lease를 보존한다. Windows `dump_image`/`flash read_bank`의 내부 파일 출력·검증·게시 기반은 합성 시험으로 연결했다. 실제 Windows 공유 파일 열기·타깃 수용과 공개 운영 연결은 후속이다. 파일 작업의 출력 정리까지 확인해야 run과 lease를 해제한다.
 
 - 실제 CPU 코어(ARM/MIPS)의 halt 메시지·레지스터 목록은 소스 포맷 기준이며 실기기로 검증하지 못했다(dummy/testee 는 메모리·레지스터가 없음).
 - OpenOCD 는 단일 스레드라 긴 명령(큰 청크의 dump_image) 중에는 다른 도구도 기다린다. 프로토콜 수준 취소가 없어 작업 취소는 현재 청크가 끝난 뒤 반영된다.

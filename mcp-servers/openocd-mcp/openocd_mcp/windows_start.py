@@ -1,4 +1,4 @@
-"""고정 Windows 프로필의 승인·시작·단일 pipe 사용권. 덤프 작업은 지원하지 않는다."""
+"""고정 Windows 프로필의 승인·시작·단일 pipe 사용권. 공개 덤프 입구는 거부한다."""
 from __future__ import annotations
 
 import math
@@ -91,7 +91,7 @@ def _save(sess, **extra):
 
 
 def close_session(sess: OcdSession, *, timeout: float = 10.0) -> dict:
-    """물리 종료 확인과 실제 worker 사용권 반환을 모두 기다린 뒤 run을 해제한다."""
+    """물리 종료와 사용권 반환 뒤 내부 출력·run을 정리한다. 공개 지원 범위는 바꾸지 않는다."""
     end = time.monotonic() + timeout
     sess.begin_close()
     if not sess.close_lock.acquire(timeout=max(0, end-time.monotonic())):
@@ -114,8 +114,11 @@ def close_session(sess: OcdSession, *, timeout: float = 10.0) -> dict:
                 reason = result.reason
             unused = sess.wait_unused(end)
             if physical and unused:
+                output_released = True
                 if owner is not None:
-                    confirmed = owner.release_run(deadline=end)
+                    from .windows_output import release_outputs
+                    output_released = release_outputs(owner, deadline=end)
+                    confirmed = output_released and owner.release_run(deadline=end)
                 elif sess.windows_layout is not None:
                     confirmed = PW.release_prepared_run(sess.windows_layout, deadline=end)
                 else:
@@ -123,7 +126,8 @@ def close_session(sess: OcdSession, *, timeout: float = 10.0) -> dict:
                 if confirmed and sess.windows_lease is not None:
                     sess.windows_lease.close()
                     confirmed = sess.windows_lease.closed
-                reason = 'confirmed' if confirmed else 'run_cleanup_unknown'
+                reason = ('confirmed' if confirmed else
+                          'output_cleanup_unknown' if not output_released else 'run_cleanup_unknown')
             elif not unused:
                 reason = 'worker_pending'
         if not confirmed and sess.windows_lease is not None and not sess.windows_lease.closed:

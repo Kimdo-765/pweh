@@ -384,10 +384,12 @@ def owned_process_count():
 
 class WindowsOpenOcdOwner:
     """Linux pipe owner를 wrapper 수명에만 합성하고 실제 Windows 종료를 별도 확인한다."""
-    def __init__(self, plan, bundle, run, lifecycle, runner):
+    def __init__(self, plan, bundle, run, lifecycle, runner, path_converter):
         self.token = uuid.uuid4().hex
         self.plan, self.bundle, self._run = plan, bundle, run
         self._lifecycle, self._runner = lifecycle, runner
+        # spawn에서 확인한 변환기를 내부 출력에도 그대로 사용한다.
+        self._path_converter = path_converter
         self._pipe = None
         self._closing = False
         self._confirmed = None
@@ -507,7 +509,7 @@ def spawn_windows(plan, *, bundle, log_path: Path, deadline: float, cancel_check
     runner = FixedWindowsRunner() if lifecycle is None or path_converter is None else None
     lifecycle = lifecycle or WI.WindowsOwnedProcessProbe(runner=runner)
     converter = path_converter or runner.convert_path
-    owner = WindowsOpenOcdOwner(plan, bundle, run, lifecycle, runner)
+    owner = WindowsOpenOcdOwner(plan, bundle, run, lifecycle, runner, converter)
     try:
         from .dummy_profile import DUMMY_PROFILE
         from .tigard_profile import TIGARD_PROFILE

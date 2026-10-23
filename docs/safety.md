@@ -172,6 +172,7 @@ pweh-emu 의 고정 argv 허용 목록 위반도 `gate.via: "emu-policy"`, `stat
   - 우리 입력의 에코와 보낸 텍스트를 되풀이한 출력(U-Boot `echo Linux version 9.9`)은 문맥 증거로 쓰지 않는다. U-Boot 로 본 프롬프트는 리눅스 증거만으로 linux-shell 이 되지 않는다.
   - 승인은 줄과 함께 실행 의미에 묶인다(`env_refs`, `repeat_of`). `run x` 를 승인받은 뒤 `setenv x …` 로 내용을 바꾸면 그 승인은 맞지 않는다.
 - **OpenOCD TCL**
+  - 내부 Windows 파일 작업은 고정 명령과 보유한 local/Windows 경로 쌍만 사용한다. 정상 RPC 뒤 파일 크기·신원·해시를 검증하고 실제 owner 종료를 확인한 뒤 artifact를 등록한다. worker 사용권 0·출력/run 정리 전에는 lease를 해제하지 않는다. 정리 미확인과 모르는 출력은 보존하며 stop은 자동 게시하지 않는다. 합성 시험은 실제 Windows 공유 파일 열기나 타깃 출처를 증명하지 않으며 공개 Windows 덤프는 계속 거부한다([계약](references/windows-openocd-output.md)).
   - Windows `tigard-jtag-v1`은 고정 cfg·JTAG 100 kHz의 어댑터 init으로 MODIFY다. 유일 USB 부모의 전체 키를 승인 전부터 잠그고 target/bridge 역할과 active 계측기 pin을 확인한다. descriptor serial이 없는 관찰은 active pin에서 미확인으로 거부하며 PnP tail을 serial로 쓰지 않는다. spawn 직전·조회 전 fresh/lease/guard를 다시 확인한다. 정확한 `version`·`scan_chain`·`targets`와 status·stop만 지원하며, 초기화 성공은 타깃 통신의 증거가 아니다. 실제 Windows·wrapper·worker 종료와 run 신원 정리를 확인한 뒤 lease를 해제한다. 정리 미확인은 owner·세션·lease를 보존하고 stop으로 재시도한다([계약](references/windows-openocd-tigard.md)).
   - 중괄호·대괄호 안의 명령까지 검사한다. 코어 분류기만으로는 Jim Tcl 의 실행 경로를 다 다루지 못하므로, Tcl 파서를 가진 `openocd_mcp.guard` 가 문장마다 코어 분류를 다시 하고 더 엄격한 쪽을 쓴다.
   - `eval`/`source`/`proc` 같은 메타 명령과, 호스트 임의 경로에 쓰는 `dump_image`/`flash read_bank` 원시 호출을 막는다.
