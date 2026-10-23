@@ -165,7 +165,8 @@ def _guess_schema(obj: Any) -> str | None:
         return "emulation"
     if {"images", "visual_observations", "hints", "safety"} <= keys:
         return "image-hints"
-    if {"mode", "raw_results", "capture_verified", "transmitted"} <= keys:
+    if ({"mode", "raw_results", "capture_verified", "transmitted"} <= keys
+            or {"mode", "power_results", "capture_verified", "transmitted"} <= keys):
         return "rf-analysis"
     if {"mode", "tags", "results", "physical_same_tag_verified", "tag_content_written"} <= keys:
         return "nfc-analysis"

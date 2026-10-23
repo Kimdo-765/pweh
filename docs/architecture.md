@@ -21,7 +21,7 @@
    ├─ pweh-forensics   (mcp-servers/forensics-mcp)   SD·Android 논리 증거 분석: 접수·해시·보관 기록, FAT/exFAT·TAR/ZIP 목록, SQLite·앱 기록·타임라인 — 기기 미접촉 (선택)
    ├─ pweh-emu         (mcp-servers/emu-mcp)         ESP32·S3·C3/Arduino AVR 펌웨어 실행·마스킹 콘솔 — 기기 미접촉 (선택)
    ├─ pweh-espprobe    (mcp-servers/espprobe-mcp)    ESP32-S3 계측기 프로토콜·시뮬레이터 (선택, 현재 오프라인 검증만)
-   ├─ pweh-sdr         (mcp-servers/sdr-mcp)         등록된 Flipper RAW 파일의 오프라인 구조·통계 분석
+   ├─ pweh-sdr         (mcp-servers/sdr-mcp)         등록된 Flipper RAW·전력 CSV의 오프라인 구조·통계 분석
    ├─ pweh-play        (mcp-servers/play-mcp)        공급 숫자 관측값의 오프라인 합의 검증·보고서 저장
    ├─ pweh-flipper     (mcp-servers/flipper-mcp)     고정 CLI 연결·정보·허용 폴더 파일 읽기
    ├─ pweh-nfc         (mcp-servers/nfc-mcp)         CU 고정 NTAG 스캔·inventory·일반 NFC 파일의 구조·저장 페이지 비교
@@ -1297,14 +1297,15 @@ instrument-aux도 권위 증명과 현재 관찰이 일치해야 만들 수 있�
 기존 ESP chip/security 사실의 출처 기록은 그대로 재사용하고, 관찰 MAC도 고정 계측기와 대조한다.
 실제 pin 생성과 포트의 원자적 잠금은 후속 단계다. 현재 구현은 합성 PnP와 가짜 프로세스로 검증한다.
 
-### 6.11 pweh-sdr (오프라인 RAW)
+### 6.11 pweh-sdr (오프라인 RAW·전력 CSV)
 
-등록된 케이스 파일 한 개를 기존 `pweh.rf_formats`의 strict RAW 검사기로 분석한다.
-도구는 하나이며 외부 실행·장치·포트·job·세션을 만들지 않는다.
+등록된 케이스 파일 한 개를 `pweh.rf_formats`의 strict RAW 또는 `pweh.rf_power`의 전력 CSV 검사기로 분석한다.
+공개 도구 두 개는 외부 실행·장치·포트·job·세션을 만들지 않는다.
 
 | 도구 | 계약 |
 |---|---|
 | `sdr_analyze(case_id, artifact_id, profile, max_seconds=5)` | 소유/허가가 확인된 케이스의 유일한 등록 파일 `A-숫자`를 선택한다. 필수 `profile="flipper-subghz-raw-v1-strict"`, 입력 최대1MiB, 유한 숫자 `0 < max_seconds <= 5`. 경로·URL·EV·임의 decoder 인자는 없다. `forensics/`·`emu/`와 별칭, 링크·하드링크, 등록 크기·SHA 불일치를 거부한다. 결과는 `rf-raw-analysis` 보고서와 생성 아티팩트 정보다. |
+| `sdr_peaks(case_id, artifact_id, max_seconds=5)` | 같은 케이스의 등록 파일 ID와 최대5초의 유한 수 예산만 받는다. 고정 `rtl-power-blog-v1.4.0-csv`, 입력 최대1MiB. ASCII·LF/CRLF, 정수 선언·소수2자리와 정확한 `-inf`를 제한 검사한다. 완전히 수용한 행의 통계와 보고된 유한 값 최대32개의 순위를 `rf-power-analysis`로 기록한다. 빈 파일은 unsupported다. RAW와 같은 등록·FD 보호를 적용한다. |
 
 입력은 같은 읽기 FD로 최대64KiB씩 읽고 등록 SHA와 대조한다. 부모·이름·FD 신원과 입력
 색인을 commit까지 보유·재검증하고 최종 전체 SHA를 한 번 더 계산한다. worker 시작의 작업
@@ -1314,13 +1315,23 @@ instrument-aux도 권위 증명과 현재 관찰이 일치해야 만들 수 있�
 `analysis/rf-raw-NNN.json`은 최대128KiB, 0444로 저장한다. 같은 출력 FD·이름·해시를 확인한
 뒤 `kind=other`, `producer=pweh-sdr`, `extra.type=rf-raw-analysis`로 원자 등록한다.
 등록 전 실패는 자신이 만든 동일 inode만 정리하고, 등록 뒤 취소·감사 오류는 결과를 보존한다.
-SDK 입력과 worker 오류는 고정 문구로 반환하며 원문 경로·RAW pulse·예외 내용을 싣지 않는다.
+전력 CSV는 `analysis/rf-power-NNN.json`, 최대64KiB·0444,
+`kind=other`, `producer=pweh-sdr`, `extra.type=rf-power-analysis`로 같은 등록 수명을 따른다.
+SDK 입력과 worker 오류는 고정 문구로 반환하며 원문 경로·RAW pulse·CSV 행·예외 내용을 싣지 않는다.
 
 `complete`·`partial`·`malformed`·`unsupported`는 파일 검사 상태다. 수신·프로토콜 해독·송신,
 실제 주파수·대상·획득 출처 확인을 뜻하지 않는다. `flipper-rf-analysis`는 `rf-analysis` 요약을
-기록한다. Claude allow는 로컬 보고서를 쓰는 정확한 `sdr_analyze` 한 도구다.
+기록한다. 요약은 기존 `offline-raw/raw_results` 또는 새 `offline-power/power_results`의
+닫힌 분기이며 혼합하지 않는다. 전력 행은 참조 네 필드와 rows_accepted/values_accepted를 보존한다.
+Claude allow는 로컬 보고서를 쓰는 정확한 `sdr_analyze`·`sdr_peaks` 두 도구다.
 자세한 출력은 [rf-raw-analysis](references/rf-raw-analysis.md), 문법은
-[flipper-raw-profile](references/flipper-raw-profile.md)를 따른다.
+[flipper-raw-profile](references/flipper-raw-profile.md), 전력 CSV는
+[rf-power-analysis](references/rf-power-analysis.md)를 따른다. 마지막 두 전력 열은 각각 세며
+FFT bin·주파수 중심·보정 전력·획득 시각을 복원하지 않는다.
+
+내부 `rtl_power_plan`은 정수 여섯 인자에서 고정 tail을 만들고 필수 합성 process factory로만
+시험한다. stdout1MiB·stderr16KiB·작업60초·정리5초 상한과 child/group/reader/FD 정리를 확인한
+뒤 원래 작업 마감 안에서 CSV를 검사한다. 실제 rtl_power 탐색·장치 수신·MCP 연결은 없다.
 
 ### 6.12 pweh-play (공급 숫자 관측값)
 

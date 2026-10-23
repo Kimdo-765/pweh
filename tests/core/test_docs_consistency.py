@@ -52,7 +52,7 @@ LOCAL_WRITE_ALLOW = {f"mcp__pweh-forensics__{name}" for name in (
 LOCAL_WRITE_ALLOW |= {f"mcp__pweh-espprobe__{name}" for name in (
     "espprobe_connect", "espprobe_self_test", "espprobe_release_all", "espprobe_disconnect")}
 # 등록된 RAW 파일의 오프라인 보고서만 쓰는 도구다.
-LOCAL_WRITE_ALLOW.add("mcp__pweh-sdr__sdr_analyze")
+LOCAL_WRITE_ALLOW.update({"mcp__pweh-sdr__sdr_analyze", "mcp__pweh-sdr__sdr_peaks"})
 # 공급 숫자 관측값의 합의 결과만 로컬에 기록한다.
 LOCAL_WRITE_ALLOW.add("mcp__pweh-play__vision_validate")
 # 스캔 결속 inventory와 등록 NFC 파일의 로컬 검사 결과다.

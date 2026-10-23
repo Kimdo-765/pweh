@@ -52,14 +52,14 @@ NFC·플레이 열의 “가능”은 후속 설계의 기대치다. 현재 NFC 
 ```
 pweh-flipper (구현)  고정1.5.1 CLI 연결·파일 읽기·NTAG21x 스캔. RF/임의 앱/RPC는 후속
 pweh-nfc     (구현)  CU 고정 NTAG 스캔·inventory·NFC v4 파일 검사/비교. .shd·프레임 해석은 후속
-pweh-sdr     (구현)  등록 RAW 파일 오프라인 분석. RTL-SDR 수신(1b)·HackRF 수신은 후속
+pweh-sdr     (구현)  등록 RAW·전력 CSV 파일 오프라인 분석. RTL-SDR 수신(1b)·HackRF 수신은 후속
 pweh-play    (구현)  공급 숫자 관찰 요약. 입력 브리지·화면 인식·플레이 job은 후속(2b·2c)
 pweh-fwtriage(확장)  ESP 파티션·앱 이미지·NVS, 세이브 비교·체크섬·로컬 계획, ESP 패치·쓰기 검증, 게임 패턴 팩
 pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브리지·일반 USB-UART 어댑터를 usbipd 없이 (port-routing.md §5.2)
 공통 코어            환경 감지(hostenv)·포트 라우팅(ports)·winserial·wininterop·portlock·증명·출처 원장·비밀 마스킹·safety.rf·nfc·rf 파서 (common-core)
 ```
 
-`pweh-sdr`는 `sdr_analyze` 한 도구를 제공하며 등록 RAW 파일의 검사·저장·RF 요약을 연결한다.
+`pweh-sdr`는 `sdr_analyze`·`sdr_peaks`를 제공하며 등록 RAW·전력 CSV 파일의 검사·저장·RF 요약을 연결한다.
 `pweh-play`는 `vision_validate` 한 도구로 공급 숫자의 계산·저장·numeric-analysis 요약을 연결한다.
 `pweh-flipper`는 연결·종료·정보·목록·파일 읽기·고정 NTAG21x probe와 공통 job3개를 제공한다. 실기 전송은 미검증이며 일반 전송 artifact를 실제 캡처·태그 출처로 승격하지 않는다. `pweh-nfc`는 보호 스캔에 결속한 inventory·파일 검사·비교와 CU 연결·스캔·정리 여섯 도구를 제공한다. 선행 구현한 순수 코어는 `pweh.rf_formats`(RAW 통계), `pweh.nfc_formats`(NFC 구조·저장 페이지 비교),
 `pweh.vision_sequence`(숫자 관찰값 합의)이며, 코어 자체는 외부 I/O를 하지 않는다. NFC 공개 입구는 기존 파서의 저장 표현 결과와 실제 스캔 기록의 결속을 구분한다.
@@ -114,7 +114,7 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 - **오프라인 분석**: `.nfc`(v2~v4)/`.shd`/CU 덤프 해석, 페이지 비교(잠금·CFG 쓰기 표시), 방향별 패리티를 고려한 프레임 해석. 오프라인 도구도 계열 판정을 적용한다.
   로직 애널라이저 버스 해석(`nfc_bus_interpret`: NCI·PN532·MFRC522)은 실제 캡처가 생길 때까지 미룬다(사람이 Windows 에서 캡처 → `case_import_file` → `sigrok_decode` 경로는 문서로).
 
-### 3.3 pweh-sdr (현재 오프라인 RAW, 후속 RTL-SDR 수신)
+### 3.3 pweh-sdr (현재 오프라인 RAW·전력 CSV, 후속 RTL-SDR 수신)
 
 **현재 구현**: `sdr_analyze(case_id, artifact_id, profile="flipper-subghz-raw-v1-strict", max_seconds=5)`.
 소유·허가된 케이스의 등록 일반 파일 하나(최대 1 MiB)를 같은 FD에서 읽어 기존 strict RAW 코어로 검사하고,
@@ -123,6 +123,13 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 기본·최대 작업 예산은 5초, 결과 생성 뒤 최종 저장은 별도의 고정 5초 예산이며 협력 취소를 적용한다.
 원시 pulse·입력 이름·주석은 반환하지 않는다. 선언 주파수와 집계는 익명화나 실제 RF 검증을 뜻하지 않는다.
 공개 계약은 [rf-raw-analysis.md](../references/rf-raw-analysis.md)다. 외부 도구·장치·decoder가 필요하지 않다.
+
+**현재 전력 CSV 구현**: `sdr_peaks(case_id, artifact_id, max_seconds=5)`는 같은 케이스에
+등록된 최대1MiB의 CSV를 고정 `rtl-power-blog-v1.4.0-csv` 문법으로 검사한다. 완전히 수용한
+행의 통계와 보고된 유한 값 상위32개를 `analysis/rf-power-NNN.json`에 저장한다.
+마지막 두 전력 열은 각각 세며 FFT bin·주파수 중심·보정 전력·행 시각을 복원하지 않는다.
+내부 고정 스윕 인자와 수명 시험은 필수 합성 process factory만 받으며 실제 수신 경로에 연결하지 않는다.
+계약은 [전력 CSV 분석](../references/rf-power-analysis.md)을 따른다.
 
 아래 RTL-SDR·IQ·decoder 경로는 **후속 설계**다. 현재 `sdr_analyze`는 `.ook` 변환, `rtl_433 -r`,
 프로토콜·키/ID·고정코드/롤링코드 판정, 실제 수신·송신·재생을 하지 않는다.
@@ -223,7 +230,7 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 2. **대상 등록**: 사람이 대상 기기 버튼을 수신기 가까이(가능하면 차폐함)에서 누르고, 서버가 프로토콜·ID 를 기록한다. 디코드 도구는 등록된 대상만 값으로 남긴다.
 3. 스펙트럼: `sdr_sweep_start`(전력값만) 또는 SDR 이 없으면 §3.1 의 주파수 찾기.
 4. 수신·디코드: OOK 는 Flipper `rx_raw`/`rx_decode` 또는 SDR, FSK 는 SDR 또는 사람의 GUI Read RAW → 가져오기.
-5. **현재 오프라인 경로**: 사용자 지정 RAW 파일을 `case_import_file` → 반환 `artifact.id`로 명시 strict profile의 `sdr_analyze` → `flipper-rf-analysis` 요약. 파일 선언·펄스 집계·검사 범위만 기록한다. `.ook` 변환·decoder 기반 판정은 후속이며 현재 도구의 인자·출력이 아니다.
+5. **현재 오프라인 경로**: 사용자 지정 RAW 파일을 `case_import_file` → 반환 `artifact.id`로 명시 strict profile의 `sdr_analyze` → `flipper-rf-analysis` 요약. 파일 선언·펄스 집계·검사 범위만 기록한다. 전력 CSV는 같은 등록 ID로 `sdr_peaks`를 호출해 보고된 값 순위와 범위를 기록한다. `.ook` 변환·decoder 기반 판정은 후속이며 현재 도구의 인자·출력이 아니다.
 6. 후속 재생 위험 분석은 **수신 증거로만** 한다. 현재 RAW 집계만으로 프레임 동일성·롤링코드 여부·재생 위험을 판정하지 않는다. 실제 decoder 경로를 구현한 뒤에도 verification_plan은 확인 방법만 기록한다(safety.md §1).
 7. IR 수신, 비자격증명 125 kHz/iButton 읽기, GPIO 읽기, UART 브리지(→ uart-shell-acquisition), SPI Mem 가져오기(→ firmware-static-analysis).
 
@@ -262,7 +269,7 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 
 ## 7. 케이스·스키마·Skill
 
-- 현재 RAW 분석: 기존 `analysis/`에 보고서, `kind="other"`·`extra.type="rf-raw-analysis"`로 등록한다. `flipper-rf-analysis`의 `rf-analysis`는 `offline-raw` 요약만 지원한다. 별도 `rf/` 생성이나 RF 장비 출처 증명은 없다.
+- 현재 RAW 분석: 기존 `analysis/`에 보고서, `kind="other"`·`extra.type="rf-raw-analysis"`로 등록한다. 전력 CSV는 `extra.type="rf-power-analysis"`이며 `flipper-rf-analysis`의 `rf-analysis`는 `offline-raw` 또는 `offline-power`의 닫힌 분기를 지원한다. 별도 `rf/` 생성이나 RF 장비 출처 증명은 없다.
 - 후속 디렉터리 설계: `rf/`(스윕·디코드·IQ·Flipper 신호), `nfc/`(`tags/`, `sessions/NNN/`, `cu-backup/`, `probe/`), `play/`(`<session>.events.jsonl`, `vision/frames|models|recordings`, `runs/`), `patches/`(이미지 + manifest, ESP 패치는 이미 구현),
   Flipper 전사 기록은 `rf/flipper/<session>.log`. `STANDARD_DIRS`, `case_paths`, `case_import_file` 허용 목록에 추가. 태그 인벤토리는 서버가 쓰는 `nfc/inventory.json`(권위 기록은 `.pweh/state` 의 증명·원장, 케이스 파일은 사본).
 - 아티팩트 kind: 처음에는 `other` + `extra.type`(`rf-sweep`, `rf-iq`, `rf-capture`, `nfc-tag-dump`, `nfc-session`, `screen-frame`, `input-log`, `save-patch`).
@@ -285,7 +292,7 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 |---|---|---|---|
 | 0 | 공통 기반(common-core): 환경 감지·포트 라우팅(port-routing.md P0–P1), wininterop, portlock, 증명·출처 원장·비밀 마스킹, safety 설정 위치, 테스트 파서 정리 | 없음 | 단위 테스트, 가짜 PnP·가짜 헬퍼 |
 | **1a** | ESP32 세이브·해금 오프라인 트랙: fwtriage ESP·세이브 도구, 게임 패턴 팩, REA 지원 ELF 확인·Xtensa 한계 기록, `game-save-unlock-analysis` | 새 전송 없음(기존 esp_read_flash_start) | 합성 NVS·파티션·체크섬 이미지 |
-| **1b 오프라인 RAW** | **구현**: 등록 파일 → 명시 strict profile의 `sdr_analyze` → 분석 JSON·아티팩트 → `flipper-rf-analysis`/`rf-analysis` → 보고서. 실제 RF 수신·decoder 경로는 포함하지 않는다. | 소유·허가 케이스의 등록 RAW 파일, 장비 불필요 | 합성 `.sub`, 실제 MCP 입구·FD/해시·취소/등록 수명·요약 |
+| **1b 오프라인 RAW·전력 CSV** | **구현**: 등록 파일 → 명시 strict RAW profile의 `sdr_analyze` 또는 고정 전력 CSV의 `sdr_peaks` → 분석 JSON·아티팩트 → `flipper-rf-analysis`/`rf-analysis` → 보고서. 실제 RF 수신·decoder 경로는 포함하지 않는다. | 소유·허가 케이스의 등록 RAW·전력 CSV 파일, 장비 불필요 | 합성 `.sub`·CSV, 실제 MCP 입구·FD/해시·취소/등록 수명·요약 |
 | **1b 고정 CLI 파일 읽기** | **소프트웨어 구현**: pweh-flipper의 수동 배너·정보·허용 루트 목록·1MiB 파일 읽기/MD5·같은 FD 등록·물리 close/lease 확인. P2 공통 serialtransport를 소비한다. 실제 DTR·USB 매핑·전송은 미검증이다. | 소유/허가 케이스·명시 포트·고정1.5.1·준비한 허용 폴더 | 가짜 CLI 임의 분할·binary·loader·취소·종료·artifact→RAW 연결 |
 | **1b 스캔 결속 NFC** | **소프트웨어 구현**: Flipper probe→보호 scan→inventory→출처 증명→등록 파일 구조/차이→요약. 실제 태그·USB/RF는 미검증이다. | 허가된 NTAG213/215/216·Flipper, 또는 기존 유효 inventory와 파일 | 합성 두 MCP Client·private 식별값·원장·증명·같은 FD·취소/등록 |
 | **1b CU 고정 읽기** | **소프트웨어 구현**: 고정 codec·단일 owner·probe→CU fact→기존 inventory/파일 검사. 내부 유한 READ의 첫4B 귀속과 terminal/cleanup을 검증한다. | 허가된 Ultra2.2 reader·명시 포트, 또는 기존 inventory | 가짜 POSIX/helper·세 NTAG·같은 MCP Client·기존 Flipper 회귀 |
@@ -351,11 +358,12 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 | `nfc_decode_frames` | 후속 | 방향별 프레임 해석 |
 | `nfc_job_status/cancel/jobs` | — | 취소 시 정리 실행 |
 
-**pweh-sdr** (현재 오프라인 RAW)
+**pweh-sdr** (현재 오프라인 RAW·전력 CSV)
 
 | 도구 | 영향 | 비고 |
 |---|---|---|
 | `sdr_analyze(case_id, artifact_id, profile, max_seconds=5)` | 로컬 보고서·아티팩트 등록 | 명시 strict RAW, 등록 파일 최대 1 MiB, 장치 I/O 없음 |
+| `sdr_peaks(case_id, artifact_id, max_seconds=5)` | 로컬 보고서·아티팩트 등록 | 고정 rtl_power CSV, 등록 파일 최대1MiB, 보고된 전력 열 순위·수용 행 통계, 장치 I/O 없음 |
 
 **pweh-sdr 후속 설계** (1b: RTL-SDR, 아래 도구는 미구현)
 
@@ -366,7 +374,7 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 | `sdr_band_lookup(frequency_hz, bandwidth_hz=None)` | OBSERVE | FSK 전용 표시 |
 | `sdr_target_enroll(case_id, ...)` | INTERACT | 대상 등록 |
 | `sdr_sweep_start`, `sdr_decode_start(..., target)`, `sdr_iq_capture_start` | OBSERVE · job | 캡처 폭·내용 대역 |
-| `sdr_import_flipper_sub`, `sdr_peaks` | OBSERVE(오프라인) | `.ook` 변환·decoder 연결은 후속; 현재 `sdr_analyze` 계약과 구분 |
+| `sdr_import_flipper_sub` | OBSERVE(오프라인) | `.ook` 변환·decoder 연결은 후속; 현재 등록 파일 분석 계약과 구분 |
 | `sdr_job_status/cancel/jobs` | — | |
 
 **pweh-play** (현재 숫자 관찰 분석, 나머지는 후속2b·2c)
@@ -386,3 +394,6 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 
 **pweh-fwtriage 구현 도구**: `fw_esp_partitions`, `fw_esp_image_info`, `fw_esp_to_elf`, `fw_esp_nvs`, `fw_save_diff`, `fw_checksum_find`, `fw_plan_imported_save`, `fw_patch_build`, `fw_verify_writeback`, `fw_find_seq_tables`,
 `fw_strings_hunt(patterns="game")`, `fw_hunt_patterns(pack=...)` — 모두 오프라인. 패치 입력 제한은 §3.5를 따른다. `fw_ghidra_decompile`는 등록된 도구가 아니다.
+
+부록의 과거 `sdr_peaks(csv_path, threshold_db, min_width)` 형태는 연구안이다.
+현재 공개 입력은 등록 artifact ID와 제한 시간뿐이며 임의 경로·threshold·width는 받지 않는다.

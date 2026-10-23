@@ -1,4 +1,4 @@
-"""sdr-mcp: 케이스 등록 RAW 파일의 제한된 오프라인 검사 입구."""
+"""sdr-mcp: 케이스 등록 RAW·전력 CSV의 제한된 오프라인 검사 입구."""
 
 from __future__ import annotations
 
@@ -31,6 +31,20 @@ _ERRORS = {
     "case_error": "RAW 분석의 케이스를 확인하지 못했습니다.",
     "config_error": "RAW 분석의 실행 설정을 확인하지 못했습니다.",
     "safety_denied": "현재 정책에서 RAW 분석을 허용하지 않습니다.",
+}
+_POWER_ERRORS = {
+    "rf_power_input_invalid": "전력 CSV 분석 입력이 허용된 형식이나 범위가 아닙니다.",
+    "rf_power_input_limit": "전력 CSV 분석 입력이 고정 크기 한도를 넘었습니다.",
+    "rf_power_input_changed": "전력 CSV 분석 입력의 등록 또는 파일 무결성이 변경되었습니다.",
+    "rf_power_failed": "전력 CSV 분석을 완료하지 못했습니다.",
+    "rf_power_cleanup_incomplete": "전력 CSV 분석 출력의 정리를 확인하지 못했습니다.",
+    "cancelled": "전력 CSV 분석이 취소되었습니다.",
+    "time_limit": "전력 CSV 분석의 시간 한도에 닿았습니다.",
+    "authorization_required": "케이스의 소유 또는 서면 허가 확인이 필요합니다.",
+    "not_found": "요청한 케이스 또는 등록 파일을 찾지 못했습니다.",
+    "case_error": "전력 CSV 분석의 케이스를 확인하지 못했습니다.",
+    "config_error": "전력 CSV 분석의 실행 설정을 확인하지 못했습니다.",
+    "safety_denied": "현재 정책에서 전력 CSV 분석을 허용하지 않습니다.",
 }
 
 
@@ -70,6 +84,41 @@ def _configure_input(instance) -> None:
         raise RuntimeError("RAW 도구의 비공개 입력 검증 설정을 완료하지 못했습니다.") from None
 
 
+class _PowerMetadata(FuncMetadata):
+    """새 scalar 도구의 검증 오류에서 추가 키와 원문 값을 제거한다."""
+
+    def validate_arguments(self, arguments_to_validate: dict) -> dict:
+        try:
+            return super().validate_arguments(arguments_to_validate)
+        except ValidationError:
+            raise ValidationError.from_exception_data(
+                "PowerInput", [{"type": PydanticCustomError(
+                    "rf_power_input_invalid", _POWER_ERRORS["rf_power_input_invalid"]),
+                    "loc": (), "input": None}], hide_input=True,
+            ) from None
+
+
+def _configure_power_input(instance) -> None:
+    """전력 CSV 도구만 strict 입력 모델에 연결한다."""
+    try:
+        tool = instance._tool_manager.get_tool("sdr_peaks")
+        if tool is None:
+            raise RuntimeError
+        metadata = tool.fn_metadata
+        model = metadata.arg_model
+        model.model_config.update(strict=True, extra="forbid", hide_input_in_errors=True)
+        model.model_rebuild(force=True)
+        tool.fn_metadata = _PowerMetadata(
+            arg_model=model, output_schema=metadata.output_schema,
+            output_model=metadata.output_model, wrap_output=metadata.wrap_output,
+        )
+        tool.parameters = model.model_json_schema(by_alias=True)
+        if tool.parameters.get("additionalProperties") is not False:
+            raise RuntimeError
+    except Exception:
+        raise RuntimeError("전력 CSV 도구의 비공개 입력 검증 설정을 완료하지 못했습니다.") from None
+
+
 def rt() -> Runtime:
     return get_runtime(SERVER_NAME)
 
@@ -90,13 +139,27 @@ def _arguments(case_id, artifact_id, profile, max_seconds) -> None:
         raise PwehError(_ERRORS["rf_raw_input_invalid"], code="rf_raw_input_invalid")
 
 
+def _power_error(exc: Exception) -> PwehError:
+    code = getattr(exc, "code", None)
+    if type(code) is not str or code not in _POWER_ERRORS:
+        code = "rf_power_failed"
+    return PwehError(_POWER_ERRORS[code], code=code)
+
+
+def _power_arguments(case_id, artifact_id, max_seconds) -> None:
+    if (type(case_id) is not str or len(case_id) > 80 or CASE_ID_RE.fullmatch(case_id) is None
+            or type(artifact_id) is not str or re.fullmatch(r"A-[0-9]{4,8}", artifact_id) is None
+            or type(max_seconds) not in (int, float) or not 0 < max_seconds <= 5):
+        raise PwehError(_POWER_ERRORS["rf_power_input_invalid"], code="rf_power_input_invalid")
+
+
 server = create_server(
-    SERVER_NAME, title="PWEH 오프라인 RAW 분석",
+    SERVER_NAME, title="PWEH 오프라인 RAW·전력 CSV 분석",
     instructions=(
-        "허가된 케이스에 등록된 파일 하나를 명시 RAW profile로 오프라인 검사한다. "
-        "case_import_file의 artifact_id → sdr_analyze → flipper-rf-analysis의 rf-analysis 요약 순서다. "
+        "허가된 케이스에 등록된 파일을 sdr_analyze의 명시 RAW profile 또는 sdr_peaks의 고정 전력 CSV profile로 오프라인 검사한다. "
+        "case_import_file의 artifact_id → RAW는 sdr_analyze, 전력 CSV는 sdr_peaks → flipper-rf-analysis의 rf-analysis 요약 순서다. "
         "입력은 최대1 MiB, 작업 최대5초와 결과 생성 뒤 최종 저장 최대5초의 협력 예산이다. "
-        "선언·수용 줄 통계·입력 SHA만 기록하며 원시 pulse/주석을 반환하지 않는다. "
+        "선언·수용 줄 통계·입력 SHA를 기록하며 원시 pulse/주석·CSV 행·날짜/시각은 반환하지 않는다. "
         "complete는 지원 파일 문법의 완료다. RF 수신·송신·재생·프로토콜 해독이나 "
         "실제 캡처·기기·전파 허가를 검증하지 않는다. 장치·포트·외부 프로세스를 실행하지 않는다."
     ),
@@ -144,7 +207,45 @@ async def sdr_analyze(
         raise _fixed_error(exc) from None
 
 
+@server.tool(description=(
+    "케이스에 등록된 일반 파일 하나를 고정 rtl-power-blog-v1.4.0-csv 프로필로 오프라인 검사한다. "
+    "artifact_id는 같은 케이스 A-id이며 소유/허가 확인이 필요하다. forensics/·emu/ 입력은 받지 않는다. "
+    "파일은 최대1MiB, max_seconds는0초 초과5초 이하(기본5)이며 입력 선택·읽기·SHA·검사가 같은 예산을 사용한다. "
+    "결과 생성 뒤 최종 무결성 검증·저장은 별도 최대5초의 협력 예산이다. "
+    "complete/partial/malformed/unsupported와 완전히 수용한 행의 선언·집계·최대32개 전력값 순위를 반환하고 "
+    "analysis/rf-power-NNN.json을0444로 저장·등록한다. 날짜·시각·원문 경로·CSV 행·전체 전력 배열은 반환하지 않는다. "
+    "마지막 전력 열도 별도 값으로 센다. 주파수 중심·dBm 보정·실제 RF 취득·기기 귀속·전파 허가를 검증하지 않으며 "
+    "집계는 익명성 보장이 아니다. RF 수신/송신·외부 도구·프로토콜 decoder는 실행하지 않는다."
+), annotations=ANN_LOCAL_WRITE)
+@safe_tool
+async def sdr_peaks(
+    case_id: StrictStr, artifact_id: StrictStr,
+    max_seconds: StrictInt | StrictFloat = 5,
+) -> dict:
+    try:
+        _power_arguments(case_id, artifact_id, max_seconds)
+        cancelled = threading.Event()
+
+        def work() -> dict:
+            deadline = time.monotonic() + max_seconds
+            try:
+                if cancelled.is_set():
+                    raise PwehError(_POWER_ERRORS["cancelled"], code="cancelled")
+                from .power_analysis import analyze_registered_power
+
+                case = rt().case(case_id, hardware=True)
+                return analyze_registered_power(case, artifact_id, deadline=deadline,
+                                                max_seconds=max_seconds, cancel=cancelled.is_set)
+            except Exception as exc:
+                raise _power_error(exc) from None
+
+        return await run_blocking_cancellable(work, on_cancel=cancelled.set)
+    except Exception as exc:
+        raise _power_error(exc) from None
+
+
 _configure_input(server)
+_configure_power_input(server)
 
 
 def main() -> None:

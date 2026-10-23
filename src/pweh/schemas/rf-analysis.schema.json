@@ -1,107 +1,226 @@
 {
-  "type": "object",
-  "required": [
-    "schema",
-    "mode",
-    "raw_results",
-    "input_completeness_verified",
-    "capture_verified",
-    "device_association_verified",
-    "authorization_assessed",
-    "decoded",
-    "transmitted"
-  ],
-  "properties": {
-    "schema": {
-      "const": "pweh.rf-analysis/v1"
-    },
-    "mode": {
-      "const": "offline-raw"
-    },
-    "raw_results": {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 128,
-      "items": {
-        "type": "object",
-        "required": [
-          "input_artifact_id",
-          "analysis_path",
-          "report_sha256",
-          "status",
-          "pulse_count"
-        ],
-        "properties": {
-          "input_artifact_id": {
-            "type": "string",
-            "pattern": "^A-[0-9]{4,8}$"
-          },
-          "analysis_path": {
-            "type": "string",
-            "pattern": "^analysis/rf-raw-[0-9]{3,9}\\.json$"
-          },
-          "report_sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$"
-          },
-          "status": {
-            "enum": [
-              "complete",
-              "partial",
-              "malformed",
-              "unsupported"
-            ]
-          },
-          "pulse_count": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 65536
-          }
-        },
-        "additionalProperties": false,
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "status": {
-                  "const": "complete"
-                }
-              }
-            },
-            "then": {
-              "properties": {
-                "pulse_count": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 65536
-                }
-              }
-            }
-          }
-        ]
-      }
-    },
-    "input_completeness_verified": {
-      "const": false
-    },
-    "capture_verified": {
-      "const": false
-    },
-    "device_association_verified": {
-      "const": false
-    },
-    "authorization_assessed": {
-      "const": false
-    },
-    "decoded": {
-      "const": false
-    },
-    "transmitted": {
-      "const": false
-    }
-  },
-  "additionalProperties": false,
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "pweh.rf-analysis/v1",
-  "title": "오프라인 RAW 분석 요약"
+  "title": "오프라인 RAW·전력 CSV 분석 요약",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "schema",
+        "mode",
+        "raw_results",
+        "input_completeness_verified",
+        "capture_verified",
+        "device_association_verified",
+        "authorization_assessed",
+        "decoded",
+        "transmitted"
+      ],
+      "properties": {
+        "schema": {
+          "const": "pweh.rf-analysis/v1"
+        },
+        "mode": {
+          "const": "offline-raw"
+        },
+        "raw_results": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "required": [
+              "input_artifact_id",
+              "analysis_path",
+              "report_sha256",
+              "status",
+              "pulse_count"
+            ],
+            "properties": {
+              "input_artifact_id": {
+                "type": "string",
+                "pattern": "^A-[0-9]{4,8}$"
+              },
+              "analysis_path": {
+                "type": "string",
+                "pattern": "^analysis/rf-raw-[0-9]{3,9}\\.json$"
+              },
+              "report_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "status": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "malformed",
+                  "unsupported"
+                ]
+              },
+              "pulse_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65536
+              }
+            },
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "complete"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "pulse_count": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65536
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "input_completeness_verified": {
+          "const": false
+        },
+        "capture_verified": {
+          "const": false
+        },
+        "device_association_verified": {
+          "const": false
+        },
+        "authorization_assessed": {
+          "const": false
+        },
+        "decoded": {
+          "const": false
+        },
+        "transmitted": {
+          "const": false
+        }
+      },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": [
+        "schema",
+        "mode",
+        "power_results",
+        "input_completeness_verified",
+        "capture_verified",
+        "device_association_verified",
+        "authorization_assessed",
+        "decoded",
+        "transmitted"
+      ],
+      "properties": {
+        "schema": {
+          "const": "pweh.rf-analysis/v1"
+        },
+        "mode": {
+          "const": "offline-power"
+        },
+        "input_completeness_verified": {
+          "const": false
+        },
+        "capture_verified": {
+          "const": false
+        },
+        "device_association_verified": {
+          "const": false
+        },
+        "authorization_assessed": {
+          "const": false
+        },
+        "decoded": {
+          "const": false
+        },
+        "transmitted": {
+          "const": false
+        },
+        "power_results": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "required": [
+              "input_artifact_id",
+              "analysis_path",
+              "report_sha256",
+              "status",
+              "rows_accepted",
+              "values_accepted"
+            ],
+            "properties": {
+              "input_artifact_id": {
+                "type": "string",
+                "pattern": "^A-[0-9]{4,8}$(?![\\s\\S])"
+              },
+              "analysis_path": {
+                "type": "string",
+                "pattern": "^analysis/rf-power-[0-9]{3,9}\\.json$(?![\\s\\S])"
+              },
+              "report_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+              },
+              "status": {
+                "enum": [
+                  "complete",
+                  "partial",
+                  "malformed",
+                  "unsupported"
+                ]
+              },
+              "rows_accepted": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4096
+              },
+              "values_accepted": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 131072
+              }
+            },
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "status": {
+                      "const": "complete"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "rows_accepted": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 4096
+                    },
+                    "values_accepted": {
+                      "type": "integer",
+                      "minimum": 2,
+                      "maximum": 131072
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
 }

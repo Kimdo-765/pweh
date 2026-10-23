@@ -1,0 +1,835 @@
+{
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "source",
+    "params",
+    "inspection"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pweh.rf-power-analysis/v1"
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "partial",
+        "malformed",
+        "unsupported"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "kind",
+        "artifact_id",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "kind": {
+          "const": "case-artifact"
+        },
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^A-[0-9]{4,8}$(?![\\s\\S])"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1048576
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+        }
+      },
+      "additionalProperties": false
+    },
+    "params": {
+      "type": "object",
+      "required": [
+        "profile",
+        "max_seconds"
+      ],
+      "properties": {
+        "profile": {
+          "const": "rtl-power-blog-v1.4.0-csv"
+        },
+        "max_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 5
+        }
+      },
+      "additionalProperties": false
+    },
+    "inspection": {
+      "$ref": "#/$defs/inspection"
+    }
+  },
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.rf-power-analysis/v1",
+  "title": "등록 rtl_power CSV의 오프라인 선언·전력 열 검사",
+  "$defs": {
+    "inspection": {
+      "type": "object",
+      "required": [
+        "schema",
+        "profile",
+        "status",
+        "statistics",
+        "peaks",
+        "coverage",
+        "stop",
+        "limitations"
+      ],
+      "properties": {
+        "schema": {
+          "const": "pweh.rf-power-inspection/v1"
+        },
+        "profile": {
+          "const": "rtl-power-blog-v1.4.0-csv"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "partial",
+            "malformed",
+            "unsupported"
+          ]
+        },
+        "statistics": {
+          "type": "object",
+          "required": [
+            "rows_accepted",
+            "values_accepted",
+            "finite_values",
+            "negative_infinity_values",
+            "low_hz_min",
+            "high_hz_max",
+            "step_centi_hz_min",
+            "step_centi_hz_max",
+            "power_centi_db_min",
+            "power_centi_db_max"
+          ],
+          "properties": {
+            "rows_accepted": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4096
+            },
+            "values_accepted": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 131072
+            },
+            "finite_values": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 131072
+            },
+            "negative_infinity_values": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 131072
+            },
+            "low_hz_min": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                }
+              ]
+            },
+            "high_hz_max": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 2147483647
+                }
+              ]
+            },
+            "step_centi_hz_min": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 280000000
+                }
+              ]
+            },
+            "step_centi_hz_max": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 280000000
+                }
+              ]
+            },
+            "power_centi_db_min": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": -9223372036854775807,
+                  "maximum": 9223372036854775807
+                }
+              ]
+            },
+            "power_centi_db_max": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "integer",
+                  "minimum": -9223372036854775807,
+                  "maximum": 9223372036854775807
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "rows_accepted": {
+                    "const": 0
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "low_hz_min": {
+                    "type": "null"
+                  },
+                  "high_hz_max": {
+                    "type": "null"
+                  },
+                  "step_centi_hz_min": {
+                    "type": "null"
+                  },
+                  "step_centi_hz_max": {
+                    "type": "null"
+                  },
+                  "values_accepted": {
+                    "const": 0
+                  },
+                  "finite_values": {
+                    "const": 0
+                  },
+                  "negative_infinity_values": {
+                    "const": 0
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "low_hz_min": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  },
+                  "high_hz_max": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2147483647
+                  },
+                  "step_centi_hz_min": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 280000000
+                  },
+                  "step_centi_hz_max": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 280000000
+                  },
+                  "values_accepted": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 131072
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "finite_values": {
+                    "const": 0
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "power_centi_db_min": {
+                    "type": "null"
+                  },
+                  "power_centi_db_max": {
+                    "type": "null"
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "power_centi_db_min": {
+                    "type": "integer",
+                    "minimum": -9223372036854775807,
+                    "maximum": 9223372036854775807
+                  },
+                  "power_centi_db_max": {
+                    "type": "integer",
+                    "minimum": -9223372036854775807,
+                    "maximum": 9223372036854775807
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "peaks": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "required": [
+              "row_index",
+              "value_index",
+              "low_hz",
+              "high_hz",
+              "step_centi_hz",
+              "samples",
+              "power_centi_db"
+            ],
+            "properties": {
+              "row_index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4095
+              },
+              "value_index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 131071
+              },
+              "low_hz": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "high_hz": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "step_centi_hz": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 280000000
+              },
+              "samples": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              },
+              "power_centi_db": {
+                "type": "integer",
+                "minimum": -9223372036854775807,
+                "maximum": 9223372036854775807
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "coverage": {
+          "type": "object",
+          "required": [
+            "input_bytes",
+            "accepted_prefix_bytes",
+            "remaining_bytes",
+            "remaining_range",
+            "rows_seen",
+            "rows_accepted",
+            "steps_used",
+            "peak_candidates_omitted",
+            "eof_validated",
+            "analysis_complete",
+            "statistics_scope",
+            "input_completeness_verified",
+            "capture_verified",
+            "device_association_verified",
+            "authorization_assessed",
+            "decoded",
+            "transmitted",
+            "frequency_centers_verified",
+            "power_calibration_verified"
+          ],
+          "properties": {
+            "input_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "accepted_prefix_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1048576
+            },
+            "remaining_bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "remaining_range": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "offset",
+                    "length"
+                  ],
+                  "properties": {
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1048576
+                    },
+                    "length": {
+                      "type": "integer",
+                      "minimum": 1
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "rows_seen": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4096
+            },
+            "rows_accepted": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4096
+            },
+            "steps_used": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 262144
+            },
+            "peak_candidates_omitted": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 131072
+            },
+            "eof_validated": {
+              "type": "boolean"
+            },
+            "analysis_complete": {
+              "type": "boolean"
+            },
+            "statistics_scope": {
+              "const": "accepted_prefix"
+            },
+            "input_completeness_verified": {
+              "const": false
+            },
+            "capture_verified": {
+              "const": false
+            },
+            "device_association_verified": {
+              "const": false
+            },
+            "authorization_assessed": {
+              "const": false
+            },
+            "decoded": {
+              "const": false
+            },
+            "transmitted": {
+              "const": false
+            },
+            "frequency_centers_verified": {
+              "const": false
+            },
+            "power_calibration_verified": {
+              "const": false
+            }
+          },
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "remaining_bytes": {
+                    "const": 0
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "remaining_range": {
+                    "type": "null"
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "remaining_range": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "stop": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "code",
+                "offset",
+                "row_index"
+              ],
+              "properties": {
+                "code": {
+                  "enum": [
+                    "input_limit",
+                    "line_limit",
+                    "line_length_limit",
+                    "value_limit",
+                    "step_limit",
+                    "time_limit",
+                    "truncated_row",
+                    "empty_input",
+                    "unsupported_encoding",
+                    "unsupported_field",
+                    "nonfinite_value",
+                    "invalid_line_ending",
+                    "control_character",
+                    "field_count",
+                    "date_syntax",
+                    "time_syntax",
+                    "number_syntax",
+                    "number_range"
+                  ]
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1048576
+                },
+                "row_index": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4096
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "limitations": {
+          "const": [
+            "strict_profile_only",
+            "accepted_rows_only",
+            "reported_columns_not_fft_bins",
+            "trailing_value_recomputed_by_producer",
+            "row_times_not_returned_or_verified",
+            "no_frequency_center_verification",
+            "no_power_calibration_verification",
+            "no_capture_completeness_verification",
+            "no_device_or_authorization_verification",
+            "no_protocol_decoding",
+            "no_replay_or_transmission",
+            "aggregate_statistics_are_not_anonymization"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "complete"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "stop": {
+                "type": "null"
+              },
+              "statistics": {
+                "properties": {
+                  "rows_accepted": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4096
+                  },
+                  "values_accepted": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 131072
+                  }
+                }
+              },
+              "coverage": {
+                "properties": {
+                  "remaining_bytes": {
+                    "const": 0
+                  },
+                  "remaining_range": {
+                    "type": "null"
+                  },
+                  "analysis_complete": {
+                    "const": true
+                  },
+                  "eof_validated": {
+                    "const": true
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "stop": {
+                "type": "object"
+              },
+              "coverage": {
+                "properties": {
+                  "analysis_complete": {
+                    "const": false
+                  },
+                  "eof_validated": {
+                    "const": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "statistics": {
+                "properties": {
+                  "finite_values": {
+                    "const": 0
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "peaks": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "peaks": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "partial"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "stop": {
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "input_limit",
+                      "line_limit",
+                      "line_length_limit",
+                      "value_limit",
+                      "step_limit",
+                      "time_limit",
+                      "truncated_row"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unsupported"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "stop": {
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "empty_input",
+                      "unsupported_encoding",
+                      "unsupported_field",
+                      "nonfinite_value"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "malformed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "stop": {
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_line_ending",
+                      "control_character",
+                      "field_count",
+                      "date_syntax",
+                      "time_syntax",
+                      "number_syntax",
+                      "number_range"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "complete"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "inspection": {
+            "properties": {
+              "status": {
+                "const": "complete"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "partial"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "inspection": {
+            "properties": {
+              "status": {
+                "const": "partial"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "malformed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "inspection": {
+            "properties": {
+              "status": {
+                "const": "malformed"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "unsupported"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "inspection": {
+            "properties": {
+              "status": {
+                "const": "unsupported"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

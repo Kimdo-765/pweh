@@ -107,7 +107,7 @@ async def test_actual_client_import_analysis_summary_report(workspace, auth, tmp
         text = Path(final["path"]).read_text()
         assert "Flipper·RF 분석" in text and analysis["path"] in text
         fetched = await call(cc, "schema_get", name="rf-analysis")
-        assert fetched.get("ok") and fetched["schema"]["properties"]["mode"]["const"] == "offline-raw"
+        assert fetched.get("ok") and fetched["schema"]["oneOf"][0]["properties"]["mode"]["const"] == "offline-raw"
 
 
 @pytest.mark.parametrize("data,status,code", [
@@ -133,8 +133,8 @@ async def test_tools_list_has_only_explicit_offline_inputs(workspace):
     from sdr_mcp import server as S
     async with Client(S.server) as client:
         tools = (await client.list_tools()).tools
-    assert [t.name for t in tools] == ["sdr_analyze"]
-    tool = tools[0]
+    assert sorted(t.name for t in tools) == ["sdr_analyze", "sdr_peaks"]
+    tool = next(t for t in tools if t.name == "sdr_analyze")
     assert tool.annotations.read_only_hint is False
     assert tool.annotations.destructive_hint is False
     assert tool.annotations.open_world_hint is False

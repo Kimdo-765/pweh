@@ -384,6 +384,8 @@
 
 - **`sdr_analyze(case_id, artifact_id, profile, max_seconds?)`**  
   케이스에 등록된 일반 파일 하나를 오프라인 RAW 프로필로 검사한다. artifact_id는 같은 케이스 A-id이며 profile='flipper-subghz-raw-v1-strict'를 반드시 지정한다. 소유/허가 확인이 필요하며 forensics/·emu/ 입력은 받지 않는다. 최대1 MiB, max_seconds는0초 초과5초 이하(기본5)이며 입력 선택·읽기·SHA·검사가 같은 예산
+- **`sdr_peaks(case_id, artifact_id, max_seconds?)`**  
+  케이스에 등록된 일반 파일 하나를 고정 rtl-power-blog-v1.4.0-csv 프로필로 오프라인 검사한다. artifact_id는 같은 케이스 A-id이며 소유/허가 확인이 필요하다. forensics/·emu/ 입력은 받지 않는다. 파일은 최대1MiB, max_seconds는0초 초과5초 이하(기본5)이며 입력 선택·읽기·SHA·검사가 같은 예산을 사용한다. 결과 생성 뒤 최종 무결
 
 ## pweh-play
 

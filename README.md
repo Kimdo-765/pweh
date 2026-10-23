@@ -26,7 +26,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
    ├─ pweh-forensics   SD 카드 이미지 증거 분석: 접수·해시·보관 기록, 파티션·FAT/exFAT 목록, 삭제 파일 추출(job), 증거 목록 — 기기·카드를 열지 않음 (선택)
    ├─ pweh-espprobe    HELLO·HB 오프라인 시뮬레이터, 실제 포트·핀 미지원 (I5 1a)
    ├─ pweh-emu         ESP32·S3·C3/Arduino AVR 펌웨어 실행, 출처 확인·마스킹 콘솔·세션 종료 — 기기 미접촉 (선택)
-   ├─ pweh-sdr         등록된 Flipper RAW 파일의 구조·통계 분석, 로컬 보고서 저장 (선택)
+   ├─ pweh-sdr         등록된 Flipper RAW·전력 CSV의 구조·통계 분석, 로컬 보고서 저장 (선택)
    ├─ pweh-play        공급 숫자 관측값의 최근 창·신뢰도·합의 검증, 로컬 보고서 저장 (선택)
    ├─ pweh-flipper     고정 CLI 연결·파일 읽기·NTAG21x 스캔 (선택)
    ├─ pweh-nfc         CU 고정 NTAG 스캔·inventory에 결속한 NFC 파일 검사·비교 (선택)
@@ -62,8 +62,8 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
 각 Skill 은 끝날 때 스키마에 맞는 `summary` 를 케이스에 저장한다 (`schemas/*.schema.json`).
 다음 Skill 은 그 요약을 읽어서 이어서 진행한다. 세션이 끊겨도 케이스만 있으면 이어서 할 수 있다.
 
-이미 보유한 Flipper RAW 파일은 [flipper-rf-analysis](skills/flipper-rf-analysis/SKILL.md)로
-등록 파일의 구조·pulse 통계를 분석하고 `rf-analysis` 요약을 남긴다. 이 경로에는 수신 장비나
+이미 보유한 Flipper RAW 또는 rtl_power CSV 파일은 [flipper-rf-analysis](skills/flipper-rf-analysis/SKILL.md)로
+등록 파일의 구조·pulse 통계 또는 전력값 순위를 분석하고 `rf-analysis` 요약을 남긴다. 이 경로에는 수신 장비나
 펌웨어 확보가 필요하지 않다. Flipper에서 파일을 가져올 때는 [고정 읽기 CLI](docs/references/flipper-read-transport.md)로 `/ext/pweh/<case_id>/` 안 파일을 읽어 등록할 수 있다. 실제 RF 수신·해독·송신은 지원하지 않는다.
 
 보안 분석이 아닌 목표는 일부만 지원한다(`orchestrator/master-prompt.md` §3·§3.1).
