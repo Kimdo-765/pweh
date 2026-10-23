@@ -100,8 +100,8 @@ _QUARANTINE_RE = re.compile(r"^EV-(\d{4,6})-")
 #: 이미지 사본 이름으로 쓸 수 없는 이름 (같은 디렉터리의 접수 기록·로그 사본·잠금·복사 중 이름과 겹침)
 RESERVED_NAME_RE = re.compile(r"(?i)^(?:EV-\d+\.json|imaging-log\.txt|\.intake\.lock|.*\.partial)$")
 #: 보관 기록 사건 종류 (닫힌 집합)
-ANALYSIS_EVENTS = frozenset({"sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory", "media-candidates", "dhav-candidates"})
-CUSTODY_EVENTS = ("intake", "intake-aborted", "verify", "integrity-failed", "attest", "check", "list", "extract", "image-hints", "sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory", "media-candidates", "dhav-candidates", "evidence-list", "note")
+ANALYSIS_EVENTS = frozenset({"sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory", "media-candidates", "dhav-candidates", "dhav-scan"})
+CUSTODY_EVENTS = ("intake", "intake-aborted", "verify", "integrity-failed", "attest", "check", "list", "extract", "image-hints", "sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory", "media-candidates", "dhav-candidates", "dhav-scan", "evidence-list", "note")
 CUSTODY_ACTORS = ("server", "agent", "human")
 #: 빠른 지문: 앞·뒤 1 MiB 의 sha256 + 크기·mtime_ns
 FINGERPRINT_BLOCK = 1 << 20
@@ -1649,6 +1649,9 @@ def store_analysis(case: Case, opened: OpenedEvidence, report: dict[str, Any], *
             if check_entries:
                 check_entries(entries)
             _check_analysis_output(case, dfd, name, fd, sealed)
+            if check:
+                # 출력 검증 중 들어온 취소·입력 변경도 실제 append 전에 확인한다.
+                check()
 
         entry = custody_log.append(event, evidence_id=opened.evidence_id,
                                    data={"analysis": analysis, "source": source, "status": report.get("status"), "params": report.get("params")},

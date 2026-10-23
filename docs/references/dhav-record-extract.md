@@ -6,6 +6,10 @@
 실제로 있는 정수 0–127이다. 항상 job으로 실행하며 `forensics_job_status`로 완료를 확인하고
 `forensics_job_cancel`로 취소한다.
 
+큰 EV의 [`forensics_dhav_scan`](dhav-scan.md) 보고서는 직접 받지 않는다. 그 row의 절대
+offset/record_length로 같은 EV의 `forensics_dhav_candidates` 구간 검사를 먼저 수행하고,
+새 후보 보고서의 analysis.path/번호를 전달한다.
+
 ## 선택과 출처
 
 같은 EV의 유일한 `dhav-candidates` 보관 사건과 결속된 보고서만 받는다. 보고서 전체의

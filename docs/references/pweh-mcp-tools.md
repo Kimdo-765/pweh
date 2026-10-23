@@ -53,7 +53,7 @@
 - **`approvals_pending()`** — [읽기전용]  
   대기 중인 승인 요청 목록 (확인 코드는 제외).
 - **`schema_get(name)`** — [읽기전용]  
-  PWEH JSON 스키마 조회. name: android-forensics, auth-hunt, case, dhav-candidates, dhav-record-extract, emulation, finding, firmware-dump, image-hints, media-candidates, media-inventory, media-prefix-extract, pinout-scan, save
+  PWEH JSON 스키마 조회. name: android-forensics, auth-hunt, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, media-candidates, media-inventory, media-prefix-extract, pinout
 
 ## pweh-uart
 
@@ -335,6 +335,8 @@
   선택한 완전 파일 또는 EV의 명시 바이트 구간에서 DHAV 고정 record 구조 후보를 관찰한다. ref/path는 FAT/exFAT·TAR/ZIP 파일 하나이며 둘 다 없으면 EV 전체를 읽는다. offset/length는 exact int로 함께 지정하고 선택자·partition과 혼용하지 않으며 method=auto만 받는다. 선택·구간은 최대 64 MiB, offset+length
 - **`forensics_extract_dhav_candidate(case_id, evidence_id, analysis_path, candidate_index)`**  
   보관 기록에 결속된 dhav-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). analysis_path는 같은 케이스·EV의 생성 보고서 경로이며 index는 0~127의 저장 후보를 고른다. 증거와 보고서의 무결성을 확인하고 원래 ref/partition/복구 방법 또는 EV 명시 구간으로 같은 완전 바이트를 다시 읽는다. 구간은 저장된 시작·길이·E
+- **`forensics_dhav_scan(case_id, evidence_id, start_offset?, max_scan_bytes?, max_seconds?)`**  
+  접수한 EV 이미지에서 DHAV record 구조 후보를 나눠 읽어 검색한다. start_offset은 EV 절대 위치(기본0), max_scan_bytes는 연속 검색 읽기 합계4 bytes..1 GiB(기본1 GiB)다. 64 KiB 이하 창과 메모리 carry로 창 경계 표지를 확인한다. 구조 필드 읽기는 별도1 MiB까지이며 검색 창 밖이라도 EV 안의 헤더/끝 표지는 대조한다. 전체
 - **`forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)`**  
   보관 기록에 결속된 media-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). analysis_path는 같은 케이스·EV의 생성 보고서 경로이며 index는 0~127의 저장 후보를 고른다. 증거와 보고서의 무결성을 확인하고 원래 ref/partition/복구 방법 또는 EV 명시 구간으로 같은 완전 바이트를 다시 읽는다. 구간은 저장된 시작·길이·
 

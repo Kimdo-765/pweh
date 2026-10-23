@@ -1,6 +1,6 @@
 ---
 name: sd-card-forensics
-description: Analyze authorized SD images and firmware SD attack surfaces with pweh-forensics and fwtriage. Record hashes, custody, acquisition attestation, FAT/exFAT lists, deleted-file extraction and evidence lists. forensics_scan_secrets checks selected text; forensics_scan_secrets_from_list surveys stored FAT/exFAT lists. Return masked candidates and coverage. forensics_sd_ioc_scan compares report names. forensics_media_inventory observes BMFF structure; forensics_media_candidates finds BMFF prefix candidates; forensics_dhav_candidates finds DHAV record structure candidates in selected files or explicit EV ranges. forensics_extract_media_candidate and forensics_extract_dhav_candidate extract one stored BMFF prefix or DHAV record. Still images use image-hints-analysis; no video/audio decoding or direct evidence-file reads. Firmware checks cover SD-01..09. Record sd-forensics summary. SD 카드 포렌식, 카드 이미지, 삭제 파일 복구, 보관 기록, 쓰기 방지 장치.
+description: Analyze authorized SD images and firmware SD surfaces with pweh-forensics and fwtriage. Record hashes, custody, write-blocker attestation, FAT/exFAT lists, selected extraction and evidence lists. forensics_scan_secrets and forensics_scan_secrets_from_list return masked text candidates and coverage; forensics_sd_ioc_scan compares report names. forensics_media_inventory observes BMFF structure; forensics_media_candidates and forensics_dhav_candidates inspect selected files or EV ranges. forensics_dhav_scan streams bounded EV bytes and returns absolute candidate locations. forensics_extract_media_candidate and forensics_extract_dhav_candidate extract one stored prefix or record after source revalidation. Still images use image-hints-analysis; no video/audio decoding or direct evidence-file reads. Firmware checks cover SD-01..09. Record sd-forensics summary. SD 카드 포렌식, 카드 이미지, 삭제 파일 복구, 보관 기록, 쓰기 방지 장치.
 ---
 
 # SD 카드 포렌식 (sd-card-forensics)
@@ -33,7 +33,7 @@ description: Analyze authorized SD images and firmware SD attack surfaces with p
 - **사람·장비** (security 부팅 로그, 선택): UART 세션(`uart-shell-acquisition`)과 새 빈 시험 카드.
 - **MCP 서버**: pweh-case, pweh-forensics(evidence), pweh-fwtriage(security), pweh-uart(부팅 로그).
 - **권한 확인**: 쓰는 forensics 도구(접수·검증·증명·목록·추출·증거 목록·job 취소)는 부를 때마다 Claude Code 가 사람에게 확인받는다(`.claude/settings.json` 의 ask). 처음에 알린다.
-  `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs`는 조회 전용이라 자동 허용이다. `forensics_image_hints`도 사용자의 정지 이미지 내용 반환 결정에 따라 별도 승인 없이 허용한다(로컬 분석 결과는 쓴다). `forensics_scan_secrets`·`forensics_scan_secrets_from_list`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`·`forensics_dhav_candidates`도 마스킹된 후보·보고서 이름 대조·미디어 구조 후보를 로컬 기록하는 자동 허용 도구다.
+  `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs`는 조회 전용이라 자동 허용이다. `forensics_image_hints`도 사용자의 정지 이미지 내용 반환 결정에 따라 별도 승인 없이 허용한다(로컬 분석 결과는 쓴다). `forensics_scan_secrets`·`forensics_scan_secrets_from_list`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`·`forensics_dhav_candidates`·`forensics_dhav_scan`도 마스킹된 후보·보고서 이름 대조·미디어 구조 후보를 로컬 기록하는 자동 허용 도구다.
 
 ## 안전 규칙
 
@@ -78,7 +78,7 @@ description: Analyze authorized SD images and firmware SD attack surfaces with p
 | `forensics_sd_ioc_scan` | 검증된 카드 목록과 기존 펌웨어 보고서의 이름 후보·검사 한계만 기록 |
 | `forensics_media_inventory` | 완전한 선택 파일 하나의 BMFF 상자 구조·검사/opaque/미검사 범위만 기록 |
 | `forensics_media_candidates` | 선택 파일 또는 명시 EV 구간 안의 ftyp·연속 최상위 prefix 후보와 검색/검사/관계 한계만 기록 |
-| `forensics_dhav_candidates` | 같은 선택 방식의 DHAV 고정 record 구조 후보·기각/미완료/검색 한계만 기록. 후보 분석만 수행 |
+| `forensics_dhav_candidates` / `forensics_dhav_scan` | 선택 파일/구간 후보 / 큰 EV의 bounded streaming 검색. 후자는 EV 절대 위치와 재개·미검색 범위를 기록 |
 | `forensics_extract_media_candidate` | 저장된 보고서·선택 파일을 재검증하고 후보 하나의 prefix를 추출(job). 추출물은 직접 열지 않음 |
 | `forensics_extract_dhav_candidate` | 같은 EV의 저장 DHAV 후보·완전 선택 bytes를 재검증해 한 record만 추출(job). 원래 부분성을 보존하며 직접 열지 않음 |
 | `forensics_image_hints` | 선택한 정지 그림만 미리보기·OCR·QR·메타데이터 분석 → `image-hints-analysis` |
@@ -223,7 +223,7 @@ forensics_fs_list(case_id="<id>", evidence_id="EV-0001")
 
 `forensics_media_inventory(case_id="<id>", evidence_id="EV-0001", ref="<목록의 ref>")`로 완전한 파일 하나(최대64 MiB)의 BMFF 상자 경계와 제한된 길이·PSSH 선언을 관찰한다(촬영 시각·재생 길이·암호화 판정 아님). `forensics_media_candidates`는 같은 인자로 선택 파일 안의 연속 최상위 prefix 후보를 찾는다. ref/path 배타·직접 EV는 둘 다 생략하며 필요한 파티션만 명시한다. 큰 EV의 후보 검색은 offset/length를 함께 지정해 최대64 MiB 한 구간만 선택할 수 있다(ref/path/partition 없이 method=auto, 구간 밖 미검사). 원시 파일·복구물을 직접 열거나 프레임·음성을 해독하지 않는다.
 - inventory는 [reference.md §12](reference.md#12-선택-미디어-구조-관찰)에 따라 `media_inventory_results`, 연속 후보는 [§13](reference.md#13-선택-미디어-연속-후보)에 따라 `media_candidate_results`에 결과 참조만 기록한다. 검색/검사/목록/관계 완료도를 각각 보고 원본 경계·녹화 복구·재생·시각·암호화·침해 여부를 판정하지 않는다. 저장된 후보의 앞부분이 승인된 목적에 필요하면 `forensics_extract_media_candidate(case_id="<id>", evidence_id="EV-0001", analysis_path="<응답의 analysis.path>", candidate_index=0)`를 쓴다. 번호는 보고서에 실제 존재하는 정수 하나만 고른다. 이 쓰기 도구는 `ask` 권한이며 기존 `forensics_job_status`로 완료를 확인한다. 원래 불확실성을 보존하고, [reference.md §14](reference.md#14-저장된-후보-prefix-추출)에 따라 `recovered`·`notes`와 증거 목록에 남긴다. `complete=true`는 prefix 작성 완료이며 녹화 전체 복구 성공이 아니다.
-- DHAV는 `forensics_dhav_candidates`로 같은 파일/명시 구간에서 고정 f0/fc/fd record 구조 후보만 찾고 [reference.md §16](reference.md#16-dhav-record-구조-후보)에 따라 `dhav_candidate_results`에 닫힌6필드를 기록한다. possible·partial과 검색/관찰 anchor 검사/목록 완료도를 구분한다. 목적에 필요한 후보 한 개는 `forensics_extract_dhav_candidate(case_id="<id>", evidence_id="EV-0001", analysis_path="<analysis.path>", candidate_index=0)`로 추출한다(`ask`, job 완료 확인). [reference.md §17](reference.md#17-저장된-dhav-record-추출)에 따라 `recovered`·`notes`에 남기고 직접 열지 않는다. 원시 시각·채널·확장·payload 의미는 해석하지 않는다.
+- 큰 EV의 DHAV 위치는 `forensics_dhav_scan`으로 찾고 next_offset·미검색 범위를 확인한다([reference.md §18](reference.md#18-ev의-dhav-스트리밍-검색)). scan의 EV 절대 offset/record_length를 같은 EV의 구간 후보 offset/length로 다시 검사한다. scan 보고서는 직접 추출할 수 없다. `dhav_scan_results`의6필드만 요약하고 전체 검색·개별 구조·녹화 복구 완료를 구별한다. DHAV는 `forensics_dhav_candidates`로 같은 파일/명시 구간에서 고정 f0/fc/fd record 구조 후보만 찾고 [reference.md §16](reference.md#16-dhav-record-구조-후보)에 따라 `dhav_candidate_results`에 닫힌6필드를 기록한다. possible·partial과 검색/관찰 anchor 검사/목록 완료도를 구분한다. 목적에 필요한 후보 한 개는 `forensics_extract_dhav_candidate(case_id="<id>", evidence_id="EV-0001", analysis_path="<analysis.path>", candidate_index=0)`로 추출한다(`ask`, job 완료 확인). [reference.md §17](reference.md#17-저장된-dhav-record-추출)에 따라 `recovered`·`notes`에 남기고 직접 열지 않는다. 원시 시각·채널·확장·payload 의미는 해석하지 않는다.
 
 ### 7. 필요한 것만 추출
 
@@ -449,7 +449,7 @@ security 값은 모양을 보이는 합성 값이다. 실제 기기 값이 아�
     "장치 시간대 근거 없음 — 시각은 local-unknown-tz 그대로",
     "sd_paths_referenced 2개를 카드 목록(삭제 포함)과 대조 — 일치 없음",
     "SD-07(녹화 암호화) unknown — 암호화 근거를 찾지 못함",
-    "아직 없음: 선택 BMFF 구조 밖의 녹화 해석·녹화 타임라인·원시 카드 전체 카빙·카드 쪽 녹화 암호화 판정 — 하지 않음"
+    "아직 없음: 선택 BMFF 구조 밖의 녹화 해석·녹화 타임라인·DHAV 제한 검색 밖의 범용 카드 카빙·카드 쪽 녹화 암호화 판정 — 하지 않음"
   ]
 }
 ```
@@ -480,7 +480,7 @@ case_record_step(case_id="<id>", skill="sd-card-forensics", step="summary", stat
 
 **알려진 한계**는 [reference.md §10](reference.md#10-운영-한계)과 `docs/safety.md` §3.6을 따른다. 해당하는 한계와 검사하지 못한 범위를 notes·blockers에 남긴다.
 
-**아직 없는 것** (사용자에게 그대로 알리고 셸·외부 프로그램으로 대신하지 않는다): 선택 BMFF 구조·prefix 및 DHAV 고정 구조·record 추출 밖의 녹화 컨테이너·프레임 해석, DHAV 재조립, XM·MPEG-PS·CCTV 인덱스·녹화 타임라인, 카드 쪽 녹화 암호화 판정, 카드 전체 비밀값 자동 탐색, 카드와 펌웨어의 자동 대조, 전체 카드 카빙(PhotoRec 류), E01 입력, ext4·NTFS 목록, 장치에서 카드 식별 정보(cid/csd) 읽기, 영상 내보내기. 못 한 일은 요약 notes 와 blockers·next_actions 에 적고, 최종 보고에서 "한 일 / 아직 할 수 없는 일" 로 나눠 쓴다.
+**아직 없는 것** (사용자에게 그대로 알리고 셸·외부 프로그램으로 대신하지 않는다): 선택 BMFF 구조·prefix 및 DHAV 고정 구조·record 추출 밖의 녹화 컨테이너·프레임 해석, DHAV 재조립, XM·MPEG-PS·CCTV 인덱스·녹화 타임라인, 카드 쪽 녹화 암호화 판정, 카드 전체 비밀값 자동 탐색, 카드와 펌웨어의 자동 대조, DHAV 제한 streaming 검색 밖의 범용 카드 카빙(PhotoRec 류), E01 입력, ext4·NTFS 목록, 장치에서 카드 식별 정보(cid/csd) 읽기, 영상 내보내기. 못 한 일은 요약 notes 와 blockers·next_actions 에 적고, 최종 보고에서 "한 일 / 아직 할 수 없는 일" 로 나눠 쓴다.
 
 ## 다음 단계
 

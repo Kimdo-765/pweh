@@ -573,6 +573,12 @@ pweh-forensics 와 그 코어(`pweh.fs`·`pweh.evidence`·`pweh.safeio`)가 지�
 - 검색은 payload 내부의 표지를 지날 수 있으나 의미는 해석하지 않는다. 원문·채널·시각·extension 내용·개별 payload 지문을 반환하지 않으며 checksum·codec·재생·암호화·완전 녹화도 판정하지 않는다. 잘린 record·검색 한도·출처 불확실성은 partial로 보존한다.
 - 같은 EV fd와 custody 잠금 아래 입력·출력 seal을 검사하고 SDK 타입 오류도 입력 원문을 숨긴다. 커밋 전 실패는 이번 출력만 정리하고 이후 늦은 취소는 결과를 보존한다. 45초는 선택·검색의 공통 예산이며 강제 RSS·커널 I/O 시간 보장은 아니다. 기존 BMFF 추출 입구를 통해 DHAV를 추출할 수 없다. [상한·회계·출처 계약](references/dhav-candidates.md).
 
+**DHAV 스트리밍 검색**
+
+- `forensics_dhav_scan`은 접수 EV의 바이트를 검색한다. 검색 읽기는 최대1 GiB, 구조 필드 읽기는 별도1 MiB이며 구조 확인이 검색창 밖에 도달할 수 있다. 읽기량과 처리한 magic 시작 위치의 완료 prefix를 구분한다. 원시 디스크·파일 시스템 할당 상태·조각 재조립은 다루지 않는다.
+- source 해시는 접수 기록이며 이번 전체 EV 재해시가 아니다. row의 EV 절대 위치·길이만 반환하고 record 해시·원문/시각/채널/본문 의미는 반환하지 않는다. whole_evidence_search_complete는 start0 한 호출의 전체 가능한 위치 검색만 뜻하며 녹화 복구·재생·암호화 검증이 아니다.
+- scan 보고서는 직접 추출할 수 없다. 같은 EV의 row 범위를 기존 `forensics_dhav_candidates`로 다시 읽어 전체 구간 SHA와 후보를 결속한 뒤 기존 record extractor를 사용한다. 재개/한도·취소/보관 기록 경계는 [검색 계약](references/dhav-scan.md)에 따른다.
+
 **저장된 후보 prefix 추출**
 
 - `forensics_extract_media_candidate`는 같은 EV의 보관 기록에 결속된 보고서와 원래 선택 파일 또는 EV 구간 전체의 해시를 재검증한다. 보고서의 논리 offset·검증 prefix 길이만 쓰며 새 물리 범위를 지정하지 않는다. 원래 불확실성과 재선택의 불확실성을 함께 보존한다.

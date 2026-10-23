@@ -657,6 +657,44 @@
         }
       }
     },
+    "dhav_scan_results": {
+      "type": "array",
+      "maxItems": 100,
+      "description": "접수 EV의 bounded streaming DHAV 검색 보고서 참조. evidence_size는 EV 크기이며 검색·읽기 완료량이 아니다. 재개 위치·미검색 범위·한 호출의 전체 검색 여부는 보고서 coverage를 따른다.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_id",
+          "analysis_path",
+          "sha256",
+          "status",
+          "evidence_size",
+          "candidates_reported"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^EV-[0-9]{4,6}$",
+            "maxLength": 9
+          },
+          "analysis_path": {
+            "type": "string",
+            "pattern": "^forensics/analysis/dhav-scan-EV-[0-9]{4,6}-[0-9]{3,9}\\.json$",
+            "maxLength": 100
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "status": {"enum": ["ok", "partial", "unsupported"]},
+          "evidence_size": {"type": "integer", "minimum": 1, "maximum": 9223372036854775807},
+          "candidates_reported": {"type": "integer", "minimum": 0, "maximum": 128}
+        }
+      }
+    },
     "media_inventory_results": {
       "type": "array",
       "maxItems": 100,

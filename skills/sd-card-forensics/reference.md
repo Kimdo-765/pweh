@@ -336,3 +336,29 @@ job_id를 받아 `forensics_job_status`로 확인하고 필요한 경우 `forens
 매니페스트·extract 사건 결속이며 이후 바이너리 재해시 보장이 아니다.
 입력64 MiB·보고서1 MiB·매니페스트64 KiB·공통45초·출력1개와 취소·정리 계약은
 [DHAV record 추출](../../docs/references/dhav-record-extract.md)을 따른다.
+
+## 18. EV의 DHAV 스트리밍 검색
+
+`forensics_dhav_scan(case_id, evidence_id, start_offset=0, max_scan_bytes=1073741824,
+max_seconds=45)`는 같은 접수 EV fd에서 DHAV 표지를 검색한다. max_scan_bytes는4..1 GiB의
+연속 검색 읽기 합계다. 검색창은64 KiB 이하이고 마지막3bytes는 메모리에만 유지한다.
+구조 필드 읽기≤1 MiB는 별도여서 검색창 밖 footer도 EV 안이면 확인할 수 있다.
+최대1024probe·128row·record64 MiB·JSON1 MiB이며 원문·시각·채널·record hash는 반환하지 않는다.
+
+source4필드의 evidence_sha256은 접수 해시이며 이번 전체 EV 재해시가 아니다.
+후보 offset은 **EV 절대 위치**다. 처리한 연속 위치 prefix와 읽기량을 구별하고 next_offset이
+있으면 그 위치에서 재개한다. search_complete는 요청 시작 이후, whole_evidence_search_complete는
+start0 한 호출의 전체 가능한 시작 위치 검색만 뜻한다. 여러 report를 자동 합쳐 전체 완료로
+승격하지 않는다. 한도/시간·잘린/초과 record는 partial, 취소·읽기/무결성 실패는 미게시다.
+
+필요한 row 하나의 offset/record_length를 같은 EV의 `forensics_dhav_candidates`에 offset/length로
+전달한다. 새 구간 보고서가 전체 선택 SHA를 결속하면 그 보고서의 실제 후보 번호로만
+`forensics_extract_dhav_candidate`를 호출한다. scan 보고서는 직접 extractor 입력으로 쓸 수 없다.
+구간 후보 offset은 다시 구간 상대이므로 절대 위치를 중복해서 더하지 않는다.
+
+`dhav_scan_results[]`에는 evidence_id, analysis_path/sha256(analysis), status(report.status),
+evidence_size(report.source), candidates_reported(report.summary)6필드만 기록한다.
+evidence_size는 검사량이 아니며 next_offset·미검색 영역·완료도는 보고서 coverage에 있다.
+기존 dhav_candidate_results와 recovered를 유지하고 partial·미검사 사유는 notes에 쓴다.
+출력은 `dhav-scan` 사건/증거 목록에 결속되며 영상·음성·시각·암호화·파일 경계·할당 상태·
+완전 녹화는 판정하지 않는다. 상세 계약은 [DHAV streaming 검색](../../docs/references/dhav-scan.md)을 따른다.

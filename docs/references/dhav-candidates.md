@@ -4,6 +4,10 @@
 파일 하나, 또는 EV의 명시 구간에서 DHAV record 구조 후보를 찾는다. 입력은 최대64 MiB다.
 파일·구간 안의 앞뒤 표지와 길이를 대조한 메타데이터이며 영상 복구·재생 결과는 아니다.
 
+큰 EV에서 먼저 위치를 찾으려면 별도 [`forensics_dhav_scan`](dhav-scan.md)을 쓴다. 그 row의
+EV 절대 offset/record_length를 이 도구의 offset/length에 넣어 구간 전체 SHA를 결속한 뒤
+저장된 새 후보를 추출한다. scan 보고서 자체는 추출 입력이 아니다.
+
 ## 선택과 출처
 
 ```text
