@@ -655,10 +655,10 @@ def test_no_self_approval_and_gate_rules_in_every_working_skill():
             assert all(flag in text for flag in ("frame_freshness_verified", "game_semantics_verified", "action_generated"))
             continue
         if d.name == "flipper-rf-analysis":
-            # 현재 입구는 등록 파일 분석뿐이며 장치 승인 절차를 추가하지 않는다.
+            # 로컬 RAW 경로의 장비 생략과 선택 CLI 전송의 기존 gate를 구분한다.
             assert "forensics/" in text and "emu/" in text and "우회" in text
             assert "장비 연결이나 별도 RF 도구 설치는 필요 없다" in text
-            continue
+            assert "flipper_connect" in text and "flipper_close" in text
         assert "denied" in text and "우회" in text, f"{d.name}: denied 우회 금지 규칙 없음"
         assert "pweh approve" in text, f"{d.name}: 승인 주체(사람의 pweh approve) 언급 없음"
 

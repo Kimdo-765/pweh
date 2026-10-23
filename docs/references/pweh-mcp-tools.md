@@ -386,3 +386,22 @@
 - **`vision_validate(case_id, input_kind, observations, now, policy?)`**  
   호출자가 공급한 숫자 표본의 시간 창 합의를 계산한다. input_kind='numeric-observations'가 필수다. observations는 timestamp/value/confidence를 가진 객체0~256개이며 now와 timestamp는 같은 공급 monotonic seconds 축의0~2**53이다. 시각은 엄격 증가하고 now 이하, value는 null 또는 int64
 
+## pweh-flipper
+
+- **`flipper_connect(case_id, port, approval_id?)`**  
+  명시 Flipper USB CLI 포트에 연결한다. 소유/허가 확인 및 전체 USB sibling 잠금 뒤 MODIFY gate를 거친다. 115200 8N1, DTR=true/RTS=false 고정이며 포트 열기가 장치 상태에 영향을 줄 수 있다. VID/PID0483:5740·첫 CLI interface00과 공식1.5.1 고정 문법만 받는다. 새 배너·버전·기본 프롬프트 전 명령 TX0
+- **`flipper_close(case_id)`**  
+  Flipper 세션을 닫는다. 새 요청을 막고 worker 취소·직렬 read 깨우기 뒤 실제 핸들 닫힘과 사용권0을 확인한다. 정리가 미확인이면 cleanup_pending으로 세션·잠금을 보존하며 같은 도구로 다시 정리한다. 케이스 허가가 철회되어도 정리할 수 있다. 장치 명령 종료나 RF field off는 증명하지 않는다.
+- **`flipper_device_info(case_id)`** — [읽기전용]  
+  연결된 Flipper의 loader idle을 확인하고 고정 info device 응답을 읽는다(OBSERVE). model·target·format·고정 firmware 호환 정보만 반환하며 장치 UID·이름·BLE MAC·원문을 반환하지 않는다. 소유/허가와 현재 포트·역할·잠금을 다시 확인하며 앱 유휴 관찰은 앱 실행 잠금이 아니다.
+- **`flipper_storage_list(case_id, path)`** — [읽기전용]  
+  연결된 Flipper의 /ext/pweh/<case_id>/ 아래 한 디렉터리를 고정 storage list로 읽는다(OBSERVE). loader idle·현재 신원 확인 후 이름/type/size 최대256개와 종결 여부를 반환한다. path는 제한 ASCII 경로이며 링크 이동·임의 루트·명령은 받지 않는다. 응답 한도256KiB를 넘으면 실패한다. listing_complete는 CL
+- **`flipper_storage_pull_start(case_id, flipper_path, dest_name?)`**  
+  연결된 Flipper의 /ext/pweh/<case_id>/ 아래 파일 하나를 받는 job을 시작한다(고정 읽기 OBSERVE). flipper_path는 제한 ASCII 파일 경로, dest_name은 선택적 host basename이며 출력은 flipper/ 아래 새 파일이다. 최대1MiB·300초이며 binary 본문은 해석하지 않는다. 종결 뒤 장치 MD5와 host MD5·SHA를 
+- **`flipper_job_status(job_id, wait_seconds?, case_id?)`**  
+  백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 이 프로세스의 작업만 최대 50초 기다린다. case_id를 주면 해당 케이스의 저장 기록도 조회하고, 소유
+- **`flipper_job_cancel(job_id)`**  
+  실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
+- **`flipper_jobs(active_only?, case_id?)`**  
+  이 서버 프로세스의 백그라운드 작업 목록. case_id를 주면 해당 케이스에 저장된 이 서버의 기록을 최대 256개·8MiB·2초로 확인하며 잘림은 recovery에 표시한다. 소유 서버 종료가 확인된 활성 기록만 failed로 정리한다. owner 없는 과거 기록은 확인 불가로 표시하며 재개하지 않는다.
+

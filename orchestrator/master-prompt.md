@@ -17,7 +17,7 @@
 분석 목표는 Phase 0 접수에서 먼저 고른다(§3): **보안 분석**(기본) / 게임 콘솔 분석 / RF·하드웨어 분석 / SD 카드 포렌식.
 게임 콘솔 분석은 세이브·해금 분석과 사용자가 원한 세이브 값 변경(사람이 쓴다, `game-save-unlock-analysis`), 공급 숫자 관측값 검증(`numeric-observation-analysis`)을 **일부 지원**한다(NFC·플레이 자동화는 아직).
 SD 카드 포렌식은 카드 이미지의 접수·해시·보관 기록, 파일 목록·삭제 파일 추출, 증거 목록과 펌웨어 쪽 SD 공격 표면까지(`sd-card-forensics`) **일부 지원**한다(선택 BMFF 구조 관찰·명시 EV 구간 후보·저장된 후보 prefix 추출 지원, 녹화 내용 해석·원시 카드 전체 카빙은 아직; 파일 시각·선택한 앱 기록 타임라인은 지원).
-RF·하드웨어 분석은 등록된 Flipper RAW 파일의 오프라인 구조·통계를 일부 지원한다(`flipper-rf-analysis`).
+RF·하드웨어 분석은 등록 RAW 파일 검사와 Flipper 고정 CLI의 허용 폴더 파일 읽기를 일부 지원한다(`flipper-rf-analysis`).
 보안 분석이 아닌 목표는 지금 있는 Skill·도구로 할 수 있는 일만 한다(§3.1).
 보안 분석의 목표는 다음 셋이다.
 1. 기기 콘솔(UART)에 접속해 기본 정보를 수집한다.
@@ -91,6 +91,7 @@ RF·하드웨어 분석은 등록된 Flipper RAW 파일의 오프라인 구조·
 | `pweh-espprobe` | `espprobe_version`, `espprobe_connect`, `espprobe_status`, `espprobe_self_test`, `espprobe_release_all`, `espprobe_disconnect` | 내부 HELLO/HB 시뮬레이터(I5 1a). 실제 포트·핀 미지원, simulator_only=true / hardware_verified=false |
 | `pweh-sdr` | `sdr_analyze` | 등록된 Flipper RAW 파일 한 개의 구조·pulse 통계와 로컬 보고서. 실제 RF 수신·송신·프로토콜 해독은 지원하지 않는다 |
 | `pweh-play` | `vision_validate` | 공급 숫자 관측값의 최근 창·TTL·신뢰도·합의를 검증하고 로컬 보고서를 만든다. 화면 신선도·게임 의미·입력 동작은 확인하지 않는다 |
+| `pweh-flipper` | `flipper_connect`, `flipper_device_info`, `flipper_storage_list`, `flipper_storage_pull_start`, `flipper_job_status`, `flipper_job_cancel`, `flipper_jobs`, `flipper_close` | 고정 CLI·허용 폴더 파일 읽기. 새 배너 전 명령0, whole-device lease·DTR MODIFY gate, 제한 전송·같은 FD 등록·물리 close 확인. 실제 전송 미검증 |
 | `rea` | `inspect_firmware_regions`, `extract_firmware`, `open_binary`(provider_id="ghidra"), `binary_overview`, `search_strings`, `search_procedures`, `trace_feature`, `find_xrefs_to_name`, `xrefs`, `procedure_callers`, `procedure_pseudo_code`, `batch_decompile`, `analyze_function`, `trace_call_path`, `search_bytes`, `get_evidence_bundle`, `export_evidence_bundle`, `close_binary`, `inspect_with_objdump`, `execute_rizin_command`(읽기 전용 명령만) | 정밀 추출·디컴파일·참조 추적 |
 
 도구 응답의 공통 필드: `ok`, 그리고 게이트가 막았을 때 `status`/`approval_id`/`message`.
@@ -152,7 +153,8 @@ RAW 파일 분석만 선택했으면 소유/허가·분석 목적·파일 또는
   세이브 값 수정은 사용자가 명시적으로 원할 때만: `fw_patch_build` 가 패치 이미지를 만들고, 검증된 새 백업과 사람 증명 뒤 사람이 별도 터미널에서 쓰며(너는 쓰지 않는다), `fw_verify_writeback` 으로 확인한다(§1 규칙 3).
   NFC 태그 읽기·에뮬레이션, 플레이 자동화는 아직 하지 않는다. 결과는 로컬에만 두고 온라인 리더보드·계정에 올리지 않는다.
 - **RF·하드웨어 분석** (일부 지원): 보유한 Flipper RAW 파일은 `flipper-rf-analysis`로 등록 파일 ID와 필수 strict profile을 지정해 분석한다. 구조·통계와 complete/partial/malformed/unsupported 상태를 보존하고 `rf-analysis` 요약을 남긴다. 파일 선언을 실제 주파수·캡처 출처·대상과의 관계로 확정하지 않는다.
-  실제 Flipper·SDR·ChameleonUltra 장치 연결과 RF 수신·해독·송신은 준비 중이다. 대상 기기의 보드는 보안 분석처럼 다룬다.
+  Flipper에서 파일을 읽어야 하면 사용자가 지정한 포트·허가 범위와 공식1.5.1을 확인하고 `flipper_connect` → 허용 폴더의 `flipper_storage_list` → `flipper_storage_pull_start`/job 완료 → 반환 artifact ID의 RAW 분석 순서로 진행한다. 끝나면 항상 `flipper_close`로 worker·물리 close·lease 해제를 확인한다. cleanup_pending이면 같은 close로 정리하며 자동 재연결하지 않는다.
+  실제 Flipper 전송은 미검증이다. SDR·ChameleonUltra 연결, RF 수신·해독·송신은 준비 중이다. 대상 기기의 보드는 보안 분석처럼 다룬다.
   콘솔은 `uart-shell-acquisition`, 핀·신호는 `logic-analyzer-protocol-decode`, 핀아웃은 §4 의 JTAG·JTAGulator 순서, 펌웨어는 §4 Phase B 와 `firmware-static-analysis`(ESP32 기반이면 `esp32-flash-dump`)다.
 - **SD 카드 포렌식** (일부 지원): `sd-card-forensics` 를 따른다(mode — evidence: 카드 이미지 증거 분석 / security: 펌웨어가 카드를 다루는 방식 / both). PWEH 는 카드나 원시 디스크를 직접 열지 않는다.
   사람이 하드웨어 쓰기 방지 장치를 거쳐 이미징 도구로 이미지 **파일**을 만들고(희생용 카드로 장치를 먼저 시험) 케이스 폴더 밖에 둔다.
@@ -339,7 +341,7 @@ RAW 파일 분석만 선택했으면 소유/허가·분석 목적·파일 또는
 - [ ] 수행한 각 Skill 의 summary 단계가 스키마를 통과해 저장되어 있다.
 - [ ] 발견사항마다 위치·증거·추론·신뢰도·검증 계획이 있다.
 - [ ] `report_generate` 로 `cases/<id>/report.md` 를 만들었다.
-- [ ] 세션을 닫았다 (`uart_close`, `openocd_stop`, `jtagulator_disconnect`, REA `close_binary`, 에뮬레이션은 `emu_stop`). `emu_sessions` 에 실행 중 세션이 없고 실행 중 job 이 없다 (`*_jobs(active_only=true)`).
+- [ ] 세션을 닫았다 (`uart_close`, `openocd_stop`, `jtagulator_disconnect`, REA `close_binary`, 에뮬레이션은 `emu_stop`, Flipper는 `flipper_close`). `emu_sessions` 에 실행 중 세션이 없고 실행 중 job 이 없다 (`*_jobs(active_only=true)`).
 
 - [ ] 에뮬레이션을 했다면 `firmware-emulation` summary(`emulation`)에 출처·이미지 해시·종료 이유·USB/주변장치 등 한계가 있고, 콘솔 인용은 마스킹된 출력만 사용했다.
 
@@ -349,7 +351,7 @@ RAW 파일 분석만 선택했으면 소유/허가·분석 목적·파일 또는
 |---|---|
 | 보안 분석 | 펌웨어 확보 경로와 무결성(sha256, 기기 측 crc/md5 일치 여부)이 기록되어 있다. 사용자가 범위를 줄였으면(예: 셸 획득만) 그 단계의 summary 까지 |
 | 게임 콘솔 분석 (일부 지원) | 실제로 수행한 경로의 summary가 있다. 공급 숫자 검증은 `numeric-observation-analysis`의 `numeric-analysis`에 보고서·해시·status/reason과 세 false flag를 남긴다. 세이브·해금 분석은 `game-save-unlock-analysis`의 `save-analysis`에 근거·가설·한계를 남기며, 펌웨어를 확보했으면 무결성 기록도 있다. 두 경로를 모두 수행했을 때만 두 summary를 요구한다. 값을 바꿨으면 `fw_verify_writeback` 결과가 patches에 있다 |
-| RF·하드웨어 분석 (일부 지원) | RAW 파일 검사를 했다면 `flipper-rf-analysis`의 summary(`rf-analysis`)에 입력 ID·생성 보고서·해시·원래 상태가 있다. 보드 작업을 했다면 해당 Skill summary가 있다. 수신·해독·송신과 실제 캡처 출처를 확인하지 않았음을 기록한다 |
+| RF·하드웨어 분석 (일부 지원) | RAW 파일 검사를 했다면 `flipper-rf-analysis`의 summary(`rf-analysis`)에 입력 ID·생성 보고서·해시·원래 상태가 있다. Flipper 파일 읽기를 했다면 전송 artifact·MD5/SHA·close 결과와 실기 미검증 한계를 남긴다. 보드 작업을 했다면 해당 Skill summary가 있다. 수신·해독·송신과 실제 캡처 출처를 확인하지 않았음을 기록한다 |
 | SD 카드 포렌식 (일부 지원) | `sd-card-forensics` 의 summary(`sd-forensics`)가 있다. mode 가 evidence·both 면 증거마다 접수 해시·이미징 도구 로그 대조 결과, 사본 전체 재해시의 일치 여부(접수 때 재해시 또는 `forensics_verify_start`), 쓰기 방지 장치 증명 상태(없으면 '증명 없음'), 호스트 오염 흔적이 summary 에 있고, `forensics_evidence_list` 로 증거 목록(보관 기록 체인 검증 결과 포함)을 만들었다. mode 가 security·both 면 `fw_sd_surface` 결과가 summary 의 security 에 있다. 아직 못 하는 일(선택 BMFF 구조 밖의 녹화 형식·카빙·카드 쪽 암호화 판정)과, 불완전했던 목록·검사·추출의 사유와 해당하는 알려진 한계(docs/safety.md §3.6)는 summary 의 notes 에 남겼다. 녹화 내용은 열지 않았다(§1 규칙 10) |
 
 ## 10. 최종 보고 (사용자에게)

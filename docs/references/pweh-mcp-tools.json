@@ -7392,5 +7392,210 @@
     "meta": null
    }
   ]
+ },
+ "pweh-flipper": {
+  "module": "flipper_mcp.server",
+  "tools": [
+   {
+    "name": "flipper_connect",
+    "description": "명시 Flipper USB CLI 포트에 연결한다. 소유/허가 확인 및 전체 USB sibling 잠금 뒤 MODIFY gate를 거친다. 115200 8N1, DTR=true/RTS=false 고정이며 포트 열기가 장치 상태에 영향을 줄 수 있다. VID/PID0483:5740·첫 CLI interface00과 공식1.5.1 고정 문법만 받는다. 새 배너·버전·기본 프롬프트 전 명령 TX0이다. loader idle과 제한된 info를 확인한다. 배너·info는 공식 펌웨어 서명 증명이 아니다. approval_required면 사람이 승인한 뒤 같은 인자와 approval_id로 재호출한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "port",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "flipper_close",
+    "description": "Flipper 세션을 닫는다. 새 요청을 막고 worker 취소·직렬 read 깨우기 뒤 실제 핸들 닫힘과 사용권0을 확인한다. 정리가 미확인이면 cleanup_pending으로 세션·잠금을 보존하며 같은 도구로 다시 정리한다. 케이스 허가가 철회되어도 정리할 수 있다. 장치 명령 종료나 RF field off는 증명하지 않는다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "flipper_device_info",
+    "description": "연결된 Flipper의 loader idle을 확인하고 고정 info device 응답을 읽는다(OBSERVE). model·target·format·고정 firmware 호환 정보만 반환하며 장치 UID·이름·BLE MAC·원문을 반환하지 않는다. 소유/허가와 현재 포트·역할·잠금을 다시 확인하며 앱 유휴 관찰은 앱 실행 잠금이 아니다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "flipper_storage_list",
+    "description": "연결된 Flipper의 /ext/pweh/<case_id>/ 아래 한 디렉터리를 고정 storage list로 읽는다(OBSERVE). loader idle·현재 신원 확인 후 이름/type/size 최대256개와 종결 여부를 반환한다. path는 제한 ASCII 경로이며 링크 이동·임의 루트·명령은 받지 않는다. 응답 한도256KiB를 넘으면 실패한다. listing_complete는 CLI 응답 종결만 뜻하며 파일시스템 전체 목록의 완전성 증명이 아니다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "path",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "flipper_storage_pull_start",
+    "description": "연결된 Flipper의 /ext/pweh/<case_id>/ 아래 파일 하나를 받는 job을 시작한다(고정 읽기 OBSERVE). flipper_path는 제한 ASCII 파일 경로, dest_name은 선택적 host basename이며 출력은 flipper/ 아래 새 파일이다. 최대1MiB·300초이며 binary 본문은 해석하지 않는다. 종결 뒤 장치 MD5와 host MD5·SHA를 검증하고 같은 FD로 별도 최대5초 최종 검증·0444 게시·일반 케이스 아티팩트 등록을 한다. 원격 원자 snapshot이나 파일 생성 출처·RF 캡처를 증명하지 않는다. 부분 전송은 등록하지 않고 commit 뒤 취소는 결과를 보존한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "flipper_path",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "dest_name",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "flipper_job_status",
+    "description": "백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 이 프로세스의 작업만 최대 50초 기다린다. case_id를 주면 해당 케이스의 저장 기록도 조회하고, 소유 서버 종료가 확인된 활성 기록만 failed로 정리한다. 생존 확인 불가는 상태를 유지하고 recovery에 표시한다. 저장 기록은 재개/취소하지 않는다.",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "wait_seconds",
+      "type": "number",
+      "required": false,
+      "default": 0.0
+     },
+     {
+      "name": "case_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "flipper_job_cancel",
+    "description": "실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.",
+    "params": [
+     {
+      "name": "job_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "flipper_jobs",
+    "description": "이 서버 프로세스의 백그라운드 작업 목록. case_id를 주면 해당 케이스에 저장된 이 서버의 기록을 최대 256개·8MiB·2초로 확인하며 잘림은 recovery에 표시한다. 소유 서버 종료가 확인된 활성 기록만 failed로 정리한다. owner 없는 과거 기록은 확인 불가로 표시하며 재개하지 않는다.",
+    "params": [
+     {
+      "name": "active_only",
+      "type": "boolean",
+      "required": false,
+      "default": false
+     },
+     {
+      "name": "case_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   }
+  ]
  }
 }

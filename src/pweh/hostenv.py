@@ -1438,8 +1438,8 @@ def recommend_routes(report: Mapping[str, Any]) -> list[dict[str, Any]]:
             _row("esptool", "R13", _now(None, "없음 (P5 예정)"), {"route": "venv esptool --port /dev/cu.*", "phase": "P5"}, notes=[p5]),
             _row("openocd", "R14", _now(None, "없음 (P5 예정)"), {"route": "xPack darwin openocd", "phase": "P5"}, notes=[p5]),
             _row("sigrok", "R14", _now(None, "없음 (P5 예정)"), {"route": "Homebrew sigrok-cli (있으면)", "phase": "P5"}, notes=[p5]),
-            _row("sdr", "R14", _now(None, "없음 (서버 없음)"), {"route": "conda/Homebrew rtl-sdr", "phase": "P5"}),
-            _row("video", "R15", _now(None, "없음 (서버 없음)"), {"route": "ffmpeg -f avfoundation (TCC 카메라 권한)", "phase": "P5"}),
+            _row("sdr", "R14", _now(None, "없음 (수신 백엔드 미구현)"), {"route": "conda/Homebrew rtl-sdr", "phase": "P5"}),
+            _row("video", "R15", _now(None, "없음 (캡처 백엔드 미구현)"), {"route": "ffmpeg -f avfoundation (TCC 카메라 권한)", "phase": "P5"}),
             _block_row(),
         ]
     if kind == "NATIVE_LINUX":
@@ -1457,8 +1457,8 @@ def recommend_routes(report: Mapping[str, Any]) -> list[dict[str, Any]]:
             _row("openocd", "R11", _now("Linux openocd (xPack) + udev 규칙 (plugdev 0660, 쓰는 VID:PID 만)", "현행", None,
                                         ["udev 규칙 설치 [root 1회]"])),
             _row("sigrok", "R11", _now("Linux sigrok-cli + udev 규칙 (61-libsigrok-plugdev.rules)", "현행", None, ["udev 규칙 설치 [root 1회]"])),
-            _row("sdr", "R11", _now(None, "없음 (서버 없음)"), {"route": "Linux rtl_*·hackrf (dvb_usb_rtl28xxu blacklist [root])", "phase": "P4"}),
-            _row("video", "R12", _now(None, "없음 (서버 없음)"), {"route": "ffmpeg -f v4l2 (video 그룹 [root 1회])", "phase": "P4"}),
+            _row("sdr", "R11", _now(None, "없음 (수신 백엔드 미구현)"), {"route": "Linux rtl_*·hackrf (dvb_usb_rtl28xxu blacklist [root])", "phase": "P4"}),
+            _row("video", "R12", _now(None, "없음 (캡처 백엔드 미구현)"), {"route": "ffmpeg -f v4l2 (video 그룹 [root 1회])", "phase": "P4"}),
             _block_row(),
         ]
 
@@ -1489,8 +1489,8 @@ def recommend_routes(report: Mapping[str, Any]) -> list[dict[str, Any]]:
             _row("esptool", "R8", esp_now, alternatives=["Linux esptool --port /dev/ttyS<n>"] if interop else []),
             _row("openocd", "R9", _now(None, "없음"), {"route": "openocd.exe (win-exe)", "phase": "P3"}, notes=[no_usb]),
             _row("sigrok", "R9", _now(None, "없음"), {"route": "sigrok-cli.exe (win-exe)", "phase": "P3"}, notes=[no_usb]),
-            _row("sdr", "R9", _now(None, "없음 (서버 없음)"), {"route": "rtl_*.exe (win-exe)", "phase": "P4"}, notes=[no_usb]),
-            _row("video", "R9", _now(None, "없음 (서버 없음)"), {"route": "ffmpeg.exe -f dshow (win-exe)", "phase": "P4"}, notes=[no_usb]),
+            _row("sdr", "R9", _now(None, "없음 (수신 백엔드 미구현)"), {"route": "rtl_*.exe (win-exe)", "phase": "P4"}, notes=[no_usb]),
+            _row("video", "R9", _now(None, "없음 (캡처 백엔드 미구현)"), {"route": "ffmpeg.exe -f dshow (win-exe)", "phase": "P4"}, notes=[no_usb]),
             _block_row(),
         ]
 
@@ -1523,8 +1523,8 @@ def recommend_routes(report: Mapping[str, Any]) -> list[dict[str, Any]]:
             _row("sigrok", "R4", _now("usbipd attach (--auto-attach) → Linux sigrok-cli", "현행 유일 · 사람 단계", avail, lib_steps),
                  {"route": "sigrok-cli.exe 포터블 (win-exe)", "phase": "P3"},
                  notes=["fx2lafw 는 펌웨어를 올린 뒤 재열거한다 — attach 를 다시 해야 한다", *unknown_note]),
-            _row("sdr", "R5", _now(None, "없음 (서버 없음)"), {"route": "rtl_*.exe·hackrf (win-exe, 파일 출력)", "phase": "P4"}),
-            _row("video", "R6", _now(None, "없음 (서버 없음)"), {"route": "ffmpeg.exe -f dshow (win-exe)", "phase": "P4"}),
+            _row("sdr", "R5", _now(None, "없음 (수신 백엔드 미구현)"), {"route": "rtl_*.exe·hackrf (win-exe, 파일 출력)", "phase": "P4"}),
+            _row("video", "R6", _now(None, "없음 (캡처 백엔드 미구현)"), {"route": "ffmpeg.exe -f dshow (win-exe)", "phase": "P4"}),
             _block_row(),
         ]
         return rows
@@ -1535,8 +1535,8 @@ def recommend_routes(report: Mapping[str, Any]) -> list[dict[str, Any]]:
              alternatives=["interop 을 다시 켜면 방법 A (Windows esptool.exe --port COMn)"], notes=list(unknown_note)),
         _row("openocd", "R7", _now("usbipd attach → Linux openocd (xPack) + udev 규칙", usb_status, avail, lib_steps), notes=list(unknown_note)),
         _row("sigrok", "R7", _now("usbipd attach (--auto-attach) → Linux sigrok-cli", usb_status, avail, lib_steps), notes=list(unknown_note)),
-        _row("sdr", "R7", _now(None, "없음 (서버 없음)"), {"route": "usbipd → Linux rtl_*·hackrf", "phase": "P4"}),
-        _row("video", "R7", _now(None, "없음 (서버 없음)"), {"route": "usbipd → uvcvideo + v4l2", "phase": "P4"}),
+        _row("sdr", "R7", _now(None, "없음 (수신 백엔드 미구현)"), {"route": "usbipd → Linux rtl_*·hackrf", "phase": "P4"}),
+        _row("video", "R7", _now(None, "없음 (캡처 백엔드 미구현)"), {"route": "usbipd → uvcvideo + v4l2", "phase": "P4"}),
         _block_row(),
     ]
     return rows

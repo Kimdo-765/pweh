@@ -23,6 +23,7 @@
    ├─ pweh-espprobe    (mcp-servers/espprobe-mcp)    ESP32-S3 계측기 프로토콜·시뮬레이터 (선택, 현재 오프라인 검증만)
    ├─ pweh-sdr         (mcp-servers/sdr-mcp)         등록된 Flipper RAW 파일의 오프라인 구조·통계 분석
    ├─ pweh-play        (mcp-servers/play-mcp)        공급 숫자 관측값의 오프라인 합의 검증·보고서 저장
+   ├─ pweh-flipper     (mcp-servers/flipper-mcp)     고정 CLI 연결·정보·허용 폴더 파일 읽기
    └─ rea              (외부: rea-agents 6.5)        binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩
             │
       [대상 기기]  (또는 테스트용 pweh.mocktarget 시뮬레이터. pweh-forensics 는 기기 대신 사람이 만든 카드 이미지 파일을 받는다)
@@ -1317,6 +1318,33 @@ seal·SHA와 부모·이름을 `Case.register_artifact`의 최종 검사에서 �
 보고서 스키마는 `numeric-validation`, Skill 요약은 `numeric-analysis`이며 선택 단계
 `numeric-observation-analysis`를 실제 수행했을 때만 생성한다. Claude allow는 로컬 결과를
 기록하는 정확한 `vision_validate` 한 도구다. [입력·출력 계약](references/numeric-validation.md).
+
+### 6.13 pweh-flipper (고정 CLI 읽기)
+
+`mcp-servers/flipper-mcp/`는 공식1.5.1 문법의 `flipper-cli-1.5.1-read-v1`만 제공한다.
+Linux USB tty와 WSL Windows COM은 기존 공통 serialtransport를 쓴다. 실제 Flipper의
+DTR·USB 매핑·전송은 아직 실기 검증하지 않았으며 가짜 전송 계층으로 소프트웨어를 검사했다.
+
+| 도구 | 계약 |
+|---|---|
+| `flipper_connect(case_id, port, approval_id=None)` | 소유/허가 확인, 정확한 USB 부모·첫 CDC interface와 전체 sibling 잠금, 기존 역할·instrument guard, MODIFY 게이트 뒤115200/8N1/DTR=true/RTS=false로 연다. 새 배너·버전·prompt를 수동 수신하기 전 명령은 보내지 않는다. loader idle과 제한 info가 고정 profile에 맞으면 ready다. |
+| `flipper_close(case_id)` | 허가 철회 뒤에도 정리한다. 취소 후 worker 종료·물리 close·lease 해제를 각각 확인한다. 미확인 owner는 cleanup_pending으로 보존해 같은 close로 재정리한다. 장치 명령 종료를 확인한 것은 아니다. |
+| `flipper_device_info(case_id)` | 고정 loader/info만 보낸다. model/target/format/version/commit/dirty를 투영하며 UID·장치 이름·원시 응답을 반환하지 않는다. 버전 주장은 호환성 관찰이다. |
+| `flipper_storage_list(case_id, path)` | 정확한 `/ext/pweh/<case_id>/` 아래 한 수준을 최대256항목으로 읽는다. 응답 완료와 파일시스템 전체 목록의 완전성을 구분한다. |
+| `flipper_storage_pull_start(case_id, flipper_path, dest_name=None)` | 같은 허용 루트의 단일 파일을 최대1MiB/300초로 읽는 job이다. 선언 크기·opaque binary·정확 종결·별도 device MD5를 검사하고 같은 host FD의 SHA를 재검증해 새0444 파일을 등록한다. |
+| `flipper_job_status(job_id, wait_seconds=0, case_id=None)` | 현재 작업 또는 같은 케이스 저장 기록 조회. wait는 최대50초다. |
+| `flipper_job_cancel(job_id)` | 취소를 요청하며 이후 새 명령·자동 Ctrl-C·재연결을 하지 않는다. 물리 close 전 lease를 해제하지 않는다. |
+| `flipper_jobs(active_only=False, case_id=None)` | 공통 job 목록·저장 기록 복구 규칙을 사용한다. |
+
+한 케이스당 세션 하나, 전체16개다. 각 고정 명령 직전 route·whole scope·lease·역할을
+재검사하며 loader idle 뒤에만 다음 명령을 보낸다. 부분 전송·예산 초과·프레이밍 실패는
+terminal이며 자동 재동기화하지 않는다. 파일 본문에서 prompt/ANSI를 해석하지 않는다.
+
+파일은 새 `flipper/` 출력에만 쓰고 덮어쓰지 않는다. wire 검증 뒤 한 번 정한5초 최종
+예산에서 같은 FD·부모·이름·SHA를 checked artifact 등록까지 대조한다. 전송 결과의
+snapshot_atomic/device_file_origin_verified는 false이며 NFC inventory·펌웨어 device-read·
+포렌식 EV 출처로 승격하지 않는다. 등록 후 늦은 취소·감사 실패에도 receipt를 보존한다.
+RAW 파일이면 반환 artifact ID를 `sdr_analyze`로 넘긴다. [전송 계약](references/flipper-read-transport.md).
 
 ## 7. REA 연동
 

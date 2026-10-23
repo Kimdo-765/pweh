@@ -1,6 +1,6 @@
 # 설계안: 게임 콘솔 분석 + Flipper Zero·RF(주파수) 분석
 
-> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치, §3.3의 등록 RAW 파일 분석, §3.4의 공급 숫자 관찰 요약은 구현됐다. NFC·실제 화면/플레이·RF 장비 연결은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
+> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치, §3.3의 등록 RAW 파일 분석, §3.4의 공급 숫자 관찰 요약과 §3.1의 Flipper 고정 파일 읽기는 구현됐다. NFC·실제 화면/플레이·RF 수신은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
 > 여러 서버가 함께 쓰는 기반(포트 라우팅, 증명, 출처 기록, 비밀 마스킹, 안전 설정 위치)은 [common-core.md](common-core.md), 환경 감지·포트 라우팅의 상세는 [port-routing.md](port-routing.md) 에 있다.
 > 1차 초안을 네 관점(안전·법, 기술 실현성, PWEH 구조 적합성, 요구사항 충족)으로 적대적 검토한 결과(지적 59건, 반박 0건)를 반영했다.
 > 근거: 공식 Flipper 펌웨어 **1.5.1** 소스, ChameleonUltra v2.2.0 소스, esptool·ESP-IDF NVS 형식, rtl-sdr-blog v1.4.0·rtl_433 25.12,
@@ -50,7 +50,7 @@ NFC·플레이 열의 “가능”은 후속 설계의 기대치다. 현재 세�
 ## 2. 구조
 
 ```
-pweh-flipper (신규)  Flipper Zero 한 대의 모든 앱. 1b 는 CLI 만, RPC 는 2a(.shd 캡처)부터
+pweh-flipper (구현)  고정1.5.1 CLI 연결·정보·허용 폴더 파일 읽기. NFC/RF/앱/RPC는 후속
 pweh-nfc     (신규)  ChameleonUltra(모델이 Ultra 일 때) + 오프라인 NFC 분석(.nfc/.shd 해석·비교·프레임 해석)
 pweh-sdr     (구현)  등록 RAW 파일 오프라인 분석. RTL-SDR 수신(1b)·HackRF 수신은 후속
 pweh-play    (구현)  공급 숫자 관찰 요약. 입력 브리지·화면 인식·플레이 job은 후속(2b·2c)
@@ -61,7 +61,7 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 
 `pweh-sdr`는 `sdr_analyze` 한 도구를 제공하며 등록 RAW 파일의 검사·저장·RF 요약을 연결한다.
 `pweh-play`는 `vision_validate` 한 도구로 공급 숫자의 계산·저장·numeric-analysis 요약을 연결한다.
-나머지 신규 서버는 후속 설계다. 선행 구현한 순수 코어는 `pweh.rf_formats`(RAW 통계), `pweh.nfc_formats`(NFC 구조·저장 페이지 비교),
+`pweh-flipper`는 연결·종료·정보·목록·파일 읽기와 공통 job3개를 제공한다. 실기 전송은 미검증이며 일반 전송 artifact를 실제 캡처·태그 출처로 승격하지 않는다. 나머지 신규 서버는 후속 설계다. 선행 구현한 순수 코어는 `pweh.rf_formats`(RAW 통계), `pweh.nfc_formats`(NFC 구조·저장 페이지 비교),
 `pweh.vision_sequence`(숫자 관찰값 합의)이며, 코어 자체는 외부 I/O를 하지 않는다. NFC 코어의 공개 MCP 입구는 아직 없다.
 파일 선언·저장값·공급 표본을 다루므로 실제 수신·태그 소유/허가·완전한 물리 읽기·화면/게임 상태를 확인하지 않는다.
 계약은 [RAW 코어](../references/flipper-raw-profile.md)·[RAW 공개 입구](../references/rf-raw-analysis.md)·[NFC](../references/nfc-file-profile.md)·[숫자 모델](../references/numeric-observations.md)·[숫자 공개 입구](../references/numeric-validation.md)를 따른다.
@@ -73,11 +73,13 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 
 ### 3.1 pweh-flipper
 
-- **지원 펌웨어**: 공식 1.5.1 에서 확인한 동작만 보장한다(1.4.2~1.5.0 은 경고와 함께 읽기 전용, 포크는 "신뢰 안 함"으로 읽기만).
+**현재 구현**은 `flipper-cli-1.5.1-read-v1`의 connect/close/device_info/storage_list/storage_pull와 job 조회·취소뿐이다. [전송 계약](../references/flipper-read-transport.md)의 수동 배너·whole lease·DTR MODIFY gate·고정명령·최종 FD 검사를 따른다. 허용 루트는 사용자가 준비한 `/ext/pweh/<case_id>/`이고 파일은 최대1MiB다. GPIO·라디오·NFC·RPC·임의 앱 실행은 아래 후속 설계이며 현재 도구가 아니다.
+
+- **지원 펌웨어**: 공식1.5.1의 고정 소스 문법만 받는다. 배너와 info는 호환성 관찰이며 정품·서명 검증이 아니고 실기 동작은 미검증이다. 다른 버전·포크를 경고만으로 허용하는 경로는 아직 없다.
 - **연결 확인**: 포트는 Windows PnP 의 부모 장치(`USB\VID_0483&PID_5740\flip_*`)와 자식 인터페이스(`&MI_00`=CLI, `&MI_02`=브리지)로 식별한다(VID/PID 만으로는 안 된다 — 0483:5740 은 ST 범용).
   연결 직후에는 **아무것도 보내지 않고** CLI 배너(`Welcome to Flipper Zero Command Line Interface!`)와 `>: ` 프롬프트를 수동으로 확인한 뒤에야 쓴다
   (UART 브리지가 USB 채널 0 이면 같은 포트가 대상 기기 콘솔이 되므로, Ctrl-C 나 CR 이 대상 U-Boot 에 들어가지 않게).
-  CLI 명령 전에는 `loader info` 로 열린 앱이 없는지 확인한다(라디오 CLI 는 SD 플러그인이고 loader 잠금을 쓴다). ANSI 코드는 걸러 낸다.
+  현재 고정 읽기 명령 전에는 `loader info`의 idle 응답을 확인한다. 이는 다음 명령 동안 앱 시작을 막는 원자적 잠금이 아니다. 배너의 제한된 ANSI SGR만 처리하며 일반 응답·binary를 ANSI 제거로 보정하지 않는다.
 - **NFC 읽기 순서**(1.5.1 `scanner` 는 프로토콜 이름만 찍고 UID/SAK 는 주지 않는다):
   ① `/ext/pweh/<case>/` 를 만들고 `dump -p 14_3a -f …/probe-<n>.nfc`(anticollision·SELECT 만 — 페이지 READ 없음, NTAG 카운터 증가 없음) → 파일을 가져와 UID/ATQA/SAK 해석
   → ② SAK 로 계열 판정(§6.2) → 14443-A 가 응답하지 않을 때만 `scanner`(B/V/F 계열 판정) → ③ 허용·증명 계열만 `dump -p mfu`(또는 증명 후 `-p mfc`)로 전체 읽기.
@@ -282,7 +284,8 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 | 0 | 공통 기반(common-core): 환경 감지·포트 라우팅(port-routing.md P0–P1), wininterop, portlock, 증명·출처 원장·비밀 마스킹, safety 설정 위치, 테스트 파서 정리 | 없음 | 단위 테스트, 가짜 PnP·가짜 헬퍼 |
 | **1a** | ESP32 세이브·해금 오프라인 트랙: fwtriage ESP·세이브 도구, 게임 패턴 팩, REA 지원 ELF 확인·Xtensa 한계 기록, `game-save-unlock-analysis` | 새 전송 없음(기존 esp_read_flash_start) | 합성 NVS·파티션·체크섬 이미지 |
 | **1b 오프라인 RAW** | **구현**: 등록 파일 → 명시 strict profile의 `sdr_analyze` → 분석 JSON·아티팩트 → `flipper-rf-analysis`/`rf-analysis` → 보고서. 실제 RF 수신·decoder 경로는 포함하지 않는다. | 소유·허가 케이스의 등록 RAW 파일, 장비 불필요 | 합성 `.sub`, 실제 MCP 입구·FD/해시·취소/등록 수명·요약 |
-| **1b 장비 연결** | **Flipper/CU 실기 관문(미완료)**: DTR → `>: `, `info device`, 1 MB storage md5 왕복, CU GET_APP_VERSION. P2 공통 Windows COM helper와 UART/JTAGulator 연결은 이미 구현됐다. 이 관문 실패 시 원인을 확인하며 PowerShell relay 자동 대체는 제공하지 않는다.<br>후속: pweh-flipper(CLI 만), pweh-nfc(오프라인 + CU 읽기는 Ultra 보유 시), pweh-sdr(RTL-SDR), NFC 읽기·비교 흐름, `nfc-behavior-analysis` | 사용자 Flipper/CU 연결 | 가짜 Flipper CLI(배너·loader·브리지 모드 포함), 가짜 CU, 가짜 `rtl_*`, 합성 `.nfc` |
+| **1b 고정 CLI 파일 읽기** | **소프트웨어 구현**: pweh-flipper의 수동 배너·정보·허용 루트 목록·1MiB 파일 읽기/MD5·같은 FD 등록·물리 close/lease 확인. P2 공통 serialtransport를 소비한다. 실제 DTR·USB 매핑·전송은 미검증이다. | 소유/허가 케이스·명시 포트·고정1.5.1·준비한 허용 폴더 | 가짜 CLI 임의 분할·binary·loader·취소·종료·artifact→RAW 연결 |
+| **1b 후속 연결** | pweh-nfc·CU 읽기, pweh-sdr 수신, NFC inventory·읽기/비교 흐름은 후속이다. 실기 DTR·1MiB md5와 CU GET_APP_VERSION의 확인은 소프트웨어 시험과 별개다. | 사용자 Flipper/CU/수신기와 실제 사실 | 가짜 CU, 가짜 rtl 도구, 합성 NFC |
 | 2a | NFC 에뮬레이션 캡처: Flipper RPC(.shd), CU 스니프(단일 창), 필수 정리 | 1b | 가짜 Flipper RPC 상태 기계, 가짜 CU 창 초기화 |
 | 2b | 자동화 MVP: 화면 OBSERVE 도구, 보드 하나의 브리지 펌웨어(빌드·배포·플래시 절차 — ESP32 계측기 1c 의 `firmware/common`·빌드·고정 흐름 재사용), 세션 예산 안 즉석 입력 | 1b + §10 보드 결정 | 브리지 시뮬레이터(하트비트·한도·디스크립터 해시), 합성 프레임 |
 | 2c | 선언형 플레이 job(최대 2시간, play_policy) + `game-play-automation` | 2b | 합성 프레임 시퀀스, 시뮬레이터 |
@@ -302,16 +305,17 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 
 ## 부록 A. 도구 목록
 
-위험도: OBSERVE < INTERACT(계측기 상태만) < MODIFY(휘발성 변화·계측기의 서버 소유 영역 지속 변화, 기본 허용) < DESTRUCTIVE(기본 거부, 사람 승인). 연결 도구는 INTERACT, 정리 도구(`*_close`, `*_disconnect`, `nfc_emulation_stop`)는 게이트·승인 확인 없음(uart_close 원칙).
+위험도: OBSERVE < INTERACT(계측기 상태만) < MODIFY(휘발성 변화·계측기의 서버 소유 영역 지속 변화, 기본 허용) < DESTRUCTIVE(기본 거부, 사람 승인). 연결 도구는 신호·실제 영향에 따라 분류한다(현재 Flipper DTR open은 MODIFY). 정리 도구(`*_close`, `*_disconnect`, `nfc_emulation_stop`)는 게이트·승인 확인 없음(uart_close 원칙).
 
-**pweh-flipper** (1b: CLI 만)
+**pweh-flipper** (현재 고정 CLI 파일 읽기, 나머지는 후속)
 
 | 도구 | 위험 | 비고 |
 |---|---|---|
 | `flipper_version()`, `flipper_list_ports()` | OBSERVE | 부모 장치·MI 자식 해석, 포트를 열지 않음 |
-| `flipper_connect(case_id, port)` / `flipper_close(case_id)` | INTERACT / 정리 | 수동 배너·프롬프트 확인 뒤에만 쓰기, MI_02·브리지 역할 포트 거부 |
-| `flipper_device_info(case_id)`, `flipper_region_policy(case_id)` | OBSERVE | 지역·포크·플러그인 |
-| `flipper_storage_list(case_id, path)`, `flipper_storage_pull_start(case_id, flipper_path, dest_name)` | OBSERVE(·job) | 기본 루트 `/ext/pweh/<case>`·SPI Mem, 그 밖은 증명+계열 판정 |
+| `flipper_connect(case_id, port, approval_id=None)` / `flipper_close(case_id)` | MODIFY / 정리 | 구현. DTR=true open 게이트, 수동 배너·버전·프롬프트 전 명령0, whole lease·역할 검사·물리 close 확인 |
+| `flipper_device_info(case_id)` | OBSERVE | 구현. loader idle 뒤 고정 정보 projection, firmware 주장은 호환성 관찰 |
+| `flipper_region_policy(case_id)` | OBSERVE | 후속 지역·포크·플러그인 |
+| `flipper_storage_list(case_id, path)`, `flipper_storage_pull_start(case_id, flipper_path, dest_name=None)` | OBSERVE(·job) | 구현. 정확 `/ext/pweh/<case_id>/`만, 최대1MiB·sameFD/MD5/SHA. 다른 사용자 폴더·SPI Mem 경로는 아직 없음 |
 | `flipper_subghz_rx_raw_start(case_id, frequency_hz, duration_s, name, target)` / `flipper_subghz_rx_decode_start(...)` | OBSERVE · job | OOK 만, 내용 대역·대상 등록 |
 | `flipper_subghz_rssi_probe_start(case_id, frequencies_hz, dwell_s)` / `flipper_freq_analyzer_log_start(case_id, duration_s)` | MODIFY(sysctl) / OBSERVE · job | §3.1 주파수 찾기 |
 | `flipper_ir_rx_start(case_id, duration_s, raw=False)` | OBSERVE · job | |
@@ -324,7 +328,7 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 | `flipper_storage_push(case_id, artifact, name)` (2a) | MODIFY | `.nfc` 만, 출처 원장 |
 | `flipper_nfc_emulate_capture_start(case_id, artifact, duration_s)` (2a) | MODIFY(게이트 호출 안에서 시작), job 은 대기·읽기·정지 | RPC 허용 목록 |
 | `flipper_screenshot(case_id)` (2a) | OBSERVE | |
-| `flipper_job_status/cancel/jobs` | — | 취소 = Ctrl-C 후 프롬프트 확인 |
+| `flipper_job_status/cancel/jobs` | — | 구현. 취소 뒤 terminal·새 명령0, 고정 읽기 경로는 Ctrl-C를 보내지 않음 |
 
 **pweh-nfc**
 

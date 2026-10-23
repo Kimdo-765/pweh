@@ -808,3 +808,24 @@ worker의 케이스 확인부터 최종 등록까지 같은5초 협력적 예산
 새0444 파일에 저장한다. 같은 FD·부모·이름·SHA·취소를 등록 직전에 검사하고 게시 전 실패는
 자신의 inode만 정리한다. 원자 등록이 끝났으면 뒤늦은 취소·감사 실패에도 결과를 보존한다.
 파일·장치·포트·영상·OCR 입력이나 입력 명령을 받지 않는다.
+
+### Flipper 고정 읽기 전송
+
+`pweh-flipper`는 소유/허가 케이스의 명시 포트와 공식1.5.1 CLI 문법만 받는다. USB 부모·
+첫 CDC interface·whole-device lease·target/bridge 역할·instrument 보호를 확인하고,
+DTR=true open은 기존 MODIFY 게이트를 거친다. 승인 요청은 사람이 별도 터미널에서 처리한다.
+새 배너·버전·prompt 전 명령0, 각 명령 직전 fresh 신원과 loader idle을 확인한다.
+
+사용자가 준비한 `/ext/pweh/<case_id>/` 안 목록과 최대1MiB 파일만 읽으며 원격 폴더를
+만들거나 파일을 바꾸지 않는다. 명령은 고정 info/list/read/md5뿐이다. binary 본문은
+문자열로 해석하지 않고 정확 크기·종결·MD5·최종 host SHA를 확인한다. 이 일치는 원격
+원자 스냅샷, RF 캡처나 태그 소유·원본 생성 출처를 증명하지 않는다.
+
+오류·취소·시간 초과 뒤 세션은 terminal이다. 자동 ETX/CR·재동기화·재접속을 하지 않는다.
+worker 사용권0·transport physical close·lease 해제가 확인될 때까지 owner를 보존하며,
+close는 허가 철회 뒤에도 재시도할 수 있다. 호스트 포트 close와 장치 명령 종료는 다르다.
+실제 DTR·USB 채널 매핑·장치 작업 상태는 합성 시험으로 확인하지 않았다.
+
+host 출력은 새0444 파일·동일 FD·부모/이름/SHA를 원자 등록까지 검증한다. 등록 전에는
+자신의 inode만 정리하고 등록 후 취소·감사 오류에는 게시 결과를 보존한다. 일반 전송
+artifact를 MCU device-read, NFC inventory, forensics 증거로 다시 표시하지 않는다.

@@ -73,6 +73,7 @@ SERVERS = {
     "pweh-espprobe": ("pweh-espprobe-mcp", "ESP 계측기 오프라인 HELLO·HB 시뮬레이터 (실제 포트 미지원)"),
     "pweh-sdr": ("pweh-sdr-mcp", "등록된 Flipper RAW 파일의 오프라인 구조·통계 분석"),
     "pweh-play": ("pweh-play-mcp", "공급된 숫자 관측값의 오프라인 합의 검증·보고서 저장"),
+    "pweh-flipper": ("pweh-flipper-mcp", "고정 Flipper CLI 연결·정보·허용 폴더의 파일 읽기"),
 }
 REA_ENV_KEYS = (
     "GHIDRA_INSTALL_DIR", "JAVA_HOME", "REA_SIGROK_COMMAND", "REA_BINWALK_COMMAND", "REA_UNBLOB_COMMAND",

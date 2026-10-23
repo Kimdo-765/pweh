@@ -1,6 +1,6 @@
 # MCP 설정 가이드 (Claude Code · Codex · Cursor)
 
-PWEH 는 MCP 서버 13개를 쓴다. 12개는 이 저장소에 있고, 1개는 외부 REA 다.
+PWEH 는 MCP 서버 14개를 쓴다. 13개는 이 저장소에 있고, 1개는 외부 REA 다.
 
 | 서버 이름 | 실행 파일 | 역할 |
 |---|---|---|
@@ -16,6 +16,7 @@ PWEH 는 MCP 서버 13개를 쓴다. 12개는 이 저장소에 있고, 1개는 �
 | `pweh-espprobe` | `.venv/bin/pweh-espprobe-mcp` | 내부 HELLO·HB 시뮬레이터. 실제 포트·핀 미지원 (선택) |
 | `pweh-sdr` | `.venv/bin/pweh-sdr-mcp` | 등록된 Flipper RAW 파일의 오프라인 구조·통계 분석과 보고서 저장 (선택) |
 | `pweh-play` | `.venv/bin/pweh-play-mcp` | 공급 숫자 관측값의 오프라인 합의 검증과 보고서 저장 (선택) |
+| `pweh-flipper` | `.venv/bin/pweh-flipper-mcp` | 고정 CLI 연결·정보 조회·허용 폴더 파일 읽기 (선택, 실제 기기 전송 미검증) |
 | `rea` | `rea --mcp` (rea-agents 6.5.x) | binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩 |
 
 도구 목록과 인자는 [architecture.md](architecture.md) §6 과 각 서버의 `mcp-servers/<name>/README.md` 에 있다.
@@ -98,7 +99,7 @@ REA 는 Codex 에서도 런처로 실행돼 env.sh 를 실행할 때 불러온�
 
 | 단계 | 하는 일 | 쓰는 곳 |
 |---|---|---|
-| `mcp` | **Claude Code:** `.mcp.json` 과 `.claude/settings.json` 의 `enabledMcpjsonServers` 가 서버 13개와 맞는지 확인한다. 사용자 전역 설정(`~/.claude*`)은 건드리지 않는다. **Codex:** `pweh mcp-config --client codex --write`(프로젝트 범위, §3.2) 다음에 `pweh codex-trust`. **Cursor:** `--cursor` 를 줄 때만 `.cursor/mcp.json` 을 만든다(§4) | `<저장소>/.codex/config.toml`, 동의하면 Codex 홈마다 `config.toml` 의 trust 항목, `--cursor` 면 `.cursor/mcp.json` |
+| `mcp` | **Claude Code:** `.mcp.json` 과 `.claude/settings.json` 의 `enabledMcpjsonServers` 가 서버 14개와 맞는지 확인한다. 사용자 전역 설정(`~/.claude*`)은 건드리지 않는다. **Codex:** `pweh mcp-config --client codex --write`(프로젝트 범위, §3.2) 다음에 `pweh codex-trust`. **Cursor:** `--cursor` 를 줄 때만 `.cursor/mcp.json` 을 만든다(§4) | `<저장소>/.codex/config.toml`, 동의하면 Codex 홈마다 `config.toml` 의 trust 항목, `--cursor` 면 `.cursor/mcp.json` |
 | `skills` | `pweh skills install --target claude-project` 와 `pweh skills install --target agents`. 이미 맞는 링크는 그대로 둔다 | `.claude/skills/<name>`, `.agents/skills/<name>` 링크 (저장소에 이미 들어 있다) |
 | `verify` | `pweh doctor` 와 `pweh mcp-check`. 서버를 띄워 도구 목록만 받고 도구는 호출하지 않는다. 서버 시작 정리는 실행될 수 있다(§3.6). REA(선택 구성요소)가 설치되지 않았으면 `rea` 서버만 선택 서버로 넘겨(`--optional rea`) 그 실패는 경고로 본다. 다른 서버의 실패는 실패다 | 설정 파일은 바꾸지 않는다. `pweh doctor`가 `cases/`·`.pweh/state`를 만들 수 있고, 서버는 시작 시 고아 세션·중단된 접수 기록을 정리할 수 있다. 어느 디렉터리에서 실행해도 저장소 설정 `PWEH_CONFIG`를 따른다 |
 
@@ -132,8 +133,8 @@ REA 는 Codex 에서도 런처로 실행돼 env.sh 를 실행할 때 불러온�
 ## 2. Claude Code
 
 ### 2.1 서버 등록
-저장소 루트의 `.mcp.json` 이 프로젝트 범위로 13개 서버(`pweh-case`, `pweh-uart`, `pweh-openocd`, `pweh-sigrok`, `pweh-jtagulator`, `pweh-fwtriage`, `pweh-esp`, `pweh-forensics`, `pweh-emu`, `pweh-espprobe`, `pweh-sdr`, `pweh-play`, `rea`)를 등록한다.
-`.claude/settings.json` 의 `enabledMcpjsonServers` 도 같은 13개다. 다시 만들려면 다음을 실행한다.
+저장소 루트의 `.mcp.json` 이 프로젝트 범위로 14개 서버(`pweh-case`, `pweh-uart`, `pweh-openocd`, `pweh-sigrok`, `pweh-jtagulator`, `pweh-fwtriage`, `pweh-esp`, `pweh-forensics`, `pweh-emu`, `pweh-espprobe`, `pweh-sdr`, `pweh-play`, `pweh-flipper`, `rea`)를 등록한다.
+`.claude/settings.json` 의 `enabledMcpjsonServers` 도 같은 14개다. 다시 만들려면 다음을 실행한다.
 ```bash
 .venv/bin/pweh mcp-config --client claude --write --force
 ```
@@ -314,8 +315,8 @@ WIN_CODEX_HOME="/mnt/c/Users/<Windows 사용자>/.codex"    # 예: 데스크톱 
 | 위치 | 값 | 이유 |
 |---|---|---|
 | 최상위 (첫 표보다 앞) | `mcp_optional_startup_grace_ms = 15000` | Codex 는 첫 도구 목록을 만들 때 선택(optional) 서버를 이 시간까지만 기다린다(기본 1000 ms). REA 는 시작에 약 1.5초가 걸려 기본값이면 첫 턴에서 빠진다(PWEH 서버는 한 번 실행한 뒤 약 0.5~0.75초). 서버가 다 뜨면 그 전에 진행한다. 첫 표보다 앞에 있어야 최상위 키다 |
-| `[features.code_mode]` | `direct_only_tool_namespaces`. 기본은 PWEH 서버 12개 전부(`mcp__pweh_case`, `mcp__pweh_uart`, …, `mcp__pweh_emu`, `mcp__pweh_espprobe`, `mcp__pweh_sdr`, `mcp__pweh_play`) | Codex 0.162.0 의 현재 모델은 Code Mode + tool search 로 돈다. MCP 도구는 지연 로딩되어 모델의 도구 목록에 나오지 않고, 모델이 `ALL_TOOLS` 나 tool search 로 찾아야 한다. 여기 적은 네임스페이스는 바로 보인다(Codex 는 서버 이름의 `-` 를 `_` 로 바꾼다). 대신 12개 전부를 노출하면 요청마다 도구 정의만큼 문맥·토큰 사용량이 늘어난다(크기는 서버 버전과 도구 설명에 따라 달라진다). `--direct case` 는 `mcp__pweh_case` 만 넣고, `--direct none` 은 이 표를 넣지 않는다 |
-| `[mcp_servers.pweh-*]` (12개) | 절대 경로 `command`(지금 실행한 pweh 가 설치된 가상환경의 콘솔 스크립트), `args = []`, `cwd`(저장소), `env`(`PWEH_CONFIG` + env.sh 의 `PWEH_*` 도구 경로 — `PATH` 는 넣지 않는다), `env_vars = ["WSL_DISTRO_NAME"]`, `startup_timeout_sec = 60`, `tool_timeout_sec = 600` | Codex 는 서버에 화이트리스트 환경변수(`HOME`, `LOGNAME`, `PATH`, `SHELL`, `USER`, `LANG`, `LC_ALL`, `TERM`, `TMPDIR`, `TZ` 등)와 `env`·`env_vars` 만 넘긴다. 그래서 env.sh 의 도구 경로를 `env` 에 넣는다. `WSL_DISTRO_NAME` 은 표시용(`pweh env` 의 배포판 이름)이라 없어도 된다. `WSL_INTEROP` 은 넘기지 않아도 interop(esptool.exe 등)이 동작한다. 기본 타임아웃은 문서(시작 10초·도구 60초)와 소스(30초·300초)가 달라 명시한다 |
+| `[features.code_mode]` | `direct_only_tool_namespaces`. 기본은 PWEH 서버 13개 전부(`mcp__pweh_case`, `mcp__pweh_uart`, …, `mcp__pweh_emu`, `mcp__pweh_espprobe`, `mcp__pweh_sdr`, `mcp__pweh_play`, `mcp__pweh_flipper`) | Codex 0.162.0 의 현재 모델은 Code Mode + tool search 로 돈다. MCP 도구는 지연 로딩되어 모델의 도구 목록에 나오지 않고, 모델이 `ALL_TOOLS` 나 tool search 로 찾아야 한다. 여기 적은 네임스페이스는 바로 보인다(Codex 는 서버 이름의 `-` 를 `_` 로 바꾼다). 대신 13개 전부를 노출하면 요청마다 도구 정의만큼 문맥·토큰 사용량이 늘어난다(크기는 서버 버전과 도구 설명에 따라 달라진다). `--direct case` 는 `mcp__pweh_case` 만 넣고, `--direct none` 은 이 표를 넣지 않는다 |
+| `[mcp_servers.pweh-*]` (13개) | 절대 경로 `command`(지금 실행한 pweh 가 설치된 가상환경의 콘솔 스크립트), `args = []`, `cwd`(저장소), `env`(`PWEH_CONFIG` + env.sh 의 `PWEH_*` 도구 경로 — `PATH` 는 넣지 않는다), `env_vars = ["WSL_DISTRO_NAME"]`, `startup_timeout_sec = 60`, `tool_timeout_sec = 600` | Codex 는 서버에 화이트리스트 환경변수(`HOME`, `LOGNAME`, `PATH`, `SHELL`, `USER`, `LANG`, `LC_ALL`, `TERM`, `TMPDIR`, `TZ` 등)와 `env`·`env_vars` 만 넘긴다. 그래서 env.sh 의 도구 경로를 `env` 에 넣는다. `WSL_DISTRO_NAME` 은 표시용(`pweh env` 의 배포판 이름)이라 없어도 된다. `WSL_INTEROP` 은 넘기지 않아도 interop(esptool.exe 등)이 동작한다. 기본 타임아웃은 문서(시작 10초·도구 60초)와 소스(30초·300초)가 달라 명시한다 |
 | `[mcp_servers.rea]` (`--no-rea` 면 없음) | `command` = `<저장소>/scripts/mcp-launch.sh`, `args = ["rea"]`, `env`(Ghidra·JDK·추출 도구 경로, 불러올 env.sh `PWEH_TOOLS_ENV`), `enabled_tools`, `tool_timeout_sec = 900` | REA 는 env.sh 가 `PATH` 에 넣는 node·JDK·압축 해제 도구가 있어야 돈다. 런처가 실행할 때 env.sh 를 불러오므로 설정 파일에 셸의 `PATH`(WSL 이면 Windows 사용자 이름이 든 Windows PATH)를 적지 않는다. REA 6.5 는 도구 207개(tools/list 약 3 MB)를 내보낸다. `enabled_tools` 에는 `.claude/settings.json` 의 `mcp__rea__*` 규칙(allow·ask)에 있는 도구만 넣는다. 거기 없는 REA 도구는 Codex 에서 보이지 않는다 |
 
 - Codex 는 `.claude/settings.json` 의 권한 규칙(§2.3)을 쓰지 않는다. pweh 가 REA 의 `enabled_tools` 를 만들 때 읽을 뿐이다.

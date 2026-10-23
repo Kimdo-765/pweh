@@ -1,6 +1,6 @@
 ---
 name: flipper-rf-analysis
-description: 소유·허가된 PWEH 케이스에 등록한 Flipper Sub-GHz RAW 파일을 오프라인 검사한다. sdr_analyze의 명시 strict RAW profile로 파일 선언·펄스 집계·검사 범위를 확인하고 rf-analysis 요약을 남긴다. RAW 파일 분석, Flipper RAW 통계, 펄스 집계에 사용한다. 실제 Flipper·수신기 연결, RF 캡처·해독·재생은 이 Skill의 현재 범위가 아니다.
+description: 소유·허가된 PWEH 케이스에 등록한 Flipper Sub-GHz RAW 파일을 오프라인 검사한다. sdr_analyze의 명시 strict RAW profile로 파일 선언·펄스 집계·검사 범위를 확인하고 rf-analysis 요약을 남긴다. RAW 파일 분석, Flipper RAW 통계, 펄스 집계에 사용한다. 선택한 Flipper의 고정 CLI로 허용 폴더 파일을 읽어 등록할 수도 있다. RF 캡처·해독·재생은 하지 않는다.
 ---
 
 # RAW 파일 오프라인 분석
@@ -13,6 +13,28 @@ description: 소유·허가된 PWEH 케이스에 등록한 Flipper Sub-GHz RAW �
 2. 사용자가 지정한 일반 RAW 파일이 아직 케이스에 없으면 `case_import_file(kind="other")`로 가져오고 반환의 `artifact.id`를 사용한다. `forensics/`·`emu/` 파일을 다른 폴더에 복사해 이 입구로 우회하지 않는다.
 3. `sdr_analyze(case_id, artifact_id, profile="flipper-subghz-raw-v1-strict")`를 호출한다. 입력은 등록된 일반 파일 하나, 최대 1 MiB다. 장비 연결이나 별도 RF 도구 설치는 필요 없다.
 4. `report.inspection`의 `coverage`, `stop`, `limitations`와 `report.status`를 확인한다. 기본·최대 작업 예산은 5초이며 저장에는 별도의 한 번 고정한 5초 예산을 쓴다. 커널 I/O를 강제 중단하는 시간 보장은 아니다.
+
+## Flipper에서 파일을 가져오는 경우
+
+이미 등록된 로컬 파일이면 이 절을 생략한다. 고정 공식1.5.1 CLI만 지원하며 실제 기기의
+USB 매핑·DTR·파일 전송은 아직 미검증이다. [전송 계약](../../docs/references/flipper-read-transport.md)을 따른다.
+
+1. 기존 케이스 허가 범위와 사용자가 지정한 Flipper 포트를 확인한다. 실제 연결 전에는
+   `pipeline_environment`와 알려진 포트 목록으로 경로를 확인하며 포트를 추측해 열지 않는다.
+2. `flipper_connect(case_id, port)`를 호출한다. DTR=true open은 MODIFY다. `approval_required`면
+   사람이 별도 터미널에서 `pweh approve <id>`를 실행한 뒤 같은 인자와 approval_id로 재시도한다.
+   에이전트는 승인 명령을 실행하지 않는다. denied는 우회하지 않는다.
+3. 필요하면 `flipper_device_info`와 `flipper_storage_list(case_id, path)`로 확인한다. 루트는
+   사용자가 준비한 `/ext/pweh/<case_id>/`뿐이며 이 도구로 폴더를 만들지 않는다.
+4. `flipper_storage_pull_start(case_id, flipper_path)` 후 `flipper_job_status`로 완료를 확인한다.
+   성공의 result.artifact.id를 RAW 분석의 artifact_id로 쓴다. 크기·MD5·SHA 일치는 전송 검사이고
+   캡처 출처·태그 소유·원격 원자 스냅샷의 증명이 아니다. 실패한 전송에 입력 ID를 꾸미지 않는다.
+5. 연결을 시작했다면 성공·실패·취소 뒤 항상 `flipper_close`로 정리한다. worker 종료·물리 close·
+   lease 해제를 확인하고 cleanup_pending은 같은 close로 재시도한다. 취소는 `flipper_job_cancel`을
+   사용하며 임의 Ctrl-C·CR·exit·재연결로 terminal 상태를 우회하지 않는다. 장치 작업 종료는 미확인이다.
+
+전송 artifact와 job 기록을 남기며 별도 Skill 요약을 만들지 않는다. RAW 검사까지 진행했을 때만
+아래 rf-analysis 요약을 기록하고 여섯 false flag를 그대로 유지한다.
 
 ## 결과 해석
 

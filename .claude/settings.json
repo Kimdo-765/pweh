@@ -102,7 +102,11 @@
       "mcp__pweh-espprobe__espprobe_release_all",
       "mcp__pweh-espprobe__espprobe_disconnect",
       "mcp__pweh-sdr__sdr_analyze",
-      "mcp__pweh-play__vision_validate"
+      "mcp__pweh-play__vision_validate",
+      "mcp__pweh-flipper__flipper_device_info",
+      "mcp__pweh-flipper__flipper_storage_list",
+      "mcp__pweh-flipper__flipper_job_status",
+      "mcp__pweh-flipper__flipper_jobs"
     ],
     "ask": [
       "mcp__pweh-uart__uart_write",
@@ -175,6 +179,7 @@
     "rea",
     "pweh-espprobe",
     "pweh-sdr",
-    "pweh-play"
+    "pweh-play",
+    "pweh-flipper"
   ]
 }
