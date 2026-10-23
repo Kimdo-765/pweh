@@ -311,7 +311,7 @@ async def test_omitted_range_keeps_old_candidate_and_inventory_contracts(mcase, 
         assert job["status"] == "succeeded", job
         inventory = await call(client, "forensics_media_inventory", case_id=mcase.id, evidence_id=ev)
         assert inventory.get("ok"), inventory
-        assert inventory["report"]["profile"] == "mp4-quicktime-declarations-v1"
+        assert inventory["report"]["profile"] == "mp4-quicktime-protection-declarations-v1"
         assert len(inventory["report"]["source"]) == 16 and len(inventory["report"]["params"]) == 3
         tools = {tool.name: tool for tool in (await client.list_tools()).tools}
         assert {"offset", "length"} <= set(tools["forensics_media_candidates"].input_schema["properties"])
