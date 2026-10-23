@@ -1,0 +1,855 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/cluster-report.schema.json",
+  "title": "FAT/exFAT 현재 live 참조 일관성",
+  "description": "명시 파티션의 관찰한 할당과 살아 있는 항목 참조를 비교한다. 파일 소속·과거 할당·고아 파일·녹화 완전성은 확인하지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "pweh.cluster-report/v1"
+    },
+    "profile": {
+      "const": "fat-exfat-live-reference-v1"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "partial"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "evidence"
+        },
+        "evidence_id": {
+          "type": "string",
+          "pattern": "^EV-[0-9]{4,6}$",
+          "maxLength": 9,
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "evidence_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "maxLength": 64,
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "evidence_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        }
+      },
+      "required": [
+        "kind",
+        "evidence_id",
+        "evidence_sha256",
+        "evidence_size"
+      ]
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "partition": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "max_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 45
+        }
+      },
+      "required": [
+        "partition",
+        "max_seconds"
+      ]
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fs_type": {
+          "enum": [
+            "fat12",
+            "fat16",
+            "fat32",
+            "exfat"
+          ]
+        },
+        "partition_offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "partition_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "data_offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "cluster_size": {
+          "enum": [
+            512,
+            1024,
+            2048,
+            4096,
+            8192,
+            16384,
+            32768,
+            65536,
+            131072,
+            262144,
+            524288,
+            1048576,
+            2097152,
+            4194304,
+            8388608,
+            16777216,
+            33554432
+          ]
+        },
+        "cluster_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        }
+      },
+      "required": [
+        "fs_type",
+        "partition_offset",
+        "partition_size",
+        "data_offset",
+        "cluster_size",
+        "cluster_count"
+      ]
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allocation_examined": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "allocated": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "free": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "bad": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "invalid_values": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observed_referenced_clusters": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "overlap_reference_events": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "unallocated_reference_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "unallocated_reference_basis": {
+          "enum": [
+            "fat-chain-heads",
+            "exfat-clusters"
+          ]
+        },
+        "allocated_without_live_reference": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "allocation_examined",
+        "allocated",
+        "free",
+        "bad",
+        "invalid_values",
+        "observed_referenced_clusters",
+        "overlap_reference_events",
+        "unallocated_reference_count",
+        "unallocated_reference_basis",
+        "allocated_without_live_reference"
+      ]
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/row"
+      },
+      "maxItems": 128
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reference_walk_complete": {
+          "type": "boolean"
+        },
+        "reference_map_complete": {
+          "type": "boolean"
+        },
+        "allocation_complete": {
+          "type": "boolean"
+        },
+        "rows_complete": {
+          "type": "boolean"
+        },
+        "entries_observed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16384
+        },
+        "allocation_clusters_examined": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "allocation_clusters_unexamined": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "rows_reported": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 128
+        },
+        "metadata_bytes_read": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 33554432
+        },
+        "steps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "time_limit",
+              "step_limit",
+              "metadata_bytes_limit",
+              "cluster_limit",
+              "max_entries",
+              "max_depth",
+              "max_dir_slots",
+              "max_total_slots",
+              "max_path_chars",
+              "beyond_image",
+              "dir_chain_broken",
+              "dir_unreadable",
+              "dir_unvalidated",
+              "reference_chain_incomplete",
+              "allocation_unreadable",
+              "metadata_inconsistent",
+              "rows_limit"
+            ]
+          },
+          "uniqueItems": true,
+          "maxItems": 17
+        }
+      },
+      "required": [
+        "reference_walk_complete",
+        "reference_map_complete",
+        "allocation_complete",
+        "rows_complete",
+        "entries_observed",
+        "allocation_clusters_examined",
+        "allocation_clusters_unexamined",
+        "rows_reported",
+        "metadata_bytes_read",
+        "steps",
+        "reasons"
+      ]
+    },
+    "limitations": {
+      "const": [
+        "current_live_reference_model_only",
+        "observed_metadata_only",
+        "incomplete_reference_map_not_orphan_evidence",
+        "allocation_state_not_historical_ownership",
+        "samples_are_bounded",
+        "no_automatic_extraction",
+        "no_media_decoding",
+        "no_playback_or_complete_recording_verification"
+      ]
+    },
+    "whole_evidence_examined": {
+      "const": false
+    },
+    "orphan_files_verified": {
+      "const": false
+    },
+    "historical_allocation_verified": {
+      "const": false
+    },
+    "file_ownership_verified": {
+      "const": false
+    },
+    "media_decoded": {
+      "const": false
+    },
+    "playback_verified": {
+      "const": false
+    },
+    "payload_semantics_examined": {
+      "const": false
+    }
+  },
+  "required": [
+    "schema",
+    "profile",
+    "status",
+    "source",
+    "params",
+    "geometry",
+    "counts",
+    "rows",
+    "coverage",
+    "limitations",
+    "whole_evidence_examined",
+    "orphan_files_verified",
+    "historical_allocation_verified",
+    "file_ownership_verified",
+    "media_decoded",
+    "playback_verified",
+    "payload_semantics_examined"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "ok"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "reference_walk_complete": {
+                "const": true
+              },
+              "reference_map_complete": {
+                "const": true
+              },
+              "allocation_complete": {
+                "const": true
+              },
+              "rows_complete": {
+                "const": true
+              },
+              "reasons": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "not": {
+          "properties": {
+            "coverage": {
+              "properties": {
+                "reference_walk_complete": {
+                  "const": true
+                },
+                "reference_map_complete": {
+                  "const": true
+                },
+                "allocation_complete": {
+                  "const": true
+                },
+                "rows_complete": {
+                  "const": true
+                },
+                "reasons": {
+                  "maxItems": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "geometry": {
+            "properties": {
+              "fs_type": {
+                "const": "exfat"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "counts": {
+            "properties": {
+              "bad": {
+                "type": "null"
+              },
+              "invalid_values": {
+                "type": "null"
+              },
+              "unallocated_reference_basis": {
+                "const": "exfat-clusters"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "counts": {
+            "properties": {
+              "bad": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "invalid_values": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "unallocated_reference_basis": {
+                "const": "fat-chain-heads"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "reference_map_complete": {
+                "const": true
+              },
+              "allocation_complete": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "counts": {
+            "properties": {
+              "allocated_without_live_reference": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "counts": {
+            "properties": {
+              "allocated_without_live_reference": {
+                "type": "null"
+              }
+            }
+          },
+          "rows": {
+            "items": {
+              "properties": {
+                "kind": {
+                  "not": {
+                    "const": "allocated-without-live-reference"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "reference_map_complete": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "reference_walk_complete": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "allocation_complete": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "allocation_clusters_unexamined": {
+                "const": 0
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "allocated-without-live-reference",
+            "unallocated-reference",
+            "overlap-reference",
+            "chain-anomaly"
+          ]
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?:root|c[0-9]+(?:\\+[0-9]+)?|n[0-9]+\\+[0-9]+)/[0-9]{1,9}$",
+              "maxLength": 96,
+              "not": {
+                "pattern": "[\\r\\n]"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cluster": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 9223372036854775807
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "clusters": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "length": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "chain_status": {
+          "anyOf": [
+            {
+              "enum": [
+                "ok",
+                "limit",
+                "zeroed",
+                "broken",
+                "unreadable",
+                "out-of-range",
+                "cycle",
+                "too_fragmented",
+                "empty"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "size_check": {
+          "anyOf": [
+            {
+              "enum": [
+                "ok",
+                "no_clusters",
+                "chain_shorter",
+                "chain_longer"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observed_clusters": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expected_clusters": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "ref",
+        "cluster",
+        "clusters",
+        "offset",
+        "length",
+        "chain_status",
+        "size_check",
+        "observed_clusters",
+        "expected_clusters"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "chain-anomaly"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "cluster": {
+                "type": "null"
+              },
+              "clusters": {
+                "type": "null"
+              },
+              "offset": {
+                "type": "null"
+              },
+              "length": {
+                "type": "null"
+              },
+              "chain_status": {
+                "enum": [
+                  "ok",
+                  "limit",
+                  "zeroed",
+                  "broken",
+                  "unreadable",
+                  "out-of-range",
+                  "cycle",
+                  "too_fragmented",
+                  "empty"
+                ]
+              },
+              "size_check": {
+                "enum": [
+                  "ok",
+                  "no_clusters",
+                  "chain_shorter",
+                  "chain_longer"
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "chain_status": {
+                "type": "null"
+              },
+              "size_check": {
+                "type": "null"
+              },
+              "observed_clusters": {
+                "type": "null"
+              },
+              "expected_clusters": {
+                "type": "null"
+              },
+              "cluster": {
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 9223372036854775807
+              },
+              "clusters": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9223372036854775807
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9223372036854775807
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "allocated-without-live-reference"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "ref": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "unallocated-reference",
+                  "overlap-reference"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "clusters": {
+                "const": 1
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

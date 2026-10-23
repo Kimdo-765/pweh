@@ -927,6 +927,80 @@
         }
       }
     },
+    "cluster_report_results": {
+      "type": "array",
+      "maxItems": 100,
+      "description": "명시 FAT/exFAT 파티션의 현재 live 참조와 할당 일관성 결과 참조. 불완전 참조 지도를 고아 파일 근거로 해석하지 않는다. 상세 검사 범위·사유는 결과 보고서와 notes에 보존한다.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_id",
+          "analysis_path",
+          "sha256",
+          "status",
+          "reference_map_complete",
+          "allocation_complete"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^EV-[0-9]{4,6}$",
+            "maxLength": 9,
+            "not": {
+              "pattern": "[\r\n]"
+            }
+          },
+          "analysis_path": {
+            "type": "string",
+            "pattern": "^forensics/analysis/cluster-report-EV-[0-9]{4,6}-[0-9]{3,9}\\.json$",
+            "maxLength": 100,
+            "not": {
+              "pattern": "[\r\n]"
+            }
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "partial"
+            ]
+          },
+          "reference_map_complete": {
+            "type": "boolean"
+          },
+          "allocation_complete": {
+            "type": "boolean"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "ok"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "reference_map_complete": {
+                  "const": true
+                },
+                "allocation_complete": {
+                  "const": true
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
     "allocation_window_results": {
       "type": "array",
       "maxItems": 100,

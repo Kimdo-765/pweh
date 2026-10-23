@@ -1823,6 +1823,7 @@ from .media_unit_tools import register_media_unit_tools
 from .media_unit_extract_tools import register_media_unit_extract_tools
 from .media_prefix_tools import register_media_prefix_tools
 from .allocation_tools import register_allocation_tools
+from .cluster_tools import register_cluster_tools
 
 register_android_tools(server, globals())
 register_secrets_tools(server, globals())
@@ -1838,6 +1839,7 @@ register_media_unit_tools(server, globals())
 register_media_unit_extract_tools(server, globals())
 register_media_prefix_tools(server, globals())
 register_allocation_tools(server, globals())
+register_cluster_tools(server, globals())
 
 
 if __name__ == "__main__":

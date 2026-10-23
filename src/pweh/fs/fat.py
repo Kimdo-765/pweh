@@ -65,6 +65,27 @@ from .tables import BitSet, Chain, FatTable, follow_chain
 
 __all__ = ["FatVolume", "parse_bpb", "probe_fat_boot_sector", "lfn_checksum"]
 
+_CLUSTER_REASONS = ("time_limit", "step_limit", "metadata_bytes_limit", "cluster_limit",
+                    "max_entries", "max_depth", "max_dir_slots", "max_total_slots", "max_path_chars",
+                    "beyond_image", "dir_chain_broken", "dir_unreadable", "dir_unvalidated",
+                    "reference_chain_incomplete", "allocation_unreadable", "metadata_inconsistent", "rows_limit")
+
+
+def _cluster_inspection() -> dict[str, Any]:
+    """legacy 진단과 분리한 실제 검사 범위. 아직 검사하지 않은 phase는 false다."""
+    return {"reference_walk_complete": False, "reference_map_complete": False,
+            "allocation_complete": False, "rows_complete": True, "entries_observed": 0,
+            "allocation_clusters_examined": 0, "allocation_free": 0,
+            "observed_referenced_clusters": 0, "reasons": []}
+
+
+def _cluster_reason(reason: str | None) -> str:
+    mapped = {"time": "time_limit", "steps": "step_limit", "metadata_bytes": "metadata_bytes_limit"}.get(reason, reason)
+    if mapped not in _CLUSTER_REASONS:
+        raise FsError("클러스터 검사의 중단 원인을 확인하지 못했습니다.", reason="budget_exceeded",
+                      data={"limit": reason})
+    return mapped
+
 ATTR_READ_ONLY = 0x01
 ATTR_HIDDEN = 0x02
 ATTR_SYSTEM = 0x04
@@ -408,6 +429,7 @@ class FatVolume(VolumeBase):
         self.eoc_min = _EOC_MIN[self.fat_type]
         self.active_fat = 0
         self.mirroring = True
+        self._cluster_active_invalid = False
         self.root_cluster = 0
         if self.fat_type == "fat32":
             ext_flags = bpb.get("ext_flags", 0)
@@ -415,6 +437,7 @@ class FatVolume(VolumeBase):
                 self.mirroring = False
                 self.active_fat = ext_flags & 0x0F
                 if self.active_fat >= bpb["num_fats"]:
+                    self._cluster_active_invalid = True
                     self._w.add("fat32_active_fat_invalid", f"ExtFlags 의 활성 FAT 번호 {self.active_fat} 가 FAT 수보다 큽니다(0 사용).")
                     self.active_fat = 0
             if bpb.get("fs_version", 0) != 0:
@@ -1301,74 +1324,113 @@ class FatVolume(VolumeBase):
         return self._claims_cache
 
     def _live_map(self, budget: Budget | None = None) -> dict[str, Any]:
-        """살아 있는 항목이 참조하는 클러스터 비트 집합과 이상 목록 (cluster_report·fat-chain 후보용). 예산이 다 되면 truncated."""
+        """살아 있는 참조 표시와 각 phase의 관찰 범위를 함께 보존한다."""
         if self._live_cache is not None:
             return self._live_cache
         lim = self.limits
         budget = self._budget(None, budget)
         bits = BitSet(self._bitset_size())
-        cross = 0
+        cross = unalloc_ref = 0
         cross_samples: list[dict[str, Any]] = []
-        unalloc_ref = 0
         unalloc_samples: list[dict[str, Any]] = []
         anomalies: list[dict[str, Any]] = []
         truncated = False
+        inspection = _cluster_inspection()
+        reasons: set[str] = set()
+        map_complete = True
+
+        def check() -> None:
+            if budget.expired():
+                raise budget.error("클러스터 참조 검사")
+
+        def sample(rows: list, row: dict) -> None:
+            if len(rows) < lim.max_report_items:
+                rows.append(row)
+            else:
+                inspection["rows_complete"] = False
+                reasons.add("rows_limit")
 
         def mark(ch: Chain, ref: str, path: str) -> None:
-            nonlocal cross
+            nonlocal cross, map_complete
+            if ch.status != "ok" or ch.capped:
+                map_complete = False
+                reasons.add("reference_chain_incomplete")
+            pending = 0
+            check()
             for c in ch.clusters():
                 if bits.set(c):
                     cross += 1
-                    if len(cross_samples) < lim.max_report_items:
-                        cross_samples.append({"cluster": c, "ref": ref, "path": path})
+                    sample(cross_samples, {"cluster": c, "ref": ref, "path": path})
+                pending += 1
+                if pending == 4096:
+                    budget.tick(pending)
+                    pending = 0
+                    check()
+            budget.tick(pending)
+            check()
 
-        if self.fat_type == "fat32" and 2 <= self.root_cluster <= self.max_cluster:
-            ch = self._follow(self.root_cluster, ceil_div(DIR_MAX_BYTES, self.cluster_size), budget)
-            mark(ch, "root", "/")
-        res = self.walk(include_deleted=False, check_chains=False, budget=budget)
-        truncated = res["truncated"]
-        for e in res["entries"]:
-            if budget.expired():
-                truncated = True
-                break
-            fc = e["first_cluster"]
-            if fc == 0:
-                if e["size"] and not e["is_dir"]:
-                    anomalies.append({"ref": e["ref"], "path": e["path"], "status": "empty",
-                                      "size_check": "no_clusters"})
-                continue
-            if e["is_dir"]:
-                ch = self._follow(fc, ceil_div(DIR_MAX_BYTES, self.cluster_size), budget)
-                need = None
-            else:
-                need = ceil_div(e["size"], self.cluster_size)
-                ch = self._follow(fc, need + 1, budget)
-            if ch.capped:
-                truncated = True
-            if 2 <= fc <= self.max_cluster and self._fat.get(fc) == 0:
-                unalloc_ref += 1
-                if len(unalloc_samples) < lim.max_report_items:
-                    unalloc_samples.append({"cluster": fc, "ref": e["ref"], "path": e["path"]})
-            mark(ch, e["ref"], e["path"])
-            check = "ok"
-            if need is not None:
-                if ch.count < need:
-                    check = "chain_shorter"
-                elif ch.count > need or ch.status == "limit":
-                    check = "chain_longer"
-            bad_status = ch.status not in ("ok",) and not (need is not None and ch.status == "limit")
-            if (bad_status or check != "ok") and len(anomalies) < lim.max_report_items:
-                anomalies.append({"ref": e["ref"], "path": e["path"], "status": ch.status, "clusters": ch.count,
-                                  "expected_clusters": need, "size_check": check})
-        self._live_cache = {
-            "bits": bits,
-            "cross_linked": cross,
-            "cross_linked_samples": cross_samples,
-            "unallocated_referenced": unalloc_ref,
-            "unallocated_referenced_samples": unalloc_samples,
-            "chain_anomalies": anomalies,
-            "truncated": truncated,
-        }
+        try:
+            check()
+            if self.fat_type == "fat32":
+                if 2 <= self.root_cluster <= self.max_cluster:
+                    ch = self._follow(self.root_cluster, ceil_div(DIR_MAX_BYTES, self.cluster_size), budget)
+                    mark(ch, "root", "/")
+                else:
+                    map_complete = False
+                    reasons.add("reference_chain_incomplete")
+            res = self.walk(include_deleted=False, check_chains=False, budget=budget)
+            truncated = res["truncated"]
+            inspection["entries_observed"] = len(res["entries"])
+            reasons.update(_cluster_reason(r) for r in res.get("truncated_reasons", []))
+            if res.get("unvalidated_dirs_live", 0):
+                reasons.add("dir_unvalidated")
+            inspection["reference_walk_complete"] = not res["truncated"] and not res.get("unvalidated_dirs_live", 0)
+            for e in res["entries"]:
+                check()
+                fc = e["first_cluster"]
+                if fc == 0:
+                    if e["size"] and not e["is_dir"]:
+                        sample(anomalies, {"ref": e["ref"], "path": e["path"], "status": "empty",
+                                           "size_check": "no_clusters"})
+                        map_complete = False
+                        reasons.add("reference_chain_incomplete")
+                    continue
+                if e["is_dir"]:
+                    ch = self._follow(fc, ceil_div(DIR_MAX_BYTES, self.cluster_size), budget)
+                    need = None
+                else:
+                    need = ceil_div(e["size"], self.cluster_size)
+                    ch = self._follow(fc, need + 1, budget)
+                if ch.capped:
+                    truncated = True
+                if 2 <= fc <= self.max_cluster and self._fat.get(fc) == 0:
+                    unalloc_ref += 1
+                    sample(unalloc_samples, {"cluster": fc, "ref": e["ref"], "path": e["path"]})
+                mark(ch, e["ref"], e["path"])
+                size_check = "ok"
+                if need is not None:
+                    if ch.count < need:
+                        size_check = "chain_shorter"
+                    elif ch.count > need or ch.status == "limit":
+                        size_check = "chain_longer"
+                bad_status = ch.status != "ok" and not (need is not None and ch.status == "limit")
+                if bad_status or size_check != "ok":
+                    sample(anomalies, {"ref": e["ref"], "path": e["path"], "status": ch.status,
+                                       "clusters": ch.count, "expected_clusters": need, "size_check": size_check})
+                    map_complete = False
+                    reasons.add("reference_chain_incomplete")
+        except FsError as exc:
+            if exc.reason != "budget_exceeded":
+                raise
+            reasons.add(_cluster_reason(exc.data.get("limit")))
+            map_complete = False
+            truncated = True
+        inspection["reference_map_complete"] = inspection["reference_walk_complete"] and map_complete
+        inspection["observed_referenced_clusters"] = bits.count()
+        inspection["reasons"] = [r for r in _CLUSTER_REASONS if r in reasons]
+        self._live_cache = {"bits": bits, "cross_linked": cross, "cross_linked_samples": cross_samples,
+                            "unallocated_referenced": unalloc_ref, "unallocated_referenced_samples": unalloc_samples,
+                            "chain_anomalies": anomalies, "truncated": truncated, "inspection": inspection}
         return self._live_cache
 
     def _candidate_plans(self, e: dict[str, Any], region: str = "data", budget: Budget | None = None, *,
@@ -1661,29 +1723,50 @@ class FatVolume(VolumeBase):
     # ------------------------------------------------------------------
     @guard
     def cluster_report(self, *, limits: Limits | None = None, budget: Budget | None = None) -> dict[str, Any]:
-        """깨끗하지 않게 뽑은 카드 점검: 잃어버린 체인, 참조되지만 빈 클러스터, 교차 연결, 체인 이상, FSInfo·FAT 사본 비교."""
+        """legacy 진단을 유지하고 참조·할당·표본의 독립 완료도를 덧붙인다."""
         lim = self.limits
         budget = self._budget(limits, budget)
         w = Warnings(lim.max_warnings)
         if self.max_cluster - 1 > lim.max_scan_clusters:
             w.add("scan_limit", f"클러스터 수가 점검 한도({lim.max_scan_clusters})를 넘어 점검하지 않습니다.")
-            out = {"fs": self.fat_type, "scanned": False, "truncated": True}
+            inspection = _cluster_inspection()
+            inspection["reasons"] = ["cluster_limit"]
+            out = {"fs": self.fat_type, "scanned": False, "truncated": True, "inspection": inspection}
             out.update(w.export())
             return out
         live = self._live_map(budget)
+        inspection = dict(live["inspection"])
+        reasons = set(inspection["reasons"])
         bits: BitSet = live["bits"]
         fat = self._fat
-        free = bad = invalid = allocated = unref = 0
+        free = bad = invalid = allocated = unref = examined = 0
         cut = False
         unref_runs: list[list[int]] = []
         unref_set = BitSet(self._bitset_size())
-        for base, sl in fat.slices(2, self.max_cluster + 1):
-            budget.tick((len(sl) >> 6) + 1)
+        lost: list[dict[str, Any]] = []
+        lost_total = 0
+        fsinfo = copies = state = None
+        classified = False
+
+        def check() -> None:
             if budget.expired():
-                cut = True
-                break
-            c = base
-            for v in sl:
+                raise budget.error("클러스터 할당 검사")
+
+        def entries():
+            # 캐시된 전체 FAT도 긴 CPU 루프가 한 번에 예산을 독점하지 않는다.
+            for base, sl in fat.slices(2, self.max_cluster + 1):
+                for offset in range(0, len(sl), 4096):
+                    check()
+                    part = sl[offset:offset + 4096]
+                    for i, value in enumerate(part):
+                        yield base + offset + i, value
+                    budget.tick((len(part) >> 6) + 1)
+                    check()
+
+        try:
+            check()
+            for c, v in entries():
+                examined += 1
                 if v == 0:
                     free += 1
                 elif v == self.bad_value:
@@ -1699,25 +1782,17 @@ class FatVolume(VolumeBase):
                             unref_runs[-1][1] += 1
                         elif len(unref_runs) < lim.max_report_items:
                             unref_runs.append([c, 1])
-                c += 1
-        readable = fat.readable if fat._whole is None else len(fat._whole)
-        if readable < self.max_cluster + 1:
-            w.add("fat_partially_unreadable", "FAT 일부를 읽을 수 없어 그 부분은 세지 않았습니다.")
-        # 잃어버린 체인의 머리: 참조되지 않은 할당 클러스터 중 다른 참조되지 않은 클러스터가 가리키지 않는 것
-        lost: list[dict[str, Any]] = []
-        lost_total = 0
-        if unref and not cut:
-            has_pred = BitSet(self._bitset_size())
-            for base, sl in fat.slices(2, self.max_cluster + 1):
-                c = base
-                for v in sl:
+                        else:
+                            inspection["rows_complete"] = False
+                            reasons.add("rows_limit")
+            classified = examined == self.cluster_count
+            if unref:
+                has_pred = BitSet(self._bitset_size())
+                for c, v in entries():
                     if v and unref_set.test(c) and 2 <= v <= self.max_cluster and unref_set.test(v):
                         has_pred.set(v)
-                    c += 1
-            follow_budget = 4 * unref + 1024  # 머리들이 한 체인으로 모이는 손상 FAT 대비 총 걸음 수 상한
-            for base, sl in fat.slices(2, self.max_cluster + 1):
-                c = base
-                for _v in sl:
+                follow_budget = 4 * unref + 1024
+                for c, _v in entries():
                     if unref_set.test(c) and not has_pred.test(c):
                         lost_total += 1
                         if len(lost) < lim.max_report_items and follow_budget > 0:
@@ -1725,39 +1800,52 @@ class FatVolume(VolumeBase):
                             follow_budget -= ch.count
                             lost.append({"head": c, "clusters": ch.count, "status": ch.status,
                                          "bytes": ch.count * self.cluster_size})
-                    c += 1
-        fsinfo = self._fsinfo(Warnings(0)) if self.fat_type == "fat32" else None
-        copies = self._compare_fat_copies(w)
+            check()
+            fsinfo = self._fsinfo(Warnings(0)) if self.fat_type == "fat32" else None
+            copies = self._compare_fat_copies(w, budget=budget)
+            state = self._state()
+            check()
+        except FsError as exc:
+            if exc.reason != "budget_exceeded":
+                raise
+            reasons.add(_cluster_reason(exc.data.get("limit")))
+            cut = True
+        readable = fat.readable if fat._whole is None else len(fat._whole)
+        if readable < self.max_cluster + 1:
+            w.add("fat_partially_unreadable", "FAT 일부를 읽을 수 없어 그 부분은 세지 않았습니다.")
+        if not classified:
+            reasons.add("allocation_unreadable")
+        nf = self.bpb["num_fats"]
+        copies_ok = nf == 1 or not self.mirroring
+        if self.mirroring and nf == 2 and copies is not None:
+            need = min(self.fat_bytes, (fat.entries * _WIDTH[self.fat_type] + 7) // 8)
+            copies_ok = copies.get("bytes_compared") == need and copies.get("differing_bytes") == 0
+        if not copies_ok or invalid or self._cluster_active_invalid:
+            reasons.add("metadata_inconsistent")
+        inspection.update(allocation_clusters_examined=examined, allocation_free=free,
+                          allocation_complete=classified and copies_ok and not invalid
+                          and not self._cluster_active_invalid and not cut)
+        inspection["reasons"] = [r for r in _CLUSTER_REASONS if r in reasons]
         out = {
-            "fs": self.fat_type,
-            "scanned": True,
-            "cluster_count": self.cluster_count,
-            "free": free,
-            "allocated": allocated,
-            "bad": bad,
-            "invalid_values": invalid,
-            "referenced_by_live": bits.count(),
-            "allocated_unreferenced": unref,
-            "allocated_unreferenced_runs": unref_runs,
-            "lost_chains": lost,
-            "lost_chains_total": lost_total,
+            "fs": self.fat_type, "scanned": True, "cluster_count": self.cluster_count,
+            "free": free, "allocated": allocated, "bad": bad, "invalid_values": invalid,
+            "referenced_by_live": bits.count(), "allocated_unreferenced": unref,
+            "allocated_unreferenced_runs": unref_runs, "lost_chains": lost, "lost_chains_total": lost_total,
             "unallocated_referenced": live["unallocated_referenced"],
             "unallocated_referenced_samples": live["unallocated_referenced_samples"],
-            "cross_linked": live["cross_linked"],
-            "cross_linked_samples": live["cross_linked_samples"],
+            "cross_linked": live["cross_linked"], "cross_linked_samples": live["cross_linked_samples"],
             "chain_anomalies": live["chain_anomalies"],
             "fsinfo_free_count": fsinfo["free_count"] if fsinfo else None,
             "fsinfo_free_matches": (fsinfo["free_count"] == free) if fsinfo and fsinfo["free_count"] is not None else None,
-            "fat_copies": copies,
-            "state": self._state(),
-            "truncated": bool(live["truncated"]) or cut or budget.expired(),
+            "fat_copies": copies, "state": state,
+            "truncated": bool(live["truncated"]) or cut or budget.expired(), "inspection": inspection,
         }
         if cut or budget.expired():
             out["truncated_reason"] = budget.reason
         out.update(w.export())
         return out
 
-    def _compare_fat_copies(self, w: Warnings) -> dict[str, Any]:
+    def _compare_fat_copies(self, w: Warnings, *, budget: Budget | None = None) -> dict[str, Any]:
         nf = self.bpb["num_fats"]
         if nf < 2:
             return {"copies": nf, "compared": False}
@@ -1765,9 +1853,11 @@ class FatVolume(VolumeBase):
         diff_bytes = 0
         first_diff = None
         pos = 0
-        step = 1 << 20
+        step = (1 << 16) if budget is not None else (1 << 20)
         compared = 0
         while pos < need:
+            if budget is not None and budget.expired():
+                raise budget.error("FAT 사본 비교")
             n = min(step, need - pos)
             a = self.src.read_clamped(self.fat_offset + pos, n)
             b = self.src.read_clamped(self.fat_offset + self.fat_bytes + pos, n)
@@ -1775,12 +1865,19 @@ class FatVolume(VolumeBase):
             if m == 0:
                 break
             if a[:m] != b[:m]:
-                for i in range(m):
-                    if a[i] != b[i]:
-                        diff_bytes += 1
-                        if first_diff is None:
-                            first_diff = pos + i
+                for block in range(0, m, 4096):
+                    if budget is not None and budget.expired():
+                        raise budget.error("FAT 사본 비교")
+                    for i in range(block, min(block + 4096, m)):
+                        if a[i] != b[i]:
+                            diff_bytes += 1
+                            if first_diff is None:
+                                first_diff = pos + i
             compared += m
+            if budget is not None:
+                budget.tick((m >> 6) + 1)
+                if budget.expired():
+                    raise budget.error("FAT 사본 비교")
             if m < n:
                 break
             pos += n

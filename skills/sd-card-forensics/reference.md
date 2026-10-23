@@ -445,3 +445,24 @@ status(report.status), window_complete/ allocation_complete(report.coverage)의6
 최대100개이며 상세 사유·미검사량·재개 위치는 notes와 결과 보고서에 남긴다.
 metadata4 MiB·행128·45초·JSON1 MiB, 같은 FD·보관 기록·고정 오류의 정확한 계약은
 [현재 할당 상태](../../docs/references/allocation-window.md)를 따른다.
+
+## 22. 현재 live 참조와 할당 일관성
+
+`forensics_cluster_report(case_id, evidence_id, partition, max_seconds=45)`에 기존
+`forensics_partitions`의 명시 FAT/exFAT index를 준다. 현재 살아 있는 항목의 참조와
+현재 할당 metadata를 대조하며 삭제 항목은 순회하지 않는다. 원문 이름·시각·진단은 반환하지 않는다.
+
+coverage의 reference_walk_complete, reference_map_complete, allocation_complete,
+rows_complete를 각각 보존한다. ok는 네 검사가 끝났다는 뜻이며 이상 없음의 증명이 아니다.
+참조 지도와 할당 검사가 모두 완료되지 않으면 allocated_without_live_reference는 null이다.
+읽지 못한 bitmap 꼬리를 free로 보거나 미참조 할당을 고아 파일·과거 소속의 증거로 삼지 않는다.
+
+필요한 구간 행의 EV 절대 offset/length를 기존 DHAV/BMFF 구간 후보에 별도로 전달할 수 있다.
+새 구간 SHA와 출처를 확인한 뒤 그 저장 후보만 기존 추출 도구로 선택한다. cluster 보고서를
+직접 추출 입력으로 쓰거나 자동 추출하지 않는다. 파일 ref는 기존 목록·선택 검증을 따른다.
+
+`cluster_report_results[]`는 evidence_id, analysis_path/sha256(analysis), status(report),
+reference_map_complete/allocation_complete(report.coverage)의6필드, 최대100개다.
+partial에는 두 완료 값이 모두 true인 행 표본 제한도 포함된다. 미검사 수·사유는 notes와
+원보고서에 남긴다. metadata32 MiB·행128·45초·같은 FD·보관 기록의 상세 계약은
+[현재 참조 일관성](../../docs/references/cluster-report.md)을 따른다.

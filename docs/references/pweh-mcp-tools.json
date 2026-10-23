@@ -726,7 +726,7 @@
    },
    {
     "name": "schema_get",
-    "description": "PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, imported-save-plan, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, nfc-analysis, nfc-file-analysis, nfc-inventory, nfc-scan, numeric-analysis, numeric-validation, pinout-scan, rf-analysis, rf-power-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, template-analysis, template-match, uart-recon.",
+    "description": "PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, cluster-report, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, imported-save-plan, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, nfc-analysis, nfc-file-analysis, nfc-inventory, nfc-scan, numeric-analysis, numeric-validation, pinout-scan, rf-analysis, rf-power-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, template-analysis, template-match, uart-recon.",
     "params": [
      {
       "name": "name",
@@ -7022,6 +7022,43 @@
      },
      {
       "name": "length",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "max_seconds",
+      "type": "number/integer",
+      "required": false,
+      "default": 45
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "forensics_cluster_report",
+    "description": "접수한 EV 이미지의 명시 FAT12/16/32·exFAT 파티션에서 현재 할당과 live 항목 참조를 비교한다. partition은 필수 exact int1..4096, max_seconds는0초 초과..45초다. 케이스 조회 전부터 같은 처리 예산으로 탐지·metadata·live 순회·분류를 수행한다. metadata 읽기 합계32MiB·클러스터2**20개·항목16384개·행128개·JSON1MiB로 제한한다. 참조 지도/할당 검사가 불완전하면 allocated_without_live_reference는null이며 고아 파일로 확정하지 않는다. 관찰한 참조 중복·미할당 참조·체인 이상과 완료도·미검사 수를 원시 이름 없이 기록한다. 접수 EV 해시를 출처에 결속하며 이번 전체EV 재해시는 아니다. 시간 partial의 bounded 직렬화·최종seal 검사는 처리 시간 뒤 별도로 끝내되 취소를 계속 확인한다. 보고서를 forensics/analysis에0444로 저장하고 cluster-report 보관 기록에 결속한다. 이 보고서는 직접 추출 권위가 아니며 필요한 구간은 기존 후보 도구로 별도 검증한다. 파일 소속·삭제/과거 할당·녹화 완전성·재생을 판정하지 않고 미디어를 해독하지 않는다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "evidence_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "partition",
       "type": "integer",
       "required": true,
       "default": null

@@ -37,6 +37,7 @@ from collections import OrderedDict, deque
 from typing import Any, Iterator
 
 from .base import DirCtx, DirResult, Peek, VolumeBase
+from .fat import _CLUSTER_REASONS, _cluster_inspection, _cluster_reason
 from .common import (
     CONFIDENCE_ORDER,
     Budget,
@@ -269,6 +270,13 @@ class ExfatVolume(VolumeBase):
         self.upcase_info: dict[str, Any] = {"present": False}
         self.label: str | None = None
         self.volume_guid: str | None = None
+        # full의 기존 선택·fallback은 그대로 두고 검사 완료도에 필요한 사실만 남긴다.
+        self._cluster_metadata_reasons: set[str] = set()
+        self._cluster_metadata_map_complete = True
+        self._cluster_metadata_allocation_complete = True
+        if boot_bytes[110] not in (1, 2) or (self.volume_flags & 1 and boot_bytes[110] != 2):
+            self._cluster_metadata_reasons.add("metadata_inconsistent")
+            self._cluster_metadata_allocation_complete = False
         if budget is None:
             budget = self._budget()
         else:
@@ -527,9 +535,20 @@ class ExfatVolume(VolumeBase):
         cs = self.cluster_size
         n = ceil_div(length, cs)
         if n <= 0 or not 2 <= fc <= self.max_cluster:
+            self._cluster_metadata_map_complete = False
+            self._cluster_metadata_reasons.add("reference_chain_incomplete")
+            if what == "bitmap":
+                self._cluster_metadata_allocation_complete = False
+                self._cluster_metadata_reasons.add("metadata_inconsistent")
             w.add(f"{what}_cluster_invalid", f"{what} 의 시작 클러스터 {fc} 가 범위를 벗어났습니다.")
             return []
         ch = self._follow(fc, n, budget)
+        if ch.status != "ok" or ch.count != n or ch.capped:
+            self._cluster_metadata_map_complete = False
+            self._cluster_metadata_reasons.add("reference_chain_incomplete")
+            if what == "bitmap":
+                self._cluster_metadata_allocation_complete = False
+                self._cluster_metadata_reasons.add("metadata_inconsistent")
         runs: list[tuple[int, int]]
         if ch.count < n:
             w.add(f"{what}_chain_short", f"{what} 의 FAT 체인이 짧습니다({ch.count}/{n}, {ch.status}) — 연속으로 가정합니다.")
@@ -548,10 +567,39 @@ class ExfatVolume(VolumeBase):
 
     def _load_root_metadata(self, budget: Budget) -> None:
         try:
+            self._load_root_metadata_full(budget)
+            if budget.expired():
+                raise budget.error("루트 메타데이터 검사")
+        except FsError as exc:
+            if exc.reason != "budget_exceeded":
+                raise
+            self._cluster_metadata_reasons.add(_cluster_reason(exc.data.get("limit")))
+            self._cluster_metadata_map_complete = False
+            self._cluster_metadata_allocation_complete = False
+
+    def _load_root_metadata_full(self, budget: Budget) -> None:
+        try:
             res = self._parse_dir("root", budget)
         except FsError as e:
+            self._cluster_metadata_map_complete = False
+            self._cluster_metadata_allocation_complete = False
+            if e.reason == "budget_exceeded":
+                self._cluster_metadata_reasons.add(_cluster_reason(e.data.get("limit")))
+            else:
+                self._cluster_metadata_reasons.add("dir_unreadable")
             self._w.add("root_unreadable", f"루트 디렉터리를 읽을 수 없습니다: {e.message}")
             return
+        if res.budget_stop:
+            self._cluster_metadata_reasons.add(_cluster_reason(res.budget_stop))
+        if res.unvalidated is not None:
+            self._cluster_metadata_reasons.add("dir_unvalidated")
+        if res.cut_hit():
+            self._cluster_metadata_reasons.add("max_dir_slots")
+        if res.chain.get("status") != "ok":
+            self._cluster_metadata_reasons.add("reference_chain_incomplete")
+        if self._cluster_metadata_reasons - {"metadata_inconsistent"}:
+            self._cluster_metadata_map_complete = False
+            self._cluster_metadata_allocation_complete = False
         for it in res.warnings.items:
             if it["code"] == "dir_unvalidated":
                 self._w.add(**it)
@@ -562,6 +610,10 @@ class ExfatVolume(VolumeBase):
         self.label = sp.get("label")
         self.volume_guid = sp.get("guid")
         bitmaps = sp.get("bitmaps", [])
+        active = [cand for cand in bitmaps if cand["flags"] & 1 == self.active_fat]
+        if len(active) != 1 or any(cand["flags"] & 0xFE for cand in bitmaps):
+            self._cluster_metadata_allocation_complete = False
+            self._cluster_metadata_reasons.add("metadata_inconsistent" if bitmaps else "allocation_unreadable")
         bm = None
         for cand in bitmaps:
             if (cand["flags"] & 1) == self.active_fat:
@@ -578,6 +630,8 @@ class ExfatVolume(VolumeBase):
             info = {"present": True, "first_cluster": bm["first_cluster"], "data_length": length,
                     "expected_length": need, "flags": bm["flags"], "slot": bm["slot"]}
             if length < need:
+                self._cluster_metadata_allocation_complete = False
+                self._cluster_metadata_reasons.add("metadata_inconsistent")
                 self._w.add("bitmap_short", f"할당 비트맵이 짧습니다({length} < {need} 바이트).")
             length = min(length, max(need, 0))
             runs = self._object_runs(bm["first_cluster"], length, self._w, "bitmap", budget)
@@ -586,14 +640,21 @@ class ExfatVolume(VolumeBase):
                 ones, seen = self._bitmap.count_range(0, self.cluster_count)
                 info["allocated_clusters"] = ones
                 info["readable_bits"] = seen
+                if seen < self.cluster_count:
+                    self._cluster_metadata_allocation_complete = False
+                    self._cluster_metadata_reasons.add("allocation_unreadable")
             self.bitmap_info = info
         up = sp.get("upcase")
         if up is None:
+            self._cluster_metadata_map_complete = False
+            self._cluster_metadata_reasons.add("metadata_inconsistent")
             self._w.add("upcase_missing", "루트에 up-case 표 항목(0x82)이 없습니다(이름 비교는 단순 대문자화).")
         else:
             info = {"present": True, "first_cluster": up["first_cluster"], "data_length": up["data_length"],
                     "stored_checksum": f"0x{up['checksum']:08x}", "checksum_ok": None}
             if not 0 < up["data_length"] <= UPCASE_MAX_BYTES:
+                self._cluster_metadata_map_complete = False
+                self._cluster_metadata_reasons.add("metadata_inconsistent")
                 self._w.add("upcase_size_invalid", f"up-case 표 크기 {up['data_length']} 가 범위를 벗어났습니다(무시).")
             else:
                 runs = self._object_runs(up["first_cluster"], up["data_length"], self._w, "upcase", budget)
@@ -603,9 +664,13 @@ class ExfatVolume(VolumeBase):
                     info["computed_checksum"] = f"0x{calc:08x}"
                     info["checksum_ok"] = calc == up["checksum"]
                     if not info["checksum_ok"]:
+                        self._cluster_metadata_map_complete = False
+                        self._cluster_metadata_reasons.add("metadata_inconsistent")
                         self._w.add("upcase_checksum_mismatch", "up-case 표 체크섬이 맞지 않습니다.")
                     self._upcase = self._decompress_upcase(data)
                 else:
+                    self._cluster_metadata_map_complete = False
+                    self._cluster_metadata_reasons.add("metadata_inconsistent")
                     self._w.add("upcase_unreadable", "up-case 표를 다 읽을 수 없습니다.")
             self.upcase_info = info
         # 비트맵을 읽은 뒤에는 삭제 항목의 할당 상태를 다시 계산해야 하므로 캐시를 비운다
@@ -1430,147 +1495,223 @@ class ExfatVolume(VolumeBase):
             return self._live_cache
         lim = self.limits
         budget = self._budget(None, budget)
-        # 비트 i = 클러스터 i+2 (할당 비트맵과 같은 배치). 크기는 실제로 읽을 수 있는 비트맵 비트 수로 묶는다.
         nbits = self.cluster_count if self._bitmap is None else min(self.cluster_count, self._bitmap.readable_bits())
         bits = BitSet(nbits)
         cross = 0
         cross_samples: list[dict[str, Any]] = []
         anomalies: list[dict[str, Any]] = []
         truncated = False
+        inspection = _cluster_inspection()
+        reasons = set(self._cluster_metadata_reasons)
+        map_complete = self._cluster_metadata_map_complete
 
-        def mark_run(s: int, k: int, ref: str, path: str) -> None:
+        def check() -> None:
+            if budget.expired():
+                raise budget.error("클러스터 참조 검사")
+
+        def incomplete() -> None:
+            nonlocal map_complete
+            map_complete = False
+            reasons.add("reference_chain_incomplete")
+
+        def sample(rows: list, row: dict) -> None:
+            if len(rows) < lim.max_report_items:
+                rows.append(row)
+            else:
+                inspection["rows_complete"] = False
+                reasons.add("rows_limit")
+
+        def mark_run(start: int, count: int, ref: str, path: str) -> None:
             nonlocal cross
-            for c in range(s, s + k):
-                if bits.set(c - 2):
-                    cross += 1
-                    if len(cross_samples) < lim.max_report_items:
-                        cross_samples.append({"cluster": c, "ref": ref, "path": path})
+            for block in range(start, start + count, 4096):
+                check()
+                stop = min(block + 4096, start + count)
+                for c in range(block, stop):
+                    if not 0 <= c - 2 < bits.n:
+                        incomplete()
+                    if bits.set(c - 2):
+                        cross += 1
+                        sample(cross_samples, {"cluster": c, "ref": ref, "path": path})
+                budget.tick(stop - block)
+                check()
+
+        def chain_complete(ch: Chain) -> None:
+            if ch.status != "ok" or ch.capped:
+                incomplete()
 
         cs = self.cluster_size
-        for what, info in (("bitmap", self.bitmap_info), ("upcase", self.upcase_info)):
-            if info.get("present") and 2 <= info.get("first_cluster", 0) <= self.max_cluster:
-                n = ceil_div(info["data_length"], cs)
-                ch = self._follow(info["first_cluster"], max(1, n), budget)
-                if ch.count < n:
-                    mark_run(info["first_cluster"], min(n, self.max_cluster - info["first_cluster"] + 1), what, what)
-                else:
-                    for s, k in zip(ch.starts, ch.lens):
-                        mark_run(s, k, what, what)
-        if 2 <= self.root_cluster <= self.max_cluster:
-            ch = self._follow(self.root_cluster, ceil_div(MAX_DIR_BYTES, cs), budget)
-            for s, k in zip(ch.starts, ch.lens):
-                mark_run(s, k, "root", "/")
-        res = self.walk(include_deleted=False, check_chains=False, budget=budget)
-        truncated = res["truncated"]
-        for e in res["entries"]:
-            if budget.expired():
-                truncated = True
-                break
-            fc = e["first_cluster"]
-            n = ceil_div(e["size"], cs)
-            if n == 0 or not 2 <= fc <= self.max_cluster:
-                if n and len(anomalies) < lim.max_report_items:
-                    anomalies.append({"ref": e["ref"], "path": e["path"], "status": "out-of-range", "size_check": "no_clusters"})
-                continue
-            if e["no_fat_chain"]:
-                k = min(n, self.max_cluster - fc + 1)
-                budget.tick(k)
-                if budget.expired():
+        try:
+            check()
+            for what, info in (("bitmap", self.bitmap_info), ("upcase", self.upcase_info)):
+                if info.get("present") and 2 <= info.get("first_cluster", 0) <= self.max_cluster:
+                    n = ceil_div(info["data_length"], cs)
+                    ch = self._follow(info["first_cluster"], max(1, n), budget)
+                    chain_complete(ch)
+                    if ch.count < n:
+                        incomplete()
+                        mark_run(info["first_cluster"], min(n, self.max_cluster - info["first_cluster"] + 1), what, what)
+                    else:
+                        for start, count in zip(ch.starts, ch.lens):
+                            mark_run(start, count, what, what)
+            if 2 <= self.root_cluster <= self.max_cluster:
+                ch = self._follow(self.root_cluster, ceil_div(MAX_DIR_BYTES, cs), budget)
+                chain_complete(ch)
+                for start, count in zip(ch.starts, ch.lens):
+                    mark_run(start, count, "root", "/")
+            else:
+                incomplete()
+            res = self.walk(include_deleted=False, check_chains=False, budget=budget)
+            truncated = res["truncated"]
+            inspection["entries_observed"] = len(res["entries"])
+            reasons.update(_cluster_reason(r) for r in res.get("truncated_reasons", []))
+            if res.get("unvalidated_dirs_live", 0):
+                reasons.add("dir_unvalidated")
+            inspection["reference_walk_complete"] = not res["truncated"] and not res.get("unvalidated_dirs_live", 0)
+            for e in res["entries"]:
+                check()
+                fc = e["first_cluster"]
+                n = ceil_div(e["size"], cs)
+                if n == 0 or not 2 <= fc <= self.max_cluster:
+                    if n:
+                        sample(anomalies, {"ref": e["ref"], "path": e["path"], "status": "out-of-range",
+                                           "size_check": "no_clusters"})
+                        incomplete()
+                    continue
+                if e["no_fat_chain"]:
+                    count = min(n, self.max_cluster - fc + 1)
+                    if count != n:
+                        incomplete()
+                    mark_run(fc, count, e["ref"], e["path"])
+                    continue
+                ch = self._follow(fc, n + 1, budget)
+                chain_complete(ch)
+                if ch.capped:
                     truncated = True
-                    break
-                mark_run(fc, k, e["ref"], e["path"])
-                continue
-            ch = self._follow(fc, n + 1, budget)
-            if ch.capped:
-                truncated = True
-            taken = 0
-            for s, k in zip(ch.starts, ch.lens):
-                kk = min(k, n - taken)
-                if kk <= 0:
-                    break
-                mark_run(s, kk, e["ref"], e["path"])
-                taken += kk
-            check = "ok" if taken == n and ch.count == n else ("chain_shorter" if taken < n else "chain_longer")
-            if (ch.status != "ok" or check != "ok") and len(anomalies) < lim.max_report_items:
-                anomalies.append({"ref": e["ref"], "path": e["path"], "status": ch.status, "clusters": ch.count,
-                                  "expected_clusters": n, "size_check": check})
+                taken = 0
+                for start, count in zip(ch.starts, ch.lens):
+                    take = min(count, n - taken)
+                    if take <= 0:
+                        break
+                    mark_run(start, take, e["ref"], e["path"])
+                    taken += take
+                size_check = "ok" if taken == n and ch.count == n else ("chain_shorter" if taken < n else "chain_longer")
+                if ch.status != "ok" or size_check != "ok":
+                    sample(anomalies, {"ref": e["ref"], "path": e["path"], "status": ch.status,
+                                       "clusters": ch.count, "expected_clusters": n, "size_check": size_check})
+                    incomplete()
+        except FsError as exc:
+            if exc.reason != "budget_exceeded":
+                raise
+            reasons.add(_cluster_reason(exc.data.get("limit")))
+            map_complete = False
+            truncated = True
+        inspection["reference_map_complete"] = inspection["reference_walk_complete"] and map_complete
+        inspection["observed_referenced_clusters"] = bits.count()
+        inspection["reasons"] = [r for r in _CLUSTER_REASONS if r in reasons]
         self._live_cache = {"bits": bits, "cross_linked": cross, "cross_linked_samples": cross_samples,
-                            "chain_anomalies": anomalies, "truncated": truncated}
+                            "chain_anomalies": anomalies, "truncated": truncated, "inspection": inspection}
         return self._live_cache
 
     @guard
     def cluster_report(self, *, limits: Limits | None = None, budget: Budget | None = None) -> dict[str, Any]:
-        """깨끗하지 않게 뽑은 카드 점검: 비트맵 할당 vs 살아 있는 항목 참조, 교차 연결, 체인 이상, PercentInUse 비교."""
+        """기존 할당/참조 진단에 실제로 본 비트 수와 독립 phase 완료도를 덧붙인다."""
         lim = self.limits
         budget = self._budget(limits, budget)
         w = Warnings(lim.max_warnings)
+        inspection = _cluster_inspection()
         if self.cluster_count > lim.max_scan_clusters:
             w.add("scan_limit", f"클러스터 수가 점검 한도({lim.max_scan_clusters})를 넘어 점검하지 않습니다.")
-            out = {"fs": "exfat", "scanned": False, "truncated": True}
+            inspection["reasons"] = ["cluster_limit"]
+            out = {"fs": "exfat", "scanned": False, "truncated": True, "inspection": inspection}
             out.update(w.export())
             return out
         if self._bitmap is None:
             w.add("bitmap_missing", "할당 비트맵이 없어 점검할 수 없습니다.")
-            out = {"fs": "exfat", "scanned": False, "truncated": False, "state": self.info()["state"]}
+            reasons = self._cluster_metadata_reasons | {"allocation_unreadable"}
+            if budget.expired():
+                reasons.add(_cluster_reason(budget.reason))
+            inspection["reasons"] = [r for r in _CLUSTER_REASONS if r in reasons]
+            out = {"fs": "exfat", "scanned": False, "truncated": False,
+                   "state": self.info()["state"], "inspection": inspection}
             out.update(w.export())
             return out
         live = self._live_map(budget)
+        inspection = dict(live["inspection"])
+        reasons = set(inspection["reasons"])
         bits: BitSet = live["bits"]
-        bm = self._bitmap
-        allocated = 0
-        unref = 0
+        allocated = unref = unalloc_ref = examined = free = 0
         unref_runs: list[list[int]] = []
-        unalloc_ref = 0
         unalloc_samples: list[int] = []
         refbuf = bits.buf
-        for bit0, data in bm.iter_bytes(0, self.cluster_count):
-            for j, byte in enumerate(data):
-                c0 = bit0 + 8 * j + 2  # 이 바이트 첫 비트의 클러스터 번호
-                ri = (bit0 >> 3) + j
-                refbyte = refbuf[ri] if ri < len(refbuf) else 0
-                if bit0 + 8 * j + 8 > self.cluster_count:
-                    valid = (1 << max(0, self.cluster_count - (bit0 + 8 * j))) - 1
-                    byte &= valid
-                    refbyte &= valid
-                if byte:
-                    allocated += bin(byte).count("1")
-                diff = byte & ~refbyte
-                if diff:
-                    for b in range(8):
-                        if diff & (1 << b):
-                            c = c0 + b
-                            unref += 1
-                            if unref_runs and unref_runs[-1][0] + unref_runs[-1][1] == c:
-                                unref_runs[-1][1] += 1
-                            elif len(unref_runs) < lim.max_report_items:
-                                unref_runs.append([c, 1])
-                miss = refbyte & ~byte
-                if miss:
-                    for b in range(8):
-                        if miss & (1 << b):
-                            unalloc_ref += 1
-                            if len(unalloc_samples) < lim.max_report_items:
-                                unalloc_samples.append(c0 + b)
+        cut = False
+
+        def check() -> None:
+            if budget.expired():
+                raise budget.error("클러스터 할당 검사")
+
+        try:
+            check()
+            for bit0, data in self._bitmap.iter_bytes(0, self.cluster_count):
+                for offset in range(0, len(data), 512):
+                    check()
+                    part = data[offset:offset + 512]
+                    for j, byte in enumerate(part, offset):
+                        first_bit = bit0 + 8 * j
+                        valid_count = min(8, self.cluster_count - first_bit)
+                        valid = (1 << valid_count) - 1
+                        byte &= valid
+                        ri = (bit0 >> 3) + j
+                        refbyte = (refbuf[ri] if ri < len(refbuf) else 0) & valid
+                        ones = bin(byte).count("1")
+                        examined += valid_count
+                        allocated += ones
+                        free += valid_count - ones
+                        diff = byte & ~refbyte
+                        miss = refbyte & ~byte
+                        for b in range(valid_count):
+                            c = first_bit + b + 2
+                            if diff & (1 << b):
+                                unref += 1
+                                if unref_runs and unref_runs[-1][0] + unref_runs[-1][1] == c:
+                                    unref_runs[-1][1] += 1
+                                elif len(unref_runs) < lim.max_report_items:
+                                    unref_runs.append([c, 1])
+                                else:
+                                    inspection["rows_complete"] = False
+                                    reasons.add("rows_limit")
+                            if miss & (1 << b):
+                                unalloc_ref += 1
+                                if len(unalloc_samples) < lim.max_report_items:
+                                    unalloc_samples.append(c)
+                                else:
+                                    inspection["rows_complete"] = False
+                                    reasons.add("rows_limit")
+                    budget.tick((len(part) >> 3) + 1)
+                    check()
+        except FsError as exc:
+            if exc.reason != "budget_exceeded":
+                raise
+            reasons.add(_cluster_reason(exc.data.get("limit")))
+            cut = True
+        if examined != self.cluster_count:
+            reasons.add("allocation_unreadable")
+        inspection.update(allocation_clusters_examined=examined, allocation_free=free,
+                          allocation_complete=examined == self.boot["cluster_count"]
+                          and self._cluster_metadata_allocation_complete and not cut)
+        inspection["reasons"] = [r for r in _CLUSTER_REASONS if r in reasons]
         pct = self.boot["percent_in_use"]
-        calc_pct = (allocated * 100) // self.cluster_count if self.cluster_count else 0
         out = {
-            "fs": "exfat",
-            "scanned": True,
-            "cluster_count": self.cluster_count,
-            "allocated": allocated,
-            "free": self.cluster_count - allocated,
-            "referenced_by_live": bits.count(),
-            "allocated_unreferenced": unref,
-            "allocated_unreferenced_runs": unref_runs,
+            "fs": "exfat", "scanned": True, "cluster_count": self.cluster_count, "allocated": allocated,
+            "free": self.cluster_count - allocated, "referenced_by_live": bits.count(),
+            "allocated_unreferenced": unref, "allocated_unreferenced_runs": unref_runs,
             "unallocated_referenced": unalloc_ref,
             "unallocated_referenced_samples": [{"cluster": c} for c in unalloc_samples],
-            "cross_linked": live["cross_linked"],
-            "cross_linked_samples": live["cross_linked_samples"],
+            "cross_linked": live["cross_linked"], "cross_linked_samples": live["cross_linked_samples"],
             "chain_anomalies": live["chain_anomalies"],
             "percent_in_use_boot": None if pct == 0xFF else pct,
-            "percent_in_use_computed": calc_pct,
+            "percent_in_use_computed": (allocated * 100) // self.cluster_count if self.cluster_count else 0,
             "state": {"dirty": bool(self.volume_flags & 2), "media_failure": bool(self.volume_flags & 4)},
-            "truncated": bool(live["truncated"]),
+            "truncated": bool(live["truncated"]) or cut, "inspection": inspection,
         }
         out.update(w.export())
         return out

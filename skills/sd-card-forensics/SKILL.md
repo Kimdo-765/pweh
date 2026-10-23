@@ -1,6 +1,6 @@
 ---
 name: sd-card-forensics
-description: Analyze authorized SD images and firmware SD surfaces using pweh-forensics and fwtriage. Record hashes, custody, write-blocker attestation, FAT/exFAT lists, bounded current allocation metadata, extraction and evidence lists. forensics_scan_secrets and forensics_scan_secrets_from_list return masked candidates; forensics_sd_ioc_scan compares report names. forensics_media_inventory observes BMFF; forensics_media_candidates and forensics_dhav_candidates inspect files or EV ranges. forensics_bmff_scan and forensics_dhav_scan stream bounded EV bytes. forensics_media_unit_candidates inspects JPEG/AVC/PS/XM subsets. forensics_extract_media_candidate, forensics_extract_dhav_candidate and forensics_extract_media_unit extract one stored unit after revalidation. Still images use image-hints-analysis. No video/audio decoding or direct evidence reads. Firmware checks cover SD-01..09. Record sd-forensics summary. SD 카드 포렌식, 카드 이미지, 삭제 파일 복구, 보관 기록, 쓰기 방지 장치.
+description: Analyze authorized SD images and firmware SD surfaces using pweh-forensics and fwtriage. Record hashes, custody, write-blocker attestation, FAT/exFAT lists, bounded current allocation metadata and live-reference consistency, extraction and evidence lists. forensics_scan_secrets and forensics_scan_secrets_from_list return masked candidates; forensics_sd_ioc_scan compares report names. forensics_media_inventory observes BMFF; forensics_media_candidates and forensics_dhav_candidates inspect files or EV ranges. forensics_bmff_scan and forensics_dhav_scan stream bounded EV bytes. forensics_media_unit_candidates inspects JPEG/AVC/PS/XM subsets. forensics_extract_media_candidate, forensics_extract_dhav_candidate and forensics_extract_media_unit extract one stored unit after revalidation. Still images use image-hints-analysis. No video/audio decoding or direct evidence reads. Firmware checks cover SD-01..09. Record sd-forensics summary. SD 카드 포렌식, 카드 이미지, 삭제 파일 복구, 보관 기록, 쓰기 방지 장치.
 ---
 
 # SD 카드 포렌식 (sd-card-forensics)
@@ -33,7 +33,7 @@ description: Analyze authorized SD images and firmware SD surfaces using pweh-fo
 - **사람·장비** (security 부팅 로그, 선택): UART 세션(`uart-shell-acquisition`)과 새 빈 시험 카드.
 - **MCP 서버**: pweh-case, pweh-forensics(evidence), pweh-fwtriage(security), pweh-uart(부팅 로그).
 - **권한 확인**: 쓰는 forensics 도구(접수·검증·증명·목록·추출·증거 목록·job 취소)는 부를 때마다 Claude Code 가 사람에게 확인받는다(`.claude/settings.json` 의 ask). 처음에 알린다.
-  `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs`는 조회 전용이라 자동 허용이다. `forensics_image_hints`도 사용자의 정지 이미지 내용 반환 결정에 따라 별도 승인 없이 허용한다(로컬 분석 결과는 쓴다). `forensics_scan_secrets`·`forensics_scan_secrets_from_list`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`·`forensics_dhav_candidates`·`forensics_dhav_scan`·`forensics_bmff_scan`·`forensics_media_unit_candidates`·`forensics_allocation_window`도 마스킹된 후보·보고서 이름 대조·미디어 구조 후보·할당 metadata를 로컬 기록하는 자동 허용 도구다.
+  `forensics_partitions`, `forensics_image_check`, `forensics_job_status`, `forensics_jobs`는 조회 전용이라 자동 허용이다. `forensics_image_hints`도 사용자의 정지 이미지 내용 반환 결정에 따라 별도 승인 없이 허용한다(로컬 분석 결과는 쓴다). `forensics_scan_secrets`·`forensics_scan_secrets_from_list`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`·`forensics_dhav_candidates`·`forensics_dhav_scan`·`forensics_bmff_scan`·`forensics_media_unit_candidates`·`forensics_allocation_window`·`forensics_cluster_report`도 마스킹된 후보·보고서 이름 대조·미디어 구조 후보·할당 metadata를 로컬 기록하는 자동 허용 도구다.
 
 ## 안전 규칙
 
@@ -72,7 +72,7 @@ description: Analyze authorized SD images and firmware SD surfaces using pweh-fo
 | `forensics_intake_start`, `forensics_job_status`, `forensics_job_cancel`, `forensics_jobs` | 이미지 접수(job — 해시·케이스 사본·보관 기록), 폴링(wait_seconds ≤ 50), 취소, 남은 job |
 | `forensics_acquisition_attest` | 쓰기 방지 장치 사용의 사람 증명(write-blocker) |
 | `forensics_partitions`, `forensics_image_check` | 파티션 구조·볼륨 정보, 호스트 오염 흔적 (읽기 전용) |
-| `forensics_fs_list` / `forensics_allocation_window` | 파일 목록 / 명시 FAT/exFAT 창의 현재 할당 상태. 할당 검사 시 [reference.md §21](reference.md#21-명시-구간의-현재-할당-상태)의 unknown·미검사·후속 후보 규칙을 따른다 |
+| `forensics_fs_list` / `forensics_allocation_window` / `forensics_cluster_report` | 파일 목록 / 명시 FAT/exFAT 창의 할당 상태 / 현재 live 참조·할당 대조. 창은 [reference.md §21](reference.md#21-명시-구간의-현재-할당-상태), 참조 대조는 [§22](reference.md#22-현재-live-참조와-할당-일관성)의 완료 상태·미검사·후속 후보 규칙을 따른다 |
 | `forensics_extract` | 고른 파일만 추출(job) → `forensics/recovered/` (직접 열지 않음) |
 | `forensics_scan_secrets` / `forensics_scan_secrets_from_list` | 선택 텍스트 하나 / 저장 FAT/exFAT 목록의 자동 선정·마스킹된 후보·검사/미검사 범위 기록 |
 | `forensics_sd_ioc_scan` | 검증된 카드 목록과 기존 펌웨어 보고서의 이름 후보·검사 한계만 기록 |
