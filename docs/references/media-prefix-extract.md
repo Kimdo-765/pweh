@@ -1,5 +1,8 @@
 # 저장된 미디어 후보의 prefix 추출
 
+명시 exFAT 잔여 후보도 [잔여 계약](exfat-residual-candidates.md)에 따라 원래 선택 전체를 다시 검증해 추출한다.
+매니페스트는 닫힌 source19필드를 보존하며 extract 보관 사건의 region은 residual이다.
+
 `forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)`는
 `forensics_media_candidates`가 저장한 후보 하나의 검증된 연속 앞부분(prefix)을 파생 파일로 만든다.
 `analysis_path`는 앞 도구가 반환한 `analysis.path`, `candidate_index`는 그 보고서의 후보 번호다.

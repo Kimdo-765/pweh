@@ -1,5 +1,8 @@
 # 저장된 미디어 후보 한 단위의 추출
 
+명시 exFAT partition/ref의 ValidDataLength 뒤 선택은 별도 [잔여 계약](exfat-residual-candidates.md)을 따른다.
+잔여 source19필드와 전용 profile을 사용하며 아래의 기존 파일·EV 구간 계약은 유지한다.
+
 `forensics_extract_media_unit(case_id, evidence_id, analysis_path, candidate_index)`는
 같은 EV에 결속된 [미디어 단위 후보 보고서](media-unit-candidates.md)의 한 행을 추출하는
 job이다. format·선택 파일·offset·길이·복구 방법·출력 이름을 새로 지정하지 않는다.

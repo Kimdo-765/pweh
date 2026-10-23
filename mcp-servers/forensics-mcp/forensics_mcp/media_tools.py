@@ -166,6 +166,28 @@ def _source(opened: Any, evidence_id: str, member: dict, data: bytes) -> dict:
     return out
 
 
+def _residual_source(opened: Any, evidence_id: str, member: dict, data: bytes) -> dict:
+    """검증된 exFAT residual member만 기존 source16에 세 필드로 결속한다."""
+    keys = {"container", "member_selected", "partition", "ref", "path", "requested_path",
+            "deleted", "parent_deleted", "method", "confidence", "complete", "note", "size", "sha256",
+            "region", "data_length", "valid_data_length"}
+    if type(member) is not dict or set(member) != keys or type(data) is not bytes:
+        raise ValidationFailed(_ERRORS["validation_failed"])
+    source = _source(opened, evidence_id, member, data)
+    dl, vdl = member["data_length"], member["valid_data_length"]
+    if (type(member["region"]) is not str or member["region"] != "residual"
+            or source["container"] != "filesystem" or source["member_selected"] is not True
+            or type(source["partition"]) is not int or not 1 <= source["partition"] <= 4096
+            or type(source["ref"]) is not str or source["ref"].startswith("arc:")
+            or type(source["method"]) is not str or source["method"] not in {
+                "chain", "nofatchain", "contiguous", "skip-allocated", "stale-chain"}
+            or type(dl) is not int or type(vdl) is not int
+            or not 0 <= vdl < dl <= (1 << 63) - 1
+            or not 1 <= dl - vdl == source["selected_size"] <= MAX_FILE_BYTES):
+        raise ValidationFailed(_ERRORS["validation_failed"])
+    return {**source, "region": "residual", "data_length": dl, "valid_data_length": vdl}
+
+
 def _selection_coverage(report: dict, source: dict) -> None:
     """선택 바이트 구조의 완료와 삭제·복구·전체 목록 불확실성을 구분한다."""
     uncertain = (source["deleted"] is True or source["parent_deleted"] is True

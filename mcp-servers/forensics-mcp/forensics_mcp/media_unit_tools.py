@@ -21,7 +21,7 @@ from pweh.errors import PwehError, ValidationFailed
 from pweh.mcpkit import ANN_LOCAL_WRITE, run_blocking_cancellable, safe_tool
 
 from . import fsops, media_candidate_selection as selection
-from .media_tools import _source
+from .media_tools import _residual_source, _source
 
 MAX_FILE_BYTES = 64 << 20
 MAX_REPORT_BYTES = 1 << 20
@@ -64,11 +64,14 @@ def _check(cancelled: threading.Event, deadline: float, *, time_limit: bool = Tr
 
 
 def _arguments(evidence_id: Any, format: Any, partition: Any, ref: Any, path: Any,
-               method: Any, max_seconds: Any, *, offset: Any = None, length: Any = None) -> float:
+               method: Any, max_seconds: Any, *, offset: Any = None, length: Any = None,
+               region: Any = "data") -> float:
     """원시 선택자를 오류에 복사하지 않고 공통 시간 한도를 만든다."""
     from pweh.media_units import FORMATS
 
     invalid = _ERRORS["validation_failed"]
+    if type(region) is not str or region not in ("data", "residual"):
+        raise ValidationFailed(invalid)
     if type(format) is not str or format not in FORMATS:
         raise ValidationFailed(invalid)
     if not isinstance(evidence_id, str) or re.fullmatch(r"EV-[0-9]{4,6}", evidence_id) is None:
@@ -85,6 +88,12 @@ def _arguments(evidence_id: Any, format: Any, partition: Any, ref: Any, path: An
         raise ValidationFailed(invalid)
     if not isinstance(method, str) or method not in _METHODS:
         raise ValidationFailed(invalid)
+    if region == "residual":
+        if (type(partition) is not int or not 1 <= partition <= 4096
+                or type(ref) is not str or re.fullmatch(_FS_REF, ref) is None
+                or any(v is not None for v in (path, offset, length))
+                or type(method) is not str or method not in (_METHODS - {"skip-claimed", "fat-chain"})):
+            raise ValidationFailed(invalid)
     if ref is None and path is None and (partition is not None or method != "auto"):
         raise ValidationFailed(invalid)
     if offset is not None or length is not None:
@@ -165,21 +174,37 @@ def _fixed_error(exc: Exception) -> PwehError:
 async def _media_unit_run(S: _ServerAPI, *, case_id: str, evidence_id: str, format: str,
                          partition: int | None, ref: str | None, path: str | None,
                          method: str, max_seconds: float, offset: int | None = None,
-                         length: int | None = None) -> dict:
+                         length: int | None = None, region: str = "data") -> dict:
     cancelled = threading.Event()
     try:
-        deadline = _arguments(evidence_id, format, partition, ref, path, method, max_seconds, offset=offset, length=length)
+        deadline = _arguments(evidence_id, format, partition, ref, path, method, max_seconds, offset=offset, length=length, region=region)
         case = await S._case(case_id)
 
         def work_body() -> dict:
             from pweh.media_units import (MediaUnitLimits, FILE_PROFILES, RANGE_PROFILES,
+                                          RESIDUAL_PROFILES, RESIDUAL_LIMITATIONS,
                                           scan_media_unit_candidates, validate_media_unit_accounting)
 
             _check(cancelled, deadline)
             entries = S.custody(case).entries()
             try:
                 with E.open_checked(case, evidence_id, entries, reference_roots=S._reference_roots()) as opened:
-                    if offset is None:
+                    if region == "residual":
+                        try:
+                            with fsops.image_reader(opened.fd) as img:
+                                data, member = fsops.read_selected_residual(
+                                    img, partition=partition, ref=ref, method=method,
+                                    max_bytes=MAX_FILE_BYTES, deadline=deadline, cancel=cancelled.is_set)
+                        except fsops.FsError as exc:
+                            if exc.reason in ("bad_argument", "unsupported_fs"):
+                                raise PwehError(_ERRORS["invalid_selection"], code="invalid_selection") from None
+                            raise
+                        _check(cancelled, deadline)
+                        source = _residual_source(opened, evidence_id, member, data)
+                        if (source["partition"] != partition or source["ref"] != ref
+                                or method != "auto" and source["method"] != method):
+                            raise ValidationFailed(_ERRORS["validation_failed"])
+                    elif offset is None:
                         data, member = fsops.read_selected_file(
                             opened.fd, partition=partition, ref=ref, path=path, method=method,
                             max_bytes=MAX_FILE_BYTES, deadline=deadline, cancel=cancelled.is_set,
@@ -194,7 +219,11 @@ async def _media_unit_run(S: _ServerAPI, *, case_id: str, evidence_id: str, form
                     report = scan_media_unit_candidates(data, format=format, limits=limits, deadline=deadline, cancel=cancelled.is_set)
                     report["source"] = source
                     report["params"] = {"format": format, "partition": partition, "method": method, "max_seconds": max_seconds}
-                    if offset is not None:
+                    if region == "residual":
+                        report["profile"] = RESIDUAL_PROFILES[format]
+                        report["limitations"] = [*report["limitations"], *RESIDUAL_LIMITATIONS]
+                        report["params"]["region"] = "residual"
+                    elif offset is not None:
                         # 순수 scanner의 좌표는 그대로다. 명시 구간의 출처·한계만 별도 profile로 닫는다.
                         report["profile"] = RANGE_PROFILES[format]
                         report["limitations"] = [*report["limitations"], *selection.RANGE_LIMITATIONS]
@@ -203,7 +232,8 @@ async def _media_unit_run(S: _ServerAPI, *, case_id: str, evidence_id: str, form
                                 or type(source["selected_size"]) is not int or source["selected_size"] != length
                                 or source["selected_size"] != len(data)):
                             raise ValidationFailed(_ERRORS["validation_failed"])
-                    expected_profile = RANGE_PROFILES[format] if offset is not None else FILE_PROFILES[format]
+                    expected_profile = (RESIDUAL_PROFILES[format] if region == "residual"
+                                        else RANGE_PROFILES[format] if offset is not None else FILE_PROFILES[format])
                     if report["format"] != format or report["profile"] != expected_profile:
                         raise ValidationFailed(_ERRORS["validation_failed"])
                     _selection_coverage(report, source)
@@ -255,6 +285,9 @@ def register_media_unit_tools(server: Any, namespace: dict[str, Any]) -> None:
         "format은 jpeg, avc-annexb, mpeg2-ps, xm만 받으며 자동 형식 판정은 하지 않는다. "
         "ref/path는 FAT/exFAT·TAR/ZIP 파일 하나, 둘 다 없으면 EV 전체다. "
         "offset/length는 exact int로 함께 지정하고 selector·partition과 혼용하지 않으며 method=auto만 허용한다. "
+        "region 기본 data는 기존 선택이다. residual은 명시 partition+FS ref의 exFAT 파일에서 "
+        "ValidDataLength 뒤 DataLength까지의 완전한 잔여만 읽고 path/offset/length는 받지 않는다. "
+        "residual source19는 두 논리 길이·선택 SHA를 결속하며 VDL+후보 offset은 파일 논리좌표다. "
         "선택 최대64MiB·공통45초·후보128개이며 candidate.offset/length는 선택 bytes 상대다. "
         "구간 모드에서만 source.offset을 더해 EV 위치를 계산한다. "
         "JPEG baseline 단일 scan의 EOI, AVC 다음 NAL delimiter, MPEG-2 PS 검증 pack prefix, "
@@ -270,11 +303,11 @@ def register_media_unit_tools(server: Any, namespace: dict[str, Any]) -> None:
         case_id: str, evidence_id: str, format: str, partition: StrictInt | None = None,
         ref: str | None = None, path: str | None = None, method: str = "auto",
         max_seconds: StrictFloat | StrictInt = 45,
-        offset: StrictInt | None = None, length: StrictInt | None = None,
+        offset: StrictInt | None = None, length: StrictInt | None = None, region: str = "data",
     ) -> dict:
         return await _media_unit_run(S, case_id=case_id, evidence_id=evidence_id, format=format, partition=partition,
                                     ref=ref, path=path, method=method, max_seconds=max_seconds,
-                                    offset=offset, length=length)
+                                    offset=offset, length=length, region=region)
 
     namespace["forensics_media_unit_candidates"] = forensics_media_unit_candidates
     try:

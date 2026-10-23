@@ -132,12 +132,28 @@ def _validate_source(opened: E.OpenedEvidence, data: bytes, manifest: dict,
     source, candidate, file = manifest["source"], manifest["candidate"], manifest["files"][0]
     sha = opened.intake["hashes"]["sha256"]
     ranged = source["method"] == "byte-range"
-    profile = (M.RANGE_PROFILES if ranged else M.FILE_PROFILES)[format]
+    if "region" in source:
+        if source["region"] != "residual":
+            raise _error("media_unit_input_invalid")
+        profile = M.RESIDUAL_PROFILES[format]
+    elif ranged:
+        profile = M.RANGE_PROFILES[format]
+    else:
+        profile = M.FILE_PROFILES[format]
     if (manifest["source_profile"] != profile or candidate["format"] != format
             or manifest["evidence_id"] != opened.evidence_id or source["evidence_id"] != opened.evidence_id
             or manifest["evidence_sha256"] != sha or source["evidence_sha256"] != sha
             or source["selected_size"] != len(data)):
         raise _error("media_unit_input_invalid")
+    if "region" in source:
+        # schema 외에도 raw 길이의 exact 정수형·차이를 실제 선택 bytes와 대조한다.
+        if (source["region"] != "residual"
+                or any(type(source[key]) is not int for key in
+                       ("data_length", "valid_data_length", "selected_size", "partition"))
+                or not 0 <= source["valid_data_length"] < source["data_length"] <= (1 << 63) - 1
+                or source["data_length"] - source["valid_data_length"] != len(data)
+                or type(manifest["source_coverage"]["input_bytes"]) is not int):
+            raise _error("media_unit_input_invalid")
     if ranged:
         offset, evidence_size = source["offset"], source["evidence_size"]
         if (any(type(v) is not int for v in (offset, evidence_size, source["selected_size"],
@@ -338,7 +354,7 @@ def store_media_unit(case: Any, opened: E.OpenedEvidence, data: bytes, *, manife
 
         entry = custody_log.append("extract", evidence_id=opened.evidence_id,
                                    data={"output_dir": relative, "manifest_sha256": manifest_sha,
-                                         "files": 1, "bytes": size, "method": METHOD, "region": "data",
+                                         "files": 1, "bytes": size, "method": METHOD, "region": frozen["source"].get("region", "data"),
                                          "analysis": frozen["analysis"], "candidate_index": frozen["candidate"]["index"],
                                          "format": frozen["format"]},
                                    check=verify)

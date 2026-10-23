@@ -15,6 +15,7 @@ FORMATS = ("jpeg", "avc-annexb", "mpeg2-ps", "xm")
 FILE_PROFILES = dict(zip(FORMATS, ("jpeg-baseline-marker-v1", "avc-annexb-delimited-nal-v1",
                                   "mpeg2-ps-bounded-pack-prefix-v1", "xm-length-delimited-frame-v1")))
 RANGE_PROFILES = {key: value[:-3] + "-ev-range-v1" for key, value in FILE_PROFILES.items()}
+RESIDUAL_PROFILES = {key: value[:-3] + "-exfat-residual-v1" for key, value in FILE_PROFILES.items()}
 MIN_UNIT_BYTES = dict(zip(FORMATS, (28, 4, 24, 9)))
 MIN_SELECTED_BYTES = dict(zip(FORMATS, (28, 8, 24, 9)))
 FALSE_FIELDS = ("media_decoded", "playback_verified", "recording_time_verified", "encryption_assessed",
@@ -29,6 +30,8 @@ REASONS = (*LIMIT_REASONS, "unit_framing_incomplete", "candidate_prefix_partial"
 LIMITATIONS = ("structural_candidates_only", "format_subset_only", "original_file_boundary_unknown",
                "complete_recording_unverified", "candidate_overlap_unclassified", "payload_semantics_unexamined")
 RANGE_LIMITATIONS = ("explicit_evidence_range_only", "outside_range_unexamined")
+RESIDUAL_LIMITATIONS = ("exfat_valid_data_length_residual_only", "logical_offsets_not_evidence_offsets",
+                        "no_original_recording_or_deletion_verification")
 _UNITS = dict(zip(FORMATS, ("jpeg_codestream", "avc_nal", "mpeg2_ps_pack_prefix", "xm_frame")))
 _PS_PREFIX = ("selection_end", "truncated_packet", "unsupported_packet", "invalid_packet", "zero_length_packet")
 _WINDOW = 65536
@@ -510,8 +513,12 @@ def _validate(report):
     format = report["format"]
     _require(type(format) is str and format in FORMATS)
     is_range = report["profile"] == RANGE_PROFILES[format]
-    _require(is_range or report["profile"] == FILE_PROFILES[format])
-    _require(report["limitations"] == list(LIMITATIONS) + (list(RANGE_LIMITATIONS) if is_range else []))
+    is_residual = report["profile"] == RESIDUAL_PROFILES[format]
+    _require(is_range or is_residual or report["profile"] == FILE_PROFILES[format])
+    suffix = RESIDUAL_LIMITATIONS if is_residual else RANGE_LIMITATIONS if is_range else ()
+    _require(report["limitations"] == list(LIMITATIONS) + list(suffix))
+    if is_residual:
+        _require("source" in report and "params" in report)
     summary, cov, rows = report["summary"], report["coverage"], report["candidates"]
     _require(type(summary) is dict and type(cov) is dict and type(rows) is list and len(rows) <= 128)
     observed = _int(summary["anchors_observed"], 1025)
@@ -627,6 +634,19 @@ def _validate(report):
             _require(offset == _int(params["offset"], (1 << 63) - 1))
             _require(size == _int(params["length"], 64 << 20, 1))
             _require(offset + size <= _int(source["evidence_size"], (1 << 63) - 1, 1))
+        elif is_residual:
+            _require(set(params) == {"format", "partition", "method", "max_seconds", "region"})
+            _require(set(source) == {"kind", "evidence_id", "evidence_sha256", "container", "member_selected",
+                                     "selected_sha256", "selected_size", "complete", "method", "confidence",
+                                     "partition", "ref", "deleted", "parent_deleted", "container_truncated",
+                                     "container_truncated_reasons", "region", "data_length", "valid_data_length"})
+            _require(source["region"] == params["region"] == "residual")
+            _require(source["container"] == "filesystem" and source["member_selected"] is True)
+            _require(_int(source["partition"], 4096, 1) == _int(params["partition"], 4096, 1))
+            _require(source["method"] in ("chain", "nofatchain", "contiguous", "skip-allocated", "stale-chain"))
+            _require(params["method"] in ("auto", source["method"]))
+            dl, vdl = _int(source["data_length"], (1 << 63) - 1, 1), _int(source["valid_data_length"], (1 << 63) - 1)
+            _require(0 <= vdl < dl and 1 <= size == dl - vdl <= 64 << 20)
         else:
             _require(set(params) == {"format", "partition", "method", "max_seconds"})
             _require(source["method"] != "byte-range" and "offset" not in source and "evidence_size" not in source)

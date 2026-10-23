@@ -25,6 +25,10 @@ RANGE_PROFILE = "ftyp-contiguous-ev-range-v1"
 RANGE_LIMITATIONS = ("explicit_evidence_range_only", "outside_range_unexamined")
 _RANGE_KEYS = frozenset((*_IDENTITY, "confidence", "parent_deleted", "container_truncated",
                         "container_truncated_reasons", "evidence_size", "offset"))
+_RESIDUAL_KEYS = frozenset((*_IDENTITY, "confidence", "parent_deleted", "container_truncated",
+                           "container_truncated_reasons", "region", "data_length", "valid_data_length"))
+_RESIDUAL_METHODS = {"chain", "nofatchain", "contiguous", "skip-allocated", "stale-chain"}
+_FS_REF = re.compile(r"[0-9a-z+]{1,40}/[0-9]{1,9}\Z")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -143,6 +147,39 @@ def reselect_candidate_source(opened, candidate_input, *, deadline, cancel, min_
                 or not min_selected_bytes <= source["selected_size"] <= MAX_SELECTED_BYTES or source["complete"] is not True):
             raise input_error()
         kind = source["container"]
+        if "region" in source:
+            # 잔여는 기존 data 복구나 EV 물리 구간으로 해석하지 않는다.
+            from .media_tools import _residual_source
+            if (set(source) != _RESIDUAL_KEYS or source["region"] != "residual"
+                    or kind != "filesystem" or source["member_selected"] is not True
+                    or source["method"] not in _RESIDUAL_METHODS
+                    or type(source["partition"]) is not int or not 1 <= source["partition"] <= 4096
+                    or type(source["ref"]) is not str or _FS_REF.fullmatch(source["ref"]) is None
+                    or type(source["data_length"]) is not int or type(source["valid_data_length"]) is not int
+                    or not 0 <= source["valid_data_length"] < source["data_length"] <= MAX_RANGE_END
+                    or source["selected_size"] != source["data_length"] - source["valid_data_length"]
+                    or type(source["container_truncated_reasons"]) is not list
+                    or any(type(r) is not str for r in source["container_truncated_reasons"])):
+                raise input_error()
+            try:
+                with fsops.image_reader(opened.fd) as img:
+                    data, member = fsops.read_selected_residual(
+                        img, partition=source["partition"], ref=source["ref"], method=source["method"],
+                        max_bytes=MAX_SELECTED_BYTES, deadline=deadline, cancel=cancel)
+            except Exception as exc:
+                # 새 helper의 기존 checkpoint 코드만 재선택의 고정 timeout으로 연결한다.
+                if getattr(exc, "code", None) == "time_limit":
+                    raise input_error("timeout") from None
+                raise
+            check_budget(deadline, cancel)
+            if type(data) is not bytes:
+                raise input_error()
+            fresh = _residual_source(opened, opened.evidence_id, member, data)
+            if (set(fresh) != set(source)
+                    or any(type(fresh[k]) is not type(source[k]) or fresh[k] != source[k] for k in source)):
+                raise input_error("media_prefix_input_changed")
+            check_budget(deadline, cancel)
+            return data, fresh
         if source["method"] == "byte-range":
             check_candidate_range(opened, source, deadline=deadline, cancel=cancel)
             data, fresh = read_candidate_range(opened, source["offset"], source["selected_size"],

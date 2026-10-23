@@ -142,6 +142,17 @@ def _semantic(report: dict, index: int, opened: E.OpenedEvidence, event: dict) -
                 or evidence_size != opened.intake["size"]
                 or evidence_size != opened.st.st_size or evidence_size != os.fstat(opened.fd).st_size):
             raise input_error()
+    if report["profile"] == media_units.RESIDUAL_PROFILES[format]:
+        dl, vdl = source["data_length"], source["valid_data_length"]
+        if (any(type(v) is not int for v in (dl, vdl, source["partition"], params["partition"]))
+                or not 0 <= vdl < dl <= MAX_EVIDENCE_BYTES
+                or dl - vdl != source["selected_size"]
+                or not 1 <= source["partition"] == params["partition"] <= 4096
+                or source["region"] != "residual" or params["region"] != "residual"
+                or source["container"] != "filesystem" or source["member_selected"] is not True
+                or source["method"] not in {"chain", "nofatchain", "contiguous", "skip-allocated", "stale-chain"}
+                or params["method"] not in {"auto", source["method"]}):
+            raise input_error()
 
 
 @dataclass(frozen=True)

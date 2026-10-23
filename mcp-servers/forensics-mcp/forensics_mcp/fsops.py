@@ -822,6 +822,93 @@ def read_selected_image(img: ImageReader, *, partition: int | None, ref: str | N
                   "note": pd.get("note"), "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
 
 
+def read_selected_residual(img: ImageReader, *, partition: int, ref: str, method: str,
+                           max_bytes: int, deadline: float,
+                           cancel: Callable[[], bool]) -> tuple[bytes, dict[str, Any]]:
+    """명시 exFAT 파일의 raw VDL 뒤 잔여만 같은 reader로 읽는다. reader 소유권은 호출자에게 있다."""
+    from pweh.evidence import image_hints_checkpoint
+
+    methods = {"auto", "chain", "nofatchain", "contiguous", "skip-allocated", "stale-chain"}
+    if (type(partition) is not int or not 1 <= partition <= 4096 or type(ref) is not str
+            or _REF_RX.fullmatch(ref) is None or type(method) is not str or method not in methods
+            or type(max_bytes) is not int or not 1 <= max_bytes <= 64 << 20):
+        raise FsError("잔여 선택 인자가 유효하지 않습니다.", reason="bad_argument")
+
+    def check() -> None:
+        image_hints_checkpoint(deadline, cancel)
+
+    def incomplete() -> FsError:
+        return FsError("잔여 선택의 항목 또는 내용 계획을 확인하지 못했습니다.", reason="incomplete_file")
+
+    left = image_hints_checkpoint(deadline, cancel)
+    limits = dataclasses.replace(Limits(), max_seconds=left, max_read_bytes=max_bytes)
+    p, vol = open_partition_volume(img, partition, limits=limits,
+                                  budget=engine_budget(None, limits, deadline=deadline, cancel=cancel))
+    check()
+    if vol.kind != "exfat":
+        raise FsError("잔여 선택은 exFAT 파일만 지원합니다.", reason="unsupported_fs")
+    if type(p.get("index")) is not int or p["index"] != partition:
+        raise incomplete()
+    entries, unresolved = resolve_targets(vol, [ref], [], limits=limits, deadline=deadline,
+                                           check=check, cancel=cancel, include_parent_deleted=True)
+    check()
+    if unresolved or len(entries) != 1:
+        reason = str(unresolved[0].get("code")) if unresolved else "not_found"
+        raise FsError("잔여 파일 하나를 검증해 선택하지 못했습니다.", reason=reason)
+    entry = entries[0]
+    if (entry.get("is_dir") is not False or entry.get("fs") != "exfat" or entry.get("ref") != ref
+            or type(entry.get("deleted")) is not bool
+            or (entry.get("parent_deleted") is not None and type(entry["parent_deleted"]) is not bool)):
+        raise incomplete()
+    dlen, vdl = entry.get("size"), entry.get("valid_data_length_raw")
+    if (type(dlen) is not int or type(vdl) is not int or not 0 <= vdl < dlen <= (1 << 63) - 1
+            or type(entry.get("valid_data_length")) is not int or entry["valid_data_length"] != vdl):
+        raise incomplete()
+    wanted = dlen - vdl
+    if wanted > max_bytes:
+        raise FsError("잔여 선택 크기가 읽기 상한을 넘습니다.", reason="max_bytes")
+    check()
+    plan = vol.content_plan(ref, method, "residual", limits=limits,
+                            budget=engine_budget(vol, limits, deadline=deadline, cancel=cancel))
+    pd = plan.to_dict(max_runs=0)
+    check()
+    if (plan.ref != ref or plan.region != "residual" or plan.method not in methods - {"auto"}
+            or (method != "auto" and plan.method != method)
+            or any(type(value) is not int for value in
+                   (plan.skip, plan.size, plan.expected_size, plan.extra.get("data_length"),
+                    plan.extra.get("valid_data_length")))
+            or plan.skip != vdl or plan.size != wanted or plan.expected_size != wanted
+            or plan.extra["data_length"] != dlen or plan.extra["valid_data_length"] != vdl
+            or pd.get("complete") is not True or pd.get("limit_reason")
+            or pd.get("status") == "limit" or pd.get("bytes_beyond_image")):
+        raise incomplete()
+    chunks: list[bytes] = []
+    size, digest = 0, hashlib.sha256()
+    check()
+    for chunk in vol.iter_plan(plan, max_bytes=max_bytes, chunk_size=65536):
+        check()
+        if type(chunk) is not bytes or len(chunk) > 65536:
+            raise incomplete()
+        size += len(chunk)
+        if size > wanted or size > max_bytes:
+            raise incomplete()
+        digest.update(chunk)
+        chunks.append(chunk)
+        check()
+    if size != wanted:
+        raise incomplete()
+    check()
+    data = b"".join(chunks)
+    check()
+    return data, {"container": "filesystem", "member_selected": True,
+                  "partition": partition, "ref": ref, "path": entry.get("display_path"),
+                  "requested_path": entry.get("requested_path"), "deleted": entry["deleted"],
+                  "parent_deleted": entry.get("parent_deleted"), "method": plan.method,
+                  "confidence": pd.get("confidence"), "complete": True, "note": pd.get("note"),
+                  "size": size, "sha256": digest.hexdigest(), "region": "residual",
+                  "data_length": dlen, "valid_data_length": vdl}
+
+
 def extract_entries(vol: Any, entries: Iterable[dict[str, Any]], out_dir_fd: int, *, method: str, region: str, max_bytes_total: int,
                     max_files: int, limits: Limits | None = None, deadline: float | None = None,
                     cancel: Callable[[], bool] | None = None,

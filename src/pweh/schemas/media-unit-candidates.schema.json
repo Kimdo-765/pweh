@@ -14,7 +14,11 @@
         "jpeg-baseline-marker-ev-range-v1",
         "avc-annexb-delimited-nal-ev-range-v1",
         "mpeg2-ps-bounded-pack-prefix-ev-range-v1",
-        "xm-length-delimited-frame-ev-range-v1"
+        "xm-length-delimited-frame-ev-range-v1",
+        "jpeg-baseline-marker-exfat-residual-v1",
+        "avc-annexb-delimited-nal-exfat-residual-v1",
+        "mpeg2-ps-bounded-pack-prefix-exfat-residual-v1",
+        "xm-length-delimited-frame-exfat-residual-v1"
       ]
     },
     "format": {
@@ -217,7 +221,7 @@
     },
     "limitations": {
       "type": "array",
-      "maxItems": 8,
+      "maxItems": 9,
       "items": {
         "type": "string"
       }
@@ -229,6 +233,9 @@
         },
         {
           "$ref": "#/$defs/evidence_range_source"
+        },
+        {
+          "$ref": "#/$defs/exfat_residual_source"
         }
       ]
     },
@@ -239,6 +246,9 @@
         },
         {
           "$ref": "#/$defs/evidence_range_params"
+        },
+        {
+          "$ref": "#/$defs/exfat_residual_params"
         }
       ]
     }
@@ -1256,6 +1266,214 @@
         "work_bytes_charged",
         "reasons"
       ]
+    },
+    "exfat_residual_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "evidence"
+        },
+        "evidence_id": {
+          "type": "string",
+          "pattern": "^EV-[0-9]{4,6}$",
+          "maxLength": 9,
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "evidence_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64,
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "container": {
+          "const": "filesystem"
+        },
+        "member_selected": {
+          "const": true
+        },
+        "selected_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64,
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "selected_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        },
+        "complete": {
+          "const": true
+        },
+        "method": {
+          "enum": [
+            "chain",
+            "nofatchain",
+            "contiguous",
+            "skip-allocated",
+            "stale-chain"
+          ]
+        },
+        "confidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "partition": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^(?:root|c[0-9]{1,10}(?:\\+[0-9]{1,10})?|n[0-9]{1,10}\\+[0-9]{1,10})/[0-9]{1,9}$",
+          "maxLength": 40,
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "parent_deleted": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "container_truncated": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "container_truncated_reasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "time",
+              "unsupported_archive_compression",
+              "incomplete_archive",
+              "max_metadata",
+              "max_entries",
+              "invalid_archive",
+              "unsupported_archive",
+              "trailing_data_unexamined",
+              "trailing_data",
+              "unsupported_sparse",
+              "steps",
+              "max_depth",
+              "max_dir_slots",
+              "max_total_slots",
+              "max_path_chars",
+              "beyond_image",
+              "dir_chain_broken",
+              "dir_unreadable",
+              "dir_unvalidated",
+              "unknown_container_limit"
+            ]
+          },
+          "maxItems": 20,
+          "uniqueItems": true
+        },
+        "region": {
+          "const": "residual"
+        },
+        "data_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "valid_data_length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        }
+      },
+      "required": [
+        "kind",
+        "evidence_id",
+        "evidence_sha256",
+        "container",
+        "member_selected",
+        "selected_sha256",
+        "selected_size",
+        "complete",
+        "method",
+        "confidence",
+        "partition",
+        "ref",
+        "deleted",
+        "parent_deleted",
+        "container_truncated",
+        "container_truncated_reasons",
+        "region",
+        "data_length",
+        "valid_data_length"
+      ]
+    },
+    "exfat_residual_params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "partition": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "method": {
+          "enum": [
+            "auto",
+            "chain",
+            "nofatchain",
+            "contiguous",
+            "skip-allocated",
+            "stale-chain"
+          ]
+        },
+        "max_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 45
+        },
+        "format": {
+          "enum": [
+            "jpeg",
+            "avc-annexb",
+            "mpeg2-ps",
+            "xm"
+          ]
+        },
+        "region": {
+          "const": "residual"
+        }
+      },
+      "required": [
+        "partition",
+        "method",
+        "max_seconds",
+        "format",
+        "region"
+      ]
     }
   },
   "allOf": [
@@ -1303,7 +1521,8 @@
           "profile": {
             "enum": [
               "jpeg-baseline-marker-v1",
-              "jpeg-baseline-marker-ev-range-v1"
+              "jpeg-baseline-marker-ev-range-v1",
+              "jpeg-baseline-marker-exfat-residual-v1"
             ]
           },
           "params": {
@@ -1338,7 +1557,8 @@
           "profile": {
             "enum": [
               "avc-annexb-delimited-nal-v1",
-              "avc-annexb-delimited-nal-ev-range-v1"
+              "avc-annexb-delimited-nal-ev-range-v1",
+              "avc-annexb-delimited-nal-exfat-residual-v1"
             ]
           },
           "params": {
@@ -1373,7 +1593,8 @@
           "profile": {
             "enum": [
               "mpeg2-ps-bounded-pack-prefix-v1",
-              "mpeg2-ps-bounded-pack-prefix-ev-range-v1"
+              "mpeg2-ps-bounded-pack-prefix-ev-range-v1",
+              "mpeg2-ps-bounded-pack-prefix-exfat-residual-v1"
             ]
           },
           "params": {
@@ -1408,7 +1629,8 @@
           "profile": {
             "enum": [
               "xm-length-delimited-frame-v1",
-              "xm-length-delimited-frame-ev-range-v1"
+              "xm-length-delimited-frame-ev-range-v1",
+              "xm-length-delimited-frame-exfat-residual-v1"
             ]
           },
           "params": {
@@ -1462,8 +1684,22 @@
             ]
           }
         }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "enum": [
+              "jpeg-baseline-marker-ev-range-v1",
+              "avc-annexb-delimited-nal-ev-range-v1",
+              "mpeg2-ps-bounded-pack-prefix-ev-range-v1",
+              "xm-length-delimited-frame-ev-range-v1"
+            ]
+          }
+        }
       },
-      "else": {
+      "then": {
         "properties": {
           "source": {
             "$ref": "#/$defs/evidence_range_source"
@@ -1481,6 +1717,43 @@
               "payload_semantics_unexamined",
               "explicit_evidence_range_only",
               "outside_range_unexamined"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "enum": [
+              "jpeg-baseline-marker-exfat-residual-v1",
+              "avc-annexb-delimited-nal-exfat-residual-v1",
+              "mpeg2-ps-bounded-pack-prefix-exfat-residual-v1",
+              "xm-length-delimited-frame-exfat-residual-v1"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "$ref": "#/$defs/exfat_residual_source"
+          },
+          "params": {
+            "$ref": "#/$defs/exfat_residual_params"
+          },
+          "limitations": {
+            "const": [
+              "structural_candidates_only",
+              "format_subset_only",
+              "original_file_boundary_unknown",
+              "complete_recording_unverified",
+              "candidate_overlap_unclassified",
+              "payload_semantics_unexamined",
+              "exfat_valid_data_length_residual_only",
+              "logical_offsets_not_evidence_offsets",
+              "no_original_recording_or_deletion_verification"
             ]
           }
         }

@@ -331,22 +331,22 @@
   같은 케이스의 fw_sd_surface 전체 결과와 같은 EV의 FAT/exFAT fs-list 전체 JSON을 대조해 펌웨어 참조 경로와 카드 파일 이름이 겹치는 후보를 찾는다. firmware_result_path는 analysis/sd-surface-NNN.json, fs_list_path는 forensics/analysis/fs-list-EV-NNNN-NNN.json의 생성 상대 경로
 - **`forensics_media_inventory(case_id, evidence_id, partition?, ref?, path?, method?, max_seconds?)`**  
   증거에서 선택한 파일 1개의 MP4/QuickTime 계열 ISO BMFF 상자 구조를 오프라인 목록화한다. 소유/허가·보관 기록·무결성 확인 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택한다. 둘 다 없으면 EV 자체를 읽으며 자동 검색·카빙은 하지 않는다. 완전한 파일만 최대 64 MiB, max_seconds는 0 초 초과·최대 45초(선택·읽기·구조 검사 공통)
-- **`forensics_media_candidates(case_id, evidence_id, partition?, ref?, path?, method?, max_seconds?, offset?, length?)`**  
+- **`forensics_media_candidates(case_id, evidence_id, partition?, ref?, path?, method?, max_seconds?, offset?, length?, region?)`**  
   증거에서 선택한 파일 1개의 완전한 바이트 또는 EV의 명시 구간에서 ftyp 기반 ISO BMFF 연속 최상위 상자 prefix 후보를 찾는다. 소유/허가·보관 기록·무결성 확인 후 FAT/exFAT·TAR/ZIP ref 또는 path 하나를 선택한다. ref/path와 offset/length가 모두 없으면 EV 전체를 선택한다. offset/length는 exact int를 함께 지정하
-- **`forensics_dhav_candidates(case_id, evidence_id, partition?, ref?, path?, method?, max_seconds?, offset?, length?)`**  
+- **`forensics_dhav_candidates(case_id, evidence_id, partition?, ref?, path?, method?, max_seconds?, offset?, length?, region?)`**  
   선택한 완전 파일 또는 EV의 명시 바이트 구간에서 DHAV 고정 record 구조 후보를 관찰한다. ref/path는 FAT/exFAT·TAR/ZIP 파일 하나이며 둘 다 없으면 EV 전체를 읽는다. offset/length는 exact int로 함께 지정하고 선택자·partition과 혼용하지 않으며 method=auto만 받는다. 선택·구간은 최대 64 MiB, offset+length
 - **`forensics_extract_dhav_candidate(case_id, evidence_id, analysis_path, candidate_index)`**  
-  보관 기록에 결속된 dhav-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). analysis_path는 같은 케이스·EV의 생성 보고서 경로이며 index는 0~127의 저장 후보를 고른다. 증거와 보고서의 무결성을 확인하고 원래 ref/partition/복구 방법 또는 EV 명시 구간으로 같은 완전 바이트를 다시 읽는다. 구간은 저장된 시작·길이·E
+  보관 기록에 결속된 dhav-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). analysis_path는 같은 케이스·EV의 생성 보고서 경로이며 index는 0~127의 저장 후보를 고른다. 증거와 보고서의 무결성을 확인하고 원래 ref/partition/복구 방법, 명시 exFAT 잔여 영역 또는 EV 명시 구간으로 같은 완전 바이트를 다시 읽는다.
 - **`forensics_dhav_scan(case_id, evidence_id, start_offset?, max_scan_bytes?, max_seconds?)`**  
   접수한 EV 이미지에서 DHAV record 구조 후보를 나눠 읽어 검색한다. start_offset은 EV 절대 위치(기본0), max_scan_bytes는 연속 검색 읽기 합계4 bytes..1 GiB(기본1 GiB)다. 64 KiB 이하 창과 메모리 carry로 창 경계 표지를 확인한다. 구조 필드 읽기는 별도1 MiB까지이며 검색 창 밖이라도 EV 안의 헤더/끝 표지는 대조한다. 전체
 - **`forensics_bmff_scan(case_id, evidence_id, start_offset?, max_scan_bytes?, max_seconds?)`**  
   접수한 EV 이미지에서 ftyp 기반 BMFF 연속 최상위 상자 prefix 후보를 나눠 읽어 검색한다. start_offset은 EV 절대 위치(기본0), max_scan_bytes는 연속 검색 읽기 합계8 bytes..1 GiB(기본1 GiB)다. 64 KiB 이하 창과 메모리 carry로 창 경계 표지를 확인한다. 구조 필드는 별도1 MiB까지 읽으며 검색 창 밖이라도 EV 안의 헤더/
-- **`forensics_media_unit_candidates(case_id, evidence_id, format, partition?, ref?, path?, method?, max_seconds?, offset?, length?)`**  
+- **`forensics_media_unit_candidates(case_id, evidence_id, format, partition?, ref?, path?, method?, max_seconds?, offset?, length?, region?)`**  
   선택한 완전 파일 또는 EV 명시 구간에서 format 하나의 고정 미디어 단위 구조 후보를 관찰한다. format은 jpeg, avc-annexb, mpeg2-ps, xm만 받으며 자동 형식 판정은 하지 않는다. ref/path는 FAT/exFAT·TAR/ZIP 파일 하나, 둘 다 없으면 EV 전체다. offset/length는 exact int로 함께 지정하고 selector·partit
 - **`forensics_extract_media_unit(case_id, evidence_id, analysis_path, candidate_index)`**  
-  보관 기록에 결속된 media-unit-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). analysis_path는 같은 케이스·EV의 생성 보고서이며 index는 저장 후보0~127이다. format과 bytes 범위는 저장된 보고서만 사용하며 새 selector/offset/길이를 받지 않는다. 원래 ref/partition/복구 방법 또는 EV 명
+  보관 기록에 결속된 media-unit-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). analysis_path는 같은 케이스·EV의 생성 보고서이며 index는 저장 후보0~127이다. format과 bytes 범위는 저장된 보고서만 사용하며 새 selector/offset/길이를 받지 않는다. 원래 ref/partition/복구 방법, 명시 exF
 - **`forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)`**  
-  보관 기록에 결속된 media-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). analysis_path는 같은 케이스·EV의 생성 보고서 경로이며 index는 0~127의 저장 후보를 고른다. 증거와 보고서의 무결성을 확인하고 원래 ref/partition/복구 방법 또는 EV 명시 구간으로 같은 완전 바이트를 다시 읽는다. 구간은 저장된 시작·길이·
+  보관 기록에 결속된 media-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). analysis_path는 같은 케이스·EV의 생성 보고서 경로이며 index는 0~127의 저장 후보를 고른다. 증거와 보고서의 무결성을 확인하고 원래 ref/partition/복구 방법, 명시 exFAT 잔여 영역 또는 EV 명시 구간으로 같은 완전 바이트를 다시 읽는다
 - **`forensics_allocation_window(case_id, evidence_id, partition, offset, length, max_seconds?)`**  
   접수한 EV 이미지의 명시 FAT/exFAT 파티션에서 현재 할당 상태 메타데이터를 검사한다. partition은 필수 index, offset은 EV 절대 위치, length는 1 byte..64 MiB이며 exact int만 받는다. 창은 해당 파티션의 데이터 클러스터 영역 안이어야 한다. unallocated/allocated/bad/unknown 연속 범위와 미검사 suffix·nex
 - **`forensics_cluster_report(case_id, evidence_id, partition, max_seconds?)`**  

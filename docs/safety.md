@@ -569,6 +569,11 @@ pweh-forensics 와 그 코어(`pweh.fs`·`pweh.evidence`·`pweh.safeio`)가 지�
 - size0·선택 끝·다음 ftyp를 원본 녹화 종료로 보지 않는다. 후보0건/unsupported도 미디어 부재를 증명하지 않는다. `complete_recording`·원본 경계·물리 카빙·재생·암호화 검증 값은 false다. 후보 JSON을 녹화 복구물로 부르지 않는다.
 - 검색 위치의 완료 prefix, 현재 미처리 anchor, 후보 목록 완료, 반환 후보 간 관계 완료를 각각 확인한다. 한도로 관계 계산이 잘렸으면 빈 배열이 겹침 없음의 근거가 아니다. 삭제/복구/부모 상태·컨테이너 목록 불확실성은 후보0건에도 partial로 남는다. 입력·시간·출력 및 동일 OS 계정 경합 한계는 위 구조 관찰과 같다.
 
+**명시 exFAT 잔여 후보**
+
+- 세 후보 도구의 region=residual은 명시 partition/ref 한 파일의 원래 VDL 뒤 전체만 받는다. DL/VDL의 모순·불완전 복구·짧은 읽기를 성공으로 바꾸지 않으며 선택 최대64 MiB·공통45초를 유지한다.
+- 잔여 상대 offset에 VDL을 더한 값은 파일 논리 위치다. EV 물리 위치나 과거 녹화 소속·삭제 시점으로 해석하지 않는다. 원래 복구 방법·부모 상태·신뢰도·미검사 범위를 보존하고 기존 추출기는 source19필드 전체를 재대조한다. 상세 한계는 [잔여 계약](references/exfat-residual-candidates.md)을 따른다.
+
 **DHAV 구조 후보**
 
 - `forensics_dhav_candidates`는 최대64 MiB의 완전한 선택 파일 또는 명시 EV 구간에서 고정 record framing subset만 검사한다. 임의 bytes도 구조 조건을 만족할 수 있어 confidence는 possible이다. 후보0건·unsupported는 미디어 부재 증거가 아니다.

@@ -1,5 +1,8 @@
 # 선택 미디어 단위의 구조 후보
 
+명시 exFAT partition/ref의 ValidDataLength 뒤 선택은 별도 [잔여 계약](exfat-residual-candidates.md)을 따른다.
+잔여 source19필드와 전용 profile을 사용하며 아래의 기존 파일·EV 구간 계약은 유지한다.
+
 `forensics_media_unit_candidates`는 접수한 EV 또는 선택한 완전 파일·명시 구간에서
 JPEG, AVC Annex B, MPEG-2 PS, XM 중 지정한 형식의 제한된 구조 후보를 찾는다.
 반환하는 것은 위치·길이·고정 경계 분류다. 영상·음성·픽셀을 해독하지 않는다.

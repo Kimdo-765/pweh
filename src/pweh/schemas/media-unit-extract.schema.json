@@ -32,6 +32,9 @@
         },
         {
           "$ref": "#/$defs/evidence_range_source"
+        },
+        {
+          "$ref": "#/$defs/exfat_residual_source"
         }
       ]
     },
@@ -654,7 +657,11 @@
         "jpeg-baseline-marker-ev-range-v1",
         "avc-annexb-delimited-nal-ev-range-v1",
         "mpeg2-ps-bounded-pack-prefix-ev-range-v1",
-        "xm-length-delimited-frame-ev-range-v1"
+        "xm-length-delimited-frame-ev-range-v1",
+        "jpeg-baseline-marker-exfat-residual-v1",
+        "avc-annexb-delimited-nal-exfat-residual-v1",
+        "mpeg2-ps-bounded-pack-prefix-exfat-residual-v1",
+        "xm-length-delimited-frame-exfat-residual-v1"
       ]
     }
   },
@@ -1270,6 +1277,178 @@
               "minimum": 9
             }
           }
+        },
+        {
+          "properties": {
+            "format": {
+              "const": "jpeg"
+            },
+            "source_profile": {
+              "const": "jpeg-baseline-marker-exfat-residual-v1"
+            },
+            "source": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/exfat_residual_source"
+                },
+                {
+                  "properties": {
+                    "selected_size": {
+                      "minimum": 28
+                    }
+                  }
+                }
+              ]
+            },
+            "candidate": {
+              "properties": {
+                "format": {
+                  "const": "jpeg"
+                }
+              }
+            },
+            "files": {
+              "items": {
+                "properties": {
+                  "size": {
+                    "minimum": 28
+                  }
+                }
+              }
+            },
+            "bytes_total": {
+              "minimum": 28
+            }
+          }
+        },
+        {
+          "properties": {
+            "format": {
+              "const": "avc-annexb"
+            },
+            "source_profile": {
+              "const": "avc-annexb-delimited-nal-exfat-residual-v1"
+            },
+            "source": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/exfat_residual_source"
+                },
+                {
+                  "properties": {
+                    "selected_size": {
+                      "minimum": 8
+                    }
+                  }
+                }
+              ]
+            },
+            "candidate": {
+              "properties": {
+                "format": {
+                  "const": "avc-annexb"
+                }
+              }
+            },
+            "files": {
+              "items": {
+                "properties": {
+                  "size": {
+                    "minimum": 4
+                  }
+                }
+              }
+            },
+            "bytes_total": {
+              "minimum": 4
+            }
+          }
+        },
+        {
+          "properties": {
+            "format": {
+              "const": "mpeg2-ps"
+            },
+            "source_profile": {
+              "const": "mpeg2-ps-bounded-pack-prefix-exfat-residual-v1"
+            },
+            "source": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/exfat_residual_source"
+                },
+                {
+                  "properties": {
+                    "selected_size": {
+                      "minimum": 24
+                    }
+                  }
+                }
+              ]
+            },
+            "candidate": {
+              "properties": {
+                "format": {
+                  "const": "mpeg2-ps"
+                }
+              }
+            },
+            "files": {
+              "items": {
+                "properties": {
+                  "size": {
+                    "minimum": 24
+                  }
+                }
+              }
+            },
+            "bytes_total": {
+              "minimum": 24
+            }
+          }
+        },
+        {
+          "properties": {
+            "format": {
+              "const": "xm"
+            },
+            "source_profile": {
+              "const": "xm-length-delimited-frame-exfat-residual-v1"
+            },
+            "source": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/exfat_residual_source"
+                },
+                {
+                  "properties": {
+                    "selected_size": {
+                      "minimum": 9
+                    }
+                  }
+                }
+              ]
+            },
+            "candidate": {
+              "properties": {
+                "format": {
+                  "const": "xm"
+                }
+              }
+            },
+            "files": {
+              "items": {
+                "properties": {
+                  "size": {
+                    "minimum": 9
+                  }
+                }
+              }
+            },
+            "bytes_total": {
+              "minimum": 9
+            }
+          }
         }
       ]
     }
@@ -1662,6 +1841,170 @@
         "container_truncated_reasons",
         "evidence_size",
         "offset"
+      ]
+    },
+    "exfat_residual_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "evidence"
+        },
+        "evidence_id": {
+          "type": "string",
+          "pattern": "^EV-[0-9]{4,6}$",
+          "maxLength": 9,
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "evidence_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64,
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "container": {
+          "const": "filesystem"
+        },
+        "member_selected": {
+          "const": true
+        },
+        "selected_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64,
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "selected_size": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 67108864
+        },
+        "complete": {
+          "const": true
+        },
+        "method": {
+          "enum": [
+            "chain",
+            "nofatchain",
+            "contiguous",
+            "skip-allocated",
+            "stale-chain"
+          ]
+        },
+        "confidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "partition": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^(?:root|c[0-9]{1,10}(?:\\+[0-9]{1,10})?|n[0-9]{1,10}\\+[0-9]{1,10})/[0-9]{1,9}$",
+          "maxLength": 40,
+          "not": {
+            "pattern": "[\\r\\n]"
+          }
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "parent_deleted": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "container_truncated": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "container_truncated_reasons": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "time",
+              "unsupported_archive_compression",
+              "incomplete_archive",
+              "max_metadata",
+              "max_entries",
+              "invalid_archive",
+              "unsupported_archive",
+              "trailing_data_unexamined",
+              "trailing_data",
+              "unsupported_sparse",
+              "steps",
+              "max_depth",
+              "max_dir_slots",
+              "max_total_slots",
+              "max_path_chars",
+              "beyond_image",
+              "dir_chain_broken",
+              "dir_unreadable",
+              "dir_unvalidated",
+              "unknown_container_limit"
+            ]
+          },
+          "maxItems": 20,
+          "uniqueItems": true
+        },
+        "region": {
+          "const": "residual"
+        },
+        "data_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "valid_data_length": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        }
+      },
+      "required": [
+        "kind",
+        "evidence_id",
+        "evidence_sha256",
+        "container",
+        "member_selected",
+        "selected_sha256",
+        "selected_size",
+        "complete",
+        "method",
+        "confidence",
+        "partition",
+        "ref",
+        "deleted",
+        "parent_deleted",
+        "container_truncated",
+        "container_truncated_reasons",
+        "region",
+        "data_length",
+        "valid_data_length"
       ]
     }
   }

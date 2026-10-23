@@ -64,7 +64,7 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 - **파일 시스템**: 순수 파이썬 엔진(`src/pweh/fs/`)이 MBR/EBR/GPT/superfloppy, FAT12/16/32, exFAT 를 해석한다. ext4 는 2단계(디렉터리 항목 + jbd2 저널의 옛 inode·디렉터리 블록 — 커널 5.13 이상은 삭제 시 디렉터리 항목도 지운다).
   - 시각마다 원래 값과 `time_basis`(local-unknown-tz / local+offset / utc)를 둔다. **장치 시간대는 기본값을 두지 않는다** — 근거(마운트 옵션 `time_offset=`/`tz=`, init 스크립트 TZ, hwclock, DHAV 프레임 시각과의 비교)와 함께 가정으로만 기록.
   - 삭제 파일: FAT 은 시작 클러스터와 크기는 남고 체인은 지워지므로 "연속"과 "할당된 곳 건너뛰기" 두 후보를 신뢰도와 함께 낸다. exFAT 는 InUse·비트맵만 지우고 FAT 항목을 쓰지 않으므로(리눅스 5.7~6.12) 남은 체인을 따라간다 — 이 두 점에서 TSK 보다 정확했다.
-  - exFAT ValidDataLength 뒤(미리 할당한 녹화기에서 흔함)는 파일 본문에서 자르고 이전 녹화의 잔여 데이터로 따로 카빙한다.
+  - exFAT ValidDataLength 뒤는 파일 본문과 구분한다. 명시한 파일의 잔여 영역은 별도 후보 검사·추출로 관찰하며 이전 녹화나 삭제 데이터로 확정하지 않는다.
   - 깨끗하지 않게 뽑은 카드(전원 차단·녹화 중 분리 — 압수에서 흔함): FAT 상태·exFAT VolumeDirty 를 기록하고, 할당됐지만 참조되지 않는 클러스터와 크기·체인 불일치를 찾는다.
   - **discard/TRIM**: 마운트 옵션 `discard` 나 fstrim 이 있으면 지운 데이터가 SD ERASE 로 사라진다 → 펌웨어 감사(§5)의 마운트 옵션 결과에 따라 "복구 가능성 조건부"로 보고.
 - **CCTV 형식** (깨끗한 재구현, GPL 코드는 사양으로만 참고):
@@ -112,6 +112,7 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 > 접수 아티팩트 kind는 사본의 `evidence-image`와 참조 기록의 `evidence-reference`다(추출물은 매니페스트로 센다). 발견사항 카테고리 `insecure-storage`·`privacy` 는 아직 없다. D의 `pweh-fwtriage` raw GPT 분할은 `pweh.fs`의 파티션 파서를 재사용한다(증거 파일 시스템 접근은 아님).
 > - **저장된 후보 추출**: `forensics_extract_media_candidate`가 같은 EV의 후보 보고서·선택 파일 또는 명시 구간을 다시 검증하고 지정 후보의 앞부분 하나를 파생 파일로 쓴다. 녹화 전체 복구·재생을 판정하지 않는다. [입출력·보관 기록 계약](../references/media-prefix-extract.md).
 > - **선택 연속 구조 후보**: `forensics_media_candidates`는 완전한 선택 파일 또는 명시 EV 구간(최대64 MiB)에서 ftyp·연속 최상위 상자 prefix 후보와 검색/검사/목록/관계 완료도를 기록한다. 구간은 offset/length·EV 크기·구간 SHA를 결속하며 [구간 계약](../references/media-evidence-range.md)을 따른다. 원본 파일 경계·녹화 복구·물리 카빙 검증은 아니며 계약은 architecture §6.8이다.
+> - **명시 exFAT 잔여 후보**: 세 후보 도구의 region=residual은 partition/ref가 지정한 파일의 VDL 뒤 전체(최대64 MiB)를 선택한다. DL/VDL·복구 신원·잔여 SHA를 닫힌19필드에 결속하고 기존 세 추출기로 한 후보만 재검증해 추출한다. 후보 위치는 잔여 상대이며 파일 논리 위치를 EV 물리 위치로 해석하지 않는다. 이전 녹화·삭제 여부는 확정하지 않는다([계약](../references/exfat-residual-candidates.md)).
 > - **현재 할당 metadata**: `forensics_allocation_window`는 명시 FAT/exFAT 데이터 창(최대64 MiB)의 현재 상태만 분류한다. metadata 읽기4 MiB·행128·45초로 제한하며 unknown과 미검사 suffix를 구분한다. 과거 소속·복구·재생·전체 카드 검사를 주장하지 않는다. 후속 구간 후보와 추출은 기존 도구의 별도 출처 검증을 따른다. [계약](../references/allocation-window.md).
 > - **현재 live 참조 일관성**: `forensics_cluster_report`는 명시 FAT/exFAT 파티션의 살아 있는 참조와 현재 할당을 대조한다. 네 완료 상태와 미검사 수를 분리하고 불완전 참조 지도에서 미참조 수는 null로 남긴다. metadata32 MiB·행128·45초이며 cluster-report 사건에 결속한다. 고아 파일·과거 소속·재생을 확정하지 않는다. [계약](../references/cluster-report.md).
 > - **선택 미디어 단위**: `forensics_media_unit_candidates`는 명시 JPEG·AVC Annex B·MPEG-2 PS·XM subset의 단위 경계를 찾고, `forensics_extract_media_unit`는 저장 후보 한 단위만 재검증해 추출한다. closed와 PS의 검증 prefix·partial을 구분하며 영상/음성·원본 파일·전체 녹화·재생은 검증하지 않는다. [후보](../references/media-unit-candidates.md)·[추출](../references/media-unit-extract.md) 계약을 따른다.

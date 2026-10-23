@@ -1,5 +1,8 @@
 # 저장된 DHAV 후보 한 record의 추출
 
+명시 exFAT 잔여 후보도 [잔여 계약](exfat-residual-candidates.md)에 따라 원래 선택 전체를 다시 검증해 추출한다.
+매니페스트는 닫힌 source19필드를 보존하며 extract 보관 사건의 region은 residual이다.
+
 `forensics_extract_dhav_candidate(case_id, evidence_id, analysis_path, candidate_index)`는
 `forensics_dhav_candidates`가 저장한 구조 후보 한 개의 바이트를 파생 파일로 만든다.
 `analysis_path`는 후보 분석 응답의 `analysis.path`, `candidate_index`는 해당 보고서에

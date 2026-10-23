@@ -21,7 +21,7 @@ from pweh.errors import PwehError, ValidationFailed
 from pweh.mcpkit import ANN_LOCAL_WRITE, run_blocking_cancellable, safe_tool
 
 from . import fsops, media_candidate_selection as selection
-from .media_tools import _source
+from .media_tools import _residual_source, _source
 
 MAX_FILE_BYTES = 64 << 20
 MAX_REPORT_BYTES = 1 << 20
@@ -64,9 +64,12 @@ def _check(cancelled: threading.Event, deadline: float, *, time_limit: bool = Tr
 
 
 def _arguments(evidence_id: Any, partition: Any, ref: Any, path: Any,
-               method: Any, max_seconds: Any, *, offset: Any = None, length: Any = None) -> float:
+               method: Any, max_seconds: Any, *, offset: Any = None, length: Any = None,
+               region: Any = "data") -> float:
     """원시 선택자를 오류에 복사하지 않고 공통 시간 한도를 만든다."""
     invalid = _ERRORS["validation_failed"]
+    if type(region) is not str or region not in ("data", "residual"):
+        raise ValidationFailed(invalid)
     if not isinstance(evidence_id, str) or re.fullmatch(r"EV-[0-9]{4,6}", evidence_id) is None:
         raise ValidationFailed(invalid)
     if ref is not None and path is not None:
@@ -81,6 +84,12 @@ def _arguments(evidence_id: Any, partition: Any, ref: Any, path: Any,
         raise ValidationFailed(invalid)
     if not isinstance(method, str) or method not in _METHODS:
         raise ValidationFailed(invalid)
+    if region == "residual":
+        if (type(partition) is not int or not 1 <= partition <= 4096
+                or type(ref) is not str or re.fullmatch(_FS_REF, ref) is None
+                or any(v is not None for v in (path, offset, length))
+                or type(method) is not str or method not in (_METHODS - {"skip-claimed", "fat-chain"})):
+            raise ValidationFailed(invalid)
     if ref is None and path is None and (partition is not None or method != "auto"):
         raise ValidationFailed(invalid)
     if offset is not None or length is not None:
@@ -161,13 +170,14 @@ def _fixed_error(exc: Exception) -> PwehError:
 async def _dhav_run(S: _ServerAPI, *, case_id: str, evidence_id: str,
                          partition: int | None, ref: str | None, path: str | None,
                          method: str, max_seconds: float, offset: int | None = None,
-                         length: int | None = None) -> dict:
+                         length: int | None = None, region: str = "data") -> dict:
     cancelled = threading.Event()
     try:
-        deadline = _arguments(evidence_id, partition, ref, path, method, max_seconds, offset=offset, length=length)
+        deadline = _arguments(evidence_id, partition, ref, path, method, max_seconds, offset=offset, length=length, region=region)
         case = await S._case(case_id)
 
         def work_body() -> dict:
+            from pweh.dhav_candidate_input import RESIDUAL_PROFILE, RESIDUAL_LIMITATIONS
             from pweh.dhav import (DhavLimits, RANGE_PROFILE, RANGE_LIMITATIONS,
                                    scan_dhav_candidates, validate_dhav_accounting)
 
@@ -175,7 +185,22 @@ async def _dhav_run(S: _ServerAPI, *, case_id: str, evidence_id: str,
             entries = S.custody(case).entries()
             try:
                 with E.open_checked(case, evidence_id, entries, reference_roots=S._reference_roots()) as opened:
-                    if offset is None:
+                    if region == "residual":
+                        try:
+                            with fsops.image_reader(opened.fd) as img:
+                                data, member = fsops.read_selected_residual(
+                                    img, partition=partition, ref=ref, method=method,
+                                    max_bytes=MAX_FILE_BYTES, deadline=deadline, cancel=cancelled.is_set)
+                        except fsops.FsError as exc:
+                            if exc.reason in ("bad_argument", "unsupported_fs"):
+                                raise PwehError(_ERRORS["invalid_selection"], code="invalid_selection") from None
+                            raise
+                        _check(cancelled, deadline)
+                        source = _residual_source(opened, evidence_id, member, data)
+                        if (source["partition"] != partition or source["ref"] != ref
+                                or method != "auto" and source["method"] != method):
+                            raise ValidationFailed(_ERRORS["validation_failed"])
+                    elif offset is None:
                         data, member = fsops.read_selected_file(
                             opened.fd, partition=partition, ref=ref, path=path, method=method,
                             max_bytes=MAX_FILE_BYTES, deadline=deadline, cancel=cancelled.is_set,
@@ -190,7 +215,11 @@ async def _dhav_run(S: _ServerAPI, *, case_id: str, evidence_id: str,
                     report = scan_dhav_candidates(data, limits=limits, deadline=deadline, cancel=cancelled.is_set)
                     report["source"] = source
                     report["params"] = {"partition": partition, "method": method, "max_seconds": max_seconds}
-                    if offset is not None:
+                    if region == "residual":
+                        report["profile"] = RESIDUAL_PROFILE
+                        report["limitations"] = [*report["limitations"], *RESIDUAL_LIMITATIONS]
+                        report["params"]["region"] = "residual"
+                    elif offset is not None:
                         # 순수 scanner의 좌표는 그대로다. 명시 구간의 출처·한계만 별도 profile로 닫는다.
                         report["profile"] = RANGE_PROFILE
                         report["limitations"] = [*report["limitations"], *RANGE_LIMITATIONS]
@@ -251,6 +280,9 @@ def register_dhav_tools(server: Any, namespace: dict[str, Any]) -> None:
         "고정 DHAV type f0/fc/fd의 선언 길이와 끝 표지·반복 길이만 대조하고 최대 128개 후보를 기록한다. "
         "후보 offset은 선택 bytes 상대이며 구간 모드에서만 source.offset을 더해 EV 내 위치를 계산한다. "
         "출처16필드 또는 구간18필드에 선택 전체 SHA·크기와 EV 크기/시작을 결속한다. "
+        "region 기본 data는 기존 선택이다. residual은 명시 partition+FS ref의 exFAT 파일에서 "
+        "ValidDataLength 뒤 DataLength까지의 완전한 잔여만 읽고 path/offset/length는 받지 않는다. "
+        "residual source19는 두 논리 길이·선택 SHA를 결속하며 VDL+후보 offset은 파일 논리좌표다. "
         "선택/검색은 최대 45초이며 시간·한도·삭제/복구·전체 목록 불확실성을 coverage에 보존한다. "
         "source.complete는 선택 읽기 의미이며 record checksum·본문 의미·시각·암호화·재생·완전 녹화는 검증하지 않는다. "
         "선택 이름·원시 헤더/확장/본문·시각/채널·개별 record 해시는 반환하지 않는다. "
@@ -262,11 +294,11 @@ def register_dhav_tools(server: Any, namespace: dict[str, Any]) -> None:
         case_id: str, evidence_id: str, partition: StrictInt | None = None,
         ref: str | None = None, path: str | None = None, method: str = "auto",
         max_seconds: StrictFloat | StrictInt = 45,
-        offset: StrictInt | None = None, length: StrictInt | None = None,
+        offset: StrictInt | None = None, length: StrictInt | None = None, region: str = "data",
     ) -> dict:
         return await _dhav_run(S, case_id=case_id, evidence_id=evidence_id, partition=partition,
                                     ref=ref, path=path, method=method, max_seconds=max_seconds,
-                                    offset=offset, length=length)
+                                    offset=offset, length=length, region=region)
 
     namespace["forensics_dhav_candidates"] = forensics_dhav_candidates
     try:

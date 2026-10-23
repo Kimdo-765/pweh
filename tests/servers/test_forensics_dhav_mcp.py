@@ -176,7 +176,7 @@ async def test_actual_mcp_selected_file_source_coverage_and_privacy(mcase, tmp_p
         tool = next(t for t in (await client.list_tools()).tools if t.name == "forensics_dhav_candidates")
         assert tool.annotations.read_only_hint is False
         assert set(tool.input_schema["properties"]) == {
-            "case_id", "evidence_id", "partition", "ref", "path", "method", "max_seconds", "offset", "length"}
+            "case_id", "evidence_id", "partition", "ref", "path", "method", "max_seconds", "offset", "length", "region"}
         assert not list((mcase.dir / "forensics/recovered").glob("**/*"))
         if path:
             second = await call(client, "forensics_dhav_candidates", case_id=mcase.id, evidence_id=ev,

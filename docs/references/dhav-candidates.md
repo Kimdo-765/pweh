@@ -1,5 +1,8 @@
 # 선택 bytes의 DHAV record 구조 후보
 
+명시 exFAT partition/ref의 ValidDataLength 뒤 선택은 별도 [잔여 계약](exfat-residual-candidates.md)을 따른다.
+잔여 source19필드와 전용 profile을 사용하며 아래의 기존 파일·EV 구간 계약은 유지한다.
+
 `forensics_dhav_candidates`는 같은 케이스의 EV 전체, FAT/exFAT·TAR/ZIP에서 선택한 완전한
 파일 하나, 또는 EV의 명시 구간에서 DHAV record 구조 후보를 찾는다. 입력은 최대64 MiB다.
 파일·구간 안의 앞뒤 표지와 길이를 대조한 메타데이터이며 영상 복구·재생 결과는 아니다.

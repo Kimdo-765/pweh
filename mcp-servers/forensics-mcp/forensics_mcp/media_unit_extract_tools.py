@@ -93,7 +93,7 @@ def _uncertain(source: dict) -> bool:
 def _manifest(candidate_input: Any, data: bytes, fresh: dict, candidate_index: int,
               check: Any) -> dict:
     """원래 관찰을 보존하고 작성할 단위 해시만 유한 조각으로 계산한다."""
-    from pweh.media_units import FALSE_FIELDS, FILE_PROFILES, RANGE_PROFILES, MIN_UNIT_BYTES, MIN_SELECTED_BYTES
+    from pweh.media_units import FALSE_FIELDS, FILE_PROFILES, RANGE_PROFILES, RESIDUAL_PROFILES, MIN_UNIT_BYTES, MIN_SELECTED_BYTES
 
     check()
     format = candidate_input.format
@@ -109,11 +109,35 @@ def _manifest(candidate_input: Any, data: bytes, fresh: dict, candidate_index: i
             or type(offset) is not int or type(length) is not int
             or offset < 0 or length < MIN_UNIT_BYTES[format] or offset + length > len(data)):
         raise ValidationFailed(_ERRORS["validation_failed"])
-    expected_profile = RANGE_PROFILES[format] if source["method"] == "byte-range" else FILE_PROFILES[format]
+    if "region" in source:
+        if source["region"] != "residual":
+            raise ValidationFailed(_ERRORS["validation_failed"])
+        expected_profile = RESIDUAL_PROFILES[format]
+    elif source["method"] == "byte-range":
+        expected_profile = RANGE_PROFILES[format]
+    else:
+        expected_profile = FILE_PROFILES[format]
     if (candidate["format"] != format or candidate_input.params["format"] != format
             or candidate_input.profile != expected_profile
             or candidate["confidence"] != "possible" or coverage["input_bytes"] != len(data)):
         raise ValidationFailed(_ERRORS["validation_failed"])
+    if "region" in source or "region" in fresh:
+        params = candidate_input.params
+        # 잔여 선택 상대 좌표를 유지한다. VDL을 출력 slice에 다시 더하지 않는다.
+        if (source.get("region") != "residual" or set(source) != set(fresh)
+                or any(type(value) is not type(fresh[key]) or value != fresh[key]
+                       for key, value in source.items())
+                or any(type(source.get(key)) is not int for key in
+                       ("data_length", "valid_data_length", "selected_size", "partition"))
+                or not 0 <= source["valid_data_length"] < source["data_length"] <= (1 << 63) - 1
+                or source["data_length"] - source["valid_data_length"] != len(data)
+                or source["container"] != "filesystem" or source["member_selected"] is not True
+                or source["method"] not in ("chain", "nofatchain", "contiguous", "skip-allocated", "stale-chain")
+                or params.get("region") != "residual" or type(params.get("partition")) is not int
+                or params["partition"] != source["partition"]
+                or params.get("method") not in ("auto", source["method"])
+                or type(coverage["input_bytes"]) is not int or coverage["input_bytes"] != len(data)):
+            raise ValidationFailed(_ERRORS["validation_failed"])
     if source["method"] == "byte-range" or fresh.get("method") == "byte-range":
         params = candidate_input.params
         # source.offset은 EV 읽기 위치다. 아래 단위 slice에는 후보의 상대 offset만 쓴다.
@@ -259,7 +283,7 @@ def register_media_unit_extract_tools(server: Any, namespace: dict[str, Any]) ->
         "보관 기록에 결속된 media-unit-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). "
         "analysis_path는 같은 케이스·EV의 생성 보고서이며 index는 저장 후보0~127이다. "
         "format과 bytes 범위는 저장된 보고서만 사용하며 새 selector/offset/길이를 받지 않는다. "
-        "원래 ref/partition/복구 방법 또는 EV 명시 구간으로 같은 완전 bytes를 다시 읽어 SHA·크기·신원을 대조한다. "
+        "원래 ref/partition/복구 방법, 명시 exFAT 잔여 영역 또는 EV 명시 구간으로 같은 완전 bytes를 다시 읽어 SHA·크기·신원을 대조한다. "
         "선택 최대64MiB·전체45초·manifest64KiB, 출력은 forensics/recovered/media-unit-NNN/unit-000.bin 하나다. "
         "JPEG/AVC의 닫힌 단위, MPEG-2 PS의 검증 prefix, XM 선언 길이를 그대로 복사한다. "
         "원래 source/status/coverage와 과거·새 선택 불확실성을 보존한다. "

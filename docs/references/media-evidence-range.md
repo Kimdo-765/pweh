@@ -1,5 +1,8 @@
 # 증거 이미지의 명시 구간에서 미디어 후보 찾기
 
+명시 exFAT partition/ref의 ValidDataLength 뒤 선택은 별도 [잔여 계약](exfat-residual-candidates.md)을 따른다.
+잔여 source19필드와 전용 profile을 사용하며 아래의 기존 파일·EV 구간 계약은 유지한다.
+
 `forensics_media_candidates`는 접수된 이미지 EV에서 `offset`과 `length`로 지정한 한 구간을
 검색할 수 있다. 두 값은 바이트 단위 정수이며 함께 지정한다. 구간은 최대64 MiB이고 EV 범위
 안에 있어야 한다. 이 모드에서는 `partition/ref/path`를 생략하고 `method="auto"`를 사용한다.

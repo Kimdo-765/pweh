@@ -110,6 +110,23 @@ def _manifest(candidate_input: Any, data: bytes, fresh: dict, candidate_index: i
             or type(offset) is not int or type(length) is not int
             or offset < 0 or length < 16 or offset + length > len(data)):
         raise ValidationFailed(_ERRORS["validation_failed"])
+    if "region" in source or "region" in fresh:
+        params = candidate_input.params
+        # 잔여 선택 상대 좌표를 유지한다. VDL을 출력 slice에 다시 더하지 않는다.
+        if (source.get("region") != "residual" or set(source) != set(fresh)
+                or any(type(value) is not type(fresh[key]) or value != fresh[key]
+                       for key, value in source.items())
+                or any(type(source.get(key)) is not int for key in
+                       ("data_length", "valid_data_length", "selected_size", "partition"))
+                or not 0 <= source["valid_data_length"] < source["data_length"] <= (1 << 63) - 1
+                or source["data_length"] - source["valid_data_length"] != len(data)
+                or source["container"] != "filesystem" or source["member_selected"] is not True
+                or source["method"] not in ("chain", "nofatchain", "contiguous", "skip-allocated", "stale-chain")
+                or params.get("region") != "residual" or type(params.get("partition")) is not int
+                or params["partition"] != source["partition"]
+                or params.get("method") not in ("auto", source["method"])
+                or type(coverage["input_bytes"]) is not int or coverage["input_bytes"] != len(data)):
+            raise ValidationFailed(_ERRORS["validation_failed"])
     if source["method"] == "byte-range" or fresh.get("method") == "byte-range":
         params = candidate_input.params
         # source.offset은 EV 읽기 위치다. 아래 prefix slice에는 후보의 상대 offset만 쓴다.
@@ -251,13 +268,13 @@ def register_media_prefix_tools(server: Any, namespace: dict[str, Any]) -> None:
     @server.tool(description=(
         "보관 기록에 결속된 media-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). "
         "analysis_path는 같은 케이스·EV의 생성 보고서 경로이며 index는 0~127의 저장 후보를 고른다. "
-        "증거와 보고서의 무결성을 확인하고 원래 ref/partition/복구 방법 또는 EV 명시 구간으로 같은 완전 바이트를 다시 읽는다. "
+        "증거와 보고서의 무결성을 확인하고 원래 ref/partition/복구 방법, 명시 exFAT 잔여 영역 또는 EV 명시 구간으로 같은 완전 바이트를 다시 읽는다. "
         "구간은 저장된 시작·길이·EV 크기·구간 전체 SHA를 대조하며 새 범위를 입력하거나 후보 상대 위치를 바꾸지 않는다. "
         "선택 최대 64 MiB, 전체 45초·manifest 64 KiB·출력 1개이며 저장된 검증 prefix 범위만 "
         "forensics/recovered/media-prefix-NNN/candidate-000.bin에 0444로 쓴다. "
         "원래 source/status/coverage와 과거·새 선택 불확실성을 보존한다. "
         "manifest의 complete는 그 prefix 작성 완료이며 원래 파일 경계·완전 녹화·재생 확인이 아니다. "
-        "전체 카드 자동 검색/카빙·residual 분류·후보 재탐색·프레임/음성 해독은 하지 않는다. "
+        "잔여 영역 offset은 선택 상대이며 파일 논리 위치를 EV 물리 위치로 바꾸지 않는다. 전체 카드 자동 검색/카빙·후보 재탐색·프레임/음성 해독은 하지 않는다. "
         "commit 전 실패/취소는 부분 결과를 게시하지 않으며 commit 뒤 취소는 기록한 산출물을 보존한다. "
         "응답은 생성 경로·해시·크기만이며 에이전트는 추출물을 직접 열지 않고 영상·음성은 사람이 확인한다."
     ), annotations=ANN_LOCAL_WRITE)

@@ -466,3 +466,18 @@ reference_map_complete/allocation_complete(report.coverage)의6필드, 최대100
 partial에는 두 완료 값이 모두 true인 행 표본 제한도 포함된다. 미검사 수·사유는 notes와
 원보고서에 남긴다. metadata32 MiB·행128·45초·같은 FD·보관 기록의 상세 계약은
 [현재 참조 일관성](../../docs/references/cluster-report.md)을 따른다.
+
+## 23. exFAT 잔여 후보와 단일 추출
+
+BMFF·DHAV·미디어 단위의 세 후보 도구에 region="residual", 명시 partition/ref를 전달한다.
+path/offset/length는 생략하고 실제 exFAT 파일 한 항목만 선택한다. 기본 data는 기존 동작이다.
+원래 VDL이 DL보다 작고 잔여 DL-VDL이1 byte..64 MiB여야 하며 완전 읽기만 받는다.
+
+잔여 전용 profile과 source19필드는 region·DL·VDL·선택 SHA·구체 복구 방법을 결속한다.
+candidate.offset은 잔여 상대이며 VDL+offset은 파일 논리 위치다. EV 물리 위치로 환산하지 않는다.
+기존 세 추출기에 보고서/후보 번호를 넘기면 원래 선택 전체와19필드를 재대조해 한 후보만 쓴다.
+extract 사건의 region=residual 및 원래 status/coverage를 보존한다. 추출물을 직접 열지 않는다.
+
+후보 참조 배열·recovered의 기존 필드를 사용하며 잔여 의미·partial·복구 신뢰도와 부모 상태를
+notes에 남긴다. 잔여 바이트를 이전 녹화·삭제 시점·완전 복구·재생 근거로 표현하지 않는다.
+6종 profile·상한·선택 및 추출 계약은 [잔여 참조](../../docs/references/exfat-residual-candidates.md)를 따른다.

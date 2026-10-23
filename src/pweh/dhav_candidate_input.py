@@ -27,6 +27,9 @@ MAX_REPORT_BYTES = 1 << 20
 MAX_SELECTED_BYTES = 64 << 20
 MAX_EVIDENCE_BYTES = (1 << 63) - 1
 RANGE_PROFILE = dhav.RANGE_PROFILE
+RESIDUAL_PROFILE = "dhav-record-exfat-residual-v1"
+RESIDUAL_LIMITATIONS = ("exfat_valid_data_length_residual_only", "logical_offsets_not_evidence_offsets",
+                        "no_original_recording_or_deletion_verification")
 _SHA = re.compile(r"[0-9a-f]{64}")
 _MESSAGES = {
     "dhav_record_input_invalid": "DHAV 후보 보고서의 형식·출처 또는 선택 범위가 유효하지 않습니다.",
@@ -138,6 +141,17 @@ def _semantic(report: dict, index: int, opened: E.OpenedEvidence, event: dict) -
                 or length > evidence_size - offset
                 or evidence_size != opened.intake["size"]
                 or evidence_size != opened.st.st_size or evidence_size != os.fstat(opened.fd).st_size):
+            raise input_error()
+    if report["profile"] == RESIDUAL_PROFILE:
+        dl, vdl = source["data_length"], source["valid_data_length"]
+        if (any(type(v) is not int for v in (dl, vdl, source["partition"], params["partition"]))
+                or not 0 <= vdl < dl <= MAX_EVIDENCE_BYTES
+                or dl - vdl != source["selected_size"]
+                or not 1 <= source["partition"] == params["partition"] <= 4096
+                or source["region"] != "residual" or params["region"] != "residual"
+                or source["container"] != "filesystem" or source["member_selected"] is not True
+                or source["method"] not in {"chain", "nofatchain", "contiguous", "skip-allocated", "stale-chain"}
+                or params["method"] not in {"auto", source["method"]}):
             raise input_error()
 
 
