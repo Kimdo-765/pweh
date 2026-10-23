@@ -22,7 +22,7 @@
    ├─ pweh-emu         (mcp-servers/emu-mcp)         ESP32·S3·C3/Arduino AVR 펌웨어 실행·마스킹 콘솔 — 기기 미접촉 (선택)
    ├─ pweh-espprobe    (mcp-servers/espprobe-mcp)    ESP32-S3 계측기 프로토콜·시뮬레이터 (선택, 현재 오프라인 검증만)
    ├─ pweh-sdr         (mcp-servers/sdr-mcp)         등록된 Flipper RAW·전력 CSV의 오프라인 구조·통계 분석
-   ├─ pweh-play        (mcp-servers/play-mcp)        공급 숫자 관측값의 오프라인 합의 검증·보고서 저장
+   ├─ pweh-play        (mcp-servers/play-mcp)        공급 숫자 합의·저장 PNG 영역 비교·보고서 저장
    ├─ pweh-flipper     (mcp-servers/flipper-mcp)     고정 CLI 연결·정보·허용 폴더 파일 읽기
    ├─ pweh-nfc         (mcp-servers/nfc-mcp)         CU 고정 NTAG 스캔·inventory·일반 NFC 파일의 구조·저장 페이지 비교
    └─ rea              (외부: rea-agents 6.5)        binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩
@@ -181,7 +181,7 @@ cases/<case_id>/
   `firmware-static-analysis`, `cctv-auth-bypass-hunt`, `report`. `case_create` 가 모두 `pending` 으로 만든다.
 - **선택 단계**(`OPTIONAL_PHASES`, 다른 목표·계측기용 Skill 에 예약한 이름): `game-save-unlock-analysis`, `numeric-observation-analysis`, `nfc-behavior-analysis`, `game-play-automation`,
   `flipper-rf-analysis`, `sd-card-forensics`, `espprobe`, `firmware-emulation`, `image-hints-analysis`, `android-forensics`. 미리 만들지 않는다. 그 Skill 이 summary 를 기록하거나 `case_set_phase` 로 상태를 정할 때 처음 생기므로,
-  그 목표를 쓰지 않는 케이스의 `case.json`·보고서는 그대로다. 이 가운데 Skill 이 있는 것은 `game-save-unlock-analysis`(요약 스키마 `save-analysis`)와 `sd-card-forensics`(요약 스키마 `sd-forensics`), `firmware-emulation`(요약 스키마 `emulation`), `image-hints-analysis`(요약 스키마 `image-hints`), `android-forensics`(요약 스키마 `android-forensics`), `flipper-rf-analysis`(요약 스키마 `rf-analysis`), `numeric-observation-analysis`(요약 스키마 `numeric-analysis`), `nfc-behavior-analysis`(요약 스키마 `nfc-analysis`)이다. 나머지는 아직 없으므로 에이전트용 문서(master-prompt·Skill)에 그 이름을 적지 않는다.
+  그 목표를 쓰지 않는 케이스의 `case.json`·보고서는 그대로다. 이 가운데 Skill 이 있는 것은 `game-save-unlock-analysis`(요약 스키마 `save-analysis`)와 `sd-card-forensics`(요약 스키마 `sd-forensics`), `firmware-emulation`(요약 스키마 `emulation`), `image-hints-analysis`(요약 스키마 `image-hints`), `android-forensics`(요약 스키마 `android-forensics`), `flipper-rf-analysis`(요약 스키마 `rf-analysis`), `numeric-observation-analysis`(요약 스키마 `numeric-analysis`), `nfc-behavior-analysis`(요약 스키마 `nfc-analysis`)이다. `image-template-analysis`는 별도 Skill 없이 저장 PNG 비교 도구와 참고 문서로 수행하는 선택 단계다(요약 스키마 `template-analysis`). 그 밖의 미구현 단계는 에이전트용 문서(master-prompt·Skill)에 그 이름을 적지 않는다.
   Skill 을 만들 때 `SKILL_DATA_SCHEMAS`·master-prompt §5 표·`report._PHASE_LABEL` 에 함께 등록한다.
 - 상태 값: `pending`, `in-progress`, `done`, `partial`, `failed`, `skipped`, `blocked`. summary 의 status 는 `success` → `done`, `in-progress` → `in-progress`,
   나머지(`partial`·`failed`·`blocked`·`skipped`)는 같은 이름으로 옮긴다(`SUMMARY_PHASE_STATUS`).
@@ -1333,10 +1333,10 @@ FFT bin·주파수 중심·보정 전력·획득 시각을 복원하지 않는�
 시험한다. stdout1MiB·stderr16KiB·작업60초·정리5초 상한과 child/group/reader/FD 정리를 확인한
 뒤 원래 작업 마감 안에서 CSV를 검사한다. 실제 rtl_power 탐색·장치 수신·MCP 연결은 없다.
 
-### 6.12 pweh-play (공급 숫자 관측값)
+### 6.12 pweh-play (공급 숫자·저장 PNG 영역)
 
 `mcp-servers/play-mcp/`는 기존 `pweh.vision_sequence`의 숫자 합의를 케이스에 기록한다.
-도구 하나만 제공하며 프레임 취득·OCR·입력 브리지·실제 플레이는 연결하지 않는다.
+등록 image-hints의 PNG 영역 비교도 제공한다. 프레임 취득·OCR·입력 브리지·실제 플레이는 연결하지 않는다.
 
 | 도구 | 계약 |
 |---|---|
@@ -1356,7 +1356,21 @@ seal·SHA와 부모·이름을 `Case.register_artifact`의 최종 검사에서 �
 반환은 `ok`, `report`, `artifact_id`, `analysis_path`, `sha256`, `size`, `warnings`다.
 보고서 스키마는 `numeric-validation`, Skill 요약은 `numeric-analysis`이며 선택 단계
 `numeric-observation-analysis`를 실제 수행했을 때만 생성한다. Claude allow는 로컬 결과를
-기록하는 정확한 `vision_validate` 한 도구다. [입력·출력 계약](references/numeric-validation.md).
+기록하는 정확한 `vision_validate`와 `vision_template_match` 두 도구다. [숫자 입력·출력 계약](references/numeric-validation.md).
+
+| 도구 | 계약 |
+|---|---|
+| `vision_template_match(case_id, reference_artifact_id, reference_preview_index, reference_roi, candidate_artifact_id, candidate_preview_index, candidate_roi, max_mean_error)` | 같은 소유/허가 케이스의 등록 image-hints 보고서 두 개에서 저장 PNG를 선택한다. index0/1·정수 ROI 배열4개·정수 threshold0..255를 모두 명시한다. 같은 크기의 ROI RGB 절대차 합으로 비교하며 자동 크기 변경·정렬은 없다. |
+
+일반 케이스의 보고서≤8MiB·PNG≤1MiB/1600²와 색인·참조·같은 FD SHA를 결속한다.
+forensics/emu·링크·모호하거나 누락된 등록은 거부한다. 고정 profile은
+`stored-png-roi-rgb-mae-v1`, 판정은 `sum_abs <= max_mean_error*samples`이며 표시 평균은 확률이 아니다.
+PNG는 제한된 별도 worker에서 해독한다. 입력 선택부터 자식 회수·최종 등록까지 고정5초 하나를 쓴다.
+결과는 `analysis/template-match-NNN.json`에64KiB 이하·0444, kind=other/producer=pweh-play로 등록한다.
+반환은 위 일곱 키와 같으며 matched=false도 성공이다. 등록 이후 callback/close 실패에는 receipt를
+보존하고 고정 경고를 남긴다. `template-match` 보고서와 `template-analysis` 요약을
+`image-template-analysis` 선택 단계에 연결한다. 세 검증 flag는 항상false다.
+별도 Skill은 없으며 [선택·호출·요약 예제](references/stored-png-template.md)를 따른다.
 
 ### 6.13 pweh-flipper (고정 CLI 읽기)
 

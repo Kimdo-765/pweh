@@ -391,6 +391,8 @@
 
 - **`vision_validate(case_id, input_kind, observations, now, policy?)`**  
   호출자가 공급한 숫자 표본의 시간 창 합의를 계산한다. input_kind='numeric-observations'가 필수다. observations는 timestamp/value/confidence를 가진 객체0~256개이며 now와 timestamp는 같은 공급 monotonic seconds 축의0~2**53이다. 시각은 엄격 증가하고 now 이하, value는 null 또는 int64
+- **`vision_template_match(case_id, reference_artifact_id, reference_preview_index, reference_roi, candidate_artifact_id, candidate_preview_index, candidate_roi, max_mean_error)`**  
+  같은 소유/허가 케이스에 등록된 image-hints JSON 보고서의 정규화 PNG 두 영역을 비교한다. 두 artifact_id는 PNG가 아닌 보고서 JSON의 등록 ID이며 preview_index는 0 또는 1이다. 각 roi는 저장 PNG 픽셀의 [x,y,width,height] 정수 배열이고 두 영역의 크기는 같아야 한다. RGB 절대차 합계·표본 수·평균과 max_mean_er
 
 ## pweh-flipper
 

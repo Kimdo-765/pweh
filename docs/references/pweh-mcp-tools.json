@@ -726,7 +726,7 @@
    },
    {
     "name": "schema_get",
-    "description": "PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, imported-save-plan, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, nfc-analysis, nfc-file-analysis, nfc-inventory, nfc-scan, numeric-analysis, numeric-validation, pinout-scan, rf-analysis, rf-power-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, uart-recon.",
+    "description": "PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, imported-save-plan, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, nfc-analysis, nfc-file-analysis, nfc-inventory, nfc-scan, numeric-analysis, numeric-validation, pinout-scan, rf-analysis, rf-power-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, template-analysis, template-match, uart-recon.",
     "params": [
      {
       "name": "name",
@@ -7533,6 +7533,67 @@
       "name": "policy",
       "type": "?/null",
       "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "vision_template_match",
+    "description": "같은 소유/허가 케이스에 등록된 image-hints JSON 보고서의 정규화 PNG 두 영역을 비교한다. 두 artifact_id는 PNG가 아닌 보고서 JSON의 등록 ID이며 preview_index는 0 또는 1이다. 각 roi는 저장 PNG 픽셀의 [x,y,width,height] 정수 배열이고 두 영역의 크기는 같아야 한다. RGB 절대차 합계·표본 수·평균과 max_mean_error(정수0~255) 이하 여부를 반환한다. 리사이즈·정렬 없이 같은 위치의 RGB 값을 비교하며 matched=false도 정상 결과다. 케이스 확인부터 입력 읽기·비교·최종 검증·저장까지 고정5초 예산을 쓴다. 분석 JSON은 analysis/template-match-NNN.json에0444로 등록하며 원 픽셀·OCR·시각은 반환하지 않는다. 프레임 신선도·게임 의미·입력 실행은 검증하지 않으며 image-template-analysis 요약에 기록한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "reference_artifact_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "reference_preview_index",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "reference_roi",
+      "type": "array",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "candidate_artifact_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "candidate_preview_index",
+      "type": "integer",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "candidate_roi",
+      "type": "array",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "max_mean_error",
+      "type": "integer",
+      "required": true,
       "default": null
      }
     ],

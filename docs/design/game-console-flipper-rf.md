@@ -1,6 +1,6 @@
 # 설계안: 게임 콘솔 분석 + Flipper Zero·RF(주파수) 분석
 
-> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치·가져온 원시 세이브의 로컬 계획, §3.3의 등록 RAW 파일 분석, §3.4의 공급 숫자 관찰 요약과 §3.1의 Flipper 고정 파일 읽기·NTAG21x 스캔과 §3.2의 스캔 결속 NFC 파일 검사와 CU 고정 NTAG 스캔은 구현됐다. imported 세이브의 기기 쓰기 준비·전체 태그 덤프 게시·실제 화면/플레이·RF 수신은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
+> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치·가져온 원시 세이브의 로컬 계획, §3.3의 등록 RAW 파일 분석, §3.4의 공급 숫자 관찰 요약·저장 PNG 영역 비교와 §3.1의 Flipper 고정 파일 읽기·NTAG21x 스캔과 §3.2의 스캔 결속 NFC 파일 검사와 CU 고정 NTAG 스캔은 구현됐다. imported 세이브의 기기 쓰기 준비·전체 태그 덤프 게시·실제 화면/플레이·RF 수신은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
 > 여러 서버가 함께 쓰는 기반(포트 라우팅, 증명, 출처 기록, 비밀 마스킹, 안전 설정 위치)은 [common-core.md](common-core.md), 환경 감지·포트 라우팅의 상세는 [port-routing.md](port-routing.md) 에 있다.
 > 1차 초안을 네 관점(안전·법, 기술 실현성, PWEH 구조 적합성, 요구사항 충족)으로 적대적 검토한 결과(지적 59건, 반박 0건)를 반영했다.
 > 근거: 공식 Flipper 펌웨어 **1.5.1** 소스, ChameleonUltra v2.2.0 소스, esptool·ESP-IDF NVS 형식, rtl-sdr-blog v1.4.0·rtl_433 25.12,
@@ -53,14 +53,14 @@ NFC·플레이 열의 “가능”은 후속 설계의 기대치다. 현재 NFC 
 pweh-flipper (구현)  고정1.5.1 CLI 연결·파일 읽기·NTAG21x 스캔. RF/임의 앱/RPC는 후속
 pweh-nfc     (구현)  CU 고정 NTAG 스캔·inventory·NFC v4 파일 검사/비교. .shd·프레임 해석은 후속
 pweh-sdr     (구현)  등록 RAW·전력 CSV 파일 오프라인 분석. RTL-SDR 수신(1b)·HackRF 수신은 후속
-pweh-play    (구현)  공급 숫자 관찰 요약. 입력 브리지·화면 인식·플레이 job은 후속(2b·2c)
+pweh-play    (구현)  공급 숫자 관찰 요약·저장 PNG 영역 비교. 입력 브리지·화면 인식·플레이 job은 후속(2b·2c)
 pweh-fwtriage(확장)  ESP 파티션·앱 이미지·NVS, 세이브 비교·체크섬·로컬 계획, ESP 패치·쓰기 검증, 게임 패턴 팩
 pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브리지·일반 USB-UART 어댑터를 usbipd 없이 (port-routing.md §5.2)
 공통 코어            환경 감지(hostenv)·포트 라우팅(ports)·winserial·wininterop·portlock·증명·출처 원장·비밀 마스킹·safety.rf·nfc·rf 파서 (common-core)
 ```
 
 `pweh-sdr`는 `sdr_analyze`·`sdr_peaks`를 제공하며 등록 RAW·전력 CSV 파일의 검사·저장·RF 요약을 연결한다.
-`pweh-play`는 `vision_validate` 한 도구로 공급 숫자의 계산·저장·numeric-analysis 요약을 연결한다.
+`pweh-play`는 `vision_validate`로 공급 숫자의 계산·저장·numeric-analysis 요약을, `vision_template_match`로 저장 PNG 비교·template-analysis 요약을 연결한다.
 `pweh-flipper`는 연결·종료·정보·목록·파일 읽기·고정 NTAG21x probe와 공통 job3개를 제공한다. 실기 전송은 미검증이며 일반 전송 artifact를 실제 캡처·태그 출처로 승격하지 않는다. `pweh-nfc`는 보호 스캔에 결속한 inventory·파일 검사·비교와 CU 연결·스캔·정리 여섯 도구를 제공한다. 선행 구현한 순수 코어는 `pweh.rf_formats`(RAW 통계), `pweh.nfc_formats`(NFC 구조·저장 페이지 비교),
 `pweh.vision_sequence`(숫자 관찰값 합의)이며, 코어 자체는 외부 I/O를 하지 않는다. NFC 공개 입구는 기존 파서의 저장 표현 결과와 실제 스캔 기록의 결속을 구분한다.
 파일 선언·저장값·공급 표본을 다루므로 실제 수신·태그 소유/허가·완전한 물리 읽기·화면/게임 상태를 확인하지 않는다.
@@ -142,7 +142,7 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
   rtl_433 출력은 stdout 으로 받아 서버가 대상만 남기고 비대상은 모델별 개수만(또는 job 마다 버리는 무작위 키 HMAC) 디스크에 쓴다.
 - IQ 를 `\\wsl.localhost` 에 바로 쓰는 처리량은 미확인 → 대체: Windows 로컬 임시 폴더에 쓰고 sha256·크기 확인 후 가져오기, 샘플 누락 감지.
 
-### 3.4 pweh-play (현재 공급 숫자 분석, 후속 입력 브리지·화면 인식)
+### 3.4 pweh-play (현재 공급 숫자·저장 PNG 분석, 후속 입력 브리지·화면 인식)
 
 **현재 구현**: `vision_validate(case_id, input_kind="numeric-observations", observations, now, policy=None)`.
 사용자가 제공한 최대256개의 엄격한 timestamp/value/confidence와 같은 시간축의 now로 기존 숫자 코어를 호출한다.
@@ -153,6 +153,12 @@ stable/unknown/stale 모두 유효한 계산 결과이며 unknown/stale에서 �
 digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·게임 의미·자동 입력 검증은 false로 남는다.
 숫자만 분석할 때는 장비·펌웨어·화면 세션·입력 브리지·play-run이 필요하지 않다.
 공개 계약은 [numeric-validation.md](../references/numeric-validation.md)다.
+
+**저장 PNG 비교도 구현**: 같은 케이스의 등록 image-hints 보고서·preview index·동일 크기 ROI 두 개와
+정수 threshold를 `vision_template_match`에 전달한다. 제한된 worker의 RGB 절대차 합을 정수식으로
+판정하고, source ID/해시·ROI·집계를 analysis/template-match-NNN.json에 저장한다. 입력부터 등록까지
+고정5초 하나를 쓴다. matched=false도 정상 성공이며 도구 전용 image-template-analysis 단계의
+template-analysis 요약을 남긴다. 세 검증 flag는 false다. [선택·결과 계약](../references/stored-png-template.md).
 
 아래 입력 브리지·ffmpeg·OCR·플레이 job과 `safety.play_policy`는 **후속 설계**다.
 현재 숫자 분석 입구에 새 safety 키나 실제 입력 권한을 추가한 것이 아니다.
@@ -280,6 +286,7 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 | 1a | `game-save-unlock-analysis` | `save-analysis` |
 | 1b | `flipper-rf-analysis` | `rf-analysis` |
 | 오프라인 숫자(구현) | `numeric-observation-analysis` | `numeric-analysis` |
+| 저장 PNG 비교(구현) | `image-template-analysis`(도구 전용) | `template-analysis` |
 | 1b | `nfc-behavior-analysis`(읽기·비교 부분) | `nfc-analysis` |
 | 2c | `game-play-automation` | `play-run` |
 
@@ -377,17 +384,18 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 | `sdr_import_flipper_sub` | OBSERVE(오프라인) | `.ook` 변환·decoder 연결은 후속; 현재 등록 파일 분석 계약과 구분 |
 | `sdr_job_status/cancel/jobs` | — | |
 
-**pweh-play** (현재 숫자 관찰 분석, 나머지는 후속2b·2c)
+**pweh-play** (현재 숫자 관찰·저장 PNG 분석, 나머지는 후속2b·2c)
 
 | 도구 | 위험 | 비고 |
 |---|---|---|
 | `vision_validate(case_id, input_kind="numeric-observations", observations, now, policy=None)` | 기기 I/O 없음, 로컬 결과 저장 | 구현. 공급 숫자 합의·digest·numeric-analysis 요약; 화면 검증 아님 |
+| `vision_template_match` | 기기 I/O 없음, 로컬 결과 저장 | 구현. 등록 저장 PNG의 동일 크기 ROI 비교·template-analysis 요약 |
 | `input_list_ports`, `bridge_info` | OBSERVE | |
 | `input_connect(case_id, port, mapping, ...)` | INTERACT + 증명 | 고정 시리얼, 디스크립터 해시 |
 | `input_press`, `input_sequence`, `input_axis` | MODIFY, play_policy 세션 예산(전원·리셋 채널은 DESTRUCTIVE) | 금지 템플릿 |
 | `input_release_all`, `input_disconnect` | 정리 | |
 | `vision_list_sources`, `vision_open`, `vision_close`, `vision_capture_frame`, `vision_view`, `vision_record_start/stop` | OBSERVE(HDMI 는 소스 증명) | `-an` |
-| `vision_define_roi`, `vision_label_frames`, `vision_train_digits`, `vision_ocr_region`, `vision_template_add/match` | 기기 I/O 없음 | 후속 화면 모델 설계 |
+| `vision_define_roi`, `vision_label_frames`, `vision_train_digits`, `vision_ocr_region`, `vision_template_add` | 기기 I/O 없음 | 후속 화면 모델 설계 |
 | `vision_watch_start` | OBSERVE · job | |
 | `input_script_validate`, `input_script_start` | MODIFY · job(계획 승인, §4 예외) | |
 | `play_job_status/cancel/jobs` | — | 취소 = 전부 해제 |

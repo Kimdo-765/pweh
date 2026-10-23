@@ -1,10 +1,10 @@
-"""play-mcp: 호출자가 공급한 숫자 표본의 합의 계산과 케이스 저장."""
+"""play-mcp: 공급 숫자 합의와 저장 PNG 영역 비교·케이스 저장."""
 
 from __future__ import annotations
 
 import threading
 import time
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata
 from pydantic import BeforeValidator, ConfigDict, Field, StrictFloat, StrictInt, StrictStr, ValidationError
@@ -88,34 +88,48 @@ Policy = Annotated[PolicyInput, BeforeValidator(_policy_dict)]
 class _NumericMetadata(FuncMetadata):
     """배열·객체 JSON 문자열을 변환하지 않고 오류의 원문 위치도 제거한다."""
 
+    error_code: ClassVar[str] = "numeric_input_invalid"
+    error_message: ClassVar[str] = _ERRORS["numeric_input_invalid"]
+    validation_title: ClassVar[str] = "NumericInput"
+
     def validate_arguments(self, arguments_to_validate: dict) -> dict:
         try:
             # SDK pre_parse_json을 생략하여 원 배열/객체와 그것을 담은 문자열을 구분한다.
             return self.arg_model.model_validate(arguments_to_validate).model_dump_one_level()
         except ValidationError:
             raise ValidationError.from_exception_data(
-                "NumericInput", [{"type": PydanticCustomError("numeric_input_invalid", _ERRORS["numeric_input_invalid"]),
+                self.validation_title, [{"type": PydanticCustomError(self.error_code, self.error_message),
                                   "loc": (), "input": None}], hide_input=True,
             ) from None
+
+
+class _TemplateMetadata(_NumericMetadata):
+    """저장 PNG 비교의 입력 오류를 별도 고정 코드로 돌려준다."""
+
+    error_code: ClassVar[str] = "template_input_invalid"
+    error_message: ClassVar[str] = "저장 PNG 비교 입력이 허용된 형식이나 범위가 아닙니다."
+    validation_title: ClassVar[str] = "TemplateInput"
 
 
 def _configure_input(instance) -> None:
     """비공개 SDK 연결 실패는 고정 등록 오류로 종료한다."""
     try:
-        tool = instance._tool_manager.get_tool("vision_validate")
-        if tool is None:
-            raise RuntimeError
-        old = tool.fn_metadata
-        model = old.arg_model
-        model.model_config.update(strict=True, extra="forbid", hide_input_in_errors=True)
-        model.model_rebuild(force=True)
-        tool.fn_metadata = _NumericMetadata(arg_model=model, output_schema=old.output_schema,
-                                            output_model=old.output_model, wrap_output=old.wrap_output)
-        tool.parameters = model.model_json_schema(by_alias=True)
-        if tool.parameters.get("additionalProperties") is not False:
-            raise RuntimeError
+        for name, metadata in (("vision_validate", _NumericMetadata),
+                               ("vision_template_match", _TemplateMetadata)):
+            tool = instance._tool_manager.get_tool(name)
+            if tool is None:
+                raise RuntimeError
+            old = tool.fn_metadata
+            model = old.arg_model
+            model.model_config.update(strict=True, extra="forbid", hide_input_in_errors=True)
+            model.model_rebuild(force=True)
+            tool.fn_metadata = metadata(arg_model=model, output_schema=old.output_schema,
+                                        output_model=old.output_model, wrap_output=old.wrap_output)
+            tool.parameters = model.model_json_schema(by_alias=True)
+            if tool.parameters.get("additionalProperties") is not False:
+                raise RuntimeError
     except Exception:
-        raise RuntimeError("숫자 도구의 비공개 입력 검증 설정을 완료하지 못했습니다.") from None
+        raise RuntimeError("관찰 분석 도구의 비공개 입력 검증 설정을 완료하지 못했습니다.") from None
 
 
 def rt() -> Runtime:
@@ -165,11 +179,13 @@ def _arguments(case_id, input_kind, observations, now, policy):
     return tuple(result), NumericPolicy(**settings)
 
 
-server = create_server(SERVER_NAME, title="PWEH 공급 숫자 관찰 분석", instructions=(
+server = create_server(SERVER_NAME, title="PWEH 숫자·저장 이미지 관찰 분석", instructions=(
     "호출자가 공급한 숫자 표본을 같은 공급 monotonic seconds 축의 now로 평가한다. "
     "소유/허가 케이스에서 vision_validate 후 numeric-observation-analysis의 numeric-analysis 요약을 기록한다. "
     "stable은 숫자 합의이며 실제 프레임 신선도·게임 의미·입력 실행을 검증하지 않는다. "
-    "OCR·프레임·장치·외부 프로세스·자동 플레이는 사용하지 않는다."
+    "등록 image-hints의 저장 PNG 두 영역은 vision_template_match로 RGB 절대차를 계산하고 "
+    "image-template-analysis의 template-analysis 요약을 기록한다. PNG 해독은 제한된 별도 worker를 사용한다. "
+    "OCR·프레임 취득·장치·자동 플레이는 사용하지 않는다."
 ))
 
 
@@ -210,6 +226,9 @@ async def vision_validate(
         raise _fixed_error(exc) from None
 
 
+from .template_tools import register_template_tools
+
+register_template_tools(server, globals())
 _configure_input(server)
 
 

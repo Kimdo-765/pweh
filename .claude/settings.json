@@ -105,6 +105,7 @@
       "mcp__pweh-sdr__sdr_analyze",
       "mcp__pweh-sdr__sdr_peaks",
       "mcp__pweh-play__vision_validate",
+      "mcp__pweh-play__vision_template_match",
       "mcp__pweh-flipper__flipper_device_info",
       "mcp__pweh-flipper__flipper_storage_list",
       "mcp__pweh-flipper__flipper_job_status",

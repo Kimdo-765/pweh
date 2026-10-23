@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "저장 PNG 영역 비교 요약",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "pweh.template-analysis/v1"
+    },
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "pattern": "^A-[0-9]{4,8}$(?![\\s\\S])"
+          },
+          "analysis_path": {
+            "type": "string",
+            "pattern": "^analysis/template-match-[0-9]{3,9}\\.json$(?![\\s\\S])"
+          },
+          "report_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+          },
+          "matched": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "analysis_path",
+          "report_sha256",
+          "matched"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "frame_freshness_verified": {
+      "const": false
+    },
+    "game_semantics_verified": {
+      "const": false
+    },
+    "action_generated": {
+      "const": false
+    }
+  },
+  "required": [
+    "schema",
+    "results",
+    "frame_freshness_verified",
+    "game_semantics_verified",
+    "action_generated"
+  ],
+  "additionalProperties": false
+}

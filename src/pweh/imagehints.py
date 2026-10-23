@@ -125,7 +125,8 @@ def _limits() -> dict:
 
 
 def _exchange(argv: list[str], payload: bytes, *, deadline: float,
-              cancel_event: threading.Event | None) -> tuple[bytes, str | None]:
+              cancel_event: threading.Event | None,
+              max_output_bytes: int = MAX_OUTPUT_BYTES) -> tuple[bytes, str | None]:
     """stdin/stdout/stderr 를 동시에 제한하며 부모가 그룹 종료와 회수를 소유한다."""
     env = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
            "PYTHONDONTWRITEBYTECODE": "1", "OMP_THREAD_LIMIT": "1"}
@@ -171,7 +172,7 @@ def _exchange(argv: list[str], payload: bytes, *, deadline: float,
                         sel.unregister(pipe)
                         pipe.close()
                     elif key.data == "output":
-                        if len(output) + len(chunk) > MAX_OUTPUT_BYTES:
+                        if len(output) + len(chunk) > max_output_bytes:
                             reason = "worker_output_limit"
                             break
                         output.extend(chunk)
@@ -194,6 +195,99 @@ def _exchange(argv: list[str], payload: bytes, *, deadline: float,
                 pipe.close()
         process.wait()
     return bytes(output), reason
+
+
+def _template_json(raw: bytes) -> dict:
+    """비교 전용 봉투는 중복 키·비유한 수를 받지 않는다."""
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError("duplicate_key")
+            result[key] = value
+        return result
+
+    def constant(_):
+        raise ValueError("nonfinite")
+
+    return json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
+
+
+def match_png_rois(reference_png: bytes, candidate_png: bytes, *,
+                   reference_size: tuple[int, int], candidate_size: tuple[int, int],
+                   reference_roi: tuple[int, int, int, int], candidate_roi: tuple[int, int, int, int],
+                   max_mean_error: int, deadline: float,
+                   cancel_event: threading.Event | None = None) -> dict:
+    """고정 격리 worker에서 두 저장 PNG의 RGB ROI만 비교하고 숫자 네 개를 반환한다."""
+    from . import vision_template as V
+
+    def check():
+        if cancel_event is not None and cancel_event.is_set():
+            raise V._error("cancelled") from None
+        V._tick(deadline)
+
+    if cancel_event is not None and not isinstance(cancel_event, threading.Event):
+        raise V._error("template_input_invalid") from None
+    check()
+    V._geometry(reference_size, reference_roi)
+    V._geometry(candidate_size, candidate_roi)
+    V._threshold(max_mean_error)
+    if (reference_roi[2:] != candidate_roi[2:]
+            or type(reference_png) is not bytes or type(candidate_png) is not bytes
+            or not 0 < len(reference_png) <= V.MAX_PNG_BYTES
+            or not 0 < len(candidate_png) <= V.MAX_PNG_BYTES):
+        raise V._error("template_input_invalid") from None
+    check()
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise V._error("time_limit") from None
+    if remaining > 5:
+        raise V._error("template_input_invalid") from None
+    expected = {"op": V.OP, "reference_size": list(reference_size), "candidate_size": list(candidate_size),
+                "reference_roi": list(reference_roi), "candidate_roi": list(candidate_roi),
+                "max_mean_error": max_mean_error}
+    opts = {**expected, "parent_pid": os.getpid(), "max_seconds": remaining,
+            "site_paths": list(dict.fromkeys(sysconfig.get_path(n) for n in ("purelib", "platlib"))),
+            "reference_length": len(reference_png), "candidate_length": len(candidate_png)}
+    try:
+        header = json.dumps(opts, ensure_ascii=True, allow_nan=False).encode("ascii")
+        if len(header) > 32768:
+            raise ValueError("header_limit")
+        payload = struct.pack(">IQ", len(header), len(reference_png) + len(candidate_png))
+        payload += header + reference_png + candidate_png
+        check()
+        raw, reason = _exchange([sys.executable, "-I", "-S", str(Path(__file__).with_name("_image_worker.py"))],
+                                payload, deadline=deadline, cancel_event=cancel_event,
+                                max_output_bytes=V.MAX_OUTPUT_BYTES)
+        check()
+        if reason is not None:
+            raise V._error({"cancelled": "cancelled", "wall_timeout": "time_limit"}.get(reason, "template_failed"))
+        if type(raw) is not bytes or len(raw) > V.MAX_OUTPUT_BYTES:
+            raise ValueError("response_limit")
+        response = _template_json(raw)
+        if type(response) is not dict:
+            raise ValueError("response_shape")
+        if set(response) == {"op", "error"} and response["op"] == V.OP:
+            if type(response["error"]) is str and response["error"] in {"template_input_invalid", "template_failed", "time_limit"}:
+                raise V._error(response["error"])
+            raise ValueError("response_error")
+        if set(response) != set(expected) | {"result"}:
+            raise ValueError("response_shape")
+        for key, value in expected.items():
+            actual = response[key]
+            if type(actual) is not type(value) or actual != value:
+                raise ValueError("response_request")
+            if type(value) is list and any(type(n) is not int for n in actual):
+                raise ValueError("response_integer")
+        V._validate_result(response["result"], width=reference_roi[2], height=reference_roi[3],
+                           max_mean_error=max_mean_error)
+        check()
+        return response["result"]
+    except PwehError as exc:
+        code = exc.code if exc.code in {"template_input_invalid", "template_failed", "time_limit", "cancelled"} else "template_failed"
+        raise V._error(code) from None
+    except Exception:
+        raise V._error("template_failed") from None
 
 
 def _decode_response(raw: bytes, data: bytes) -> dict:

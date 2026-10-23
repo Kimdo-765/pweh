@@ -476,12 +476,146 @@ def analyze(data: bytes, opts: dict) -> dict:
     return result
 
 
+def _template_png(data: bytes, size: tuple[int, int], roi: tuple[int, int, int, int],
+                  deadline: float) -> bytes:
+    """단순 RGB PNG의 구조·CRC·실제 해독을 확인하고 지정 ROI만 반환한다."""
+    from pweh import vision_template as V
+    from pweh._image_formats import inspect_png
+
+    V._tick(deadline)
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise V._error("template_input_invalid")
+    pos, idat, ended = 8, False, False
+    while pos < len(data):
+        V._tick(deadline)
+        if pos + 12 > len(data):
+            raise V._error("template_input_invalid")
+        length = struct.unpack_from(">I", data, pos)[0]
+        kind = data[pos + 4:pos + 8]
+        stop = pos + 12 + length
+        if stop > len(data):
+            raise V._error("template_input_invalid")
+        if pos == 8:
+            if kind != b"IHDR" or length != 13:
+                raise V._error("template_input_invalid")
+            fields = struct.unpack_from(">IIBBBBB", data, pos + 8)
+            if fields[:2] != size or fields[2:6] != (8, 2, 0, 0) or fields[6] not in (0, 1):
+                raise V._error("template_input_invalid")
+        elif kind == b"IDAT":
+            idat = True
+        elif kind == b"IEND" and length == 0 and idat and stop == len(data):
+            ended = True
+        else:
+            raise V._error("template_input_invalid")
+        pos = stop
+    if not ended:
+        raise V._error("template_input_invalid")
+    V._tick(deadline)
+    structure = inspect_png(data)
+    if (structure["status"] != "ok" or structure["dimensions"] != list(size)
+            or structure["animated"] or structure["trailing_bytes"] != 0):
+        raise V._error("template_input_invalid")
+    V._tick(deadline)
+    from PIL import Image, ImageFile
+
+    Image.MAX_IMAGE_PIXELS = V.MAX_DIMENSION ** 2
+    ImageFile.LOAD_TRUNCATED_IMAGES = False
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", Image.DecompressionBombWarning)
+        with Image.open(io.BytesIO(data), formats=["PNG"]) as im:
+            if im.mode != "RGB" or im.size != size or getattr(im, "n_frames", 1) != 1 or getattr(im, "is_animated", False):
+                raise V._error("template_input_invalid")
+            im.verify()
+        V._tick(deadline)
+        with Image.open(io.BytesIO(data), formats=["PNG"]) as im:
+            im.load()
+            if im.mode != "RGB" or im.size != size or getattr(im, "n_frames", 1) != 1 or getattr(im, "is_animated", False):
+                raise V._error("template_input_invalid")
+            V._tick(deadline)
+            x, y, width, height = roi
+            with im.crop((x, y, x + width, y + height)) as cropped:
+                raw = cropped.tobytes()
+    V._tick(deadline)
+    return raw
+
+
+def _template_match(data: bytes, opts: dict) -> dict:
+    """비교 op에는 원문·경로·이미지 대신 닫힌 숫자 봉투만 반환한다."""
+    from pweh import vision_template as V
+    from pweh.errors import PwehError
+
+    try:
+        keys = {"op", "parent_pid", "site_paths", "max_seconds", "reference_length", "candidate_length",
+                "reference_size", "candidate_size", "reference_roi", "candidate_roi", "max_mean_error"}
+        if type(opts) is not dict or set(opts) != keys or opts["op"] != V.OP:
+            raise V._error("template_input_invalid")
+        if (type(opts["parent_pid"]) is not int or opts["parent_pid"] <= 0
+                or type(opts["site_paths"]) is not list or not 1 <= len(opts["site_paths"]) <= 2
+                or any(type(path) is not str or not os.path.isabs(path) or "\x00" in path or len(path) > 4096
+                       for path in opts["site_paths"])
+                or type(opts["max_seconds"]) not in (int, float) or not 0 < opts["max_seconds"] <= 5):
+            raise V._error("template_input_invalid")
+        deadline = time.monotonic() + opts["max_seconds"]
+        V._tick(deadline)
+        for key in ("reference_length", "candidate_length"):
+            if type(opts[key]) is not int or not 0 < opts[key] <= V.MAX_PNG_BYTES:
+                raise V._error("template_input_invalid")
+        if type(data) is not bytes or len(data) != opts["reference_length"] + opts["candidate_length"]:
+            raise V._error("template_input_invalid")
+        for key in ("reference_size", "candidate_size", "reference_roi", "candidate_roi"):
+            if type(opts[key]) is not list:
+                raise V._error("template_input_invalid")
+        rsize, csize = tuple(opts["reference_size"]), tuple(opts["candidate_size"])
+        rroi, croi = tuple(opts["reference_roi"]), tuple(opts["candidate_roi"])
+        V._geometry(rsize, rroi)
+        V._geometry(csize, croi)
+        V._threshold(opts["max_mean_error"])
+        if rroi[2:] != croi[2:]:
+            raise V._error("template_input_invalid")
+        # 검증한 부모 설치 경로만 -S 환경에 더한다. Pillow는 이 뒤에만 불러온다.
+        for path in opts["site_paths"]:
+            sys.path.append(path)
+        rbytes = _template_png(data[:opts["reference_length"]], rsize, rroi, deadline)
+        cbytes = _template_png(data[opts["reference_length"]:], csize, croi, deadline)
+        result = V.compare_rgb_bytes(rbytes, cbytes, width=rroi[2], height=rroi[3],
+                                    max_mean_error=opts["max_mean_error"], deadline=deadline)
+        V._tick(deadline)
+        return {"op": V.OP, "reference_size": list(rsize), "candidate_size": list(csize),
+                "reference_roi": list(rroi), "candidate_roi": list(croi),
+                "max_mean_error": opts["max_mean_error"], "result": result}
+    except PwehError as exc:
+        code = exc.code if exc.code in {"template_input_invalid", "time_limit"} else "template_failed"
+        return {"op": V.OP, "error": code}
+    except Exception:
+        return {"op": V.OP, "error": "template_failed"}
+
+
 def main() -> None:
     _limits()
     header_size, size = struct.unpack(">IQ", _read_exact(12))
     if not 0 < header_size <= 32768 or not 0 < size <= MAX_INPUT:
         raise ValueError("worker_input_limit")
-    opts = json.loads(_read_exact(header_size))
+    header = _read_exact(header_size)
+    opts = json.loads(header)
+    if type(opts) is dict and "op" in opts:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from pweh.imagehints import _template_json
+        from pweh import vision_template as V
+        try:
+            opts = _template_json(header)
+            if type(opts["parent_pid"]) is not int or opts["parent_pid"] != os.getppid():
+                raise ValueError("parent_mismatch")
+            if size > 2 * V.MAX_PNG_BYTES:
+                raise ValueError("template_input_limit")
+            result = _template_match(_read_exact(size), opts)
+        except Exception:
+            result = {"op": V.OP, "error": "template_input_invalid"}
+        raw = json.dumps(result, ensure_ascii=True, allow_nan=False).encode("ascii")
+        if len(raw) > V.MAX_OUTPUT_BYTES:
+            raise ValueError("template_output_limit")
+        sys.stdout.buffer.write(raw)
+        sys.stdout.buffer.flush()
+        return
     if os.getppid() != opts["parent_pid"]:
         os.killpg(os.getpgrp(), signal.SIGKILL)
     data = _read_exact(size)

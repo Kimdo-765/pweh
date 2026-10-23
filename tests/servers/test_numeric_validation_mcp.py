@@ -123,12 +123,12 @@ async def test_256_inputs_defaults_and_no_previous_value_cache(ncase):
             assert later["report"]["analysis"]["value"] is None
 
 
-async def test_tools_list_exposes_only_supplied_numeric_input(workspace):
+async def test_numeric_tool_retains_supplied_numeric_input(workspace):
     from play_mcp import server as S
     async with Client(S.server) as client:
         tools = (await client.list_tools()).tools
-    assert [t.name for t in tools] == ["vision_validate"]
-    tool = tools[0]
+    assert {t.name for t in tools} == {"vision_validate", "vision_template_match"}
+    tool = next(t for t in tools if t.name == "vision_validate")
     assert tool.annotations.read_only_hint is False and tool.annotations.open_world_hint is False
     schema = tool.input_schema
     assert set(schema["properties"]) == {"case_id", "input_kind", "observations", "now", "policy"}

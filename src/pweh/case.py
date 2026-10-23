@@ -60,7 +60,7 @@ PIPELINE_PHASES = (
     "cctv-auth-bypass-hunt",
     "report",
 )
-#: 선택 단계 레지스트리: 보안 분석 밖의 목표(게임 콘솔·RF·SD 포렌식)와 계측기용 Skill 의 단계 이름(= Skill 이름).
+#: 선택 단계 레지스트리: 보안 분석 밖의 목표와 계측기용 Skill 또는 도구 전용 단계 이름.
 #: PIPELINE_PHASES 와 달리 새 케이스에 'pending' 항목을 만들지 않는다. 그 Skill 이 summary 를 기록하거나
 #: case_set_phase 로 상태를 정할 때 처음 생기므로, 그 목표를 쓰지 않는 케이스의 case.json·보고서는 달라지지 않는다.
 #: 순서는 보고서의 표시 순서다. Skill 을 추가하면 이름을 여기에, 라벨을 report._PHASE_LABEL 에,
@@ -68,6 +68,7 @@ PIPELINE_PHASES = (
 OPTIONAL_PHASES = (
     "game-save-unlock-analysis",
     "numeric-observation-analysis",
+    "image-template-analysis",
     "nfc-behavior-analysis",
     "game-play-automation",
     "flipper-rf-analysis",

@@ -1,8 +1,8 @@
 # pweh-play
 
-사용자가 제공한 숫자 관찰 수열을 오프라인 요약하는 MCP 서버다. 현재 공개 도구는 `vision_validate` 하나다. 소유 또는 서면 허가가 기록된 케이스에 기존 숫자 합의 코어의 결과와 입력 digest를 저장한다.
+사용자가 제공한 숫자 관찰 수열과 등록 image-hints의 저장 PNG 영역을 분석하는 MCP 서버다. 공개 도구는 `vision_validate`와 `vision_template_match`다. 소유 또는 서면 허가가 기록된 케이스에 기존 숫자 합의 코어의 결과와 입력 digest를 저장한다.
 
-등록 이름은 `pweh-play`, 실행 명령은 `pweh-play-mcp`(stdio)다. 프로젝트 Python 패키지 설치에 포함된다. 카메라·캡처 카드·OCR·입력 브리지·외부 실행 파일은 필요하지 않다.
+등록 이름은 `pweh-play`, 실행 명령은 `pweh-play-mcp`(stdio)다. 프로젝트 Python 패키지 설치에 포함된다. 카메라·캡처 카드·OCR·입력 브리지는 필요하지 않다. PNG 비교는 패키지의 제한된 Python worker에서 해독한다.
 
 ## 사용
 
@@ -46,3 +46,16 @@ vision_validate(
 ## 검증 범위
 
 합성 숫자의 실제 MCP 호출→저장→요약→보고서, strict 입력·SDK 오류 원문 차단, canonical digest, 출력 FD 교체·취소·원자 등록을 검사한다. 코어는 `tests/core/test_vision_sequence.py`, 새 연결은 `tests/servers/test_numeric_validation_output.py`·`test_numeric_validation_mcp.py`, schema는 `tests/core/test_numeric_validation_schema.py`에서 검증한다. 화면 캡처·OCR·게임패드 입력·자동 플레이는 현재 지원 범위에 포함되지 않는다.
+
+## 저장 PNG 영역 비교
+
+`vision_template_match`는 동일 케이스의 등록 image-hints JSON ID 두 개와 각 preview index·ROI,
+정수 max_mean_error를 모두 받는다. 같은 크기의 저장 RGB 영역만 비교하며 matched=false도 정상 성공이다.
+보고서·PNG의 색인/참조/같은 FD SHA를 확인하고 입력 선택부터 worker·등록까지 고정5초 하나를 쓴다.
+결과는 analysis/template-match-NNN.json에0444로 저장한다. 반환 일곱 키는 숫자 분석과 같으며,
+`image-template-analysis` 단계의 별도 `template-analysis` 요약으로 기록한다.
+
+[입력 선택·호출·요약 예제](../../docs/references/stored-png-template.md)를 따른다.
+`case_image_hints` 응답의 analysis에 ID가 없으므로 case_get의 실제 색인에서 고른다. 좌표는 저장 PNG
+픽셀이며 자동 resize·alignment는 없다. 세 검증 flag는 false다. 합성 PNG·실제 MCP 두 Client·
+입출력 무결성·worker 수명 시험은 test_vision_template.py/test_template_analysis.py/test_template_mcp.py에 있다.

@@ -172,6 +172,8 @@ def _guess_schema(obj: Any) -> str | None:
         return "nfc-analysis"
     if {"mode", "results", "frame_freshness_verified", "action_generated"} <= keys:
         return "numeric-analysis"
+    if obj.get("schema") == "pweh.template-analysis/v1":
+        return "template-analysis"
     return None
 
 
@@ -382,7 +384,8 @@ def test_agent_docs_do_not_name_skills_that_do_not_exist():
     에이전트가 읽는 문서에 적지 않는다 — 에이전트가 없는 Skill 을 찾거나 그 이름으로 요약을 기록하지 않게."""
     from pweh.case import OPTIONAL_PHASES
 
-    future = sorted(set(OPTIONAL_PHASES) - {d.name for d in SKILL_DIRS})
+    # 이 단계는 Skill 없이 공개 참고 문서의 도구·요약 절차로 완료한다.
+    future = sorted(set(OPTIONAL_PHASES) - {d.name for d in SKILL_DIRS} - {"image-template-analysis"})
     problems = [f"{doc.relative_to(REPO)}: {name}" for doc in DOCS for name in future
                 if re.search(rf"(?<![A-Za-z0-9_-]){re.escape(name)}(?![A-Za-z0-9_-])", _read(doc))]
     assert not problems, f"아직 없는 Skill 이름: {problems}"
@@ -454,8 +457,10 @@ def test_json_examples_validate_against_schemas(doc: Path):
 
 def test_every_data_skill_has_a_valid_summary_example():
     for skill, sch in schemas.SKILL_DATA_SCHEMAS.items():
-        found = [obj for _, s, obj in _json_examples(SKILLS / skill / "SKILL.md") if s == sch]
-        assert found, f"{skill}/SKILL.md 에 {sch} 요약 예시가 없음"
+        doc = (REPO / "docs/references/stored-png-template.md" if skill == "image-template-analysis"
+               else SKILLS / skill / "SKILL.md")
+        found = [obj for _, s, obj in _json_examples(doc) if s == sch]
+        assert found, f"{doc.name} 에 {sch} 요약 예시가 없음"
         for obj in found:
             assert not schemas.errors(sch, obj)
 

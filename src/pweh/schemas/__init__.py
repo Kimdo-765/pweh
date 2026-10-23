@@ -17,7 +17,7 @@ from ..errors import ValidationFailed
 
 SCHEMA_DIR = Path(__file__).resolve().parent
 
-# Skill 이름 → 최종 요약(step=='summary')의 data 스키마
+# Skill 또는 도구 전용 단계 이름 → 최종 요약(step=='summary')의 data 스키마
 SKILL_DATA_SCHEMAS: dict[str, str] = {
     "uart-shell-acquisition": "uart-recon",
     "firmware-dump-via-uart": "firmware-dump",
@@ -31,6 +31,7 @@ SKILL_DATA_SCHEMAS: dict[str, str] = {
     "android-forensics": "android-forensics",
     "flipper-rf-analysis": "rf-analysis",
     "numeric-observation-analysis": "numeric-analysis",
+    "image-template-analysis": "template-analysis",
     "nfc-behavior-analysis": "nfc-analysis",
 }
 

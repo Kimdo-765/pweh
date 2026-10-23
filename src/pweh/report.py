@@ -30,6 +30,7 @@ _PHASE_LABEL = {
     # 선택 단계(case.OPTIONAL_PHASES): 상태나 요약이 기록된 케이스에서만 §4 '선택 단계' 에 보인다
     "game-save-unlock-analysis": "게임 세이브·해금 분석",
     "numeric-observation-analysis": "공급 숫자 관측값 분석",
+    "image-template-analysis": "저장 PNG 영역 비교",
     "nfc-behavior-analysis": "NFC 동작 분석",
     "game-play-automation": "게임 플레이 자동화",
     "flipper-rf-analysis": "Flipper·RF 분석",

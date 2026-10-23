@@ -826,6 +826,21 @@ worker의 케이스 확인부터 최종 등록까지 같은5초 협력적 예산
 자신의 inode만 정리한다. 원자 등록이 끝났으면 뒤늦은 취소·감사 실패에도 결과를 보존한다.
 파일·장치·포트·영상·OCR 입력이나 입력 명령을 받지 않는다.
 
+### 저장 PNG 영역 비교의 범위
+
+`vision_template_match`는 일반 케이스의 등록 image-hints JSON 두 개와 선택 PNG를 같은 FD에서
+읽고 색인·참조·크기·SHA·부모/이름 seal을 최종 등록 직전에 다시 확인한다. 보고서8MiB,
+PNG1MiB/1600² 한도이며 forensics/emu·링크·다른 생산자·모호한 등록은 받지 않는다.
+저장 PNG의 같은 크기 ROI만 제한된 worker에서 RGB로 해독·비교한다. 원본·OCR 좌표로
+자동 변환하거나 화면을 새로 취득하지 않는다. 입력·해독·최종 등록은 고정5초 하나를 공유한다.
+
+결과에는 source ID/크기/SHA/PNG dimension·요청 ROI·threshold·절대차 집계만 담는다.
+원 경로·이미지·OCR·EXIF·개별 픽셀은 반환하지 않는다. threshold는 사용자 지정 허용 오차이며
+평균 절대차는 확률이 아니다. matched 참/거짓 모두 정상 분석 결과이고, frame_freshness_verified,
+game_semantics_verified, action_generated는 항상 false다. 실제 취득·게임 의미·입력 권한의
+증명으로 승격하지 않는다. 새 결과는64KiB 이하0444이며 실제 등록 뒤 callback/close 실패에는
+receipt를 보존하고 고정 경고를 남긴다. [계약과 요약](references/stored-png-template.md).
+
 ### Flipper 고정 읽기 전송
 
 `pweh-flipper`는 소유/허가 케이스의 명시 포트와 공식1.5.1 CLI 문법만 받는다. USB 부모·
