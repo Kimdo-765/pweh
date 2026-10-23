@@ -66,6 +66,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
   카메라 펌웨어가 SD 카드를 다루는 방식(SD-01~09)과 제한된 FIT 서명 선언 구조는 `firmware-static-analysis` 4b 단계에서 본다(실제 서명 검증·부팅 강제 판정 아님). 기존 펌웨어 보고서와 카드 목록은 `forensics_sd_ioc_scan`으로 이름 후보·검사 한계를 대조한다(실행·침해 증명 아님). 선택 파일의 BMFF 상자 구조와 제한된 길이·PSSH 선언은 `forensics_media_inventory`로 관찰한다(영상/음성 해독·녹화 시각/암호화 판정 없음). 선택 파일 또는 [명시 EV 구간](docs/references/media-evidence-range.md)의 연속 구조 후보는 `forensics_media_candidates`로 찾는다(원본 경계·녹화 복구 검증 아님). 저장한 후보 하나의 검증된 앞부분은 `forensics_extract_media_candidate`로 추출한다([계약](docs/references/media-prefix-extract.md)). 범용 카드 카빙·녹화 인덱스·녹화 타임라인·ext4 는 아직 없다.
   선택 파일·증거 구간의 제한된 DHAV record 구조는 `forensics_dhav_candidates`로 찾는다. 후보의 위치·길이와 미검사 범위만 기록하며 영상 복구·재생을 판정하지 않는다. [지원 범위](docs/references/dhav-candidates.md). 저장된 후보 하나는 `forensics_extract_dhav_candidate`로 출처를 재확인해 추출한다([계약](docs/references/dhav-record-extract.md)).
   큰 EV는 `forensics_dhav_scan`으로 bounded streaming 검색할 수 있다. 절대 위치 후보를 기존 구간 검사로 다시 결속한 뒤 한 record만 추출한다. 검색 예산·재개·전체 완료의 구분은 [DHAV 검색 계약](docs/references/dhav-scan.md)을 따른다.
+  JPEG·AVC Annex B·MPEG-2 PS·XM의 제한된 단위는 `forensics_media_unit_candidates`로 찾고 `forensics_extract_media_unit`로 한 단위만 추출한다([후보](docs/references/media-unit-candidates.md)·[추출](docs/references/media-unit-extract.md)). 닫힌 구조와 PS의 검증된 prefix를 구분하며 미디어 내용은 해독하지 않는다.
   알려진 한계(잘린 이미지·손상된 카드, 같은 계정 프로세스의 경합 창 등)는 [안전 가이드](docs/safety.md) §3.6 에 있다.
 - **RF·하드웨어 분석** — 준비 중. 지금은 기존 Skill 로 보드 단위 콘솔·신호·덤프만 한다.
 

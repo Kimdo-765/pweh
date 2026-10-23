@@ -196,3 +196,38 @@ def test_cancel_before_read_opens_no_selection(selected, monkeypatch):
     with pytest.raises(PwehError) as error:
         reselect(value, cancel=lambda: True)
     assert error.value.code == "cancelled"
+
+
+@pytest.mark.parametrize("range_mode", [False, True])
+def test_format_specific_minimum_is_explicit_default_remains_sixteen(workspace, auth, range_mode):
+    """새 AVC 8바이트 선택은 명시 최솟값으로만 재선택한다."""
+    case = CaseStore(workspace["cases_dir"]).create(
+        title="합성 최소 선택", authorization=auth, case_id="small-selection")
+    log = E.CustodyLog(case, workspace["state_dir"] / "custody")
+    payload = b"\0\0\1\x0a\0\0\1\x0b"
+    ev = _commit_intake(case, log, payload)
+    end = time.monotonic() + 30
+    with E.open_checked(case, ev, log.entries()) as opened:
+        if range_mode:
+            data, source = S.read_candidate_range(opened, 0, len(payload), deadline=end, cancel=lambda: False)
+        else:
+            data, member = fsops.read_selected_file(opened.fd, max_bytes=64 << 20,
+                                                    deadline=end, cancel=lambda: False)
+            source = _source(opened, ev, member, data)
+        candidate = SimpleNamespace(source=source)
+        with pytest.raises(PwehError) as error:
+            S.reselect_candidate_source(opened, candidate, deadline=end, cancel=lambda: False)
+        assert error.value.code == "media_prefix_input_invalid"
+        fresh_data, fresh = S.reselect_candidate_source(opened, candidate, deadline=end,
+                                                       cancel=lambda: False, min_selected_bytes=8)
+        assert fresh_data == payload and fresh == source
+
+
+@pytest.mark.parametrize("minimum", [True, False, 0, -1, 8.0, "8", None, (64 << 20) + 1])
+def test_invalid_minimum_fails_before_selection(selected, monkeypatch, minimum):
+    value = selected()
+    monkeypatch.setattr(S.fsops, "read_selected_file",
+                        lambda *a, **k: pytest.fail("최소 길이 검증 전 선택 읽기"))
+    with pytest.raises(PwehError) as error:
+        reselect(value, min_selected_bytes=minimum)
+    assert error.value.code == "media_prefix_input_invalid"

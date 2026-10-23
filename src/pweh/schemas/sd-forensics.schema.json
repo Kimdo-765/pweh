@@ -695,6 +695,36 @@
         }
       }
     },
+    "media_unit_candidate_results": {
+      "type": "array",
+      "maxItems": 100,
+      "description": "명시한 JPEG·AVC Annex B·MPEG-2 PS·XM subset의 선택 미디어 단위 후보 보고서 참조. 저장 후보 수는 프레임·파일·녹화 수나 정상 재생 검증이 아니다. 닫힌 경계와 PS prefix·미검사 범위는 보고서에서 구분한다.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_id", "analysis_path", "sha256", "status", "format",
+          "selected_size", "candidates_reported"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string", "pattern": "^EV-[0-9]{4,6}$", "maxLength": 9
+          },
+          "analysis_path": {
+            "type": "string",
+            "pattern": "^forensics/analysis/media-unit-candidates-EV-[0-9]{4,6}-[0-9]{3,9}\\.json$",
+            "maxLength": 100
+          },
+          "sha256": {
+            "type": "string", "pattern": "^[0-9a-f]{64}$", "minLength": 64, "maxLength": 64
+          },
+          "status": {"enum": ["ok", "partial", "unsupported"]},
+          "format": {"enum": ["jpeg", "avc-annexb", "mpeg2-ps", "xm"]},
+          "selected_size": {"type": "integer", "minimum": 0, "maximum": 67108864},
+          "candidates_reported": {"type": "integer", "minimum": 0, "maximum": 128}
+        }
+      }
+    },
     "media_inventory_results": {
       "type": "array",
       "maxItems": 100,

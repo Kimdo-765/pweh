@@ -130,15 +130,17 @@ def read_candidate_range(opened: E.OpenedEvidence, offset: int, length: int, *, 
         raise input_error(code if type(code) is str else "media_prefix_input_invalid") from None
 
 
-def reselect_candidate_source(opened, candidate_input, *, deadline, cancel):
+def reselect_candidate_source(opened, candidate_input, *, deadline, cancel, min_selected_bytes=16):
     """같은 EV의 source.ref/partition/실제 method를 재사용하고 전체 SHA·크기를 대조한다."""
     try:
         check_budget(deadline, cancel)
+        if type(min_selected_bytes) is not int or not 1 <= min_selected_bytes <= MAX_SELECTED_BYTES:
+            raise input_error()
         source = candidate_input.source
         if (type(source) is not dict or source["evidence_id"] != opened.evidence_id
                 or source["evidence_sha256"] != opened.intake["hashes"]["sha256"]
                 or type(source["selected_size"]) is not int
-                or not 16 <= source["selected_size"] <= MAX_SELECTED_BYTES or source["complete"] is not True):
+                or not min_selected_bytes <= source["selected_size"] <= MAX_SELECTED_BYTES or source["complete"] is not True):
             raise input_error()
         kind = source["container"]
         if source["method"] == "byte-range":

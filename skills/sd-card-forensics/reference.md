@@ -362,3 +362,31 @@ evidence_size는 검사량이 아니며 next_offset·미검색 영역·완료도
 기존 dhav_candidate_results와 recovered를 유지하고 partial·미검사 사유는 notes에 쓴다.
 출력은 `dhav-scan` 사건/증거 목록에 결속되며 영상·음성·시각·암호화·파일 경계·할당 상태·
 완전 녹화는 판정하지 않는다. 상세 계약은 [DHAV streaming 검색](../../docs/references/dhav-scan.md)을 따른다.
+
+## 19. 선택 미디어 단위 후보와 추출
+
+`forensics_media_unit_candidates(case_id, evidence_id, format, ...)`의 format은
+`jpeg`·`avc-annexb`·`mpeg2-ps`·`xm` 중 하나다. 자동 형식 추측은 없다. FAT/exFAT·TAR/ZIP의
+ref/path 하나, EV 자체 또는 명시 offset/length 구간에서 완전한64 MiB 이하 선택을 검사한다.
+구간은 선택자/partition 없이 method=auto다. source16/18과 선택 전체 SHA를 보존한다.
+
+JPEG는 baseline 단일 scan의 EOI, AVC는 다음 prefix/header, XM은 선언 길이로 닫힌 단위다.
+PS는 길이를 검증한 pack prefix이며 다음 BA/B9가 없어도 검증된 앞부분은 partial 후보가
+될 수 있다. 후보 length는 선택 상대 offset부터의 bytes 수다. range에서만 EV 위치를
+계산할 때 source.offset을 한 번 더한다. 원시 header·치수·시각·본문은 반환하지 않는다.
+
+관찰 anchor의 기각/지원밖/불완전과 closed/prefix 후보를 구분한다. search/check/list 완료와
+PS prefix 상태는 별개다. 시간·한도·열린 tail·출처 불확실성을 notes에 남긴다. 45초·1024probe·
+128후보·8192구조단계·작업량128 MiB·JSON1 MiB 한도이며 일부 검사로 전체 미디어 부재를
+말하지 않는다. 상세 경계는 [후보 계약](../../docs/references/media-unit-candidates.md)을 따른다.
+
+`media_unit_candidate_results[]`는 evidence_id, analysis_path/sha256(analysis), status,
+format(report), selected_size(source), candidates_reported(summary)의7필드만 기록한다.
+raw 시각·내용·후보 좌표·재생 성공을 요약에 추가하지 않는다. 기존 privacy 네 값은 false다.
+
+목적에 필요한 저장 후보 하나를 `forensics_extract_media_unit(case_id, evidence_id,
+analysis_path, candidate_index)`로 추출한다(`ask`). 같은 EV의 후보 보고서·사건·선택 전체
+SHA·출처를 재검증하며 새 format/범위를 받지 않는다. 기존 job 상태로 완료를 확인하고
+recovered·notes 및 증거 목록에 남긴다. 출력은 unit-000.bin과 manifest 두 파일이다.
+원래 partial·새 불확실성을 보존하며 complete=true는 지정 bytes 복사 완료일 뿐이다.
+추출물을 직접 열거나 영상·음성을 해독하지 않는다. [추출 계약](../../docs/references/media-unit-extract.md).

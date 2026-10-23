@@ -62,6 +62,8 @@
 | `forensics_media_candidates(case_id, evidence_id, partition=None, ref=None, path=None, method="auto", max_seconds=45, offset=None, length=None)` | 완전한 선택 파일 하나 또는 명시 EV 구간(각 최대64 MiB)에서 고정 known brand를 가진 ftyp와 연속 최상위 상자 prefix 후보를 찾는다. 선택 기준 offset·검증한 길이·검색/검사/관계 완료도·반환 후보 간 겹침만 보고한다. 원본 경계·녹화 복구·재생 검증 없음. `report`와 `analysis{path,sha256,size,custody_seq,custody_hash}`, 0444 JSON 및 `media-candidates` 보관 기록. 상세 계약은 아래 선택 미디어 후보 절 |
 | `forensics_dhav_candidates(case_id, evidence_id, partition=None, ref=None, path=None, method="auto", max_seconds=45, offset=None, length=None)` | 완전한 선택 파일 하나 또는 명시 EV 구간(각 최대64 MiB)에서 제한된 DHAV record 경계·길이 후보만 찾는다. 최대1024 anchor·128후보·구조 읽기1 MiB·JSON1 MiB·공통45초. 검색/관찰한 anchor 검사/후보 목록 완료를 구분하고 confidence는 possible이다. `report`와 `analysis{path,sha256,size,custody_seq,custody_hash}`, 0444 JSON 및 `dhav-candidates` 보관 기록. 영상·음성·시각·암호화·추출 판정 없음. [상세 계약](../../docs/references/dhav-candidates.md) |
 | `forensics_dhav_scan(case_id, evidence_id, start_offset=0, max_scan_bytes=1073741824, max_seconds=45)` | 같은 EV fd에서 DHAV 표지를 streaming 검색한다. 연속 검색 읽기 최대1 GiB와 구조 읽기 별도1 MiB, 45초·1024probe·128후보·JSON1 MiB. row는 EV 절대 offset과 길이≤64 MiB이며 재개 위치/처리 prefix/전체 검색 완료를 구분한다. 접수 해시만 source에 보존하고 record 해시는 만들지 않는다. `dhav-scan` 보고서는 직접 추출할 수 없으며 기존 구간 후보 검증을 거친다. [상세 계약](../../docs/references/dhav-scan.md) |
+| `forensics_media_unit_candidates(case_id, evidence_id, format, partition=None, ref=None, path=None, method="auto", max_seconds=45, offset=None, length=None)` | 완전한 선택 파일/EV 구간에서 JPEG·AVC Annex B·MPEG-2 PS·XM 중 명시한 subset의 단위 후보를 찾는다. 선택64 MiB·1024probe·128후보·8192구조단계·작업량128 MiB·JSON1 MiB·45초. closed/prefix와 미검사·출처 불확실성을 구분하고 media-unit-candidates 사건에 결속한다. [계약](../../docs/references/media-unit-candidates.md) |
+| `forensics_extract_media_unit(case_id, evidence_id, analysis_path, candidate_index)` | job. 같은 EV의 저장된 미디어 단위 후보·선택 전체 SHA·출처를 재검증하고 후보 상대 offset/length 하나만 추출한다. unit-000.bin과 manifest, 기존 extract 사건의 media_unit. 원래 부분성을 보존하며 영상/음성을 반환하지 않는다. 보고서1 MiB·선택64 MiB·manifest64 KiB·공통45초. [계약](../../docs/references/media-unit-extract.md) |
 | `forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)` | job. 같은 EV의 저장된 `media-candidates` 보고서에서 후보 번호 하나의 검증된 prefix를 추출한다. 원래 선택 파일 또는 EV 구간 전체의 해시·출처를 다시 대조. 출력은 고정 이름 바이너리와 매니페스트, 기존 `extract` 보관 기록. 입력64 MiB·보고서1 MiB·매니페스트64 KiB·공통45초. 내용 반환·녹화 복구/재생 판정 없음 |
 | `forensics_extract_dhav_candidate(case_id, evidence_id, analysis_path, candidate_index)` | job. 같은 EV의 저장된 `dhav-candidates` 보고서에서 후보 한 record를 추출한다. 원래 선택 파일/구간 전체의 SHA·크기·출처를 다시 대조하고 선택 상대 offset·record_length만 복사한다. 출력은 `record-000.bin`과 매니페스트, 기존 `extract` 사건의 `dhav_record`. 입력64 MiB·보고서1 MiB·매니페스트64 KiB·공통45초. 원래 부분성을 보존하며 내용 반환·재생 판정 없음 |
 | `forensics_intake_start(case_id, image_path, purpose, legal_basis, site_type, business_purpose, role, imaging_log_path=None, label=None, verify_copy=True)` | 증거 접수 **job**. job 을 띄우기 전에 검사한다(동기 오류): `purpose`(목적)·`legal_basis`(법적 근거, 예: '소유자 본인 기기')·`business_purpose`(업무 목적, 가정용이면 '없음')는 앞뒤 공백을 뺀 3~500자(탭 말고 제어 문자 없음), `site_type` 은 `home`/`public`/`business`/`vehicle`/`mobile-business`/`unknown`(설치 장소에 따라 적용 법률이 다르다), `role` 은 `owner`/`processor`/`investigator`/`other`, `label` 은 제어 문자 없는 80자 이하. `image_path` 는 링크를 한 번 푼 비어 있지 않은 일반 파일이어야 한다 — 원시 디스크 경로, `/dev`·`/proc`·`/sys` 아래, 디렉터리·장치·FIFO·소켓, NUL 이 든 경로, E01(EWF) 서명, 케이스·상태 폴더 안의 파일, 정리한 이름이 증거 디렉터리 예약 이름(`EV-NNNN.json`·`imaging-log.txt`·`*.partial`)과 겹치는 파일은 `validation_failed`. 원본은 이때 한 번 연 fd 로만 읽는다(경로를 다시 열지 않음). `imaging_log_path`(FTK Imager·dc3dd·ewfacquire·ewfinfo·Guymager 로그)는 열기 전과 연 뒤 모두 케이스·상태 폴더 검사를 하고 fd 로 4 MiB 까지만 읽는다. 케이스 디스크에 이미지 + 256 MiB 의 여유가 있어야 하고, 보관 기록이 깨져 있으면 아무것도 만들지 않고 `custody_broken`. job: EV 번호 확보(§5) → 원본 fd 에서 확인한 크기만큼 읽으며 sha256·md5·sha1 계산과 `<이름>.partial` 복사(fsync, 0444 — 복사 중 원본의 크기·mtime 이 바뀌면 `integrity_failed`) → `verify_copy=true` 면 사본 재해시 → 이름 바꾸기 → 빠른 지문 → 이미징 로그 대조·사본 `imaging-log.txt` → 접수 기록 `EV-NNNN.json`(원본은 파일 이름·크기·mtime 만, 전체 경로 없음) → **보관 기록 `intake`(커밋 지점** — 해시·크기·저장 경로·빠른 지문·접수 기록 sha256·법적 정보) → 접수 잠금 파일을 지우고 디렉터리 0555 → 커밋 뒤 보조 기록(감사 로그, 사본 재해시가 다르면 `integrity-failed` 사건, 출처 원장 `imported-unattested`, 아티팩트 `evidence-image`, 같은 sha256 확인). 커밋 전의 실패·취소는 만든 파일과 EV 디렉터리를 지우고 번호를 돌려놓는다. 커밋 뒤에 온 취소는 무시하고(succeeded), 감사 로그 실패는 서버 로그만 남기고 그 밖의 보조 기록(`integrity-failed` 사건·출처 원장·아티팩트 색인·같은 sha256 확인) 실패는 `post_commit_errors`·`note` 로 알린다(접수는 그대로). 같은 원본의 접수가 진행 중이면 `busy`. `result`: `ok`(사본 재해시가 다를 때만 false), `evidence_id`, `stored_path`, `size`, `hashes`, `copy_verified`(`verify_copy=false` 면 null), `imaging_log{tool, comparison{status: match/mismatch/no-hashes, details}, conflicts}`(로그가 없으면 null), `custody_seq`, `provenance{seq, kind}`(원장 기록 실패면 `{error}`), `next_steps`, 같은 sha256 의 증거가 이미 있으면 `duplicate_of`·`warning`, 로그 해시가 다르면 `warning`(둘 다면 한 `warning` 에 ' / ' 로 잇는다), 사본 재해시가 다르면 `error` |
@@ -232,7 +234,7 @@
 - 이 경계는 위 서버들만 막는다. 에이전트의 파일 도구나 REA(`open_binary`·`read_bytes`)는 `forensics/` 를 읽을 수 있으므로, 전용 이미지 도구 외에 이미지 사본과 추출물을 직접 열지 않는 것은 에이전트 규칙이다. 정지 그림은 원본 EV의 선택자를 사용하고 반환된 정규화 미리보기만 본다.
   전체 파일 목록 JSON 은 메타데이터라 추출할 `ref` 를 고를 때 읽어도 되지만, 요약·보고서에는 개수·범위·해시만 옮긴다.
 - 증거 입구는 부모 디렉터리를 고정하고 하드링크를 거부한다. 다른 서버의 경로 가드와 같은 계정 경합의 남은 범위는 §8을 본다.
-- `.claude/settings.json`: 조회 전용 도구 `forensics_partitions`, `forensics_image_check`와 로컬 쓰기가 있는 명시적 예외 `forensics_job_status`·`forensics_jobs`·`forensics_image_hints`·`forensics_scan_secrets`·`forensics_scan_secrets_from_list`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`·`forensics_dhav_candidates`·`forensics_dhav_scan`·`forensics_sqlite_inventory`·`forensics_android_artifacts`·`forensics_timeline`은 `allow`,
+- `.claude/settings.json`: 조회 전용 도구 `forensics_partitions`, `forensics_image_check`와 로컬 쓰기가 있는 명시적 예외 `forensics_job_status`·`forensics_jobs`·`forensics_image_hints`·`forensics_scan_secrets`·`forensics_scan_secrets_from_list`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`·`forensics_dhav_candidates`·`forensics_dhav_scan`·`forensics_media_unit_candidates`·`forensics_sqlite_inventory`·`forensics_android_artifacts`·`forensics_timeline`은 `allow`,
   쓰는 도구 `forensics_intake_start`, `forensics_verify_start`, `forensics_acquisition_attest`, `forensics_evidence_list`, `forensics_fs_list`, `forensics_extract`, `forensics_extract_media_candidate`, `forensics_extract_dhav_candidate`, `forensics_job_cancel` 은 `ask` 다
   (Claude Code 에서는 bypass 모드에서도 묻는다). 클라이언트 권한은 보조 장치이고, 증거를 지키는 것은 보관 기록·지문·경계다.
 
@@ -255,7 +257,7 @@ job 의 실패는 `forensics_job_status` 의 `error` 에 있다(예상하지 못
 
 알려진 한계의 전체 목록과 정확한 조건은 [`docs/safety.md`](../../docs/safety.md) §3.6 에 있다. 여기에는 요약만 둔다.
 
-- 지원 범위: MBR/EBR·GPT·superfloppy, FAT12/16/32·exFAT와 논리 TAR/ZIP, 선택 SQLite·앱 기록 및 파일·앱 타임라인. ext4·NTFS·E01, 선택 BMFF/DHAV 구조 밖의 카빙(XM·MPEG-PS·추가 MP4·JPEG), CCTV 녹화 인덱스·이름 규칙과 그 타임라인, 카드 전체 비밀값 자동 탐색·녹화 암호화 판정·카드 내용의 침해 판정,
+- 지원 범위: MBR/EBR·GPT·superfloppy, FAT12/16/32·exFAT와 논리 TAR/ZIP, 선택 SQLite·앱 기록 및 파일·앱 타임라인. ext4·NTFS·E01, 선택 BMFF/DHAV 및 JPEG·AVC·PS·XM subset 밖의 전체 이미지 카빙·조각 재조립, CCTV 녹화 인덱스·이름 규칙과 그 타임라인, 카드 전체 비밀값 자동 탐색·녹화 암호화 판정·카드 내용의 침해 판정,
   외부 도구(TSK·PhotoRec·ewf-tools·ffprobe) 교차 확인은 아직 없다(설계 §4·§5.2). 삭제 파일 복구는 디렉터리 항목이 남은 파일만 다룬다.
 - 삭제한 FAT 파일은 보통 FAT 체인이 지워져 단편화 여부를 알 수 없다(Windows 는 FAT32 에서 시작 클러스터의 상위 16비트도 지운다). 후보(`contiguous`·`skip-allocated`·`skip-claimed`·`fat-chain`)마다 신뢰도와 설명이 매니페스트에 남지만 결과는 추정이다.
   `skip-allocated` 류 후보가 훑기 상한에서 멈추면 `status: "incomplete"`·`complete=false` 일 뿐 그 사유는 따로 없다. 미리 할당한 녹화 파일(링 버퍼)은 삭제 항목 복구로 아무것도 나오지 않을 수 있다.
@@ -338,6 +340,21 @@ schema는 `pweh.media-inventory/v1`을 유지한다. 새 `mp4-quicktime-declarat
 `forensics_scan_secrets_from_list`는 같은 EV의 `list` 사건과 전체 해시에 결속된 FAT/exFAT JSON에서 자동 선정한다. 저장 목록 안의 지원 볼륨을 대상으로 하며, 원래 목록의 파티션 제한·잘림·실패 볼륨을 보존한다. 각 파일을 다시 찾아 metadata와 완전한 복구 계획을 확인하고 기존 UTF-8 scanner를 적용한다.
 
 선정 완료·eligible 검사 완료·목록 완료는 별개이며 whole_card_examined는 항상false다. 정책 제외와 보류·미시도·읽기 실패를 구분하고 파일명·시각·키·본문을 새 결과에 복사하지 않는다. `secret_survey_results`에 참조·검사 수·미읽기 수를 기록한다. 정확한 입출력·상한·최종 검증·요약 매핑은 [저장 목록 비밀값 검사 계약](../../docs/references/secrets-survey.md)을 따른다.
+
+## 선택 미디어 단위 후보와 추출
+
+`forensics_media_unit_candidates`는 명시 format의 제한된 JPEG/AVC/PS/XM 경계를 검사한다.
+source16/18·params4/6과 선택 전체 SHA를 media-unit-candidates 사건에 결속하며, row의
+offset/length는 선택 상대다. closed와 PS prefix, 검색/관찰 후보 처리/목록 완료를 구분한다.
+공통45초·64MiB·작업량128MiB 예산 안에서 미검색·출처 불확실성을 partial로 보존한다.
+
+`forensics_extract_media_unit`는 유일한 같은 EV의 사건·held report FD/전체 SHA·엄격한
+회계를 확인하고 원래 선택 bytes를 다시 검증한다. 선택 후보 하나만 unit-000.bin으로 쓰고
+같은 custody 잠금에서 입력·출력 FD/전체 해시·이름·부모·정확한 tree와 마지막 취소를 확인한다.
+새 입력 범위나 format을 받지 않으며 기존 BMFF/DHAV admission은 유지한다. complete는 bytes
+복사 완료일 뿐이다. 요약은 media_unit_candidate_results의7필드 및 기존 recovered·notes다.
+
+[subset·출처·예산](../../docs/references/media-unit-candidates.md)과 [파생 추출·보관 계약](../../docs/references/media-unit-extract.md)을 따른다.
 
 ## EV의 DHAV 스트리밍 검색
 

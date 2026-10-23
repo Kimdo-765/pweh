@@ -112,6 +112,7 @@ WSL 커널에는 MMC 계층이 없어 카드 CID 도 보이지 않는다. 권장
 > 접수 아티팩트 kind는 사본의 `evidence-image`와 참조 기록의 `evidence-reference`다(추출물은 매니페스트로 센다). 발견사항 카테고리 `insecure-storage`·`privacy` 는 아직 없다. D의 `pweh-fwtriage` raw GPT 분할은 `pweh.fs`의 파티션 파서를 재사용한다(증거 파일 시스템 접근은 아님).
 > - **저장된 후보 추출**: `forensics_extract_media_candidate`가 같은 EV의 후보 보고서·선택 파일 또는 명시 구간을 다시 검증하고 지정 후보의 앞부분 하나를 파생 파일로 쓴다. 녹화 전체 복구·재생을 판정하지 않는다. [입출력·보관 기록 계약](../references/media-prefix-extract.md).
 > - **선택 연속 구조 후보**: `forensics_media_candidates`는 완전한 선택 파일 또는 명시 EV 구간(최대64 MiB)에서 ftyp·연속 최상위 상자 prefix 후보와 검색/검사/목록/관계 완료도를 기록한다. 구간은 offset/length·EV 크기·구간 SHA를 결속하며 [구간 계약](../references/media-evidence-range.md)을 따른다. 원본 파일 경계·녹화 복구·물리 카빙 검증은 아니며 계약은 architecture §6.8이다.
+> - **선택 미디어 단위**: `forensics_media_unit_candidates`는 명시 JPEG·AVC Annex B·MPEG-2 PS·XM subset의 단위 경계를 찾고, `forensics_extract_media_unit`는 저장 후보 한 단위만 재검증해 추출한다. closed와 PS의 검증 prefix·partial을 구분하며 영상/음성·원본 파일·전체 녹화·재생은 검증하지 않는다. [후보](../references/media-unit-candidates.md)·[추출](../references/media-unit-extract.md) 계약을 따른다.
 > - **선택 미디어 구조**: `forensics_media_inventory`는 완전한64 MiB 이하 선택 파일의 ISO-BMFF 상자 경계·고정 brand, 제한된 mvhd/mdhd 시간 단위·길이 선언과 pssh 구조, 검사/opaque/미검사 범위를 관찰한다. 생성/수정 시각은 zero/nonzero/unread 상태만 남긴다. [선언 계약](../references/media-declarations.md)에 따라 프레임·음성·촬영 시각·codec·암호화·표준 적합성·재생을 검증하지 않으며 카빙/벤더 인덱스 지원으로 세지 않는다. 출처·취소·저장 계약은 architecture §6.8이다.
 > - **DHAV 구조 후보**: `forensics_dhav_candidates`는 같은 파일/명시 EV 구간 선택에서 f0/fc/fd의 고정 record 길이·앞뒤 표지·범위 후보를 기록한다. 원시 header 시각·채널·확장/payload 의미는 해석하지 않으며 possible과 검색/관찰 anchor 검사/목록 완료도를 분리한다. FFmpeg n7.1 배치와 PWEH의 보수적 footer 반복 길이 조건을 구분하는 [후보 계약](../references/dhav-candidates.md)을 따른다. `forensics_extract_dhav_candidate`는 저장된 후보 한 record만 원래 선택 bytes와 재결속해 파생 저장한다([추출 계약](../references/dhav-record-extract.md)). 재조립·재생·촬영시각·암호화 판정은 포함하지 않는다.
 >
@@ -193,7 +194,7 @@ F1과 C·D의 추가 구현은 §4를 따른다. 아래의 `safety.forensics.*` 
 |---|---|---|
 | F0 | 공통 코어(증명: `write-blocker`·`provenance-import`, `safety.forensics.*`, master-prompt "SD 포렌식" 목표 분기), 에이전트 호스트 위험 규칙(§0) | 단위 테스트 |
 | F1 | 보안(펌웨어): fwtriage SD 표면 SD-01~09 + 빈틈 수정 + `uart_capture_boot` sd_events. 증거 핵심: 접수·해시·보관 기록·검증·오염 검사, 파티션·FAT/exFAT 목록·추출·삭제 파일, 증거 목록, `sd-card-forensics`(security + 기본 evidence) | `mkfs.fat --invariant`+mtools(SOURCE_DATE_EPOCH)로 결정적 FAT, `mkfs.exfat`+시험용 주입기, 가짜 sysfs/부팅 로그, 해시 사슬 변조 시험, 원본 불변 확인 |
-| F2 | BMFF 구조/후보/prefix 추출·DHAV 고정 구조 후보/EV streaming 검색/단일 record 추출·선택/목록 비밀값·보고서 이름 대조 구현. 남음: XM·PS·Annex-B·JPEG/추가 MP4 카빙, Hikvision·Dahua 인덱스·이름 규칙·녹화 타임라인·암호화/침해 판정, 외부 도구(TSK·PhotoRec·ewf·ffprobe) | 구현한 DHAV subset은 순수 합성 bytes로 검증; 후속은 ffmpeg testsrc·합성 인덱스, 외부 실행은 `@pytest.mark.external` |
+| F2 | BMFF 구조/후보/prefix 추출·DHAV 고정 구조 후보/EV streaming 검색/단일 record 추출·선택/목록 비밀값·보고서 이름 대조 구현. 남음: 네 선택 subset 밖의 형식 변형·전체 이미지/추가 MP4 카빙, Hikvision·Dahua 인덱스·이름 규칙·녹화 타임라인·암호화/침해 판정, 외부 도구(TSK·PhotoRec·ewf·ffprobe) | 구현한 DHAV subset은 순수 합성 bytes로 검증; 후속은 ffmpeg testsrc·합성 인덱스, 외부 실행은 `@pytest.mark.external` |
 | F3 | ext4(디렉터리 + jbd2), (선택) Windows 원시 읽기 헬퍼, (선택) 한 번 쓰는 승인 기반 영상 내보내기 | `mke2fs -d`(원본 시각 고정 시 결정적) + debugfs |
 
 ## 9. 확인이 필요한 것
