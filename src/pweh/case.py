@@ -66,6 +66,7 @@ PIPELINE_PHASES = (
 #: 요약 스키마를 schemas.SKILL_DATA_SCHEMAS 에 함께 등록한다.
 OPTIONAL_PHASES = (
     "game-save-unlock-analysis",
+    "numeric-observation-analysis",
     "nfc-behavior-analysis",
     "game-play-automation",
     "flipper-rf-analysis",

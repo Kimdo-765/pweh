@@ -53,6 +53,8 @@ LOCAL_WRITE_ALLOW |= {f"mcp__pweh-espprobe__{name}" for name in (
     "espprobe_connect", "espprobe_self_test", "espprobe_release_all", "espprobe_disconnect")}
 # 등록된 RAW 파일의 오프라인 보고서만 쓰는 도구다.
 LOCAL_WRITE_ALLOW.add("mcp__pweh-sdr__sdr_analyze")
+# 공급 숫자 관측값의 합의 결과만 로컬에 기록한다.
+LOCAL_WRITE_ALLOW.add("mcp__pweh-play__vision_validate")
 # 상태 조회의 기존 자동 허용을 유지한다. 선택 case_id의 종료 기록만 정리하며 기기·작업은 실행하지 않는다.
 LOCAL_WRITE_ALLOW |= {f"mcp__pweh-{prefix}__{prefix}_{suffix}"
                       for prefix in ("uart", "openocd", "sigrok", "jtagulator", "esp", "forensics")

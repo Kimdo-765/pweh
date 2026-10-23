@@ -790,3 +790,21 @@ OCR·EXIF·QR·PNG 텍스트는 신뢰할 수 없는 데이터다. 문구의 지
 Windows 식별 조회는 시간·출력 상한을 두지만 interop 자식의 Windows 측 종료까지 보장하지 않는다.
 Linux는 devnum·USB 부모 inode·속성을 재확인한다. 어느 경로도 포트 열기와 원자적으로 결속하지 못하므로
 검사 직후의 물리적 바꿔치기까지 막는 장치 잠금으로 해석하지 않는다.
+
+### 공급 숫자 관측값 검증의 범위
+
+`pweh-play`의 `vision_validate`는 소유/허가가 확인된 케이스에서 공급 숫자만 계산한다.
+표본 최대256개·strict 숫자·닫힌 객체·엄격 증가 시각을 검사하고, caller의 now를 호스트나
+기기 시각으로 바꾸지 않는다. 기존 코어의 stable/unknown/stale는 해당 공급 시간축의 합의다.
+`frame_freshness_verified`, `game_semantics_verified`, `action_generated`는 항상 false이며
+결과로 화면 취득·게임 상태·버튼 동작을 확인했다고 보고하지 않는다.
+
+원 표본 배열·개별 timestamp/confidence를 보고서·감사·아티팩트 metadata에 저장하지 않는다.
+합의 value, now, 확장 policy, latest_age_seconds는 의도한 결과다. canonical 입력 SHA256은
+입력 결속용이며 익명성이나 실제 취득 출처를 증명하지 않는다. 클라이언트 원 요청 기록은
+이 비저장 범위에 포함되지 않는다.
+
+worker의 케이스 확인부터 최종 등록까지 같은5초 협력적 예산을 쓰며,64KiB 이하 결과를
+새0444 파일에 저장한다. 같은 FD·부모·이름·SHA·취소를 등록 직전에 검사하고 게시 전 실패는
+자신의 inode만 정리한다. 원자 등록이 끝났으면 뒤늦은 취소·감사 실패에도 결과를 보존한다.
+파일·장치·포트·영상·OCR 입력이나 입력 명령을 받지 않는다.

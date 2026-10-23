@@ -2,7 +2,9 @@
 
 `pweh.vision_sequence`는 이미 공급된 숫자 표본을 요약하는 순수 내부 코어다.
 파일·화면·카메라·시계·장치·네트워크를 읽지 않고 OCR·프로세스·게임 입력을 실행하지 않는다.
-MCP 도구나 `pweh-play` 연결은 없다. 호출자가 같은 monotonic seconds 축의 표본과 `now`를 제공한다.
+호출자가 같은 monotonic seconds 축의 표본과 `now`를 제공한다. 공개 입구는 `pweh-play`의
+`vision_validate(input_kind="numeric-observations")`이며, [케이스 저장·digest·요약 계약](numeric-validation.md)을 따른다.
+아래 코어 API 자체는 파일을 저장하지 않는다.
 
 ## API와 입력
 

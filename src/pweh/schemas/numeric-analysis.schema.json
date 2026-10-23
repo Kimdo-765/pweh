@@ -1,0 +1,214 @@
+{
+  "type": "object",
+  "required": [
+    "schema",
+    "mode",
+    "results",
+    "frame_freshness_verified",
+    "game_semantics_verified",
+    "action_generated"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pweh.numeric-analysis/v1"
+    },
+    "mode": {
+      "const": "supplied-numeric-observations"
+    },
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "analysis_path",
+          "report_sha256",
+          "status",
+          "reason",
+          "observation_count"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "pattern": "^A-[0-9]{4,8}$"
+          },
+          "analysis_path": {
+            "type": "string",
+            "pattern": "^analysis/numeric-observations-[0-9]{3,9}\\.json$"
+          },
+          "report_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "status": {
+            "enum": [
+              "stable",
+              "unknown",
+              "stale"
+            ]
+          },
+          "reason": {
+            "enum": [
+              "no_observations",
+              "no_recent_observations",
+              "insufficient_valid",
+              "tied_votes",
+              "insufficient_votes",
+              "vote_consensus"
+            ]
+          },
+          "observation_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 256
+          }
+        },
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "reason": {
+                  "const": "no_observations"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "status": {
+                  "const": "unknown"
+                },
+                "observation_count": {
+                  "const": 0
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "reason": {
+                  "const": "no_recent_observations"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "status": {
+                  "const": "stale"
+                },
+                "observation_count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 256
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "reason": {
+                  "const": "insufficient_valid"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "status": {
+                  "const": "unknown"
+                },
+                "observation_count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 256
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "reason": {
+                  "const": "tied_votes"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "status": {
+                  "const": "unknown"
+                },
+                "observation_count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 256
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "reason": {
+                  "const": "insufficient_votes"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "status": {
+                  "const": "unknown"
+                },
+                "observation_count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 256
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "reason": {
+                  "const": "vote_consensus"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "status": {
+                  "const": "stable"
+                },
+                "observation_count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 256
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "frame_freshness_verified": {
+      "type": "boolean",
+      "const": false
+    },
+    "game_semantics_verified": {
+      "type": "boolean",
+      "const": false
+    },
+    "action_generated": {
+      "type": "boolean",
+      "const": false
+    }
+  },
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.numeric-analysis/v1",
+  "title": "공급 숫자 관찰 분석 요약"
+}

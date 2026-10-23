@@ -726,7 +726,7 @@
    },
    {
     "name": "schema_get",
-    "description": "PWEH JSON 스키마 조회. name: android-forensics, auth-hunt, bmff-scan, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, pinout-scan, rf-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, uart-recon.",
+    "description": "PWEH JSON 스키마 조회. name: android-forensics, auth-hunt, bmff-scan, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, numeric-analysis, numeric-validation, pinout-scan, rf-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, uart-recon.",
     "params": [
      {
       "name": "name",
@@ -7333,6 +7333,54 @@
       "type": "integer/number",
       "required": false,
       "default": 5
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   }
+  ]
+ },
+ "pweh-play": {
+  "module": "play_mcp.server",
+  "tools": [
+   {
+    "name": "vision_validate",
+    "description": "호출자가 공급한 숫자 표본의 시간 창 합의를 계산한다. input_kind='numeric-observations'가 필수다. observations는 timestamp/value/confidence를 가진 객체0~256개이며 now와 timestamp는 같은 공급 monotonic seconds 축의0~2**53이다. 시각은 엄격 증가하고 now 이하, value는 null 또는 int64, confidence는0~1이다. bool·문자열을 숫자로 변환하지 않는다. policy 기본값은 window_size=5, votes_required=3, min_valid=3, min_confidence=0.8, ttl_seconds=2.0이며 생략 필드만 채운다. 최근 M→TTL→유효 투표 순으로 stable/unknown/stale를 계산한다. 소유/허가 확인과 worker 시작부터 저장까지 고정5초 예산을 사용한다. 표본 원문은 저장하지 않고 canonical 입력 SHA·공급 now·정책·합의 value·범위 통계를 analysis/numeric-observations-NNN.json에0444로 저장한다. 입력 digest는 취득 출처나 익명성 증명이 아니다. frame_freshness_verified/game_semantics_verified/action_generated는 항상false이며 화면·OCR·시계 취득·장치·입력 명령·자동 플레이를 실행하지 않는다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "input_kind",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "observations",
+      "type": "array",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "now",
+      "type": "integer/number",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "policy",
+      "type": "?/null",
+      "required": false,
+      "default": null
      }
     ],
     "annotations": {

@@ -381,3 +381,8 @@
 - **`sdr_analyze(case_id, artifact_id, profile, max_seconds?)`**  
   케이스에 등록된 일반 파일 하나를 오프라인 RAW 프로필로 검사한다. artifact_id는 같은 케이스 A-id이며 profile='flipper-subghz-raw-v1-strict'를 반드시 지정한다. 소유/허가 확인이 필요하며 forensics/·emu/ 입력은 받지 않는다. 최대1 MiB, max_seconds는0초 초과5초 이하(기본5)이며 입력 선택·읽기·SHA·검사가 같은 예산
 
+## pweh-play
+
+- **`vision_validate(case_id, input_kind, observations, now, policy?)`**  
+  호출자가 공급한 숫자 표본의 시간 창 합의를 계산한다. input_kind='numeric-observations'가 필수다. observations는 timestamp/value/confidence를 가진 객체0~256개이며 now와 timestamp는 같은 공급 monotonic seconds 축의0~2**53이다. 시각은 엄격 증가하고 now 이하, value는 null 또는 int64
+

@@ -1,6 +1,6 @@
 # 설계안: 게임 콘솔 분석 + Flipper Zero·RF(주파수) 분석
 
-> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치와 §3.3의 등록 RAW 파일 오프라인 분석은 구현됐다. NFC·플레이·실제 RF 장비 연결은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
+> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치, §3.3의 등록 RAW 파일 분석, §3.4의 공급 숫자 관찰 요약은 구현됐다. NFC·실제 화면/플레이·RF 장비 연결은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
 > 여러 서버가 함께 쓰는 기반(포트 라우팅, 증명, 출처 기록, 비밀 마스킹, 안전 설정 위치)은 [common-core.md](common-core.md), 환경 감지·포트 라우팅의 상세는 [port-routing.md](port-routing.md) 에 있다.
 > 1차 초안을 네 관점(안전·법, 기술 실현성, PWEH 구조 적합성, 요구사항 충족)으로 적대적 검토한 결과(지적 59건, 반박 0건)를 반영했다.
 > 근거: 공식 Flipper 펌웨어 **1.5.1** 소스, ChameleonUltra v2.2.0 소스, esptool·ESP-IDF NVS 형식, rtl-sdr-blog v1.4.0·rtl_433 25.12,
@@ -53,17 +53,18 @@ NFC·플레이 열의 “가능”은 후속 설계의 기대치다. 현재 세�
 pweh-flipper (신규)  Flipper Zero 한 대의 모든 앱. 1b 는 CLI 만, RPC 는 2a(.shd 캡처)부터
 pweh-nfc     (신규)  ChameleonUltra(모델이 Ultra 일 때) + 오프라인 NFC 분석(.nfc/.shd 해석·비교·프레임 해석)
 pweh-sdr     (구현)  등록 RAW 파일 오프라인 분석. RTL-SDR 수신(1b)·HackRF 수신은 후속
-pweh-play    (신규)  입력 브리지 + 화면 인식 + 플레이 job (2b·2c)
+pweh-play    (구현)  공급 숫자 관찰 요약. 입력 브리지·화면 인식·플레이 job은 후속(2b·2c)
 pweh-fwtriage(확장)  ESP 파티션·앱 이미지·NVS, 세이브 비교, 체크섬, 패치 빌드, 쓰기 검증, 게임 패턴 팩
 pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브리지·일반 USB-UART 어댑터를 usbipd 없이 (port-routing.md §5.2)
 공통 코어            환경 감지(hostenv)·포트 라우팅(ports)·winserial·wininterop·portlock·증명·출처 원장·비밀 마스킹·safety.rf·nfc·rf 파서 (common-core)
 ```
 
 `pweh-sdr`는 `sdr_analyze` 한 도구를 제공하며 등록 RAW 파일의 검사·저장·RF 요약을 연결한다.
+`pweh-play`는 `vision_validate` 한 도구로 공급 숫자의 계산·저장·numeric-analysis 요약을 연결한다.
 나머지 신규 서버는 후속 설계다. 선행 구현한 순수 코어는 `pweh.rf_formats`(RAW 통계), `pweh.nfc_formats`(NFC 구조·저장 페이지 비교),
-`pweh.vision_sequence`(숫자 관찰값 합의)이며, 코어 자체는 외부 I/O를 하지 않는다. NFC·숫자 코어의 공개 MCP 입구는 아직 없다.
-파일의 선언·저장된 값만 다루므로 실제 수신·태그 소유/허가·완전한 물리 읽기·게임 상태를 확인하지 않는다.
-계약은 [RAW 코어](../references/flipper-raw-profile.md)·[RAW 공개 입구](../references/rf-raw-analysis.md)·[NFC](../references/nfc-file-profile.md)·[숫자 모델](../references/numeric-observations.md)을 따른다.
+`pweh.vision_sequence`(숫자 관찰값 합의)이며, 코어 자체는 외부 I/O를 하지 않는다. NFC 코어의 공개 MCP 입구는 아직 없다.
+파일 선언·저장값·공급 표본을 다루므로 실제 수신·태그 소유/허가·완전한 물리 읽기·화면/게임 상태를 확인하지 않는다.
+계약은 [RAW 코어](../references/flipper-raw-profile.md)·[RAW 공개 입구](../references/rf-raw-analysis.md)·[NFC](../references/nfc-file-profile.md)·[숫자 모델](../references/numeric-observations.md)·[숫자 공개 입구](../references/numeric-validation.md)를 따른다.
 
 기기 단위 서버인 이유: MCP 서버끼리는 서로 부를 수 없고 한 포트는 한 프로세스만 연다. Flipper 의 모든 앱은 pweh-flipper 가, CU 는 pweh-nfc 가 맡는다.
 오프라인 NFC 분석은 장치가 없어도 쓰므로 pweh-nfc 에 둔다(Flipper 가 만든 파일도 해석). 화면 캡처와 입력은 한 루프에서 돌아야 하므로 pweh-play 한 프로세스다.
@@ -133,7 +134,20 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
   rtl_433 출력은 stdout 으로 받아 서버가 대상만 남기고 비대상은 모델별 개수만(또는 job 마다 버리는 무작위 키 HMAC) 디스크에 쓴다.
 - IQ 를 `\\wsl.localhost` 에 바로 쓰는 처리량은 미확인 → 대체: Windows 로컬 임시 폴더에 쓰고 sha256·크기 확인 후 가져오기, 샘플 누락 감지.
 
-### 3.4 pweh-play (입력 브리지 + 화면 인식)
+### 3.4 pweh-play (현재 공급 숫자 분석, 후속 입력 브리지·화면 인식)
+
+**현재 구현**: `vision_validate(case_id, input_kind="numeric-observations", observations, now, policy=None)`.
+사용자가 제공한 최대256개의 엄격한 timestamp/value/confidence와 같은 시간축의 now로 기존 숫자 코어를 호출한다.
+입력 digest와 코어 결과 전체를 `analysis/numeric-observations-NNN.json`에 등록하고,
+`numeric-observation-analysis` Skill의 `numeric-analysis` 요약으로 연결한다. 처리·저장까지 같은5초 예산이다.
+stable/unknown/stale 모두 유효한 계산 결과이며 unknown/stale에서 이전 값을 재사용하지 않는다.
+원 표본 배열·개별 timestamp/confidence는 저장하지 않지만 합의 value·공급 now·정책·집계는 반환한다.
+digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·게임 의미·자동 입력 검증은 false로 남는다.
+숫자만 분석할 때는 장비·펌웨어·화면 세션·입력 브리지·play-run이 필요하지 않다.
+공개 계약은 [numeric-validation.md](../references/numeric-validation.md)다.
+
+아래 입력 브리지·ffmpeg·OCR·플레이 job과 `safety.play_policy`는 **후속 설계**다.
+현재 숫자 분석 입구에 새 safety 키나 실제 입력 권한을 추가한 것이 아니다.
 
 - **입력은 세션 단위로 묶는다**: `input_connect` 는 사람 증명(콘솔 오프라인, 결제 수단 제거 또는 구매 PIN, 배선 = 채널 라벨, 게임패드 프로필)을 요구하고 세션을 그 증명에 묶는다.
   즉석 입력(`input_press`/`input_sequence`/`input_axis`)도 `safety.play_policy`(기본 approve) 아래 **세션 예산**(최대 누름 수·시간, 허용 채널, 매핑 해시)을 사람이 승인해야 한다.
@@ -195,7 +209,8 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
    한계: `-k` 없이는 AUTH0/PROT=1 뒤 페이지를 못 읽고, NTAG 카운터 변화에는 PWEH 자신의 읽기도 들어간다. 에뮬레이션 캡처(.shd·CU 스니프)는 2a.
 5. **세이브 스냅샷**: 점수·진행이 바뀔 때마다 덤프(≥3회) → `fw_save_diff` → 인코딩·위치 → `fw_checksum_find` → 디컴파일로 확인.
 6. **값 수정(선택, 현재 ESP 대상만)**: `fw_patch_build`(목적·unlock_source 선언) → 서버가 새 백업·사람 증명을 확인 → 사람이 쓰기 → 다시 읽기 → `fw_verify_writeback` → 오프라인 상태에서 화면 확인. imported 분석만 수행한 경우 `patches=[]`로 끝낸다.
-7. **플레이 자동화(선택, 2b·2c)**: 배선(사람) → 증명 → 점수 숫자·상태 화면 모델 학습·검증 → 선언형 스크립트 → 계획 승인 → 플레이 job → 점수 시계열·입력 로그·키프레임을 케이스에.
+7. **공급 숫자 분석(현재 지원)**: 이미 제공된 숫자 표본·같은 시간축의 now → `vision_validate` → `numeric-analysis` 요약. 이 경로만 수행하면 접수 뒤 바로 호출하고, 펌웨어·세이브·실제 화면 검증이나 play-run을 완료한 것으로 기록하지 않는다.
+8. **플레이 자동화(선택, 후속 2b·2c)**: 배선(사람) → 증명 → 점수 숫자·상태 화면 모델 학습·검증 → 선언형 스크립트 → 계획 승인 → 플레이 job → 점수 시계열·입력 로그·키프레임을 케이스에.
 8. 각 Skill 은 `case_record_step(step="summary")` 로 끝내고 결과는 로컬 보고서에만.
 
 ## 5. RF·하드웨어 분석 흐름 (콘솔 밖)
@@ -253,11 +268,12 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 |---|---|---|
 | 1a | `game-save-unlock-analysis` | `save-analysis` |
 | 1b | `flipper-rf-analysis` | `rf-analysis` |
+| 오프라인 숫자(구현) | `numeric-observation-analysis` | `numeric-analysis` |
 | 1b | `nfc-behavior-analysis`(읽기·비교 부분) | `nfc-analysis` |
 | 2c | `game-play-automation` | `play-run` |
 
 - firmware-dump `method` 에 `flipper-spi-mem-manager` 추가. 발견사항 카테고리 후보: `unlock-condition`, `save-integrity`, `hidden-content`, `rf-replay-risk`(아니면 `other` + 태그 — §10).
-- master-prompt: Phase 0 목표 분기(보안 분석 / 게임 콘솔 / RF·하드웨어 / SD 포렌식), 목표별 결정 트리·장비 체크리스트·완료 기준(게임: 가설 기록 + 검증된 패치 또는 플레이 요약, RF: rf-analysis 요약). pweh-start 설명과 `PIPELINE_PHASES`, report 표시(패치 manifest·플레이 요약) 갱신.
+- master-prompt: Phase 0 목표 분기(보안 분석 / 게임 콘솔 / RF·하드웨어 / SD 포렌식), 목표별 결정 트리·장비 체크리스트·완료 기준. 현재 숫자 단독은 numeric-analysis, 세이브 단독은 save-analysis, 둘을 실제 수행했을 때만 둘 모두 기록한다. 숫자 선택 phase는 보안 기본 `PIPELINE_PHASES`에 넣지 않는다. 후속 플레이 요약은 play-run으로 구분한다.
 
 ## 8. 단계 계획
 
@@ -342,16 +358,17 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 | `sdr_import_flipper_sub`, `sdr_peaks` | OBSERVE(오프라인) | `.ook` 변환·decoder 연결은 후속; 현재 `sdr_analyze` 계약과 구분 |
 | `sdr_job_status/cancel/jobs` | — | |
 
-**pweh-play** (2b·2c)
+**pweh-play** (현재 숫자 관찰 분석, 나머지는 후속2b·2c)
 
 | 도구 | 위험 | 비고 |
 |---|---|---|
+| `vision_validate(case_id, input_kind="numeric-observations", observations, now, policy=None)` | 기기 I/O 없음, 로컬 결과 저장 | 구현. 공급 숫자 합의·digest·numeric-analysis 요약; 화면 검증 아님 |
 | `input_list_ports`, `bridge_info` | OBSERVE | |
 | `input_connect(case_id, port, mapping, ...)` | INTERACT + 증명 | 고정 시리얼, 디스크립터 해시 |
 | `input_press`, `input_sequence`, `input_axis` | MODIFY, play_policy 세션 예산(전원·리셋 채널은 DESTRUCTIVE) | 금지 템플릿 |
 | `input_release_all`, `input_disconnect` | 정리 | |
 | `vision_list_sources`, `vision_open`, `vision_close`, `vision_capture_frame`, `vision_view`, `vision_record_start/stop` | OBSERVE(HDMI 는 소스 증명) | `-an` |
-| `vision_define_roi`, `vision_label_frames`, `vision_train_digits`, `vision_ocr_region`, `vision_template_add/match`, `vision_validate` | 기기 I/O 없음 | |
+| `vision_define_roi`, `vision_label_frames`, `vision_train_digits`, `vision_ocr_region`, `vision_template_add/match` | 기기 I/O 없음 | 후속 화면 모델 설계 |
 | `vision_watch_start` | OBSERVE · job | |
 | `input_script_validate`, `input_script_start` | MODIFY · job(계획 승인, §4 예외) | |
 | `play_job_status/cancel/jobs` | — | 취소 = 전부 해제 |

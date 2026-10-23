@@ -22,6 +22,7 @@
    ├─ pweh-emu         (mcp-servers/emu-mcp)         ESP32·S3·C3/Arduino AVR 펌웨어 실행·마스킹 콘솔 — 기기 미접촉 (선택)
    ├─ pweh-espprobe    (mcp-servers/espprobe-mcp)    ESP32-S3 계측기 프로토콜·시뮬레이터 (선택, 현재 오프라인 검증만)
    ├─ pweh-sdr         (mcp-servers/sdr-mcp)         등록된 Flipper RAW 파일의 오프라인 구조·통계 분석
+   ├─ pweh-play        (mcp-servers/play-mcp)        공급 숫자 관측값의 오프라인 합의 검증·보고서 저장
    └─ rea              (외부: rea-agents 6.5)        binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩
             │
       [대상 기기]  (또는 테스트용 pweh.mocktarget 시뮬레이터. pweh-forensics 는 기기 대신 사람이 만든 카드 이미지 파일을 받는다)
@@ -172,9 +173,9 @@ cases/<case_id>/
 단계(phase) 상태 — `case.json` 의 `phases` (코드: `src/pweh/case.py`):
 - **파이프라인 단계**(`PIPELINE_PHASES`, 보안 분석 목표): `uart-shell-acquisition`, `firmware-dump-via-uart`, `logic-analyzer-protocol-decode`,
   `firmware-static-analysis`, `cctv-auth-bypass-hunt`, `report`. `case_create` 가 모두 `pending` 으로 만든다.
-- **선택 단계**(`OPTIONAL_PHASES`, 다른 목표·계측기용 Skill 에 예약한 이름): `game-save-unlock-analysis`, `nfc-behavior-analysis`, `game-play-automation`,
+- **선택 단계**(`OPTIONAL_PHASES`, 다른 목표·계측기용 Skill 에 예약한 이름): `game-save-unlock-analysis`, `numeric-observation-analysis`, `nfc-behavior-analysis`, `game-play-automation`,
   `flipper-rf-analysis`, `sd-card-forensics`, `espprobe`, `firmware-emulation`, `image-hints-analysis`, `android-forensics`. 미리 만들지 않는다. 그 Skill 이 summary 를 기록하거나 `case_set_phase` 로 상태를 정할 때 처음 생기므로,
-  그 목표를 쓰지 않는 케이스의 `case.json`·보고서는 그대로다. 이 가운데 Skill 이 있는 것은 `game-save-unlock-analysis`(요약 스키마 `save-analysis`)와 `sd-card-forensics`(요약 스키마 `sd-forensics`), `firmware-emulation`(요약 스키마 `emulation`), `image-hints-analysis`(요약 스키마 `image-hints`), `android-forensics`(요약 스키마 `android-forensics`)이다. 나머지는 아직 없으므로 에이전트용 문서(master-prompt·Skill)에 그 이름을 적지 않는다.
+  그 목표를 쓰지 않는 케이스의 `case.json`·보고서는 그대로다. 이 가운데 Skill 이 있는 것은 `game-save-unlock-analysis`(요약 스키마 `save-analysis`)와 `sd-card-forensics`(요약 스키마 `sd-forensics`), `firmware-emulation`(요약 스키마 `emulation`), `image-hints-analysis`(요약 스키마 `image-hints`), `android-forensics`(요약 스키마 `android-forensics`), `flipper-rf-analysis`(요약 스키마 `rf-analysis`), `numeric-observation-analysis`(요약 스키마 `numeric-analysis`)이다. 나머지는 아직 없으므로 에이전트용 문서(master-prompt·Skill)에 그 이름을 적지 않는다.
   Skill 을 만들 때 `SKILL_DATA_SCHEMAS`·master-prompt §5 표·`report._PHASE_LABEL` 에 함께 등록한다.
 - 상태 값: `pending`, `in-progress`, `done`, `partial`, `failed`, `skipped`, `blocked`. summary 의 status 는 `success` → `done`, `in-progress` → `in-progress`,
   나머지(`partial`·`failed`·`blocked`·`skipped`)는 같은 이름으로 옮긴다(`SUMMARY_PHASE_STATUS`).
@@ -1291,6 +1292,31 @@ SDK 입력과 worker 오류는 고정 문구로 반환하며 원문 경로·RAW 
 기록한다. Claude allow는 로컬 보고서를 쓰는 정확한 `sdr_analyze` 한 도구다.
 자세한 출력은 [rf-raw-analysis](references/rf-raw-analysis.md), 문법은
 [flipper-raw-profile](references/flipper-raw-profile.md)를 따른다.
+
+### 6.12 pweh-play (공급 숫자 관측값)
+
+`mcp-servers/play-mcp/`는 기존 `pweh.vision_sequence`의 숫자 합의를 케이스에 기록한다.
+도구 하나만 제공하며 프레임 취득·OCR·입력 브리지·실제 플레이는 연결하지 않는다.
+
+| 도구 | 계약 |
+|---|---|
+| `vision_validate(case_id, input_kind, observations, now, policy=None)` | 소유/허가가 확인된 케이스와 필수 `input_kind="numeric-observations"`를 받는다. 표본은 최대256개, 각각 닫힌 timestamp/value/confidence 객체다. timestamp·now는 공급 시간축의 유한 숫자0..2**53이며 표본은 엄격 증가하고 now 이하이다. value는 null/int64, confidence는0..1이다. bool·숫자 문자열·추가 키·JSON 문자열 객체를 변환하지 않고 거부한다. |
+
+정책은 생략한 필드만 기존 기본값으로 채운다. 최근 창·TTL·최소 유효 표본·득표 판정은
+기존 코어 그대로이며 `stable/unknown/stale`와 reason, evidence, policy를 보존한다.
+`frame_freshness_verified`, `game_semantics_verified`, `action_generated`는 항상 false다.
+입력 canonical JSON의 SHA256·크기·개수만 보고서에 결속한다. 원 표본 배열은 저장하지 않으며,
+합의 value·공급 now·확장 정책·latest_age_seconds는 결과에 나타난다. digest는 익명성이나
+장치 취득 출처의 증명이 아니다.
+
+worker 시작부터 케이스 확인·계산·최종 등록까지 같은5초 협력적 예산을 적용한다.
+`analysis/numeric-observations-NNN.json`에 LF 포함64KiB 이하·0444로 저장하며 같은 작성 FD의
+seal·SHA와 부모·이름을 `Case.register_artifact`의 최종 검사에서 대조한다.
+등록 전 실패는 자신이 만든 inode만 정리하고 등록 후 취소·감사 실패는 게시물을 보존한다.
+반환은 `ok`, `report`, `artifact_id`, `analysis_path`, `sha256`, `size`, `warnings`다.
+보고서 스키마는 `numeric-validation`, Skill 요약은 `numeric-analysis`이며 선택 단계
+`numeric-observation-analysis`를 실제 수행했을 때만 생성한다. Claude allow는 로컬 결과를
+기록하는 정확한 `vision_validate` 한 도구다. [입력·출력 계약](references/numeric-validation.md).
 
 ## 7. REA 연동
 

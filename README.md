@@ -27,6 +27,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
    ├─ pweh-espprobe    HELLO·HB 오프라인 시뮬레이터, 실제 포트·핀 미지원 (I5 1a)
    ├─ pweh-emu         ESP32·S3·C3/Arduino AVR 펌웨어 실행, 출처 확인·마스킹 콘솔·세션 종료 — 기기 미접촉 (선택)
    ├─ pweh-sdr         등록된 Flipper RAW 파일의 구조·통계 분석, 로컬 보고서 저장 (선택)
+   ├─ pweh-play        공급 숫자 관측값의 최근 창·신뢰도·합의 검증, 로컬 보고서 저장 (선택)
    └─ rea              REA(rea-agents): binwalk/unblob 추출, Ghidra 디컴파일, 참조 추적, 신호 디코딩
             │
       [대상 기기]  (또는 pweh-mock-device 시뮬레이터. pweh-forensics 는 사람이 만든 카드 이미지 파일만 받는다)
@@ -65,6 +66,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
 
 보안 분석이 아닌 목표는 일부만 지원한다(`orchestrator/master-prompt.md` §3·§3.1).
 - **게임 콘솔 분석** — `game-save-unlock-analysis`: 세이브·해금 오프라인 분석과 사용자가 원한 세이브 값 변경(기기에는 사람이 쓴다). ESP32 기기는 `esp32-flash-dump` 로 먼저 덤프한다.
+  이미 공급된 숫자 관측값은 [numeric-observation-analysis](skills/numeric-observation-analysis/SKILL.md)로 최근 창·TTL·신뢰도·득표를 검증한다. 이 경로는 장비나 펌웨어 없이 진행하며, 결과 시각은 사용자가 제공한 시간축이다. 화면 신선도·게임 의미·버튼 동작은 확인하지 않는다.
 - **SD 카드 포렌식** — `sd-card-forensics`: 사람이 하드웨어 쓰기 방지 장치를 거쳐 만든 카드 이미지를 pweh-forensics 로 접수하고(해시·보관 기록·쓰기 방지 장치 사람 증명),
   파티션·FAT/exFAT 파일 목록·시각·호스트 오염 흔적, 필요한 파일만 삭제 파일까지 추출, 해시값 확인서가 붙은 증거 목록을 만든다. 영상·음성 내용은 열지 않는다. 정지 그림의 미리보기·OCR·QR은 `image-hints-analysis`로 분석한다.
   저장된 FAT/exFAT 파일 목록에서 비밀값 후보를 자동 검사할 수 있다. 목록 누락·정책 제외·처리 한도를 구분하고 원문을 반환하지 않는다. [사용법과 검사 범위](docs/references/secrets-survey.md).
@@ -172,12 +174,12 @@ Cursor 는 `/pweh-start` 로 시작한다(`.cursor/mcp.json` 은 `./scripts/inst
 ```
 pweh/
 ├── README.md, project.md(명세), AGENTS.md, CLAUDE.md
-├── pyproject.toml                  하나의 패키지로 코어 + 11개 서버 설치
+├── pyproject.toml                  하나의 패키지로 코어 + 12개 서버 설치
 ├── src/pweh/                       공통 코어 (config, case, safety, provenance, evidence, fs, jobs, mcpkit, report, cli, formats, espfmt, console, schemas, mocktarget)
 ├── mcp-servers/
-│   ├── case-mcp/  uart-mcp/  openocd-mcp/  sigrok-mcp/  jtagulator-mcp/  fwtriage-mcp/  esp-mcp/  forensics-mcp/  emu-mcp/  espprobe-mcp/  sdr-mcp/
+│   ├── case-mcp/  uart-mcp/  openocd-mcp/  sigrok-mcp/  jtagulator-mcp/  fwtriage-mcp/  esp-mcp/  forensics-mcp/  emu-mcp/  espprobe-mcp/  sdr-mcp/  play-mcp/
 ├── native/emu/                     simavr 기반 AVR 실행기 (로컬 빌드)
-├── skills/                         pweh-start + 12개 Skill (.claude/skills, .agents/skills 에 링크)
+├── skills/                         pweh-start + 13개 Skill (.claude/skills, .agents/skills 에 링크)
 ├── orchestrator/
 │   ├── master-prompt.md            파이프라인 전체 지침 (이 하나로 시작)
 │   └── pipeline-config.yaml        안전 정책, 도구 경로, 대상 기기 프로필

@@ -35,11 +35,12 @@ pweh-forensics-mcp = "forensics_mcp.server:main"
 pweh-emu-mcp = "emu_mcp.server:main"
 pweh-espprobe-mcp = "espprobe_mcp.server:main"
 pweh-sdr-mcp = "sdr_mcp.server:main"
+pweh-play-mcp = "play_mcp.server:main"
 pweh-mock-device = "pweh.mocktarget.cli:main"
 
 [tool.setuptools]
 # 공통 코어(pweh)는 src/ 아래, 각 MCP 서버 패키지는 명세의 디렉터리 구조대로 mcp-servers/<name>/ 아래에 둔다.
-package-dir = { "" = "src", "case_mcp" = "mcp-servers/case-mcp/case_mcp", "uart_mcp" = "mcp-servers/uart-mcp/uart_mcp", "openocd_mcp" = "mcp-servers/openocd-mcp/openocd_mcp", "sigrok_mcp" = "mcp-servers/sigrok-mcp/sigrok_mcp", "jtagulator_mcp" = "mcp-servers/jtagulator-mcp/jtagulator_mcp", "fwtriage_mcp" = "mcp-servers/fwtriage-mcp/fwtriage_mcp", "esp_mcp" = "mcp-servers/esp-mcp/esp_mcp", "forensics_mcp" = "mcp-servers/forensics-mcp/forensics_mcp", "emu_mcp" = "mcp-servers/emu-mcp/emu_mcp", "espprobe_mcp" = "mcp-servers/espprobe-mcp/espprobe_mcp", "sdr_mcp" = "mcp-servers/sdr-mcp/sdr_mcp" }
+package-dir = { "" = "src", "case_mcp" = "mcp-servers/case-mcp/case_mcp", "uart_mcp" = "mcp-servers/uart-mcp/uart_mcp", "openocd_mcp" = "mcp-servers/openocd-mcp/openocd_mcp", "sigrok_mcp" = "mcp-servers/sigrok-mcp/sigrok_mcp", "jtagulator_mcp" = "mcp-servers/jtagulator-mcp/jtagulator_mcp", "fwtriage_mcp" = "mcp-servers/fwtriage-mcp/fwtriage_mcp", "esp_mcp" = "mcp-servers/esp-mcp/esp_mcp", "forensics_mcp" = "mcp-servers/forensics-mcp/forensics_mcp", "emu_mcp" = "mcp-servers/emu-mcp/emu_mcp", "espprobe_mcp" = "mcp-servers/espprobe-mcp/espprobe_mcp", "sdr_mcp" = "mcp-servers/sdr-mcp/sdr_mcp", "play_mcp" = "mcp-servers/play-mcp/play_mcp" }
 packages = [
     "pweh",
     "pweh.safety",
@@ -59,6 +60,7 @@ packages = [
     "emu_mcp",
     "espprobe_mcp",
     "sdr_mcp",
+    "play_mcp",
 ]
 
 [tool.setuptools.package-data]

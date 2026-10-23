@@ -167,6 +167,8 @@ def _guess_schema(obj: Any) -> str | None:
         return "image-hints"
     if {"mode", "raw_results", "capture_verified", "transmitted"} <= keys:
         return "rf-analysis"
+    if {"mode", "results", "frame_freshness_verified", "action_generated"} <= keys:
+        return "numeric-analysis"
     return None
 
 
@@ -407,6 +409,7 @@ def test_master_prompt_goal_fork():
         assert rows[goal][2] == status[goal] and "§3.1" in rows[goal][3], goal
         assert f"**{goal}**" in prep, f"§3.1 에 {goal} 항목 없음"
     assert "game-save-unlock-analysis" in rows["게임 콘솔 분석"][3]
+    assert "numeric-observation-analysis" in rows["게임 콘솔 분석"][3]
     assert "sd-card-forensics" in rows["SD 카드 포렌식"][3]
     assert "flipper-rf-analysis" in rows["RF·하드웨어 분석"][3]
     assert "장비 목록·포트·실행 환경 조회·펌웨어 확보를 요구하지 않는다" in s3
@@ -423,6 +426,8 @@ def test_master_prompt_goal_fork():
     assert "펌웨어 확보" in goal_rows["보안 분석"]
     assert all("펌웨어 확보" not in goal_rows[g] for g in ("RF·하드웨어 분석", "SD 카드 포렌식"))
     assert "rf-analysis" in goal_rows["RF·하드웨어 분석"]
+    assert "numeric-analysis" in goal_rows["게임 콘솔 분석"]
+    assert "실제로 수행한 경로" in goal_rows["게임 콘솔 분석"]
     start = _skill_text("pweh-start")
     assert all(g in start for g in GOALS) and "준비 중" in start and "§3.1" in start
 
@@ -643,6 +648,12 @@ def test_no_self_approval_and_gate_rules_in_every_working_skill():
             continue
         text = _skill_text(d.name)
         assert "소유" in text and "허가" in text, f"{d.name}: 소유/허가 선행 조건 없음"
+        if d.name == "numeric-observation-analysis":
+            # 공급 숫자만 처리하는 경로에는 장치 승인 절차를 추가하지 않는다.
+            assert "vision_validate" in text and "numeric-analysis" in text
+            assert "공급" in text and "장비" in text
+            assert all(flag in text for flag in ("frame_freshness_verified", "game_semantics_verified", "action_generated"))
+            continue
         if d.name == "flipper-rf-analysis":
             # 현재 입구는 등록 파일 분석뿐이며 장치 승인 절차를 추가하지 않는다.
             assert "forensics/" in text and "emu/" in text and "우회" in text
