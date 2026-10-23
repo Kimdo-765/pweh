@@ -1,6 +1,6 @@
 ---
 name: nfc-behavior-analysis
-description: 소유·허가된 PWEH 케이스에서 Flipper의 고정 NTAG213/215/216 스캔을 inventory에 등록하고 같은 태그 식별값에 결속된 NFC 파일의 구조·저장 페이지 차이를 검사한다. NFC 파일 분석, NTAG inventory, 두 덤프 비교에 사용한다. 기존 스캔 참조를 재사용할 수 있으며 태그 전체 덤프·쓰기·인증·에뮬레이션은 수행하지 않는다.
+description: 소유·허가된 PWEH 케이스에서 Flipper 또는 ChameleonUltra의 고정 NTAG213/215/216 스캔을 inventory에 등록하고 같은 태그 식별값에 결속된 NFC 파일의 구조·저장 페이지 차이를 검사한다. NFC 파일 분석, NTAG inventory, 두 덤프 비교에 사용한다. 기존 스캔 참조를 재사용할 수 있으며 태그 전체 덤프·쓰기·인증·에뮬레이션은 수행하지 않는다.
 ---
 
 # 스캔 기록에 결속한 NFC 파일 분석
@@ -15,6 +15,8 @@ description: 소유·허가된 PWEH 케이스에서 Flipper의 고정 NTAG213/21
 4. `flipper_nfc_probe(case_id)`로 고정 SELECT·GET_VERSION을 수행한다. 이 작업은 Flipper SD에 작은 임시 파일을 만들고 제거하므로 MODIFY다. 페이지 READ나 태그 메모리 쓰기는 하지 않는다. 정상 응답의 실제 `scan_ref`만 `nfc_tag_inventory_add`에 전달하고 반환 `tag_ref`를 보존한다.
 5. `approval_required`이면 반환 id와 영향을 설명하고 사람이 별도 터미널에서 `pweh approve <id>`로 승인한 뒤 같은 인자와 `approval_id`로 재호출한다. 에이전트가 승인 명령을 실행하지 않는다. `denied`·지원 밖 계열은 우회하지 않으며 raw 명령·다른 앱으로 대신하지 않는다.
 
+CU Ultra를 사용하는 새 스캔은 [CU 계약](../../docs/references/cu-ntag-read-provider.md)을 따른다. 허가된 reader의 명시 포트로 `nfc_cu_connect(case_id, port)`를 호출하고 실제 반환한 `session_id`로 `nfc_cu_scan(case_id, session_id)`을 호출한다. 두 도구는 MODIFY 게이트를 적용하며 위 승인 규칙을 따른다. CU는 현재 reader 모드의 고정2.2만 받으며 mode/slot을 변경하지 않는다. scan은 GET_VERSION과 READ0/1의 UID/BCC를 확인하고, 실제 scan_ref를 같은 `nfc_tag_inventory_add`로 등록한다. 공개 전체 태그 읽기나 파일 생성 도구는 없다.
+
 ## 파일 검사와 비교
 
 1. 일반 보유 파일은 `case_import_file(..., dest_subdir="nfc", kind="other")`로 가져오고 실제 artifact ID를 쓴다. Flipper 허용 폴더에 있으면 기존 `flipper_storage_pull_start`와 job 완료 결과의 artifact ID를 쓸 수 있다. 일반 파일 복사는 태그 읽기 출처나 inventory 증명이 아니다. `forensics/`·`emu/`·보호 상태를 복사해 우회하지 않는다.
@@ -24,11 +26,11 @@ description: 소유·허가된 PWEH 케이스에서 Flipper의 고정 NTAG213/21
 
 ## 정리와 요약
 
-이 Skill에서 Flipper 세션을 열었다면 성공·실패·취소 뒤 항상 `flipper_close`를 호출한다. `cleanup_pending`이면 같은 close로 다시 확인한다. 자동 ETX·Enter·재접속이나 실패 뒤 임시 파일 삭제 명령을 보내지 않는다. 임시 파일 정리가 미확인이면 그 상태를 그대로 보고한다. host close는 장치 명령 종료·RF field off의 증거가 아니다.
+이 Skill에서 Flipper 세션을 열었다면 성공·실패·취소 뒤 항상 `flipper_close`를 호출한다. CU 세션을 열었다면 같은 `case_id/session_id`로 `nfc_cu_disconnect`를 호출하고 cleanup 확인 결과를 보존한다. `cleanup_pending`이면 같은 close로 다시 확인한다. 자동 ETX·Enter·재접속이나 실패 뒤 임시 파일 삭제 명령을 보내지 않는다. 임시 파일 정리가 미확인이면 그 상태를 그대로 보고한다. host close는 장치 명령 종료·RF field off의 증거가 아니다.
 
 `schema_get(name="nfc-analysis")`를 확인한 뒤 `case_record_step(skill="nfc-behavior-analysis", step="summary", ...)`로 실제 inventory와 검사 결과를 기록한다. [reference.md](reference.md)의 필드 연결을 쓰며, 실제 수행한 단계만 success/partial로 정리한다. usable scan이나 분석 결과가 없는 오류는 `step="attempt"`에 고정 오류와 다음 조치를 기록하고 결과를 꾸미지 않는다.
 
-`physical_same_tag_verified`, `tag_content_written`, `authentication_attempted`, `emulation_performed`는 false로 유지한다. 태그 전체 읽기·CU·스니프·게임 동작·해금 조건을 검증했다고 보고하지 않는다. 취소 뒤에는 commit된 결과가 남을 수 있으므로 `case_get(include_artifacts=true)`로 확인하고, 최종 보고서는 `report_generate`로 만든다.
+`physical_same_tag_verified`, `tag_content_written`, `authentication_attempted`, `emulation_performed`는 false로 유지한다. 태그 전체 읽기·스니프·게임 동작·해금 조건을 검증했다고 보고하지 않는다. CU의 reader CRC 성공은 host RF CRC 검산이나 진품·동일 실물 증명이 아니다. 취소 뒤에는 commit된 결과가 남을 수 있으므로 `case_get(include_artifacts=true)`로 확인하고, 최종 보고서는 `report_generate`로 만든다.
 
 요약의 합성 예시이며, 실행 시 실제 반환값으로 채운다.
 

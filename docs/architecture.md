@@ -24,7 +24,7 @@
    ├─ pweh-sdr         (mcp-servers/sdr-mcp)         등록된 Flipper RAW 파일의 오프라인 구조·통계 분석
    ├─ pweh-play        (mcp-servers/play-mcp)        공급 숫자 관측값의 오프라인 합의 검증·보고서 저장
    ├─ pweh-flipper     (mcp-servers/flipper-mcp)     고정 CLI 연결·정보·허용 폴더 파일 읽기
-   ├─ pweh-nfc         (mcp-servers/nfc-mcp)         스캔 inventory·일반 NFC 파일의 구조·저장 페이지 비교
+   ├─ pweh-nfc         (mcp-servers/nfc-mcp)         CU 고정 NTAG 스캔·inventory·일반 NFC 파일의 구조·저장 페이지 비교
    └─ rea              (외부: rea-agents 6.5)        binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩
             │
       [대상 기기]  (또는 테스트용 pweh.mocktarget 시뮬레이터. pweh-forensics 는 기기 대신 사람이 만든 카드 이미지 파일을 받는다)
@@ -62,6 +62,7 @@ MCP 도구와 케이스 입구는 아직 연결하지 않았으며, 파일의 �
 | 내부 모듈 | 제한된 계약 |
 |---|---|
 | `pweh.rf_formats` | Flipper RAW v1의 선언값·부호별 펄스 통계. 줄 전체를 검증한 뒤 집계하고, 손상·미지원·예산 중단과 완전한 검사를 구분한다. 원시 펄스 목록·키·ID는 반환하지 않는다. [제한 프로필](references/flipper-raw-profile.md) |
+| `pweh.cu_protocol` | CU 고정 frame·세 LRC·bounded decoder·닫힌 조회와 NTAG builder. 외부 I/O와 임의 명령 입구 없이 모델·계열·정확 응답을 검사한다. [계약](references/cu-ntag-read-provider.md) |
 | `pweh.nfc_formats` | Flipper NFC v4 ISO14443-3A·NTAG213/215/216 구조와 저장된 페이지의 변화 위치. UID·페이지 내용·PWD/PACK·카운터 원문은 반환하지 않는다. 부분 읽기의 0값을 읽힘 증거로 사용하지 않는다. [제한 프로필](references/nfc-file-profile.md) |
 | `pweh.nfc_inventory` | bounded 보호 원장의 NTAG21x 스캔·inventory 사실과 private 식별값을 검증한다. 공개 파일 파서 결과는 유지하고 원문 식별값은 마스킹 조회 사본에 넣지 않는다. [계약](references/nfc-inventory-analysis.md) |
 | `pweh.vision_sequence` | 최대 256개 숫자 관찰의 최근 창·TTL·신뢰도·득표 판정. `stable/unknown/stale`은 관찰값 합의이며 영상 정지·게임 상태·버튼 동작 판정이 아니다. [모델 계약](references/numeric-observations.md) |
@@ -1350,18 +1351,21 @@ snapshot_atomic/device_file_origin_verified는 false이며 NFC inventory·펌웨
 포렌식 EV 출처로 승격하지 않는다. 등록 후 늦은 취소·감사 실패에도 receipt를 보존한다.
 RAW 파일이면 반환 artifact ID를 `sdr_analyze`로 넘긴다. [전송 계약](references/flipper-read-transport.md).
 
-### 6.14 pweh-nfc (스캔 결속 파일 분석)
+### 6.14 pweh-nfc (CU 고정 스캔·스캔 결속 파일 분석)
 
 `mcp-servers/nfc-mcp/`는 NTAG213/215/216의 보호 스캔 기록과 같은 케이스 등록 파일을
-결속한다. 기존 유효 inventory의 파일 검사에는 live reader가 필요하지 않다.
+결속한다. CU Ultra의 고정 연결·스캔도 이 서버가 소유한다. 기존 유효 inventory의 파일 검사에는 live reader가 필요하지 않다.
 
 | 도구 | 계약 |
 |---|---|
+| `nfc_cu_connect(case_id, port, approval_id=None)` | 현재 CDC 신원·전체 USB lease·MODIFY 게이트 뒤115200/8N1/DTR=true/RTS=false로 연다. 네 고정 조회가 Ultra·APP2.2·GIT v2.2.0·reader mode1일 때만 ready다. |
+| `nfc_cu_scan(case_id, session_id, approval_id=None)` | 정확한 세션의 MODIFY 게이트 뒤 mode·새 scan·GET_VERSION·READ0/1을 검증한다. UID/BCC와 세 NTAG 계열 일치 뒤 CU 전용 보호 scan 사실을 기록한다. |
+| `nfc_cu_disconnect(case_id, session_id)` | 허가 철회 뒤에도 같은 세션을 정리한다. worker·물리 close·lease를 각각 확인하며 미확인 owner는 보존한다. RF off나 장치 명령 종료 증명은 false다. |
 | `nfc_tag_inventory_add(case_id, scan_ref)` | 같은 케이스의 고정 성공 scan을 검사하고 inventory 사실을 등록한다. 같은 scan 재등록은 기존 tag_ref를 반환한다. nfc/inventory.json은 최근32개 마스킹 조회 사본이다. |
 | `nfc_parse_file(case_id, artifact_id, tag_ref, max_seconds=5)` | 등록 일반 파일≤1MiB의 전체 SHA·private 식별값·최신 출처와 기존 provenance-import 증명을 검사한 뒤 기존 NFC 구조 결과를 저장한다. |
 | `nfc_diff_dumps(case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds=5)` | 두 파일 합≤2MiB, 같은 inventory와 두 SHA의 증명을 각각 확인해 기존 저장 페이지 비교 결과를 저장한다. |
 
-세 도구는 소유/허가 확인 뒤 로컬 결과를 쓰며 `ANN_LOCAL_WRITE`다. 임의 UID·계열·키·
+inventory·parse·diff 세 도구는 소유/허가 확인 뒤 로컬 결과를 쓰며 `ANN_LOCAL_WRITE`다. 임의 UID·계열·키·
 attested 인자를 받지 않는다. 증명 대기 전에 FD를 닫고, 만족 후 새 worker가 입력·원장·증명을
 다시 검사한다. 입력 작업은 최대5초, 마지막 같은 FD/원장/출력 검증·등록은 별도5초 한 번이다.
 원장 snapshot은16MiB/10000entries/64KiB 읽기로 제한하며 기존 체인 검증을 생략하지 않는다.
@@ -1370,7 +1374,7 @@ attested 인자를 받지 않는다. 증명 대기 전에 FD를 닫고, 만족 �
 `nfc-analysis`다. `inventory_binding_verified=true`와 `physical_same_tag_verified=false`를
 구분하고 기존 부분 읽기·미비교·null을 보존한다. 전체 태그 읽기·동작/진품·RF off는 증명하지
 않는다. 원문 UID·페이지·자격증명은 공개 응답에 없으며 등록 후 receipt를 보존한다.
-[상세 계약](references/nfc-inventory-analysis.md).
+[파일 분석 계약](references/nfc-inventory-analysis.md). CU는 시작5초·스캔45초·명령2초·close10초의 유한 대기와 terminal 뒤 새 명령0을 적용한다. 내부 읽기 provider의45/135/231 시작 페이지4B 수집은 공개 read job·파일 게시가 아니다. [CU 전송 계약](references/cu-ntag-read-provider.md).
 
 ## 7. REA 연동
 

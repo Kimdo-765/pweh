@@ -48,7 +48,7 @@
 | **3 선택** | pweh-esp-write(별도 서버), SRAM 패치, 단일 IR 송신, espprobe 라디오 프로필, SD F3(ext4·원시 읽기 헬퍼·내보내기), macOS | opt-in |
 
 장치 트랙의 선행 기반으로 RAW 파일 통계·NFC 파일 구조/변화 비교·숫자 관찰값 합의의 순수 코어를 구현했다.
-범위는 [공통 코어 표](common-core.md#1-무엇을-코어로-올리나)를 따른다. 운영 입구로 RAW 파일 통계(`pweh-sdr`)와 공급 숫자 검증(`pweh-play`), Flipper 고정 CLI 읽기 전송 및 NTAG213/215/216 스캔 결속 파일 분석(`pweh-nfc`)을 구현했다. [NFC 계약](../references/nfc-inventory-analysis.md)의 스캔은 페이지 READ 없이 SELECT·GET_VERSION과 임시 SD 파일 정리를 수행한다. CU·전체 태그 덤프·실제 RF 수신·플레이 입력은 후속 범위이며 실기 검증은 별도다.
+범위는 [공통 코어 표](common-core.md#1-무엇을-코어로-올리나)를 따른다. 운영 입구로 RAW 파일 통계(`pweh-sdr`)와 공급 숫자 검증(`pweh-play`), Flipper 고정 CLI 읽기 전송 및 NTAG213/215/216 스캔 결속 파일 분석(`pweh-nfc`)을 구현했다. [NFC 계약](../references/nfc-inventory-analysis.md)의 Flipper 스캔은 페이지 READ 없이 SELECT·GET_VERSION과 임시 SD 파일 정리를 수행한다. CU 고정 연결·NTAG 스캔과 내부 유한 읽기 provider도 구현했다([계약](../references/cu-ntag-read-provider.md)). CU read job·전체 태그 덤프 게시·실제 RF 수신·플레이 입력은 후속 범위이며 실기 검증은 별도다.
 
 각 단계의 끝: 변경된 도구의 카탈로그·architecture §6·등록 문서를 맞추고 일관성·전체 테스트를 수행한다.
 구현 단위별 커밋·push는 누적 사용자 승인에 따라 진행하며, 실제 기기·시스템 변경과 아직 확인되지 않은 사실은 별도 관문으로 남긴다.

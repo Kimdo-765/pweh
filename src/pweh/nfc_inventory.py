@@ -9,7 +9,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-from . import safeio
+from . import cu_protocol as CU, safeio
 from .errors import PwehError
 from .nfc_formats import _NfcFileIdentity
 from .provenance import KIND_DEVICE_FACT, SCHEMA as LEDGER_SCHEMA
@@ -21,6 +21,7 @@ FIRMWARE_COMMIT = "9e810dc399e027e48ce07751df72168abbb19065"
 MAX_LEDGER_BYTES = 16 << 20
 MAX_LEDGER_ENTRIES = 10000
 SCAN_FACT = "nfc-ntag21x-scan-v1"
+CU_SCAN_FACT = "nfc-ntag21x-cu-scan-v1"
 INVENTORY_FACT = "nfc-inventory-v1"
 VERSION_FAMILIES = {bytes.fromhex("0004040201000f03"): "ntag213",
                     bytes.fromhex("0004040201001103"): "ntag215",
@@ -39,6 +40,10 @@ _SCAN_KEYS = frozenset(("scan_ref", "session_id", "reader_binding", "profile", "
                        "firmware_claim_verified", "identity", "probe_sha256", "probe_size",
                        "probe_identity_match", "version_crc_valid", "family", "steps_complete",
                        "reselection_atomic", "page_read_performed", "scratch_cleanup_confirmed"))
+_CU_SCAN_KEYS = frozenset(("scan_ref", "session_id", "reader_binding", "profile", "profile_sha256",
+                          "firmware_commit", "firmware_claim_verified", "identity", "family",
+                          "page_read_performed", "read_requests", "pages_retained", "page_identity_match",
+                          "reader_crc_check_succeeded", "host_crc_verified", "steps_complete", "reselection_atomic"))
 _INV_KEYS = frozenset(("tag_ref", "scan_ref", "scan_seq", "scan_entry_sha256", "identity_digest",
                       "family", "policy_profile"))
 _ENTRY_KEYS = frozenset(("schema", "seq", "ts", "case_id", "kind", "fact_kind", "path", "sha256",
@@ -171,6 +176,17 @@ class ScanObservation:
 
 
 @dataclass(frozen=True, repr=False)
+class CuScanObservation:
+    """CU worker의 완료된 고정 probe 관찰. 서버 타입이나 원시 페이지는 보관하지 않는다."""
+    session_id: str
+    reader_binding: dict
+    identity: _NfcFileIdentity
+    page_identity_match: bool
+    reader_crc_check_succeeded: bool
+    steps_complete: bool
+
+
+@dataclass(frozen=True, repr=False)
 class ScanRef:
     scan_ref: str
     family: str
@@ -186,6 +202,26 @@ class ScanRef:
                 "version_crc_valid": True, "page_read_performed": False, "reselection_atomic": False,
                 "physical_same_tag_verified": False, "device_command_termination_verified": False,
                 "scratch_cleanup_confirmed": True, "warnings": list(self.warnings)}
+
+
+@dataclass(frozen=True, repr=False)
+class CuScanRef:
+    scan_ref: str
+    family: str
+    identity_digest: str
+    scan_seq: int
+    scan_entry_sha256: str
+    warnings: tuple[str, ...] = ()
+
+    def to_dict(self):
+        return {"ok": True, "schema": "pweh.nfc-scan/v1", "scan_ref": self.scan_ref,
+                "family": self.family, "identity_digest": self.identity_digest, "uid_length": 7,
+                "profile": CU.PROFILE, "inventory_eligible": True, "page_read_performed": True,
+                "read_requests": 2, "pages_retained": 2, "page_identity_match": True,
+                "reader_crc_check_succeeded": True, "host_crc_verified": False,
+                "reselection_atomic": False, "physical_same_tag_verified": False,
+                "device_command_termination_verified": False, "rf_off_verified": False,
+                "warnings": list(self.warnings)}
 
 
 @dataclass(frozen=True, repr=False)
@@ -252,6 +288,42 @@ def _scan(entry, case_id):
     return identity
 
 
+def _cu_identity(identity):
+    family = _identity(identity, scan=True)
+    if identity.atqa_msb != b"\x00\x44" or identity.profile != "iso14443-3a":
+        raise error("nfc_identity_mismatch")
+    return family
+
+
+def _cu_scan(entry, case_id):
+    _fact(entry, case_id, CU_SCAN_FACT, {"server": "nfc-mcp", "tool": "nfc_cu_scan"})
+    d = entry["data"]
+    if (set(d) != _CU_SCAN_KEYS or not _matches(_SCAN, d["scan_ref"])
+            or not _valid_text(d["session_id"], 128) or d["profile"] != CU.PROFILE
+            or d["profile_sha256"] != CU.PROFILE_SHA256 or d["firmware_commit"] != CU.FIRMWARE_COMMIT):
+        raise error("nfc_scan_invalid")
+    for key in ("firmware_claim_verified", "reselection_atomic", "host_crc_verified"):
+        if d[key] is not False:
+            raise error("nfc_scan_invalid")
+    for key in ("page_read_performed", "page_identity_match", "reader_crc_check_succeeded", "steps_complete"):
+        if d[key] is not True:
+            raise error("nfc_scan_invalid")
+    if any(type(d[key]) is not int or d[key] != 2 for key in ("read_requests", "pages_retained")):
+        raise error("nfc_scan_invalid")
+    _reader_binding(d["reader_binding"])
+    identity = _decode_identity(d["identity"])
+    if d["family"] != _cu_identity(identity):
+        raise error("nfc_scan_invalid")
+    return identity
+
+
+def _scan_identity(entry, case_id):
+    """두 고정 provider의 사실 shape를 각각 검증한다."""
+    if entry.get("fact_kind") == CU_SCAN_FACT:
+        return _cu_scan(entry, case_id)
+    return _scan(entry, case_id)
+
+
 def _inventory(entry, case_id):
     _fact(entry, case_id, INVENTORY_FACT, {"server": "nfc-mcp", "tool": "nfc_tag_inventory_add"})
     d = entry["data"]
@@ -270,7 +342,7 @@ def _index(entries, case, check=lambda: None):
         check()
         d = entry.get("data")
         if type(d) is not dict:
-            if entry.get("fact_kind") in (SCAN_FACT, INVENTORY_FACT):
+            if entry.get("fact_kind") in (SCAN_FACT, CU_SCAN_FACT, INVENTORY_FACT):
                 raise error("nfc_scan_invalid")
             continue
         scan_ref, tag_ref = d.get("scan_ref"), d.get("tag_ref")
@@ -285,9 +357,9 @@ def _index(entries, case, check=lambda: None):
             if not _matches(_SCAN, scan_ref) or scan_ref in seen_scans:
                 raise error("nfc_scan_invalid")
             seen_scans.add(scan_ref)
-            _scan(entry, case.id)
+            _scan_identity(entry, case.id)
             scans[scan_ref] = entry
-        elif entry.get("fact_kind") == SCAN_FACT:
+        elif entry.get("fact_kind") in (SCAN_FACT, CU_SCAN_FACT):
             raise error("nfc_scan_invalid")
         if tag_ref is not None and entry.get("fact_kind") != INVENTORY_FACT:
             raise error("nfc_scan_invalid")
@@ -304,7 +376,7 @@ def _index(entries, case, check=lambda: None):
 
 
 def _bound(runtime, case, scan, inv):
-    identity = _scan(scan, case.id)
+    identity = _scan_identity(scan, case.id)
     d = inv["data"]
     if _digest(runtime, case, identity) != d["identity_digest"]:
         raise error("nfc_scan_invalid")
@@ -346,6 +418,41 @@ def record_flipper_scan(runtime, case, observation: ScanObservation, *, deadline
     raise failure from None
 
 
+def record_cu_scan(runtime, case, observation: CuScanObservation, *, deadline, cancel=None) -> CuScanRef:
+    """CU 고정 선택·두 시작 페이지의 신원 대조를 같은 케이스 원장에 결속한다."""
+    try:
+        case.require_authorization()
+        check = _control(deadline, cancel)
+        if type(observation) is not CuScanObservation:
+            raise error("nfc_scan_invalid")
+        o = observation
+        family = _cu_identity(o.identity)
+        if (not _valid_text(o.session_id, 128) or o.page_identity_match is not True
+                or o.reader_crc_check_succeeded is not True or o.steps_complete is not True):
+            raise error("nfc_scan_invalid")
+        binding = _reader_binding(o.reader_binding)
+        ref = "NS-" + uuid.uuid4().hex
+        digest = _digest(runtime, case, o.identity)
+        d = {"scan_ref": ref, "session_id": o.session_id, "reader_binding": binding,
+             "profile": CU.PROFILE, "profile_sha256": CU.PROFILE_SHA256,
+             "firmware_commit": CU.FIRMWARE_COMMIT, "firmware_claim_verified": False,
+             "identity": _identity_data(o.identity), "family": family, "page_read_performed": True,
+             "read_requests": 2, "pages_retained": 2, "page_identity_match": True,
+             "reader_crc_check_succeeded": True, "host_crc_verified": False,
+             "steps_complete": True, "reselection_atomic": False}
+        def final(entries):
+            check()
+            scans, _ = _index(entries, case, check)
+            if ref in scans:
+                raise error("nfc_scan_invalid")
+        entry = runtime.provenance.record_device_fact(case, CU_SCAN_FACT, d,
+                {"server": "nfc-mcp", "tool": "nfc_cu_scan"}, check_entries=final, **_bounds(deadline, check))
+        return CuScanRef(ref, family, digest, entry["seq"], _entry_hash(entry), getattr(entry, "warnings", ()))
+    except Exception as exc:
+        failure = _fixed(exc)
+    raise failure from None
+
+
 class _ExistingInventory(Exception):
     def __init__(self, bound):
         self.bound = bound
@@ -381,7 +488,7 @@ def add_inventory(runtime, case, scan_ref, *, deadline, cancel=None) -> Inventor
         scan = scans.get(scan_ref)
         if scan is None:
             raise error("nfc_scan_required")
-        identity = _scan(scan, case.id)
+        identity = _scan_identity(scan, case.id)
         scan_hash = _entry_hash(scan)
         tag = "NT-" + uuid.uuid4().hex
         d = {"tag_ref": tag, "scan_ref": scan_ref, "scan_seq": scan["seq"], "scan_entry_sha256": scan_hash,

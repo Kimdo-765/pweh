@@ -1,14 +1,19 @@
 # pweh-nfc
 
-같은 케이스의 고정 Flipper scan 사실과 등록 파일을 결속하는 NFC 오프라인 분석 서버다. NTAG213/215/216만 inventory에 등록하며, 파일 내용을 태그에 쓰거나 인증·키 탐색·에뮬레이션을 수행하지 않는다.
+CU 고정 연결·스캔과 같은 케이스의 Flipper/CU scan 사실에 결속한 파일 분석 서버다. NTAG213/215/216만 inventory에 등록하며, 파일 내용을 태그에 쓰거나 인증·키 탐색·에뮬레이션을 수행하지 않는다.
 
 | 도구 | 입력 | 결과 |
 |---|---|---|
+| `nfc_cu_connect` | `case_id`, `port`, `approval_id=None` | 고정 Ultra2.2 reader 확인·실제 session_id |
+| `nfc_cu_scan` | `case_id`, `session_id`, `approval_id=None` | 새 scan·GET_VERSION·READ0/1 검증 뒤 마스킹 scan_ref |
+| `nfc_cu_disconnect` | `case_id`, `session_id` | 같은 세션의 worker·transport·lease 정리 결과 |
 | `nfc_tag_inventory_add` | `case_id`, `scan_ref` | `tag_ref`, `scan_ref`, family, 케이스 솔트 지문, scan/inventory 원장 seq·SHA |
 | `nfc_parse_file` | `case_id`, `artifact_id`, `tag_ref`, `max_seconds=5` | 기존 순수 검사 결과와 출처 결속, 실제 저장 경로·SHA |
 | `nfc_diff_dumps` | `case_id`, `before_artifact_id`, `after_artifact_id`, `tag_ref`, `max_seconds=5` | 저장 페이지 비교 결과와 두 파일의 출처 결속, 실제 저장 경로·SHA |
 
-`flipper_nfc_probe`는 별도 `pweh-flipper` 서버에서 실행한다. 성공한 같은 케이스 `scan_ref`를 inventory에 등록한 뒤, `case_import_file` 또는 허용된 Flipper 파일 복사로 등록한 artifact id를 사용한다. 사용자가 제출한 UID·family, cache, 임의 producer 문자열은 scan 사실을 대신하지 않는다. 기존 `provenance-import` 사람 증명을 요구하면 사람이 별도 터미널의 `pweh attest <id>`로 답한다. 에이전트가 증명을 대신하지 않는다.
+CU는 명시 COM/tty와 현재 USB CDC 신원·전체 sibling 잠금 아래 MODIFY 게이트를 거친다. [고정 CU 계약](../../docs/references/cu-ntag-read-provider.md)의 시작5초·스캔45초·명령2초·close10초를 따르며 실패 뒤 자동 RF-off/재접속을 하지 않는다. 내부 유한 읽기 provider는 공개 read job·파일 게시가 아니다.
+
+`flipper_nfc_probe`는 별도 `pweh-flipper` 서버에서 실행한다. 두 provider의 검증 조건은 독립 유지한다. 성공한 같은 케이스 `scan_ref`를 inventory에 등록한 뒤, `case_import_file` 또는 허용된 Flipper 파일 복사로 등록한 artifact id를 사용한다. 사용자가 제출한 UID·family, cache, 임의 producer 문자열은 scan 사실을 대신하지 않는다. 기존 `provenance-import` 사람 증명을 요구하면 사람이 별도 터미널의 `pweh attest <id>`로 답한다. 에이전트가 증명을 대신하지 않는다.
 
 각 입력은 1 MiB 이하의 단일 링크 일반 파일이다. `forensics/`, `emu/`, 보호 경로, 심볼릭 링크·하드 링크·디렉터리는 거부한다. 증명 요청 전 입력 FD를 모두 닫고, 만족한 뒤 다시 열어 최초 SHA와 scan/inventory 결속을 비교한다. 최종 등록 직전에도 현재 원장·증명과 같은 FD의 내용·이름·부모 신원을 재확인한다. atime는 신원 비교에 쓰지 않는다.
 

@@ -17,7 +17,7 @@ PWEH 는 MCP 서버 15개를 쓴다. 14개는 이 저장소에 있고, 1개는 �
 | `pweh-sdr` | `.venv/bin/pweh-sdr-mcp` | 등록된 Flipper RAW 파일의 오프라인 구조·통계 분석과 보고서 저장 (선택) |
 | `pweh-play` | `.venv/bin/pweh-play-mcp` | 공급 숫자 관측값의 오프라인 합의 검증과 보고서 저장 (선택) |
 | `pweh-flipper` | `.venv/bin/pweh-flipper-mcp` | 고정 CLI 연결·정보 조회·허용 폴더 파일 읽기 (선택, 실제 기기 전송 미검증) |
-| `pweh-nfc` | `.venv/bin/pweh-nfc-mcp` | 서버 스캔 inventory·등록 NFC 파일 검사·비교 (선택) |
+| `pweh-nfc` | `.venv/bin/pweh-nfc-mcp` | CU 고정 NTAG 스캔·inventory·등록 NFC 파일 검사·비교 (선택) |
 | `rea` | `rea --mcp` (rea-agents 6.5.x) | binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩 |
 
 도구 목록과 인자는 [architecture.md](architecture.md) §6 과 각 서버의 `mcp-servers/<name>/README.md` 에 있다.

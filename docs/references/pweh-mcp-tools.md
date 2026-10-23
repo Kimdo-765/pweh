@@ -410,9 +410,15 @@
 ## pweh-nfc
 
 - **`nfc_tag_inventory_add(case_id, scan_ref)`**  
-  같은 케이스 flipper_nfc_probe의 보호된 scan_ref를 NTAG213/215/216 inventory로 등록한다. 사용자 UID/family나 cache로 scan을 대신하지 않는다. 공개 tag_ref·scan_ref·케이스 솔트 지문과 scan/inventory 원장 seq/hash만 반환한다. 물리적으로 같은 태그인지는 검증하지 않는다.
+  같은 케이스 flipper_nfc_probe 또는 nfc_cu_scan의 보호된 scan_ref를 NTAG213/215/216 inventory로 등록한다. 사용자 UID/family나 cache로 scan을 대신하지 않는다. 공개 tag_ref·scan_ref·케이스 솔트 지문과 scan/inventory 원장 seq/hash만 반환한다. 물리적으로 같은 태그인지는 검증하지 않는다.
 - **`nfc_parse_file(case_id, artifact_id, tag_ref, max_seconds?)`**  
   등록 artifact_id의 Flipper v4 NFC 파일 하나를 같은 케이스 tag_ref와 결속해 오프라인 검사한다. 각 입력은1MiB 이하 단일 링크 일반 파일이며 forensics/emu/보호 경로는 받지 않는다. UID/ATQA/SAK/GET_VERSION 신원은 내부에서만 비교한다. 가져온 파일은 기존 provenance-import 증명이 필요하며 대기 중 입력 FD를 보유하지
 - **`nfc_diff_dumps(case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds?)`**  
   같은 tag_ref에 결속한 before/after 등록 NFC 덤프 두 개의 저장 페이지를 오프라인 비교한다. 입력마다1MiB 이하, 두 파일 각각의 현재 provenance-import 증명을 확인한다. read<total·ISO 헤더·불완전 layout에서는 비교 불가/null을 유지한다. raw UID·페이지·Counter·PWD/PACK은 반환하지 않는다. max_seconds는0초
+- **`nfc_cu_connect(case_id, port, approval_id?)`**  
+  명시 USB CDC CU 포트를 전체 장치 범위로 잠근 뒤 MODIFY gate를 거쳐 연결한다. 115200 8N1/DTR=true/RTS=false이며 모델 Ultra·정확2.2/v2.2.0·현재 reader 모드를 고정 조회한다. 모드 변경은 하지 않으며 호환 확인 전 RF 명령을 보내지 않는다. 모델·버전은 자기 보고이며 서명 증명이 아니다. 조회 worker5초, 정리 최대10초이며
+- **`nfc_cu_scan(case_id, session_id, approval_id?)`**  
+  정확한 case/session의 CU reader에서 MODIFY gate 뒤 고정14A 선택·GET_VERSION·READ0/1을 수행한다. 45초 안에 NTAG213/215/216·UID7/ATQA/SAK와 두 시작 페이지의 UID/BCC를 내부 대조하고 scan 사실을 남긴다. READ16B마다 첫4B만 해당 시작 페이지로 사용하며 원시 UID·페이지·version은 반환하지 않는다. 
+- **`nfc_cu_disconnect(case_id, session_id)`**  
+  정확한 case/session의 CU worker를 취소하고 물리 transport 종료 및 사용권0 뒤 lease를 해제한다. 허가 철회 뒤에도 정리 가능하며 최대10초의 정리 미확인은 세션·잠금을 보존한다. 추가 RF-off·mode 변경 명령은 보내지 않고 RF off나 장치 명령 종료를 검증했다고 하지 않는다.
 

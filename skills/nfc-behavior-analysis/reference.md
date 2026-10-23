@@ -19,3 +19,5 @@
 ISO14443-3A 헤더는 유효한 scan에 결속하여 구조 검사할 수 있으나 페이지 배치가 없으므로 diff의 `no_page_layout`을 유지한다. `Pages read < Pages total`은 기존 partial이며 저장된 0바이트로 읽기 범위를 추정하지 않는다. 같은 UID claim만으로 부분 파일의 페이지 대응을 복원하지 않는다.
 
 일반 복사 파일의 출처 증명은 기존 `provenance-import`의 케이스·전체 SHA에 묶인다. 파일 내용·원장·증명 중 하나가 바뀌면 도구가 재검증하며, 한쪽 파일의 증명으로 다른 SHA를 허용하지 않는다. `nfc/inventory.json`은 마스킹 조회 사본이며 손상·삭제되어도 보호 원장 대신 신뢰하지 않는다.
+
+CU scan은 `nfc_cu_connect`의 실제 세션으로 `nfc_cu_scan`을 호출해 얻는다. 기존 요약 필드는 동일하며 provider별 원시 식별값을 추가하지 않는다. Flipper의 page READ 없음과 CU의 두 시작 페이지 검증을 혼동하지 않으며, 두 경로 모두 물리 동일 태그 검증은 false다.

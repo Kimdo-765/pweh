@@ -103,3 +103,7 @@ scan은 `nfc-scan`, inventory는 `nfc-inventory` schema의 마스킹 projection�
 요약은 [nfc-behavior-analysis Skill](../../skills/nfc-behavior-analysis/SKILL.md)의 `nfc-analysis`다.
 실제 참조·해시·status와 네 false flag를 기록한다. 합성 Client 시험은 소프트웨어 계약을 검증하며
 실제 Flipper·태그·USB/RF 환경의 호환성 시험을 대신하지 않는다.
+
+## CU 스캔을 사용하는 경우
+
+[CU 고정 읽기 계약](cu-ntag-read-provider.md)의 connect→scan→disconnect로 받은 실제 scan_ref도 같은 inventory 입구에 전달한다. CU는 READ0/1과 reader CRC 검증을 포함하는 별도 source/profile이며 Flipper의 page READ 없음·scratch 정리·host CRC 규칙을 바꾸지 않는다. 기존 파일 식별값·출처 증명·최종 FD 검사는 동일하다. CU에서 전체 파일을 읽거나 가져온 파일을 device-read로 승격한 것으로 보고하지 않는다.

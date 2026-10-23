@@ -1,6 +1,6 @@
 # 설계안: 게임 콘솔 분석 + Flipper Zero·RF(주파수) 분석
 
-> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치, §3.3의 등록 RAW 파일 분석, §3.4의 공급 숫자 관찰 요약과 §3.1의 Flipper 고정 파일 읽기·NTAG21x 스캔과 §3.2의 스캔 결속 NFC 파일 검사는 구현됐다. 전체 태그 덤프·CU·실제 화면/플레이·RF 수신은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
+> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치, §3.3의 등록 RAW 파일 분석, §3.4의 공급 숫자 관찰 요약과 §3.1의 Flipper 고정 파일 읽기·NTAG21x 스캔과 §3.2의 스캔 결속 NFC 파일 검사와 CU 고정 NTAG 스캔은 구현됐다. 전체 태그 덤프 게시·실제 화면/플레이·RF 수신은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
 > 여러 서버가 함께 쓰는 기반(포트 라우팅, 증명, 출처 기록, 비밀 마스킹, 안전 설정 위치)은 [common-core.md](common-core.md), 환경 감지·포트 라우팅의 상세는 [port-routing.md](port-routing.md) 에 있다.
 > 1차 초안을 네 관점(안전·법, 기술 실현성, PWEH 구조 적합성, 요구사항 충족)으로 적대적 검토한 결과(지적 59건, 반박 0건)를 반영했다.
 > 근거: 공식 Flipper 펌웨어 **1.5.1** 소스, ChameleonUltra v2.2.0 소스, esptool·ESP-IDF NVS 형식, rtl-sdr-blog v1.4.0·rtl_433 25.12,
@@ -51,7 +51,7 @@ NFC·플레이 열의 “가능”은 후속 설계의 기대치다. 현재 NFC 
 
 ```
 pweh-flipper (구현)  고정1.5.1 CLI 연결·파일 읽기·NTAG21x 스캔. RF/임의 앱/RPC는 후속
-pweh-nfc     (구현)  스캔 inventory·NFC v4 파일 검사/비교. CU·.shd·프레임 해석은 후속
+pweh-nfc     (구현)  CU 고정 NTAG 스캔·inventory·NFC v4 파일 검사/비교. .shd·프레임 해석은 후속
 pweh-sdr     (구현)  등록 RAW 파일 오프라인 분석. RTL-SDR 수신(1b)·HackRF 수신은 후속
 pweh-play    (구현)  공급 숫자 관찰 요약. 입력 브리지·화면 인식·플레이 job은 후속(2b·2c)
 pweh-fwtriage(확장)  ESP 파티션·앱 이미지·NVS, 세이브 비교, 체크섬, 패치 빌드, 쓰기 검증, 게임 패턴 팩
@@ -61,7 +61,7 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 
 `pweh-sdr`는 `sdr_analyze` 한 도구를 제공하며 등록 RAW 파일의 검사·저장·RF 요약을 연결한다.
 `pweh-play`는 `vision_validate` 한 도구로 공급 숫자의 계산·저장·numeric-analysis 요약을 연결한다.
-`pweh-flipper`는 연결·종료·정보·목록·파일 읽기·고정 NTAG21x probe와 공통 job3개를 제공한다. 실기 전송은 미검증이며 일반 전송 artifact를 실제 캡처·태그 출처로 승격하지 않는다. `pweh-nfc`는 보호 스캔에 결속한 inventory·파일 검사·비교 세 도구를 제공한다. 선행 구현한 순수 코어는 `pweh.rf_formats`(RAW 통계), `pweh.nfc_formats`(NFC 구조·저장 페이지 비교),
+`pweh-flipper`는 연결·종료·정보·목록·파일 읽기·고정 NTAG21x probe와 공통 job3개를 제공한다. 실기 전송은 미검증이며 일반 전송 artifact를 실제 캡처·태그 출처로 승격하지 않는다. `pweh-nfc`는 보호 스캔에 결속한 inventory·파일 검사·비교와 CU 연결·스캔·정리 여섯 도구를 제공한다. 선행 구현한 순수 코어는 `pweh.rf_formats`(RAW 통계), `pweh.nfc_formats`(NFC 구조·저장 페이지 비교),
 `pweh.vision_sequence`(숫자 관찰값 합의)이며, 코어 자체는 외부 I/O를 하지 않는다. NFC 공개 입구는 기존 파서의 저장 표현 결과와 실제 스캔 기록의 결속을 구분한다.
 파일 선언·저장값·공급 표본을 다루므로 실제 수신·태그 소유/허가·완전한 물리 읽기·화면/게임 상태를 확인하지 않는다.
 계약은 [RAW 코어](../references/flipper-raw-profile.md)·[RAW 공개 입구](../references/rf-raw-analysis.md)·[NFC 코어](../references/nfc-file-profile.md)·[NFC 공개 입구](../references/nfc-inventory-analysis.md)·[숫자 모델](../references/numeric-observations.md)·[숫자 공개 입구](../references/numeric-validation.md)를 따른다.
@@ -100,9 +100,9 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 
 ### 3.2 pweh-nfc
 
-현재는 `nfc_tag_inventory_add`, `nfc_parse_file`, `nfc_diff_dumps`만 제공한다. 같은 케이스의 보호 scan/inventory, 파일 식별값·SHA·기존 출처 증명을 대조하고 NFC v4 ISO 헤더/NTAG213·215·216의 기존 구조·저장 페이지 비교 결과를 기록한다. 파일 하나1MiB/두 개 합2MiB, 작업5초·최종 검증5초이며 원문 식별값·자격증명을 반환하지 않는다. `nfc-behavior-analysis`와 `nfc-analysis` 요약을 쓴다. 아래 CU/Classic/PWD/스니프/추가 형식은 후속 설계다.
+현재는 `nfc_tag_inventory_add`, `nfc_parse_file`, `nfc_diff_dumps`와 `nfc_cu_connect`, `nfc_cu_scan`, `nfc_cu_disconnect`를 제공한다. 같은 케이스의 보호 scan/inventory, 파일 식별값·SHA·기존 출처 증명을 대조하고 NFC v4 ISO 헤더/NTAG213·215·216의 기존 구조·저장 페이지 비교 결과를 기록한다. 파일 하나1MiB/두 개 합2MiB, 작업5초·최종 검증5초이며 원문 식별값·자격증명을 반환하지 않는다. `nfc-behavior-analysis`와 `nfc-analysis` 요약을 쓴다. CU는 [고정 NTAG 읽기 계약](../references/cu-ntag-read-provider.md)의 Ultra APP2.2/GIT v2.2.0·reader만 허용한다. 현재 CDC 신원·whole lease·DTR MODIFY gate 뒤 고정 조회와 새 scan/GET_VERSION/READ0/1을 검증한다. 내부 유한 읽기 provider는 시작 page별4B를 귀속하지만 공개 read job·파일 게시가 아니다. 실제 장치·RF는 미검증이며 mode/slot 변경은 없다. 아래 slot/Classic/PWD/스니프/추가 형식은 후속 설계다.
 
-- **ChameleonUltra**(Ultra 모델·v2.2.0 이상, 사용자가 가졌을 때만 1b 에 포함): 문서화된 USB 프레임 프로토콜을 직접 구현(GPL 코드 미사용), 명령 ID 허용 목록.
+- **ChameleonUltra 후속 slot·캡처**(현 고정 v2.2.0 읽기 외 추가 버전은 별도 검증): 문서화된 USB 프레임 프로토콜을 직접 구현(GPL 코드 미사용), 명령 ID 허용 목록.
   - 연결 시 현재 모드·활성 슬롯을 스냅샷한다. 슬롯 전환(SET_ACTIVE_SLOT)은 이전 슬롯 RAM 을 플래시에 저장하므로, 운영자가 지정한 슬롯만 쓰고 덮어쓰기 전에 형식별(MF0/MF1) 백업을 케이스에 남긴다.
   - **스니프는 창 단위로 초기화된다**: 매 2020 호출이 슬롯을 플래시에서 다시 읽으므로 창 N 의 콘솔 쓰기는 창 N+1 시작에서 사라진다 → 캡처 하나는 창 하나로 설계(≤30 s, 호스트에서 제한, 시리얼 타임아웃 = 창 + 여유).
     버퍼 3800 B 를 넘으면 조용히 잘리므로 ~3700 B 이상이면 "잘렸을 수 있음" 표시. 창 진행 중에는 취소할 수 없다.
@@ -285,7 +285,8 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 | **1b 오프라인 RAW** | **구현**: 등록 파일 → 명시 strict profile의 `sdr_analyze` → 분석 JSON·아티팩트 → `flipper-rf-analysis`/`rf-analysis` → 보고서. 실제 RF 수신·decoder 경로는 포함하지 않는다. | 소유·허가 케이스의 등록 RAW 파일, 장비 불필요 | 합성 `.sub`, 실제 MCP 입구·FD/해시·취소/등록 수명·요약 |
 | **1b 고정 CLI 파일 읽기** | **소프트웨어 구현**: pweh-flipper의 수동 배너·정보·허용 루트 목록·1MiB 파일 읽기/MD5·같은 FD 등록·물리 close/lease 확인. P2 공통 serialtransport를 소비한다. 실제 DTR·USB 매핑·전송은 미검증이다. | 소유/허가 케이스·명시 포트·고정1.5.1·준비한 허용 폴더 | 가짜 CLI 임의 분할·binary·loader·취소·종료·artifact→RAW 연결 |
 | **1b 스캔 결속 NFC** | **소프트웨어 구현**: Flipper probe→보호 scan→inventory→출처 증명→등록 파일 구조/차이→요약. 실제 태그·USB/RF는 미검증이다. | 허가된 NTAG213/215/216·Flipper, 또는 기존 유효 inventory와 파일 | 합성 두 MCP Client·private 식별값·원장·증명·같은 FD·취소/등록 |
-| **1b 후속 연결** | CU 읽기, pweh-sdr 수신과 전체 태그 읽기는 후속이다. 실기 DTR·1MiB md5와 CU GET_APP_VERSION 확인은 소프트웨어 시험과 별개다. | 사용자 Flipper/CU/수신기와 실제 사실 | 가짜 CU, 가짜 rtl 도구, 합성 NFC |
+| **1b CU 고정 읽기** | **소프트웨어 구현**: 고정 codec·단일 owner·probe→CU fact→기존 inventory/파일 검사. 내부 유한 READ의 첫4B 귀속과 terminal/cleanup을 검증한다. | 허가된 Ultra2.2 reader·명시 포트, 또는 기존 inventory | 가짜 POSIX/helper·세 NTAG·같은 MCP Client·기존 Flipper 회귀 |
+| **1b 후속 연결** | CU read job·파일 게시, pweh-sdr 수신과 전체 태그 덤프 흐름은 후속이다. 실기 DTR·1MiB md5와 CU GET_APP_VERSION 확인은 소프트웨어 시험과 별개다. | 사용자 Flipper/CU/수신기와 실제 사실 | 가짜 CU, 가짜 rtl 도구, 합성 NFC |
 | 2a | NFC 에뮬레이션 캡처: Flipper RPC(.shd), CU 스니프(단일 창), 필수 정리 | 1b | 가짜 Flipper RPC 상태 기계, 가짜 CU 창 초기화 |
 | 2b | 자동화 MVP: 화면 OBSERVE 도구, 보드 하나의 브리지 펌웨어(빌드·배포·플래시 절차 — ESP32 계측기 1c 의 `firmware/common`·빌드·고정 흐름 재사용), 세션 예산 안 즉석 입력 | 1b + §10 보드 결정 | 브리지 시뮬레이터(하트비트·한도·디스크립터 해시), 합성 프레임 |
 | 2c | 선언형 플레이 job(최대 2시간, play_policy) + `game-play-automation` | 2b | 합성 프레임 시퀀스, 시뮬레이터 |
@@ -335,8 +336,9 @@ digest는 취득 출처나 익명화의 증거가 아니며 화면 신선도·�
 | 도구 | 위험 | 비고 |
 |---|---|---|
 | `nfc_version()`, `nfc_list_ports()` | OBSERVE | |
-| `nfc_cu_connect(case_id, port)` / `nfc_cu_disconnect(case_id, session_id)` | INTERACT / 정리 | 스냅샷 |
-| `nfc_cu_scan`, `nfc_cu_read_start` | INTERACT | T2T 프레임, MFC 는 증명+사용자 키 |
+| `nfc_cu_connect(case_id, port, approval_id=None)` / `nfc_cu_disconnect(case_id, session_id)` | MODIFY / 정리 | 구현. 고정 Ultra2.2 reader 조회·동일 세션 cleanup |
+| `nfc_cu_scan(case_id, session_id, approval_id=None)` | MODIFY | 구현. NTAG213/215/216의 GET_VERSION·READ0/1과 CU scan 사실 |
+| `nfc_cu_read_start` | 후속 | 내부 유한 읽기 provider를 공개 job·파일 게시로 연결하는 계약은 별도 |
 | `nfc_cu_slot_load(case_id, session_id, artifact, write_mode)` (2a) | MODIFY | 지정 슬롯만, 백업 먼저 |
 | `nfc_cu_sniff_start(case_id, session_id, artifact, window_s≤30)` (2a) | MODIFY(호출마다 한 창) | |
 | `nfc_emulation_stop(case_id, session_id)` | 정리 | 슬롯 복원·확인 |

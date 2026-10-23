@@ -857,3 +857,24 @@ SAK/UID 전제가 맞지 않으면 GET_VERSION을 보내지 않는다. 이후 ra
 등록 뒤 receipt를 보존한다. 부분 읽기의 0값·미비교·null은 기존 NFC 파서 의미를 유지한다.
 `inventory_binding_verified`와 `physical_same_tag_verified=false`는 별도이며 실제 진품·
 복제 없음·전체 태그 읽기·게임 동작을 증명하지 않는다. [NFC 계약](references/nfc-inventory-analysis.md).
+
+### CU 고정 NTAG 읽기
+
+`nfc_cu_connect`와 `nfc_cu_scan`은 소유/허가·명시 세션·현재 CDC 신원·전체 USB lease와
+MODIFY 게이트를 따른다. 고정 Ultra APP2.2/GIT v2.2.0·reader 모드만 받으며 모드·slot을
+바꾸지 않는다. 연결 설정 DTR=true의 영향은 승인 지문에 포함한다.
+
+새 scan→GET_VERSION→READ0/1의 UID/BCC를 대조한 뒤 CU 전용 scan 사실을 남긴다.
+firmware scan 내부는 SAK bit0x20에서 호스트 거부 전 RATS를 수행할 수 있다. 따라서
+거부 태그에 SELECT 외 RF가 없었다고 보고하지 않는다. reader CRC 성공과 host RF CRC
+검산은 구분하며 후자는 false다. READ16B 중 시작 page4B만 사용하고 나머지12B는
+AUTH0/끝 roll-over 때문에 다른 페이지에 귀속하지 않는다.
+
+내부 읽기 provider는 새 admission과 같은 field를 유지해 시작 페이지별4B를 모으지만
+공개 read job·파일 게시·완전한 Flipper 덤프 생성은 제공하지 않는다. 태그 쓰기·PWD_AUTH·
+Classic·키 탐색·임의 RAW·에뮬레이션은 없다. 파일의 기존 import 증명은 그대로 요구한다.
+
+취소·timeout·프레이밍/신원 오류 뒤에는 새 RF-off·재선택·자동 재접속을 하지 않는다.
+`nfc_cu_disconnect`는 허가 철회 뒤에도 정확한 case/session을 정리하고 미확인 owner·
+transport·lease를 보존한다. 호스트 close를 실제 RF-off·장치 명령 종료로 표시하지 않는다.
+세부 한도와 공개·내부 읽기의 차이는 [CU 계약](references/cu-ntag-read-provider.md)을 따른다.

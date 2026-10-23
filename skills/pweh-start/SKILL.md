@@ -17,7 +17,7 @@ disable-model-invocation: true
    확보한 ESP32·S3·C3/Arduino AVR 펌웨어를 PC 에서 실행할 때는 선택 단계 `firmware-emulation` 을 쓴다(USB 콘솔·무선·대부분의 주변장치 미지원).
 3. 진행 전에 필요한 MCP 서버가 연결되어 있는지 확인한다.
    - 보안 분석: `pweh-case`, `pweh-uart`, `pweh-fwtriage`, `rea` (선택: `pweh-sigrok`, `pweh-openocd`, `pweh-jtagulator`, ESP32 계열이면 `pweh-esp`).
-   - 게임 콘솔 분석: 공급 숫자만 검증하면 `pweh-case`·`pweh-play`와 `numeric-observation-analysis`를 쓴다. 장비·환경 조회·펌웨어 확보를 요구하지 않는다. 세이브·해금 분석이면 `pweh-case`, `pweh-fwtriage`, `rea` (ESP32 기반이면 `pweh-esp`, 리눅스·MCU 기기면 보안 분석의 서버). NFC 파일은 `pweh-case`·`pweh-nfc`와 `nfc-behavior-analysis`를 쓴다. 기존 inventory가 없고 새 스캔을 원하면 `pweh-flipper`를 연결한다.
+   - 게임 콘솔 분석: 공급 숫자만 검증하면 `pweh-case`·`pweh-play`와 `numeric-observation-analysis`를 쓴다. 장비·환경 조회·펌웨어 확보를 요구하지 않는다. 세이브·해금 분석이면 `pweh-case`, `pweh-fwtriage`, `rea` (ESP32 기반이면 `pweh-esp`, 리눅스·MCU 기기면 보안 분석의 서버). NFC 파일은 `pweh-case`·`pweh-nfc`와 `nfc-behavior-analysis`를 쓴다. 기존 inventory가 없고 새 스캔을 원하면 허가된 Flipper의 `pweh-flipper` 또는 CU Ultra의 `pweh-nfc` 고정 연결을 선택한다.
    - SD 카드 포렌식: `pweh-case`, `pweh-forensics` (펌웨어 쪽 SD 공격 표면도 보면 `pweh-fwtriage`·`rea`, 시험 카드 부팅 로그는 `pweh-uart`).
    - 정지 이미지 힌트(선택): `pweh-case`, 증거면 `pweh-forensics`. `image-hints-analysis`를 쓰며 영상·음성은 처리하지 않는다.
    - 펌웨어 에뮬레이션(선택): `pweh-case`, `pweh-emu`. 콘솔은 `emu_read` 로만 보며 `emu/` 세션 파일은 열지 않는다.
