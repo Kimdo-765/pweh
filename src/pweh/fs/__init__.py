@@ -69,19 +69,23 @@ SUPPORTED_FS = ("fat12", "fat16", "fat32", "exfat")
 
 @guard
 def open_volume(src: Any, *, limits: Limits | None = None, fs_hint: str | None = None,
-                budget: Budget | None = None) -> FatVolume | ExfatVolume:
+                budget: Budget | None = None, metadata_mode: str = "full") -> FatVolume | ExfatVolume:
     """구간(이미지 전체 또는 partition_source)의 파일 시스템을 연다. FAT12/16/32·exFAT 가 아니면 FsError(unsupported_fs).
 
     budget: 이 볼륨에 함께 쓸 예산. 부트 섹터를 읽은 뒤 budget.max_steps 를 이 볼륨의 단계 상한 vol.step_cap(limits) 까지 올린다
     (내리지 않는다 — 볼륨마다 새 Budget 을 만들어 넘긴다). exFAT 은 열 때 루트 디렉터리를 읽는다(비트맵·up-case·레이블) — 그 일을
     이 예산 안에서 한다(없으면 limits.max_seconds 와 step_cap 으로 새로 만든다). 같은 예산을 info·walk 에 넘기면 시간 마감·단계·취소를
     함께 쓴다.
+    metadata_mode='allocation'은 exFAT의 root/활성 bitmap만 엄격히 준비하며 이름·up-case·전체 할당 집계를 생략한다.
+    기본 full과 FAT 생성자의 해석은 유지한다.
     """
+    if type(metadata_mode) is not str or metadata_mode not in ("full", "allocation"):
+        raise FsError("메타데이터 모드가 올바르지 않습니다.", reason="bad_argument")
     hint = fs_hint or sniff_fs(src)
     if hint in ("fat12", "fat16", "fat32"):
         return FatVolume(src, limits=limits, budget=budget)
     if hint in ("exfat", "exfat-invalid"):
-        return ExfatVolume(src, limits=limits, budget=budget)
+        return ExfatVolume(src, limits=limits, budget=budget, metadata_mode=metadata_mode)
     raise FsError(f"지원하지 않는 파일 시스템입니다: {hint}", reason="unsupported_fs", data={"fs_hint": hint},
                   hint="지원: FAT12/16/32, exFAT (ext4·NTFS 는 아직 없음)")
 

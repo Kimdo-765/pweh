@@ -32,6 +32,7 @@ from __future__ import annotations
 import re
 import struct
 from array import array
+from bisect import bisect_right
 from collections import OrderedDict, deque
 from typing import Any, Iterator
 
@@ -226,14 +227,19 @@ class ExfatVolume(VolumeBase):
     max_slot = MAX_DIR_BYTES // 32
 
     @guard
-    def __init__(self, src: Any, *, limits: Limits | None = None, budget: Budget | None = None) -> None:
+    def __init__(self, src: Any, *, limits: Limits | None = None, budget: Budget | None = None,
+                 metadata_mode: str = "full") -> None:
+        if type(metadata_mode) is not str or metadata_mode not in ("full", "allocation"):
+            raise FsError("메타데이터 모드가 올바르지 않습니다.", reason="bad_argument")
+        self.metadata_mode = metadata_mode
         self.src = src
         self.limits = limits or Limits()
         self.base_offset = int(getattr(src, "base_offset", 0))
         self._w = Warnings(self.limits.max_warnings)
         if src.size < 512:
             raise FsError("exFAT 부트 섹터를 읽을 수 없습니다(512바이트 미만).", reason="not_exfat")
-        b = parse_exfat_boot(src.read(0, 512), self._w)
+        boot_bytes = src.read(0, 512)
+        b = parse_exfat_boot(boot_bytes, self._w)
         self.boot = b
         bps = b["bytes_per_sector"]
         self.bytes_per_sector = bps
@@ -267,7 +273,16 @@ class ExfatVolume(VolumeBase):
             budget = self._budget()
         else:
             budget.raise_steps(self.step_cap())  # 호출자가 이 볼륨에 함께 쓸 예산 — 이 볼륨의 단계 상한까지 올린다
-        self._load_root_metadata(budget)
+        if metadata_mode == "full":
+            self._load_root_metadata(budget)
+        else:
+            self.allocation_status = "unknown"
+            self.allocation_reason: str | None = "volume_metadata_inconsistent"
+            original_nfats = boot_bytes[110]
+            if original_nfats not in (1, 2) or (self.volume_flags & 1 and original_nfats != 2):
+                self.allocation_reason = "active_fat_invalid"
+            elif self._allocation_geometry_valid(boot_bytes):
+                self._load_allocation_metadata(budget)
 
     # ------------------------------------------------------------------
     # 기본 도우미
@@ -361,6 +376,151 @@ class ExfatVolume(VolumeBase):
     # ------------------------------------------------------------------
     # 루트의 비트맵·up-case·레이블
     # ------------------------------------------------------------------
+    def _allocation_geometry_valid(self, boot_bytes: bytes) -> bool:
+        """복구용 축소·fallback을 할당 판정의 권위로 쓰지 않는다."""
+        b = self.boot
+        main, backup = self.boot_region["main"], self.boot_region["backup"]
+        return (b["cluster_count"] == self.cluster_count
+                and b["fat_offset"] >= 24
+                and b["cluster_heap_offset"] >= b["fat_offset"] + b["fat_length"] * b["number_of_fats"]
+                and self.volume_size <= self.src.size
+                and not getattr(self.src, "truncated", False)
+                and boot_bytes[:3] == b"\xeb\x76\x90" and not any(boot_bytes[11:64])
+                and boot_bytes[510:512] == b"\x55\xaa"
+                and b["fs_revision"] >> 8 == 1
+                and main.get("checksum_ok") is True and main.get("extended_signatures_ok") == 8
+                and backup is not None and backup.get("checksum_ok") is True
+                and backup.get("extended_signatures_ok") == 8
+                and self.boot_region["backup_matches_main"] is True)
+
+    def _allocation_stop(self, reason: str | None) -> None:
+        """공유 예산의 중단만 별도 상태로 바꾸며 취소는 전파한다."""
+        reasons = {"time": "time_limit", "steps": "step_limit", "metadata_bytes": "metadata_bytes_limit"}
+        if reason not in reasons:
+            raise FsError("할당 메타데이터 검사가 중단됐습니다.", reason="budget_exceeded",
+                          data={"limit": reason})
+        self.allocation_status = "stopped"
+        self.allocation_reason = reasons[reason]
+
+    def _load_allocation_metadata(self, budget: Budget) -> None:
+        """이름/시각/내용을 해석하지 않고 활성 bitmap의 실제 체인만 준비한다."""
+        try:
+            self._prepare_allocation_bitmap(budget)
+        except FsError as exc:
+            if exc.reason == "budget_exceeded":
+                self._allocation_stop(exc.data.get("limit"))
+            else:
+                # 실제 읽기 원인은 호출자의 read latch가 전체 실패로 복원한다.
+                self.allocation_status = "unknown"
+            self._bitmap = None
+
+    def _prepare_allocation_bitmap(self, budget: Budget) -> None:
+        self.allocation_reason = "root_metadata_incomplete"
+        if budget.expired():
+            self._allocation_stop(budget.reason)
+            return
+        max_slots = min(self.limits.max_dir_slots, 32768)
+        # 잘린 클러스터를 완전 검증 단위로 인정하지 않는다.
+        full_slots = (max_slots * 32 // self.cluster_size) * (self.cluster_size // 32)
+        if full_slots == 0:
+            self.allocation_status, self.allocation_reason = "stopped", "root_slots_limit"
+            return
+        res = DirResult("root", self.limits.max_warnings)
+        runs, res.chain = self._dir_runs(("root",), res.warnings, budget)
+        if budget.expired() or res.chain.get("limit_reason"):
+            self._allocation_stop(res.chain.get("limit_reason") or budget.reason)
+            return
+        # 기존 _dir_runs의 기본 full 한도를 바꾸지 않고 이 호출의 전체 단위만 남긴다.
+        clipped, left = [], full_slots * 32
+        for off, size in runs:
+            take = min(size, left) // self.cluster_size * self.cluster_size
+            if take:
+                clipped.append((off, take))
+                left -= take
+            if take < size:
+                break
+        selected = None
+        matched = total = 0
+        pending, secondary = 0, ()
+        slots = self._validated_slots(res, DirCtx("root", ("root",)), clipped,
+                                      self.cluster_size, full_slots, budget)
+        for slot, _, raw in slots:
+            res.slots = slot + 1
+            typ = raw[0]
+            if pending:
+                expected = (secondary[0],) if pending == secondary[2] else secondary[1]
+                if typ not in expected:
+                    return
+                pending -= 1
+            elif typ in (0x85, 0x05):
+                pending = raw[1]
+                secondary = ((0xC0 if typ == 0x85 else 0x40),
+                             (_SECONDARY_LIVE if typ == 0x85 else _SECONDARY_DEL), pending)
+            elif typ == 0:
+                res.end_slot = slot
+                break
+            elif typ == 0x81:
+                total += 1
+                if raw[1] & 1 == self.active_fat:
+                    matched += 1
+                    selected = struct.unpack_from("<IQ", raw, 20)
+        if budget.expired() or res.budget_stop:
+            self._allocation_stop(res.budget_stop or budget.reason)
+            return
+        if res.unvalidated is not None or pending:
+            return
+        if res.end_slot is None:
+            if res.chain.get("status") == "too_fragmented":
+                self.allocation_status, self.allocation_reason = "stopped", "bitmap_runs_limit"
+                return
+            if res.chain.get("cut") or sum(n for _, n in runs) > full_slots * 32:
+                self.allocation_status, self.allocation_reason = "stopped", "root_slots_limit"
+                return
+            if res.chain.get("status") != "ok" or res.scanned * 32 != sum(n for _, n in clipped):
+                return
+        if matched != 1:
+            self.allocation_reason = ("bitmap_ambiguous" if matched > 1 else
+                                      "bitmap_active_mismatch" if total else "bitmap_missing")
+            return
+        self.allocation_reason = "bitmap_chain_invalid"
+        fc, length = selected
+        if not 0 < length <= self.cluster_count * self.cluster_size or not 2 <= fc <= self.max_cluster:
+            return
+        needed = ceil_div(length, self.cluster_size)
+        chain = self._follow(fc, needed, budget)
+        if budget.expired() or chain.capped:
+            self._allocation_stop(chain.capped or budget.reason)
+            return
+        if chain.status == "too_fragmented":
+            self.allocation_status, self.allocation_reason = "stopped", "bitmap_runs_limit"
+            return
+        # 마지막 FAT도 EOC여야 한다. 짧거나 긴 체인을 연속 배치로 추정하지 않는다.
+        if chain.status != "ok" or chain.count != needed:
+            return
+        extents, left = [], length
+        # 이미 확인한 root 체인과의 모순만 본다. 다른 파일/디렉터리를 탐색하지 않는다.
+        root_ranges = sorted((off, off + size) for off, size in clipped)
+        root_starts = [off for off, _ in root_ranges]
+        for start, count in zip(chain.starts, chain.lens):
+            budget.tick()
+            if budget.expired():
+                self._allocation_stop(budget.reason)
+                return
+            take = min(left, count * self.cluster_size)
+            off = self.cluster_offset(start)
+            if off + take > self.src.size:
+                return
+            root_index = bisect_right(root_starts, off + take - 1) - 1
+            if root_index >= 0 and root_ranges[root_index][1] > off:
+                return
+            extents.append((off, take))
+            left -= take
+        if budget.expired():
+            self._allocation_stop(budget.reason)
+            return
+        self._bitmap = ClusterBitmap(self.src, extents, min(self.cluster_count, length * 8))
+        self.allocation_status, self.allocation_reason = "ready", None
+
     def _object_runs(self, fc: int, length: int, w: Warnings, what: str,
                      budget: Budget | None = None) -> list[tuple[int, int]]:
         """FAT 체인으로 기록되는 메타데이터 객체(비트맵, up-case 표)의 바이트 구간. 체인이 깨졌으면 연속으로 가정."""
@@ -548,6 +708,8 @@ class ExfatVolume(VolumeBase):
         돌려주고 info['cut'] 에 '잘릴 수 있음'을 남긴다 — 한도 안에 끝 표시가 없으면 잘린 디렉터리로 보고한다(_finish_dir)."""
         cs = self.cluster_size
         max_slots = min(self.limits.max_dir_slots, MAX_DIR_BYTES // 32)
+        if self.metadata_mode == "allocation":
+            max_slots = min(max_slots, 32768)
         max_bytes = max_slots * 32
         if spec_t[0] == "contig":
             start, length = spec_t[1], spec_t[2]
@@ -671,6 +833,8 @@ class ExfatVolume(VolumeBase):
         return None
 
     def _unit_problem(self, ctx: DirCtx, first: int, data: bytes, peek: Peek) -> tuple[str | None, int | None]:
+        if self.metadata_mode == "allocation" and len(data) != self.cluster_size:
+            return "allocation_incomplete_unit", None
         is_root = ctx.is_root
         n = len(data) // 32
         for i in range(n):

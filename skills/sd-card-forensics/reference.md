@@ -422,3 +422,26 @@ evidence_size(report.source), candidates_reported(report.summary)6필드다. EV 
 기존 media_candidate_results와 prefix 추출의 의미는 바꾸지 않는다. 후보 관계·시각·본문·
 암호화·원본 경계·전체 녹화·재생을 판정하지 않는다. 출력은 `bmff-scan` 사건에 결속되며
 세부 한도·저장 계약은 [BMFF streaming 검색](../../docs/references/bmff-scan.md)을 따른다.
+
+## 21. 명시 구간의 현재 할당 상태
+
+`forensics_allocation_window(case_id, evidence_id, partition, offset, length, max_seconds=45)`는
+현재 FAT/exFAT metadata를 allocated/unallocated/bad/unknown으로 분류한다. partition은
+`forensics_partitions`의 명시 index(파티션 표 없는 볼륨은1), offset은 EV 절대 위치다.
+길이1~64 MiB이며 전체 창이 선택 볼륨의 데이터 클러스터 영역 안에 있어야 한다.
+
+`coverage.window_complete`는 요청 바이트가 모두 행으로 표현됐다는 뜻이고,
+`allocation_complete`는 그 안에 unknown이 없을 때만 true다. 한도로 검사하지 못한 suffix는
+unknown 행이 아니며 `next_offset`과 `unexamined_bytes`를 사용해 필요한 부분만 다시 지정한다.
+FAT 사본 불일치·bitmap 손상 등 unknown 사유를 free로 해석하지 않는다.
+
+목적에 필요한 행의 offset/length를 같은 EV의 `forensics_dhav_candidates` 또는
+`forensics_media_candidates`에 구간 인자로 명시할 수 있다. 후보 도구의 새 구간 SHA·출처를
+확인한 뒤 그 저장 후보만 기존 추출 도구에 넘긴다. 할당 보고서 자체는 추출 입력이 아니다.
+현재 free는 과거 파일 소속·원본 파일 경계·복구/재생 성공을 증명하지 않는다.
+
+`allocation_window_results[]`에는 evidence_id, analysis_path/sha256(analysis),
+status(report.status), window_complete/ allocation_complete(report.coverage)의6필드만 쓴다.
+최대100개이며 상세 사유·미검사량·재개 위치는 notes와 결과 보고서에 남긴다.
+metadata4 MiB·행128·45초·JSON1 MiB, 같은 FD·보관 기록·고정 오류의 정확한 계약은
+[현재 할당 상태](../../docs/references/allocation-window.md)를 따른다.

@@ -53,7 +53,7 @@
 - **`approvals_pending()`** — [읽기전용]  
   대기 중인 승인 요청 목록 (확인 코드는 제외).
 - **`schema_get(name)`** — [읽기전용]  
-  PWEH JSON 스키마 조회. name: android-forensics, auth-hunt, bmff-scan, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, media-candidates, media-inventory, media-prefix-extr
+  PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, media-candidates, media-inventory
 
 ## pweh-uart
 
@@ -345,6 +345,8 @@
   보관 기록에 결속된 media-unit-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). analysis_path는 같은 케이스·EV의 생성 보고서이며 index는 저장 후보0~127이다. format과 bytes 범위는 저장된 보고서만 사용하며 새 selector/offset/길이를 받지 않는다. 원래 ref/partition/복구 방법 또는 EV 명
 - **`forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)`**  
   보관 기록에 결속된 media-candidates 보고서의 candidate_index 하나를 파생 추출한다(job). analysis_path는 같은 케이스·EV의 생성 보고서 경로이며 index는 0~127의 저장 후보를 고른다. 증거와 보고서의 무결성을 확인하고 원래 ref/partition/복구 방법 또는 EV 명시 구간으로 같은 완전 바이트를 다시 읽는다. 구간은 저장된 시작·길이·
+- **`forensics_allocation_window(case_id, evidence_id, partition, offset, length, max_seconds?)`**  
+  접수한 EV 이미지의 명시 FAT/exFAT 파티션에서 현재 할당 상태 메타데이터를 검사한다. partition은 필수 index, offset은 EV 절대 위치, length는 1 byte..64 MiB이며 exact int만 받는다. 창은 해당 파티션의 데이터 클러스터 영역 안이어야 한다. unallocated/allocated/bad/unknown 연속 범위와 미검사 suffix·nex
 
 ## pweh-emu
 

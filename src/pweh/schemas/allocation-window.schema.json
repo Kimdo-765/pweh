@@ -1,0 +1,498 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pweh.local/schemas/allocation-window.schema.json",
+  "title": "FAT/exFAT 현재 할당 구간",
+  "description": "검증한 EV의 명시 데이터 구간에서 현재 할당 metadata와 미검사 범위를 기록한다. 과거 삭제 소속·파일 경계·내용 해독·재생을 검증하지 않는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "pweh.allocation-window/v1"
+    },
+    "profile": {
+      "const": "fat-exfat-allocation-window-v1"
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "partial"
+      ]
+    },
+    "whole_evidence_examined": {
+      "const": false
+    },
+    "file_ownership_verified": {
+      "const": false
+    },
+    "historical_allocation_verified": {
+      "const": false
+    },
+    "media_decoded": {
+      "const": false
+    },
+    "playback_verified": {
+      "const": false
+    },
+    "payload_semantics_examined": {
+      "const": false
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "evidence"
+        },
+        "evidence_id": {
+          "type": "string",
+          "pattern": "^EV-[0-9]{4,6}$",
+          "maxLength": 9,
+          "not": {
+            "pattern": "[\r\n]"
+          }
+        },
+        "evidence_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "evidence_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        }
+      },
+      "required": [
+        "kind",
+        "evidence_id",
+        "evidence_sha256",
+        "evidence_size"
+      ]
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "partition": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        },
+        "max_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 45
+        }
+      },
+      "required": [
+        "partition",
+        "offset",
+        "length",
+        "max_seconds"
+      ]
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fs_type": {
+          "enum": [
+            "fat12",
+            "fat16",
+            "fat32",
+            "exfat"
+          ]
+        },
+        "partition_offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "partition_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "cluster_size": {
+          "type": "integer",
+          "minimum": 512,
+          "maximum": 33554432
+        },
+        "data_offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "data_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        }
+      },
+      "required": [
+        "fs_type",
+        "partition_offset",
+        "partition_size",
+        "cluster_size",
+        "data_offset",
+        "data_length"
+      ]
+    },
+    "rows": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9223372036854775807
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 67108864
+          },
+          "state": {
+            "enum": [
+              "unallocated",
+              "allocated",
+              "bad",
+              "unknown"
+            ]
+          },
+          "reason": {
+            "enum": [
+              null,
+              "active_fat_invalid",
+              "fat_copies_disagree",
+              "fat_entry_unreadable",
+              "fat_entry_invalid",
+              "bitmap_missing",
+              "bitmap_ambiguous",
+              "bitmap_active_mismatch",
+              "bitmap_chain_invalid",
+              "bitmap_bit_unreadable",
+              "root_metadata_incomplete",
+              "volume_metadata_inconsistent"
+            ]
+          }
+        },
+        "required": [
+          "offset",
+          "length",
+          "state",
+          "reason"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "unknown"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "reason": {
+                  "enum": [
+                    "active_fat_invalid",
+                    "fat_copies_disagree",
+                    "fat_entry_unreadable",
+                    "fat_entry_invalid",
+                    "bitmap_missing",
+                    "bitmap_ambiguous",
+                    "bitmap_active_mismatch",
+                    "bitmap_chain_invalid",
+                    "bitmap_bit_unreadable",
+                    "root_metadata_incomplete",
+                    "volume_metadata_inconsistent"
+                  ]
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "reason": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requested_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 67108864
+        },
+        "processed_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "unexamined_offset": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            }
+          ]
+        },
+        "unexamined_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "next_offset": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            }
+          ]
+        },
+        "window_complete": {
+          "type": "boolean"
+        },
+        "allocation_complete": {
+          "type": "boolean"
+        },
+        "metadata_bytes_read": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4194304
+        },
+        "steps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "reasons": {
+          "type": "array",
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "active_fat_invalid",
+              "fat_copies_disagree",
+              "fat_entry_unreadable",
+              "fat_entry_invalid",
+              "bitmap_missing",
+              "bitmap_ambiguous",
+              "bitmap_active_mismatch",
+              "bitmap_chain_invalid",
+              "bitmap_bit_unreadable",
+              "root_metadata_incomplete",
+              "volume_metadata_inconsistent",
+              "time_limit",
+              "step_limit",
+              "metadata_bytes_limit",
+              "root_slots_limit",
+              "bitmap_runs_limit",
+              "rows_limit",
+              "output_limit"
+            ]
+          }
+        }
+      },
+      "required": [
+        "requested_bytes",
+        "processed_bytes",
+        "unexamined_offset",
+        "unexamined_bytes",
+        "next_offset",
+        "window_complete",
+        "allocation_complete",
+        "metadata_bytes_read",
+        "steps",
+        "reasons"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rows_reported": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 128
+        },
+        "unallocated_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "allocated_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "bad_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        },
+        "unknown_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108864
+        }
+      },
+      "required": [
+        "rows_reported",
+        "unallocated_bytes",
+        "allocated_bytes",
+        "bad_bytes",
+        "unknown_bytes"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "profile",
+    "status",
+    "whole_evidence_examined",
+    "file_ownership_verified",
+    "historical_allocation_verified",
+    "media_decoded",
+    "playback_verified",
+    "payload_semantics_examined",
+    "source",
+    "params",
+    "geometry",
+    "rows",
+    "coverage",
+    "summary"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "ok"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "allocation_complete": {
+                "const": true
+              },
+              "window_complete": {
+                "const": true
+              },
+              "reasons": {
+                "maxItems": 0
+              }
+            }
+          },
+          "summary": {
+            "properties": {
+              "unknown_bytes": {
+                "const": 0
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "allocation_complete": {
+                "const": false
+              },
+              "reasons": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "window_complete": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "unexamined_offset": {
+                "type": "null"
+              },
+              "next_offset": {
+                "type": "null"
+              },
+              "unexamined_bytes": {
+                "const": 0
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "coverage": {
+            "properties": {
+              "unexamined_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "next_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "unexamined_bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 67108864
+              },
+              "allocation_complete": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pweh.local/schemas/sd-forensics.schema.json",
   "title": "sd-card-forensics 요약 data",
-  "description": "카메라·블랙박스 SD 카드 이미지의 증거 분석(접수·해시·보관 기록·파일 시스템·삭제 파일)과 보안 분석(펌웨어의 SD 공격 표면·부팅 로그의 SD 이벤트) 요약. 영상·음성 내용은 열지 않는다. 정지 그림은 forensics_image_hints의 미리보기·OCR만 허용하며 image-hints-analysis 요약으로 기록한다. privacy의 기존 네 값은 false이고 정지 이미지 반환 여부를 별도 필드로 기록한다. 잘림·불완전(forensics_fs_list·forensics_image_check·forensics_extract 의 truncated·truncated_reasons, 해석하지 못한 볼륨 call.volumes_failed, 검증하지 못한 디렉터리 unvalidated_dirs)과 사람이 읽는 상태 표시(status_label)는 이 스키마에 필드가 없다 — notes 에 적는다(그때 filesystems·contamination·recovered 는 본 범위만의 값이다). 선택한 텍스트의 비밀값 후보 검사는 secret_scan_results에 원문 없이 기록한다. 보고서 이름 대조는 ioc_scan_results에 원시 경로·이름 없이 기록하며 실행·침해를 판정하지 않는다. 선택 미디어 구조는 media_inventory_results에 결과 참조만 기록하며 영상·음성을 해독하지 않는다. 저장된 후보의 prefix 추출은 recovered에 합산하고 부분 상태·한계를 notes에 적는다. prefix 작성 완료는 녹화 전체 복구가 아니다. 저장 목록 자동 비밀값 검사는 secret_survey_results에 원문 없이 참조하고, whole_card_examined=false와 미검사 수를 유지한다.",
+  "description": "카메라·블랙박스 SD 카드 이미지의 증거 분석(접수·해시·보관 기록·파일 시스템·삭제 파일)과 보안 분석(펌웨어의 SD 공격 표면·부팅 로그의 SD 이벤트) 요약. 영상·음성 내용은 열지 않는다. 정지 그림은 forensics_image_hints의 미리보기·OCR만 허용하며 image-hints-analysis 요약으로 기록한다. privacy의 기존 네 값은 false이고 정지 이미지 반환 여부를 별도 필드로 기록한다. 잘림·불완전(forensics_fs_list·forensics_image_check·forensics_extract 의 truncated·truncated_reasons, 해석하지 못한 볼륨 call.volumes_failed, 검증하지 못한 디렉터리 unvalidated_dirs)과 사람이 읽는 상태 표시(status_label)는 이 스키마에 필드가 없다 — notes 에 적는다(그때 filesystems·contamination·recovered 는 본 범위만의 값이다). 선택한 텍스트의 비밀값 후보 검사는 secret_scan_results에 원문 없이 기록한다. 보고서 이름 대조는 ioc_scan_results에 원시 경로·이름 없이 기록하며 실행·침해를 판정하지 않는다. 선택 미디어 구조는 media_inventory_results에 결과 참조만 기록하며 영상·음성을 해독하지 않는다. 저장된 후보의 prefix 추출은 recovered에 합산하고 부분 상태·한계를 notes에 적는다. prefix 작성 완료는 녹화 전체 복구가 아니다. 저장 목록 자동 비밀값 검사는 secret_survey_results에 원문 없이 참조하고, whole_card_examined=false와 미검사 수를 유지한다. 명시 FAT/exFAT 창의 현재 할당 상태는 allocation_window_results에 결과 참조와 두 완료 값을 남긴다. 상세 미검사 범위와 불확실성은 notes와 결과 JSON을 따른다.",
   "type": "object",
   "required": [
     "mode",
@@ -925,6 +925,83 @@
             }
           }
         }
+      }
+    },
+    "allocation_window_results": {
+      "type": "array",
+      "maxItems": 100,
+      "description": "명시 FAT/exFAT 창의 현재 할당 metadata 결과 참조. 창 완료와 모든 상태 판정 완료는 구분한다. 미검사 범위·사유·재개 위치는 상세 보고서와 notes에 남긴다. 과거 파일 소속·복구 성공을 증명하지 않는다.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_id",
+          "analysis_path",
+          "sha256",
+          "status",
+          "window_complete",
+          "allocation_complete"
+        ],
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^EV-[0-9]{4,6}$",
+            "maxLength": 9,
+            "not": {"pattern": "[\r\n]"}
+          },
+          "analysis_path": {
+            "type": "string",
+            "pattern": "^forensics/analysis/allocation-window-EV-[0-9]{4,6}-[0-9]{3,9}\\.json$",
+            "maxLength": 100,
+            "not": {"pattern": "[\r\n]"}
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "partial"
+            ]
+          },
+          "window_complete": {
+            "type": "boolean"
+          },
+          "allocation_complete": {
+            "type": "boolean"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "allocation_complete": {
+                  "const": true
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "window_complete": {
+                  "const": true
+                },
+                "status": {
+                  "const": "ok"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "status": {
+                  "const": "partial"
+                }
+              }
+            }
+          }
+        ]
       }
     }
   },

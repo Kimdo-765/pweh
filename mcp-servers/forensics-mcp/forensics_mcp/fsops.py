@@ -516,9 +516,10 @@ def iter_volumes(img: Any, layout: dict[str, Any], partition: int | None, limits
 
 
 def open_partition_volume(img: Any, partition: int | None, limits: Limits | None = None, *,
-                          budget: Budget | None = None) -> tuple[dict[str, Any], Any]:
+                          budget: Budget | None = None, metadata_mode: str = "full") -> tuple[dict[str, Any], Any]:
     """추출용: 파티션 하나의 볼륨. partition=None 이면 지원하는 파티션이 하나뿐일 때만(같은 구간을 가리키는 파티션은 하나로 센다).
-    budget 을 주면 볼륨을 열 때(exFAT 은 루트 디렉터리를 읽는다) 그 예산(마감·취소)을 쓴다."""
+    budget 을 주면 볼륨을 열 때(exFAT 은 루트 디렉터리를 읽는다) 그 예산(마감·취소)을 쓴다.
+    metadata_mode는 open_volume의 내부 metadata 선택으로 그대로 전달한다(기본 full)."""
     layout = detect_partitions(img, limits=limits)
     parts = pick_partitions(layout, partition)
     if partition is None:
@@ -535,7 +536,8 @@ def open_partition_volume(img: Any, partition: int | None, limits: Limits | None
         shown = ", ".join(str(p["index"]) for p in parts[:20]) + (" …" if len(parts) > 20 else "")
         raise FsError(f"FAT/exFAT 파티션이 여럿입니다({shown}) — partition 을 지정하세요.", reason="bad_argument")
     p = parts[0]
-    return p, open_volume(partition_source(img, p), limits=limits, fs_hint=p.get("fs_hint"), budget=budget)
+    return p, open_volume(partition_source(img, p), limits=limits, fs_hint=p.get("fs_hint"), budget=budget,
+                          metadata_mode=metadata_mode)
 
 
 # ---------------------------------------------------------------------------

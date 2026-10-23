@@ -92,6 +92,7 @@
       "mcp__pweh-forensics__forensics_dhav_scan",
       "mcp__pweh-forensics__forensics_bmff_scan",
       "mcp__pweh-forensics__forensics_media_unit_candidates",
+      "mcp__pweh-forensics__forensics_allocation_window",
       "mcp__pweh-forensics__forensics_sqlite_inventory",
       "mcp__pweh-forensics__forensics_android_artifacts",
       "mcp__pweh-forensics__forensics_timeline",

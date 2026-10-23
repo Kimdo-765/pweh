@@ -587,6 +587,7 @@ pweh-forensics 와 그 코어(`pweh.fs`·`pweh.evidence`·`pweh.safeio`)가 지�
 
 **선택 미디어 단위 후보·추출**
 
+- `forensics_allocation_window`는 명시 FAT/exFAT 창의 현재 할당 metadata만 관찰한다. free 표시가 삭제 파일 소속·과거 상태·복구 성공을 뜻하지 않는다. FAT 사본 불일치·bitmap 권위 불확실성은 unknown이며 시간·읽기 한도는 미검사 suffix다. 초기 파티션 표부터 모든 metadata 읽기를 합계4 MiB·45초로 제한하고 기존 FS 기본 해석은 유지한다. 같은 FD의 취소·무결성 실패·짧은 읽기를 partial로 숨기지 않는다. 결과를 보관 기록에 결속해도 EV 전체 재해시를 대신하지 않는다. 손상 metadata가 내용 영역을 가리킬 수 있으므로 물리적 payload 읽기0을 주장하지 않고 의미 해석을 metadata로 한정한다. [전체 계약](references/allocation-window.md).
 - `forensics_media_unit_candidates`는 명시 JPEG·AVC Annex B·MPEG-2 PS·XM subset만 검사한다. 후보 offset/length는 선택 상대이며 파일 경계·재생·시각·암호화·표준 적합성의 증거가 아니다. JPEG/AVC의 열린 tail은 추출 후보가 아니고 PS의 검증 prefix는 partial을 유지한다. 원문 header·내용·시각을 반환하지 않는다.
 - 선택64 MiB·공통45초·작업량128 MiB·128후보와 미검사 범위를 기록한다. 삭제/부모미확인/복구 신뢰도·컨테이너 잘림은 후보0건에도 보존한다. 전체 이미지 검색이나 형식 자동 판별이 아니다. [subset·상한·출처](references/media-unit-candidates.md).
 - `forensics_extract_media_unit`는 같은 EV의 유일한 저장 보고서·선택 전체 SHA·출처를 다시 검증한다. 같은 custody 잠금에서 보고서와 출력 FD/이름/부모·전체 해시·tree 및 마지막 취소를 확인한다. 커밋 전에는 자기 inode만 정리하고 교체물은 보존하며 커밋 뒤에는 늦은 취소·보조 오류로 산출물을 지우지 않는다.

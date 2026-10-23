@@ -988,7 +988,7 @@ SD 카드 이미지의 증거 분석이다(설계 `docs/design/sd-forensics.md` 
   - 서버를 끝낼 때(stdin EOF·SIGTERM — 실행 중인 job 을 취소하고 job 마다 10초까지 기다린다. SIGTERM 이면 모두 합쳐 최대 약 15초를 기다린 뒤 끝난다) 커밋 전 접수는 되돌린다. SIGKILL 이면 남은 접수 디렉터리를 다음 정리가 옮긴다(위). job 상태는 `cases/<id>/jobs/<job_id>.json` 에도 남는다. 재시작 뒤 `forensics_job_status(..., case_id=...)` 또는 `forensics_jobs(case_id=...)`로 저장 기록을 확인하면 종료가 확실한 소유 서버의 활성 기록만 failed로 정리한다(위 공통 job 계약). 소유자가 없거나 확인 불가면 원본 상태를 보존하고 unknown으로 표시한다. 이는 증거 접수의 커밋·정리 여부를 증명하지 않는다(docs/safety.md §3.6).
 - **영상·음성 내용은 돌려주지 않는다**: 파일 목록 응답은 개수·범위·이름·경로와 해시다. 선택한 폰 앱 기록은 `forensics_android_artifacts`로 내용도 반환한다. 정지 그림은 `forensics_image_hints`에서 미리보기·마스킹하지 않은 OCR·QR·메타데이터를 반환한다. 추출물은 `forensics/recovered/`에만 쓰며 직접 열지 않는다. 전체 파일 목록은 `forensics/analysis/` 의 JSON 에만 있다. 응답의 긴 경로(`sample`·`cut_dirs`·흔적의 `path`)는 앞·뒤만 남겨 300자로 줄인다.
   다른 서버의 `forensics/` 거부(pweh-fwtriage, pweh-sigrok, `case_import_file`·`case_hash_file`·`case_register_artifact`)와 그 밖의 경로가 막히지 않는 한계는 §4 다.
-- **권한**: 조회 전용(`readOnlyHint`) 도구 `forensics_partitions`, `forensics_image_check`와 명시적 예외 `forensics_job_status`·`forensics_jobs`·`forensics_image_hints`·`forensics_scan_secrets`·`forensics_scan_secrets_from_list`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`·`forensics_dhav_candidates`·`forensics_dhav_scan`·`forensics_bmff_scan`·`forensics_media_unit_candidates`·`forensics_sqlite_inventory`·`forensics_android_artifacts`·`forensics_timeline`이 `.claude/settings.json`의 `allow`다. 예외 도구는 저장 기록 정리 또는 로컬 분석/보관 기록 쓰기가 있어 readOnlyHint는 false다.
+- **권한**: 조회 전용(`readOnlyHint`) 도구 `forensics_partitions`, `forensics_image_check`와 명시적 예외 `forensics_job_status`·`forensics_jobs`·`forensics_image_hints`·`forensics_scan_secrets`·`forensics_scan_secrets_from_list`·`forensics_sd_ioc_scan`·`forensics_media_inventory`·`forensics_media_candidates`·`forensics_dhav_candidates`·`forensics_dhav_scan`·`forensics_bmff_scan`·`forensics_media_unit_candidates`·`forensics_allocation_window`·`forensics_sqlite_inventory`·`forensics_android_artifacts`·`forensics_timeline`이 `.claude/settings.json`의 `allow`다. 예외 도구는 저장 기록 정리 또는 로컬 분석/보관 기록 쓰기가 있어 readOnlyHint는 false다.
   쓰는 도구 10개(`forensics_intake_start`, `forensics_verify_start`, `forensics_acquisition_attest`, `forensics_evidence_list`, `forensics_fs_list`, `forensics_extract`, `forensics_extract_media_candidate`, `forensics_extract_dhav_candidate`, `forensics_extract_media_unit`, `forensics_job_cancel`)는 `ask` 다(매번 사람이 확인).
   모든 도구가 `openWorldHint=false` 이고 파괴적(`destructiveHint`) 도구는 없다.
 
@@ -1010,6 +1010,7 @@ SD 카드 이미지의 증거 분석이다(설계 `docs/design/sd-forensics.md` 
 | `forensics_dhav_candidates(case_id, evidence_id, partition=None, ref=None, path=None, method="auto", max_seconds=45, offset=None, length=None)` | 완전한 선택 파일 하나 또는 명시 EV 구간(각 최대64 MiB)에서 제한된 DHAV record 경계·길이 후보만 찾는다. 최대1024 anchor·128후보·구조 읽기1 MiB·JSON1 MiB·공통45초. 검색/관찰한 anchor 검사/후보 목록 완료를 구분하고 confidence는 possible이다. `report`와 `analysis{path,sha256,size,custody_seq,custody_hash}`, 0444 JSON 및 `dhav-candidates` 보관 기록. 영상·음성·시각·암호화·추출 판정 없음. [상세 계약](references/dhav-candidates.md) |
 | `forensics_dhav_scan(case_id, evidence_id, start_offset=0, max_scan_bytes=1073741824, max_seconds=45)` | 같은 EV fd에서 DHAV 표지를 streaming 검색한다. 연속 검색 읽기 최대1 GiB와 구조 읽기 별도1 MiB, 45초·1024probe·128후보·JSON1 MiB. row는 EV 절대 offset과 길이≤64 MiB이며 재개 위치/처리 prefix/전체 검색 완료를 구분한다. 접수 해시만 source에 보존하고 record 해시는 만들지 않는다. `dhav-scan` 보고서는 직접 추출할 수 없으며 기존 구간 후보 검증을 거친다. [상세 계약](references/dhav-scan.md) |
 | `forensics_bmff_scan(case_id, evidence_id, start_offset=0, max_scan_bytes=1073741824, max_seconds=45)` | 같은 EV fd에서 ftyp 시작점을 streaming 검색한다. 검색 읽기8..1 GiB·구조 읽기 별도1 MiB·45초·1024probe·128후보, 완전한 상자 경계의 prefix≤64 MiB. EV 절대 위치·재개·미검사 범위를 기록하고 bmff-scan 사건과 결속한다. 기존 구간 후보로 다시 검증한 뒤 추출한다. [계약](references/bmff-scan.md) |
+| `forensics_allocation_window(case_id, evidence_id, partition, offset, length, max_seconds=45)` | 명시 FAT/exFAT 데이터 창의 현재 할당 metadata를 allocated/unallocated/bad/unknown으로 분류한다. EV 절대 offset·길이1~64 MiB, metadata4 MiB·행128·45초·JSON1 MiB. 창 완료와 상태 판정 완료, 미검사 suffix를 구분하고 allocation-window 사건에 결속한다. 과거 파일 소속·복구·재생은 판정하지 않는다. [계약](references/allocation-window.md) |
 | `forensics_media_unit_candidates(case_id, evidence_id, format, partition=None, ref=None, path=None, method="auto", max_seconds=45, offset=None, length=None)` | 완전한 선택 파일/EV 구간에서 JPEG·AVC Annex B·MPEG-2 PS·XM 중 명시한 subset의 단위 후보를 찾는다. 선택64 MiB·1024probe·128후보·8192구조단계·작업량128 MiB·JSON1 MiB·45초. closed/prefix와 미검사·출처 불확실성을 구분하고 media-unit-candidates 사건에 결속한다. [계약](references/media-unit-candidates.md) |
 | `forensics_extract_media_unit(case_id, evidence_id, analysis_path, candidate_index)` | job. 같은 EV의 저장된 미디어 단위 후보·선택 전체 SHA·출처를 재검증하고 후보 상대 offset/length 하나만 추출한다. unit-000.bin과 manifest, 기존 extract 사건의 media_unit. 원래 부분성을 보존하며 영상/음성을 반환하지 않는다. 보고서1 MiB·선택64 MiB·manifest64 KiB·공통45초. [계약](references/media-unit-extract.md) |
 | `forensics_extract_media_candidate(case_id, evidence_id, analysis_path, candidate_index)` | job. 같은 EV의 저장된 `media-candidates` 보고서에서 후보 번호 하나의 검증된 prefix를 추출한다. 원래 선택 파일 또는 EV 구간 전체의 해시·출처를 다시 대조. 출력은 고정 이름 바이너리와 매니페스트, 기존 `extract` 보관 기록. 입력64 MiB·보고서1 MiB·매니페스트64 KiB·공통45초. 내용 반환·녹화 복구/재생 판정 없음 |
@@ -1061,6 +1062,12 @@ SD 카드 이미지의 증거 분석이다(설계 `docs/design/sd-forensics.md` 
 
 
 #### 선택 미디어 단위 후보와 추출
+
+`forensics_allocation_window`는 명시 FAT/exFAT 창의 현재 metadata만 분류한다. 같은 EV FD를 열어
+파티션 표부터 모든 metadata 읽기를 합계4 MiB로 제한하고 결과를 allocation-window 사건에 결속한다.
+`window_complete`와 `allocation_complete`를 구분하며 미검사 suffix와 unknown을 혼동하지 않는다.
+요약은 `allocation_window_results`의 닫힌6필드다. 행의 offset/length는 기존 구간 후보 도구에
+명시적으로 전달할 수 있지만, 할당 보고서는 직접 추출 권위가 아니다. [상태·예산·출처 계약](references/allocation-window.md).
 
 `forensics_media_unit_candidates`는 명시 format의 제한된 JPEG/AVC/PS/XM 경계를 검사한다.
 source16/18·params4/6과 선택 전체 SHA를 media-unit-candidates 사건에 결속하며, row의

@@ -36,7 +36,7 @@ def outputs(case):
     return list((case.dir / "forensics/analysis").glob("*.json"))
 
 
-@pytest.mark.parametrize("event", ["secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory", "media-candidates", "dhav-candidates", "dhav-scan", "bmff-scan", "media-unit-candidates", "sqlite-inventory", "android-artifacts", "timeline"])
+@pytest.mark.parametrize("event", ["secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory", "media-candidates", "dhav-candidates", "dhav-scan", "bmff-scan", "media-unit-candidates", "allocation-window", "sqlite-inventory", "android-artifacts", "timeline"])
 def test_analysis_held_fd_and_custody_lock_through_final_check(analysis_case, monkeypatch, event):
     case, log, opened, report = analysis_case
     created = []
@@ -286,13 +286,13 @@ def test_analysis_cancel_during_final_output_check_prevents_commit(analysis_case
     assert [entry["event"] for entry in log.entries()] == ["intake"]
 
 
-@pytest.mark.parametrize("event", ["secrets_scan", "secrets-scan/other", "secrets_survey", "secrets-survey/other", "sd_ioc_scan", "sd-ioc-scan/other", "media_inventory", "media-inventory/other", "media_candidates", "media-candidates/other", "media-candidate", "dhav_candidates", "dhav-candidates/other", "dhav_scan", "dhav-scan/other", "bmff_scan", "bmff-scan/other", "media_unit_candidates", "media-unit-candidates/other", "other", "note", "image-hints"])
+@pytest.mark.parametrize("event", ["secrets_scan", "secrets-scan/other", "secrets_survey", "secrets-survey/other", "sd_ioc_scan", "sd-ioc-scan/other", "media_inventory", "media-inventory/other", "media_candidates", "media-candidates/other", "media-candidate", "dhav_candidates", "dhav-candidates/other", "dhav_scan", "dhav-scan/other", "bmff_scan", "bmff-scan/other", "media_unit_candidates", "media-unit-candidates/other", "allocation_window", "allocation-window/other", "other", "note", "image-hints"])
 def test_analysis_unknown_event_stays_closed(analysis_case, event):
     case, log, opened, report = analysis_case
     with pytest.raises(ValidationFailed):
         store(analysis_case, event=event)
-    assert E.ANALYSIS_EVENTS == {"sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory", "media-candidates", "dhav-candidates", "dhav-scan", "bmff-scan", "media-unit-candidates"}
-    assert E.CUSTODY_EVENTS == ("intake", "intake-aborted", "verify", "integrity-failed", "attest", "check", "list", "extract", "image-hints", "sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory", "media-candidates", "dhav-candidates", "dhav-scan", "bmff-scan", "media-unit-candidates", "evidence-list", "note")
+    assert E.ANALYSIS_EVENTS == {"sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory", "media-candidates", "dhav-candidates", "dhav-scan", "bmff-scan", "media-unit-candidates", "allocation-window"}
+    assert E.CUSTODY_EVENTS == ("intake", "intake-aborted", "verify", "integrity-failed", "attest", "check", "list", "extract", "image-hints", "sqlite-inventory", "android-artifacts", "timeline", "secrets-scan", "secrets-survey", "sd-ioc-scan", "media-inventory", "media-candidates", "dhav-candidates", "dhav-scan", "bmff-scan", "media-unit-candidates", "allocation-window", "evidence-list", "note")
     if event not in {"note", "image-hints"}:
         with pytest.raises(ValidationFailed):
             log.append(event, evidence_id=opened.evidence_id, data={})
@@ -300,7 +300,7 @@ def test_analysis_unknown_event_stays_closed(analysis_case, event):
 
 
 @pytest.mark.parametrize("failure", ["audit", "cancel", "index", "late-cancel"])
-@pytest.mark.parametrize("event", ["secrets-scan", "secrets-survey", "media-candidates", "dhav-candidates", "dhav-scan", "bmff-scan", "media-unit-candidates"])
+@pytest.mark.parametrize("event", ["secrets-scan", "secrets-survey", "media-candidates", "dhav-candidates", "dhav-scan", "bmff-scan", "media-unit-candidates", "allocation-window"])
 def test_analysis_postcommit_failure_keeps_output_and_event(analysis_case, monkeypatch, failure, event):
     case, log, opened, report = analysis_case
     committed = False
