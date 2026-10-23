@@ -153,12 +153,19 @@ def test_producer_larger_sequence_is_allowed(case, number, stub):
     {"reference_roi": (0, 0, 1601, 2)}, {"reference_roi": (0, 0, 1, 2)},
     {"max_mean_error": True}, {"max_mean_error": 1.0}, {"max_mean_error": -1}, {"max_mean_error": 256},
     {"deadline": True}, {"deadline": float("nan")}, {"deadline": float("inf")}, {"deadline": 10 ** 400},
-    {"deadline": time.monotonic() + 500}, {"cancel_event": PRIVATE},
+    {"cancel_event": PRIVATE},
 ])
 def test_exact_worker_arguments_reject_before_input_open(case, monkeypatch, kwargs):
     entry = attach(case)
     monkeypatch.setattr(A.safeio, "open_regular", lambda *a, **k: pytest.fail("입력 open 금지"))
     failure(case, entry, code="template_input_invalid", **kwargs)
+    assert not outputs(case)
+
+
+def test_future_deadline_rejected_before_input_open(case, monkeypatch):
+    entry = attach(case)
+    monkeypatch.setattr(A.safeio, "open_regular", lambda *a, **k: pytest.fail("입력 open 금지"))
+    failure(case, entry, deadline=time.monotonic() + 500, code="template_input_invalid")
     assert not outputs(case)
 
 
