@@ -26,6 +26,7 @@ _CODES = frozenset((
     'flipper_checksum_mismatch', 'flipper_busy', 'flipper_terminal', 'flipper_cleanup_pending',
     'flipper_failed', 'cancelled', 'time_limit', 'authorization_required',
     'instrument_port', 'instrument_identity_unknown', 'port_role_unknown', 'port_busy', 'port_lock_busy',
+    'nfc_input_invalid', 'nfc_input_limit', 'nfc_input_changed',
 ))
 
 
@@ -274,6 +275,11 @@ class Session:
         result = self.request(use, 'list', path, deadline=time.monotonic() + 2 * TEXT_SECONDS)
         return {'ok': True, 'case_id': self.case_id, 'session_id': self.session_id,
                 'path': path, **result, 'warnings': []}
+
+    def _nfc_probe(self, use, case):
+        """고정 NFC 작업만 위임한다. 임의 명령 전송 접점은 제공하지 않는다."""
+        from .nfc import probe
+        return probe(self, use, case)
 
     def _cleanup(self):
         try:

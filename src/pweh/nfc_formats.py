@@ -123,6 +123,17 @@ def _hex(value: str, lengths: tuple[int, ...]) -> bytes:
     return bytes(int(token, 16) for token in tokens)
 
 
+@dataclass(frozen=True, repr=False)
+class _NfcFileIdentity:
+    """권위 결속용 private 값. 공개 결과와 repr에는 원문을 싣지 않는다."""
+
+    uid: bytes
+    atqa_msb: bytes
+    sak: bytes
+    mifare_version: bytes | None
+    profile: str
+
+
 class _Parsed:
     """raw 값은 이 private 객체에서만 보유하고 repr/공개 결과로 내보내지 않는다."""
 
@@ -132,6 +143,10 @@ class _Parsed:
         self.device: str | None = None
         self.seen: set[str] = set()
         self.uid: bytes | None = None
+        self.atqa_msb: bytes | None = None
+        self.sak: bytes | None = None
+        self.mifare_version: bytes | None = None
+        self.finished = False
         self.pages: dict[int, bytes] = {}
         self.counters: dict[int, int] = {}
         self.expected: int | None = None
@@ -173,9 +188,9 @@ class _Parsed:
         elif key == "UID":
             self.uid = _hex(value, (4, 7, 10))
         elif key == "ATQA":
-            _hex(value, (2,))  # v4 MSB 텍스트 순서를 바꾸지 않는다.
+            self.atqa_msb = _hex(value, (2,))  # v4 MSB 텍스트 순서를 바꾸지 않는다.
         elif key == "SAK":
-            _hex(value, (1,))
+            self.sak = _hex(value, (1,))
         elif key == "Data format version":
             if _number(value, 10, 0xffffffff) != 2:
                 raise _Stop("unsupported", "unsupported_data_version")
@@ -186,7 +201,7 @@ class _Parsed:
         elif key == "Signature":
             _hex(value, (32,))
         elif key == "Mifare version":
-            _hex(value, (8,))
+            self.mifare_version = _hex(value, (8,))
         elif key == "Pages total":
             self.total = _number(value, 3, 512)
         elif key == "Pages read":
@@ -264,6 +279,7 @@ class _Parsed:
                 self.full = True
                 self.coverage["read_mapping"] = "all_declared"
         self.status = "partial" if self.coverage["truncated_reasons"] else "ok"
+        self.finished = True
 
 
 def _parse(data: bytes, limits: NfcLimits, control: _Control) -> _Parsed:
@@ -402,6 +418,22 @@ def inspect_nfc(data: bytes, *, deadline: float, cancel: Callable[[], bool] | No
     control = _arguments((data,), limits, deadline, cancel)
     parsed = _parse(data, limits, control)
     return _output(_report("inspect", parsed), limits, control)
+
+
+def _inspect_nfc_bound(data: bytes, *, deadline: float, cancel: Callable[[], bool] | None = None,
+                       limits: NfcLimits = NfcLimits()) -> tuple[dict, _NfcFileIdentity | None]:
+    """기존 strict parse 한 번의 공개 결과와 유효 private identity만 함께 돌려준다."""
+    control = _arguments((data,), limits, deadline, cancel)
+    parsed = _parse(data, limits, control)
+    report = _output(_report("inspect", parsed), limits, control)
+    reasons = set(report["coverage"]["truncated_reasons"])
+    if (not parsed.finished or not parsed.coverage["input_exhausted"]
+            or parsed.coverage["unexamined_bytes"] != 0 or report["status"] not in ("ok", "partial")
+            or reasons - {"unknown_field", "partial_read_mapping_unknown"}
+            or parsed.uid is None or parsed.atqa_msb is None or parsed.sak is None):
+        return report, None
+    return report, _NfcFileIdentity(parsed.uid, parsed.atqa_msb, parsed.sak,
+                                    parsed.mifare_version, parsed.profile)
 
 
 def diff_nfc(before: bytes, after: bytes, *, deadline: float, cancel: Callable[[], bool] | None = None,

@@ -28,11 +28,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import math
+import time
 import json
 import os
+import stat
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from . import safeio
 from .case import CASE_ID_RE, Case
@@ -62,6 +66,16 @@ PROVENANCE_IMPORT_QUESTIONS: tuple[dict[str, Any], ...] = (
 
 class ProvenanceError(PwehError):
     code = "provenance_error"
+
+
+class _AppendReceipt(dict):
+    """bounded append의 후커밋 정리 진단. 원장 키·정규화 해시에 포함하지 않는다."""
+
+    __slots__ = ("warnings",)
+
+    def __init__(self, entry, warnings):
+        super().__init__(entry)
+        self.warnings = tuple(warnings)
 
 
 def provenance_import_target(case_id: str, sha256: str) -> tuple[str, dict[str, Any], dict[str, Any]]:
@@ -112,8 +126,76 @@ def _check_sha256(value: Any) -> str:
     return text
 
 
-def parse_ledger(case_id: str, raw: bytes) -> tuple[list[dict[str, Any]], str | None]:
+def _bounded_error(code: str = "provenance_bounded_invalid") -> ProvenanceError:
+    return ProvenanceError("제한된 출처 원장 검증을 완료하지 못했습니다.", code=code)
+
+
+def _guard(max_bytes, max_entries, deadline, check):
+    """선택 bounded 경로만 제한한다. 기존 기본 원장 소비자는 그대로다."""
+    for value, ceiling in ((max_bytes, 16 << 20), (max_entries, 10000)):
+        if value is not None and (type(value) is not int or not 0 < value <= ceiling):
+            raise _bounded_error()
+    if deadline is not None:
+        try:
+            finite = type(deadline) in (int, float) and math.isfinite(deadline)
+        except OverflowError:
+            finite = False
+        if not finite:
+            raise _bounded_error()
+    if check is not None and not callable(check):
+        raise _bounded_error()
+    def tick():
+        if check is not None and check() is not None:
+            raise _bounded_error()
+        if deadline is not None and time.monotonic() >= deadline:
+            raise _bounded_error("time_limit")
+    tick()
+    return tick
+
+
+def _json_bound(line: str, check) -> None:
+    """bounded 원장의 JSON 중첩·숫자가 단일 파싱에서 예산을 독점하지 않게 한다."""
+    depth = 0
+    quoted = escaped = False
+    numeric = 0
+    for index, char in enumerate(line):
+        if index % 4096 == 0:
+            check()
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+            continue
+        if char == '"':
+            quoted = True
+            numeric = 0
+        elif char in "[{":
+            depth += 1
+            if depth > 32:
+                raise _bounded_error("provenance_bounded_limit")
+            numeric = 0
+        elif char in "}]":
+            depth -= 1
+            numeric = 0
+        elif char in "0123456789+-.eE":
+            numeric += 1
+            if numeric > 128:
+                raise _bounded_error("provenance_bounded_limit")
+        else:
+            numeric = 0
+    check()
+
+
+def parse_ledger(case_id: str, raw: bytes, *, max_entries: int | None = None,
+                 check: Callable[[], None] | None = None) -> tuple[list[dict[str, Any]], str | None]:
     """원장 바이트를 검증하며 읽는다. 반환: (항목 목록, 깨진 이유 | None). 깨졌으면 항목 목록은 비운다(fail closed)."""
+    if check is not None:
+        check()
+    if max_entries is not None and raw.count(b"\n") > max_entries:
+        raise _bounded_error("provenance_bounded_limit")
     if not raw:
         return [], None
     if not raw.endswith(b"\n"):
@@ -125,9 +207,11 @@ def parse_ledger(case_id: str, raw: bytes) -> tuple[list[dict[str, Any]], str | 
     entries: list[dict[str, Any]] = []
     prev = _genesis(case_id)
     for seq, line in enumerate(text.split("\n")[:-1], 1):
+        if check is not None:
+            _json_bound(line, check)
         try:
             entry = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):
             return [], f"{seq}번째 줄을 해석할 수 없다"
         if not isinstance(entry, dict):
             return [], f"{seq}번째 줄이 객체가 아니다"
@@ -147,6 +231,8 @@ def parse_ledger(case_id: str, raw: bytes) -> tuple[list[dict[str, Any]], str | 
             return [], f"{seq}번째 줄의 kind 가 잘못되었다: {entry.get('kind')!r}"
         entries.append(entry)
         prev = _line_hash(line)
+    if check is not None:
+        check()
     return entries, None
 
 
@@ -164,10 +250,85 @@ class ProvenanceLedger:
     def ledger_path(self, case: Case | str) -> Path:
         return self.dir / f"{_case_id_of(case)}.jsonl"
 
-    def _lock(self, case_id: str):
-        return file_lock(self.dir / f".{case_id}.lock")
+    def _lock(self, case_id: str, *, deadline: float | None = None):
+        timeout = 30.0 if deadline is None else max(0.0, deadline - time.monotonic())
+        return file_lock(self.dir / f".{case_id}.lock", timeout=timeout)
 
-    def _read(self, case_id: str) -> tuple[list[dict[str, Any]], str | None]:
+    @contextlib.contextmanager
+    def _bounded_raw(self, case_id: str, max_bytes: int, tick):
+        """하나의 fd와 이름/부모 seal을 조회 또는 checked append 끝까지 보유한다."""
+        tick()
+        try:
+            parent = safeio.open_dir_chain(self.dir, ())
+        except FileNotFoundError:
+            # 없는 디렉터리를 조회가 새로 만들지는 않는다.
+            def absent():
+                tick()
+                if os.path.lexists(self.dir):
+                    raise _bounded_error("provenance_bounded_changed")
+            yield b"", absent
+            return
+        fd = None
+        try:
+            parent_st = os.fstat(parent)
+            name = f"{case_id}.jsonl"
+            try:
+                fd, st = safeio.open_regular(name, dir_fd=parent, reject_hardlinks=True)
+            except FileNotFoundError:
+                st = None
+            def seal():
+                tick()
+                named_parent = os.stat(self.dir, follow_symlinks=False)
+                if not stat.S_ISDIR(named_parent.st_mode) or not safeio.same_file(parent_st, named_parent):
+                    raise _bounded_error("provenance_bounded_changed")
+                if st is None:
+                    try:
+                        os.stat(name, dir_fd=parent, follow_symlinks=False)
+                    except FileNotFoundError:
+                        return
+                    raise _bounded_error("provenance_bounded_changed")
+                after = os.fstat(fd)
+                named = os.stat(name, dir_fd=parent, follow_symlinks=False)
+                keys = lambda v: (v.st_dev, v.st_ino, v.st_size, v.st_mtime_ns, v.st_ctime_ns, v.st_mode, v.st_nlink)
+                if keys(st) != keys(after) or keys(st) != keys(named) or after.st_nlink != 1:
+                    raise _bounded_error("provenance_bounded_changed")
+            if st is None:
+                yield b"", seal
+                return
+            if st.st_size > max_bytes:
+                raise _bounded_error("provenance_bounded_limit")
+            data = bytearray()
+            while len(data) < st.st_size:
+                tick()
+                part = os.pread(fd, min(65536, st.st_size - len(data)), len(data))
+                if not part:
+                    raise _bounded_error("provenance_bounded_changed")
+                data.extend(part)
+            seal()
+            yield bytes(data), seal
+        finally:
+            close_failed = False
+            try:
+                if fd is not None:
+                    os.close(fd)
+            except Exception:
+                close_failed = True
+            finally:
+                try:
+                    os.close(parent)
+                except Exception:
+                    close_failed = True
+            if close_failed:
+                raise _bounded_error("provenance_close_unconfirmed") from None
+
+    def _read(self, case_id: str, *, max_bytes=None, max_entries=None, deadline=None, check=None):
+        bounded = any(v is not None for v in (max_bytes, max_entries, deadline, check))
+        if bounded:
+            tick = _guard(max_bytes, max_entries, deadline, check)
+            with self._bounded_raw(case_id, max_bytes if max_bytes is not None else 16 << 20, tick) as (raw, seal):
+                result = parse_ledger(case_id, raw, max_entries=max_entries, check=tick)
+                seal()
+                return result
         path = self.dir / f"{case_id}.jsonl"
         try:
             raw = path.read_bytes()
@@ -186,10 +347,11 @@ class ProvenanceLedger:
             return {"ok": False, "count": 0, "reason": CHAIN_BROKEN, "detail": broken}
         return {"ok": True, "count": len(entries)}
 
-    def entries(self, case: Case | str, kind: str | None = None) -> list[dict[str, Any]]:
+    def entries(self, case: Case | str, kind: str | None = None, *, max_bytes=None, max_entries=None,
+                deadline=None, check=None) -> list[dict[str, Any]]:
         """검증된 항목 목록. 체인이 깨졌으면 ProvenanceError(fail closed — '기록 없음'과 구별)."""
         cid = _case_id_of(case)
-        entries, broken = self._read(cid)
+        entries, broken = self._read(cid, max_bytes=max_bytes, max_entries=max_entries, deadline=deadline, check=check)
         if broken:
             raise ProvenanceError(f"출처 원장이 깨졌습니다 ({cid}): {broken}", code="provenance_ledger_broken",
                                   hint="원장을 신뢰할 수 없어 이 케이스의 출처 확인은 모두 실패한다. 사람이 원인을 확인해야 한다.")
@@ -208,30 +370,58 @@ class ProvenanceLedger:
         except OSError:  # pragma: no cover
             pass
 
-    def _append(self, case_id: str, body: dict[str, Any]) -> dict[str, Any]:
+    def _append(self, case_id: str, body: dict[str, Any], *, max_bytes=None, max_entries=None,
+                deadline=None, check=None, check_entries=None) -> dict[str, Any]:
+        bounded = any(v is not None for v in (max_bytes, max_entries, deadline, check, check_entries))
+        tick = _guard(max_bytes, max_entries, deadline, check) if bounded else lambda: None
         self._ensure_dir()
         path = self.dir / f"{case_id}.jsonl"
-        with self._lock(case_id):
-            try:
-                raw = path.read_bytes()
-            except FileNotFoundError:
-                raw = b""
-            entries, broken = parse_ledger(case_id, raw)
-            if broken:
-                raise ProvenanceError(f"출처 원장이 깨져 기록하지 않습니다 ({case_id}): {broken}", code="provenance_ledger_broken",
-                                      hint="깨진 원장에는 덧붙이지 않는다(fail closed). 사람이 원인을 확인해야 한다.")
-            prev = _line_hash(canonical_json(entries[-1])) if entries else _genesis(case_id)
-            entry = {"schema": SCHEMA, "seq": len(entries) + 1, "ts": utcnow_iso(), "case_id": case_id, **body, "prev": prev}
-            line = canonical_json(entry)
-            atomic_write_bytes(path, raw + line.encode("utf-8") + b"\n")
-            try:
-                os.chmod(path, 0o600)
-            except OSError:  # pragma: no cover
-                pass
+        lock = self._lock(case_id, deadline=deadline) if deadline is not None else self._lock(case_id)
+        committed = None
+        try:
+            with lock:
+                tick()
+                with contextlib.ExitStack() as stack:
+                    if bounded:
+                        raw, seal = stack.enter_context(self._bounded_raw(
+                            case_id, max_bytes if max_bytes is not None else 16 << 20, tick))
+                    else:
+                        try:
+                            raw = path.read_bytes()
+                        except FileNotFoundError:
+                            raw = b""
+                        seal = lambda: None
+                    entries, broken = parse_ledger(case_id, raw, max_entries=max_entries, check=tick if bounded else None)
+                    if broken:
+                        if bounded:
+                            raise ProvenanceError("출처 원장이 깨져 기록하지 않습니다.", code="provenance_ledger_broken")
+                        raise ProvenanceError(f"출처 원장이 깨져 기록하지 않습니다 ({case_id}): {broken}", code="provenance_ledger_broken",
+                                              hint="깨진 원장에는 덧붙이지 않는다(fail closed). 사람이 원인을 확인해야 한다.")
+                    if check_entries is not None and check_entries(entries) is not None:
+                        raise _bounded_error()
+                    if max_entries is not None and len(entries) >= max_entries:
+                        raise _bounded_error("provenance_bounded_limit")
+                    prev = _line_hash(canonical_json(entries[-1])) if entries else _genesis(case_id)
+                    entry = {"schema": SCHEMA, "seq": len(entries) + 1, "ts": utcnow_iso(), "case_id": case_id, **body, "prev": prev}
+                    line = canonical_json(entry).encode("utf-8") + b"\n"
+                    if max_bytes is not None and len(raw) + len(line) > max_bytes:
+                        raise _bounded_error("provenance_bounded_limit")
+                    seal()
+                    tick()
+                    atomic_write_bytes(path, raw + line)
+                    committed = entry
+                    try:
+                        os.chmod(path, 0o600)
+                    except OSError:  # pragma: no cover
+                        pass
+        except Exception:
+            if bounded and committed is not None:
+                return _AppendReceipt(committed, ("provenance_close_unconfirmed",))
+            raise
         return entry
 
     def _file_body(self, case: Case, path: str | Path, kind: str, source: Any, extra: Any, sha256: str | None,
-                   attestation_id: str | None) -> dict[str, Any]:
+                   attestation_id: str | None, check=None) -> dict[str, Any]:
         if not isinstance(case, Case):
             raise ValidationFailed("provenance 기록에는 Case 객체가 필요합니다.")
         p = case.resolve_path(path)
@@ -254,7 +444,8 @@ class ProvenanceLedger:
         try:
             fd, st = safeio.open_regular(rel.name, dir_fd=parent, what="출처 산출물", reject_hardlinks=evidence_record)
             try:
-                actual = safeio.hash_fd(fd, st.st_size, algorithms=("sha256",))["sha256"]
+                hash_options = {"check": check, "chunk": 65536} if check is not None else {}
+                actual = safeio.hash_fd(fd, st.st_size, algorithms=("sha256",), **hash_options)["sha256"]
                 after = os.fstat(fd)
                 named = os.lstat(rel.name, dir_fd=parent)
                 if (not safeio.same_file(st, named) or (st.st_size, st.st_mtime_ns, st.st_ctime_ns) !=
@@ -291,10 +482,15 @@ class ProvenanceLedger:
         return self._append(cid, self._file_body(case, path, KIND_DEVICE_READ, source, extra, sha256, attestation_id))
 
     def record_import(self, case: Case, path: str | Path, source: dict[str, Any], extra: dict[str, Any] | None = None, *,
-                      sha256: str | None = None) -> dict[str, Any]:
-        """밖에서 가져온 파일을 기록한다(imported-unattested). provenance-import 증명이 있을 때만 verify 가 신뢰한다."""
+                      sha256: str | None = None, max_bytes=None, max_entries=None, deadline=None,
+                      check=None, check_entries=None) -> dict[str, Any]:
+        """밖에서 가져온 파일은 기존 provenance-import 증명 전까지 신뢰하지 않는다."""
         cid = _case_id_of(case)
-        return self._append(cid, self._file_body(case, path, KIND_IMPORTED, source, extra, sha256, None))
+        bounded = any(v is not None for v in (max_bytes, max_entries, deadline, check, check_entries))
+        tick = _guard(max_bytes, max_entries, deadline, check) if bounded else None
+        body = self._file_body(case, path, KIND_IMPORTED, source, extra, sha256, None, check=tick)
+        return self._append(cid, body, max_bytes=max_bytes, max_entries=max_entries,
+                            deadline=deadline, check=check, check_entries=check_entries)
 
     def record_patch_plan(self, case: Case, path: str | Path, source: dict[str, Any], extra: dict[str, Any] | None = None, *,
                           sha256: str, attestation_id: str | None = None) -> dict[str, Any]:
@@ -313,7 +509,8 @@ class ProvenanceLedger:
         return None
 
     def record_device_fact(self, case: Case | str, fact_kind: str, data: dict[str, Any], source: dict[str, Any], *,
-                           attestation_id: str | None = None) -> dict[str, Any]:
+                           attestation_id: str | None = None, max_bytes=None, max_entries=None,
+                           deadline=None, check=None, check_entries=None) -> dict[str, Any]:
         """산출물이 아닌 기기 사실을 기록한다(device-fact, 예: 칩 정보·보안 설정). data 는 원장 안에 그대로 남는다."""
         cid = _case_id_of(case)
         if not isinstance(fact_kind, str) or not fact_kind.strip() or len(fact_kind) > 64:
@@ -331,7 +528,8 @@ class ProvenanceLedger:
             "attestation_id": attestation_id,
             "data": data_n,
         }
-        return self._append(cid, body)
+        return self._append(cid, body, max_bytes=max_bytes, max_entries=max_entries,
+                            deadline=deadline, check=check, check_entries=check_entries)
 
     # -- 확인 ---------------------------------------------------------------
     def verify(self, case: Case, path: str | Path, *, data: bytes | bytearray | memoryview | None = None) -> dict[str, Any]:

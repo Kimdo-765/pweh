@@ -167,6 +167,8 @@ def _guess_schema(obj: Any) -> str | None:
         return "image-hints"
     if {"mode", "raw_results", "capture_verified", "transmitted"} <= keys:
         return "rf-analysis"
+    if {"mode", "tags", "results", "physical_same_tag_verified", "tag_content_written"} <= keys:
+        return "nfc-analysis"
     if {"mode", "results", "frame_freshness_verified", "action_generated"} <= keys:
         return "numeric-analysis"
     return None
@@ -410,6 +412,7 @@ def test_master_prompt_goal_fork():
         assert f"**{goal}**" in prep, f"§3.1 에 {goal} 항목 없음"
     assert "game-save-unlock-analysis" in rows["게임 콘솔 분석"][3]
     assert "numeric-observation-analysis" in rows["게임 콘솔 분석"][3]
+    assert "nfc-behavior-analysis" in rows["게임 콘솔 분석"][3]
     assert "sd-card-forensics" in rows["SD 카드 포렌식"][3]
     assert "flipper-rf-analysis" in rows["RF·하드웨어 분석"][3]
     assert "장비 목록·포트·실행 환경 조회·펌웨어 확보를 요구하지 않는다" in s3
@@ -427,6 +430,7 @@ def test_master_prompt_goal_fork():
     assert all("펌웨어 확보" not in goal_rows[g] for g in ("RF·하드웨어 분석", "SD 카드 포렌식"))
     assert "rf-analysis" in goal_rows["RF·하드웨어 분석"]
     assert "numeric-analysis" in goal_rows["게임 콘솔 분석"]
+    assert "nfc-analysis" in goal_rows["게임 콘솔 분석"]
     assert "실제로 수행한 경로" in goal_rows["게임 콘솔 분석"]
     start = _skill_text("pweh-start")
     assert all(g in start for g in GOALS) and "준비 중" in start and "§3.1" in start

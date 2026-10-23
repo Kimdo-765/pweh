@@ -12,6 +12,7 @@
 | `flipper_device_info` | `case_id` | loader idle 확인 뒤 model/target/firmware 호환 정보 읽기 |
 | `flipper_storage_list` | `case_id, path` | 허용 디렉터리 바로 아래 목록 읽기 |
 | `flipper_storage_pull_start` | `case_id, flipper_path, dest_name=None` | 파일 하나를 받는 job 시작 |
+| `flipper_nfc_probe` | `case_id, approval_id=None` | 고정 3A 선택·GET_VERSION·scratch 정리 뒤 마스킹 scan 참조 기록 |
 | `flipper_job_status` | `job_id, wait_seconds=0, case_id=None` | job 결과 또는 저장 기록 조회 |
 | `flipper_job_cancel` | `job_id` | 실행 중 job의 취소 요청 |
 | `flipper_jobs` | `active_only=False, case_id=None` | 메모리/저장 job 목록 |
@@ -24,7 +25,24 @@
 연결은 115200 8N1, DTR=true/RTS=false로 고정된다. DTR 변경 때문에 connect는 MODIFY다.
 새 배너를 확인하기 전 명령 bytes는 보내지 않는다. `approval_required`이면 사람이 별도 터미널에서
 승인한 뒤 동일 인자와 반환 `approval_id`로 재호출한다. 정보·목록·파일 명령은 기존 OBSERVE gate를
-거치며 임의 명령·앱 실행·RF/NFC·쓰기·재생 기능은 없다.
+거친다. NFC probe는 장치 SD의 scratch 생성/삭제를 포함하므로 별도 MODIFY gate를 거친다.
+임의 명령·앱 실행·RF 재생·일반 storage 쓰기·태그 메모리 쓰기는 없다.
+
+## 고정 NFC probe
+
+연결 후 `flipper_nfc_probe(case_id)`를 호출하면 `flipper-ntag21x-admission-v1` 고정 순서만 실행한다.
+기존 `/ext/pweh/<case_id>/` 아래 새 UUID scratch 한 개로 ISO14443-3A 헤더를 얻고,
+UID7/SAK0 전제에서 고정 GET_VERSION을 한 번 전송한다. CRC와 두 선택의 identity가 일치하며
+NTAG213/215/216 version일 때만 허용한다. probe 전체45초, scratch 최대4KiB이며 페이지 READ는 없다.
+
+자신이 만든 파일의 크기/MD5와 제거 후 부재를 확인한 뒤에만 보호 원장에 scan 사실을 기록한다.
+공개 결과는 `scan_ref`, `family`, 케이스 솔트 `identity_digest`와 한계 flags이며 원문 UID·ATQA·SAK·version은 없다.
+반환 `scan_ref`는 같은 케이스의 `nfc_tag_inventory_add`에 넘길 수 있다. 기존 NFC 파일의 오프라인 검사에는
+그 inventory 결속과 별도의 기존 import 출처 증명이 필요하며 storage pull만으로 scan 권위가 생기지 않는다.
+
+두 선택은 원자적이지 않다. 중간 태그 교체를 첫 SELECT 이후의 GET_VERSION 송신 전에 host가 막을 수 없으며,
+정상 응답도 동일 실물·진품·RF field off·장치 명령 종료의 증명이 아니다. 취소/timeout/문법 실패 뒤에는
+exit/remove를 포함한 새 명령을 보내지 않으므로 원격 scratch가 남을 수 있다. 이후 `flipper_close`로 host를 정리한다.
 
 ## 파일과 결과
 
@@ -47,5 +65,5 @@ RF field off를 증명하지 않는다. 상세 반환·한도·오류는 [읽기
 ## 검증 범위
 
 `tests/core/test_flipper_cli.py`, `tests/servers/test_flipper_session.py`, `test_flipper_storage.py`,
-`test_flipper_mcp.py`는 합성 bytes와 가짜 직렬 factory로 parser·lease·gate·same-FD 등록·취소·실제 MCP 연결을
+`test_flipper_mcp.py`, `test_flipper_nfc.py`는 합성 bytes와 가짜 직렬 factory로 parser·lease·gate·same-FD 등록·취소·실제 MCP 연결을
 검사한다. 실물 DTR 배너, OS별 실제 USB 매핑, 전송 성능과 단절 뒤 장치 상태는 실기 미검증이다.

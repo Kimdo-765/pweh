@@ -106,7 +106,10 @@
       "mcp__pweh-flipper__flipper_device_info",
       "mcp__pweh-flipper__flipper_storage_list",
       "mcp__pweh-flipper__flipper_job_status",
-      "mcp__pweh-flipper__flipper_jobs"
+      "mcp__pweh-flipper__flipper_jobs",
+      "mcp__pweh-nfc__nfc_tag_inventory_add",
+      "mcp__pweh-nfc__nfc_parse_file",
+      "mcp__pweh-nfc__nfc_diff_dumps"
     ],
     "ask": [
       "mcp__pweh-uart__uart_write",
@@ -180,6 +183,7 @@
     "pweh-espprobe",
     "pweh-sdr",
     "pweh-play",
-    "pweh-flipper"
+    "pweh-flipper",
+    "pweh-nfc"
   ]
 }

@@ -111,6 +111,14 @@
         "-c",
         "d=\"$CLAUDE_PROJECT_DIR\"; [ -n \"$d\" ] || d=\"$PWD\"; exec \"$d/scripts/mcp-launch.sh\" pweh-flipper-mcp"
       ]
+    },
+    "pweh-nfc": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$CLAUDE_PROJECT_DIR\"; [ -n \"$d\" ] || d=\"$PWD\"; exec \"$d/scripts/mcp-launch.sh\" pweh-nfc-mcp"
+      ]
     }
   }
 }

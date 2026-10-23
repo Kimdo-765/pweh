@@ -817,7 +817,7 @@ DTR=true open은 기존 MODIFY 게이트를 거친다. 승인 요청은 사람�
 새 배너·버전·prompt 전 명령0, 각 명령 직전 fresh 신원과 loader idle을 확인한다.
 
 사용자가 준비한 `/ext/pweh/<case_id>/` 안 목록과 최대1MiB 파일만 읽으며 원격 폴더를
-만들거나 파일을 바꾸지 않는다. 명령은 고정 info/list/read/md5뿐이다. binary 본문은
+만들거나 파일을 바꾸지 않는다. 이 일반 파일 전송의 명령은 고정 info/list/read/md5뿐이다. 별도 NFC probe는 아래의 임시 파일 규칙을 따른다. binary 본문은
 문자열로 해석하지 않고 정확 크기·종결·MD5·최종 host SHA를 확인한다. 이 일치는 원격
 원자 스냅샷, RF 캡처나 태그 소유·원본 생성 출처를 증명하지 않는다.
 
@@ -829,3 +829,31 @@ close는 허가 철회 뒤에도 재시도할 수 있다. 호스트 포트 close
 host 출력은 새0444 파일·동일 FD·부모/이름/SHA를 원자 등록까지 검증한다. 등록 전에는
 자신의 inode만 정리하고 등록 후 취소·감사 오류에는 게시 결과를 보존한다. 일반 전송
 artifact를 MCU device-read, NFC inventory, forensics 증거로 다시 표시하지 않는다.
+
+
+### NFC 스캔·inventory와 파일 분석
+
+`flipper_nfc_probe`는 기존 허가·세션·whole lease 아래 고정 ISO14443-3A probe와
+GET_VERSION만 수행한다. Flipper SD의 허용 case 폴더에 서버가 만든 임시 파일 하나를
+생성·정리하므로 MODIFY 게이트를 적용한다. 태그 페이지 READ·메모리 쓰기·인증·임의 raw는 없다.
+SAK/UID 전제가 맞지 않으면 GET_VERSION을 보내지 않는다. 이후 raw 내부의 재선택은
+호스트 판정 전 GET_VERSION을 보낼 수 있으므로 재선택 원자성·항상 같은 실물을 보장하지 않는다.
+최종 식별값 불일치·지원 밖 version·CRC/문법 오류는 성공 scan을 만들지 않는다.
+
+정상 문맥에서 임시 파일의 크기·MD5와 제거 뒤 부재를 확인한 경우만 scan 사실을 기록한다.
+취소·timeout·terminal 뒤에는 자동 exit/remove/ETX를 보내지 않으며 파일이 남을 수 있다.
+고정 stage와 정리 미확인만 보고하고 host close를 RF field off로 설명하지 않는다.
+원시 CLI·UID·ATQA·SAK·version·페이지·PWD/PACK는 공개 응답이나 케이스 사본에 남기지 않는다.
+스캔 private 식별값은 보호 출처 원장에만 보존하며 케이스 솔트 digest는 표시용이다.
+
+`pweh-nfc`는 명시 scan/tag 참조와 같은 케이스 artifact만 받는다. source/chain/entry SHA·
+식별값·계열을 확인하고 기존 provenance-import 증명을 전체 파일 SHA별로 요구한다.
+일반 Flipper 파일 복사·사용자 UID·producer·inventory.json 사본만으로 허용하지 않는다.
+증명 대기 중 입력 FD를 닫고 새 worker가 같은 입력과 현재 증명을 다시 검증한다.
+원장 조회는16MiB/10000행·64KiB 읽기 상한과 기존 체인 검증을 함께 적용한다.
+
+파일 하나≤1MiB/두 개 합≤2MiB, 작업≤5초·최종 검증/등록≤5초다. 한도는 협력 검사이며
+커널 I/O나 장치의 강제 종료 보장이 아니다. 같은 FD·SHA·원장·증명을 최종 등록에서 대조하고
+등록 뒤 receipt를 보존한다. 부분 읽기의 0값·미비교·null은 기존 NFC 파서 의미를 유지한다.
+`inventory_binding_verified`와 `physical_same_tag_verified=false`는 별도이며 실제 진품·
+복제 없음·전체 태그 읽기·게임 동작을 증명하지 않는다. [NFC 계약](references/nfc-inventory-analysis.md).

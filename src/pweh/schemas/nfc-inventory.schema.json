@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.nfc-inventory/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ok",
+    "schema",
+    "tag_ref",
+    "scan_ref",
+    "family",
+    "identity_digest",
+    "source",
+    "inventory_binding_verified",
+    "physical_same_tag_verified",
+    "warnings"
+  ],
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "schema": {
+      "const": "pweh.nfc-inventory/v1"
+    },
+    "tag_ref": {
+      "type": "string",
+      "pattern": "^NT-[0-9a-f]{32}$"
+    },
+    "scan_ref": {
+      "type": "string",
+      "pattern": "^NS-[0-9a-f]{32}$"
+    },
+    "family": {
+      "enum": [
+        "ntag213",
+        "ntag215",
+        "ntag216"
+      ]
+    },
+    "identity_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{16}$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scan_seq",
+        "scan_entry_sha256",
+        "inventory_seq",
+        "inventory_entry_sha256"
+      ],
+      "properties": {
+        "scan_seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "scan_entry_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "inventory_seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "inventory_entry_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "inventory_binding_verified": {
+      "const": true
+    },
+    "physical_same_tag_verified": {
+      "const": false
+    },
+    "warnings": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "provenance_close_unconfirmed",
+          "inventory_cache_write_failed"
+        ]
+      }
+    }
+  }
+}

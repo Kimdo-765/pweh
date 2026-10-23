@@ -29,7 +29,7 @@
 - **`case_register_artifact(case_id, path, kind, description?, producer?)`**  
   케이스 내부 파일/디렉터리를 아티팩트로 등록(sha256 계산). kind 예: uart-log, flash-dump, memory-dump, partition, extracted-tree, signal-capture, signal-decode, jtag-dump, triage-report, rea-evidence, decompilation, report, other.
 - **`case_import_file(case_id, source_path, kind?, dest_subdir?, description?)`**  
-  케이스 밖의 파일(예: 벤더 공식 펌웨어 다운로드, SPI 클립으로 읽은 덤프)을 케이스로 복사하고 등록. dest_subdir 기본 'dumps'.
+  케이스 밖의 파일(예: 벤더 공식 펌웨어 다운로드, SPI 클립으로 읽은 덤프)을 케이스로 복사하고 등록. dest_subdir 기본 'dumps'; NFC 일반 파일은 'nfc'도 허용한다(스캔·출처 증명은 별도).
 - **`case_hash_file(case_id, path, offset?, length?)`** — [읽기전용]  
   케이스 내부 파일(또는 offset/length 구간)의 해시 계산: sha256, md5, crc32. 덤프 교차 검증용 — 예: tftpput/SPI 클립으로 받은 파일과 UART 덤프의 같은 구간 비교, 기기 측 md5sum/crc32 와 대조. offset/length 는 정수 또는 '0x50000', '64k' 같은 문자열.
 - **`case_add_finding(case_id, finding)`**  
@@ -396,6 +396,8 @@
   연결된 Flipper의 loader idle을 확인하고 고정 info device 응답을 읽는다(OBSERVE). model·target·format·고정 firmware 호환 정보만 반환하며 장치 UID·이름·BLE MAC·원문을 반환하지 않는다. 소유/허가와 현재 포트·역할·잠금을 다시 확인하며 앱 유휴 관찰은 앱 실행 잠금이 아니다.
 - **`flipper_storage_list(case_id, path)`** — [읽기전용]  
   연결된 Flipper의 /ext/pweh/<case_id>/ 아래 한 디렉터리를 고정 storage list로 읽는다(OBSERVE). loader idle·현재 신원 확인 후 이름/type/size 최대256개와 종결 여부를 반환한다. path는 제한 ASCII 경로이며 링크 이동·임의 루트·명령은 받지 않는다. 응답 한도256KiB를 넘으면 실패한다. listing_complete는 CL
+- **`flipper_nfc_probe(case_id, approval_id?)`**  
+  연결된 고정1.5.1 Flipper에서 ISO14443-3A 선택과 고정 GET_VERSION만 수행한다. 같은 case의 /ext/pweh/<case_id>/ 기존 폴더에 서버 생성 scratch 한 개를 쓰므로 MODIFY gate를 적용한다. 45초·probe4KiB 한도에서 UID7/SAK0·NTAG213/215/216 version과 CRC, 재선택 identity를 대조하고 정상 
 - **`flipper_storage_pull_start(case_id, flipper_path, dest_name?)`**  
   연결된 Flipper의 /ext/pweh/<case_id>/ 아래 파일 하나를 받는 job을 시작한다(고정 읽기 OBSERVE). flipper_path는 제한 ASCII 파일 경로, dest_name은 선택적 host basename이며 출력은 flipper/ 아래 새 파일이다. 최대1MiB·300초이며 binary 본문은 해석하지 않는다. 종결 뒤 장치 MD5와 host MD5·SHA를 
 - **`flipper_job_status(job_id, wait_seconds?, case_id?)`**  
@@ -404,4 +406,13 @@
   실행 중인 백그라운드 작업 취소 요청. 작업은 다음 안전 지점에서 멈추고, 부분 결과는 보존된다.
 - **`flipper_jobs(active_only?, case_id?)`**  
   이 서버 프로세스의 백그라운드 작업 목록. case_id를 주면 해당 케이스에 저장된 이 서버의 기록을 최대 256개·8MiB·2초로 확인하며 잘림은 recovery에 표시한다. 소유 서버 종료가 확인된 활성 기록만 failed로 정리한다. owner 없는 과거 기록은 확인 불가로 표시하며 재개하지 않는다.
+
+## pweh-nfc
+
+- **`nfc_tag_inventory_add(case_id, scan_ref)`**  
+  같은 케이스 flipper_nfc_probe의 보호된 scan_ref를 NTAG213/215/216 inventory로 등록한다. 사용자 UID/family나 cache로 scan을 대신하지 않는다. 공개 tag_ref·scan_ref·케이스 솔트 지문과 scan/inventory 원장 seq/hash만 반환한다. 물리적으로 같은 태그인지는 검증하지 않는다.
+- **`nfc_parse_file(case_id, artifact_id, tag_ref, max_seconds?)`**  
+  등록 artifact_id의 Flipper v4 NFC 파일 하나를 같은 케이스 tag_ref와 결속해 오프라인 검사한다. 각 입력은1MiB 이하 단일 링크 일반 파일이며 forensics/emu/보호 경로는 받지 않는다. UID/ATQA/SAK/GET_VERSION 신원은 내부에서만 비교한다. 가져온 파일은 기존 provenance-import 증명이 필요하며 대기 중 입력 FD를 보유하지
+- **`nfc_diff_dumps(case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds?)`**  
+  같은 tag_ref에 결속한 before/after 등록 NFC 덤프 두 개의 저장 페이지를 오프라인 비교한다. 입력마다1MiB 이하, 두 파일 각각의 현재 provenance-import 증명을 확인한다. read<total·ISO 헤더·불완전 layout에서는 비교 불가/null을 유지한다. raw UID·페이지·Counter·PWD/PACK은 반환하지 않는다. max_seconds는0초
 

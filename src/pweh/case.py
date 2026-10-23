@@ -13,6 +13,7 @@
       analysis/          분석 산출물 (triage JSON, 디컴파일 발췌 등)
       signals/           로직 애널라이저 캡처(.sr/.vcd) 및 디코딩 결과
       jtag/              OpenOCD 덤프/레지스터 스냅샷
+      nfc/               가져온 NFC 파일과 마스킹 inventory 조회 사본(권위는 보호 원장)
       jobs/              백그라운드 작업 상태
       findings.json      발견사항 (schemas/finding.schema.json 항목들의 목록)
       report.md          최종 보고서 (report_generate)
@@ -47,7 +48,7 @@ from .caseids import CreationGuard
 #: 케이스 id: 영문/숫자로 시작하고 영문/숫자/._- 만, 최대 80자. '.' 으로 끝날 수 없다 — Windows 경로 정규화가 요소 끝의 '.'·공백을
 #: 지워 다른 케이스 디렉터리를 가리키게 되기 때문이다(pweh-esp 방법 A 가 esptool.exe 에 \\wsl.localhost\… 경로를 넘긴다).
 CASE_ID_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,78}[A-Za-z0-9_-])?$")
-STANDARD_DIRS = ("steps", "uart", "dumps", "extract", "analysis", "signals", "jtag", "jobs", "notes", "patches")
+STANDARD_DIRS = ("steps", "uart", "dumps", "extract", "analysis", "signals", "jtag", "jobs", "notes", "patches", "nfc")
 
 #: 보안 분석(기본 목표, CCTV/IoT) 파이프라인의 단계. 새 케이스는 모두 'pending' 으로 시작한다(case.json 의 phases).
 #: case-mcp 의 case_set_phase 도구 설명이 이 값을 그대로 쓰므로, 바꾸면 도구 카탈로그도 다시 만든다.

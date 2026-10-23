@@ -32,6 +32,7 @@ idle 응답과 `info device`를 확인한다. loader 관찰과 다음 명령 사
 | `flipper_device_info` | `case_id` | 현재 고정 `device` 정보 |
 | `flipper_storage_list` | `case_id, path` | `entries`, `count`, `listing_complete`, `filesystem_completeness_verified=false` |
 | `flipper_storage_pull_start` | `case_id, flipper_path, dest_name=None` | `job_id`, `status` |
+| `flipper_nfc_probe` | `case_id, approval_id=None` | 마스킹 `scan_ref`, `family`, `identity_digest`, 고정 probe/한계 flags |
 | `flipper_close` | `case_id` | `closed/cleanup_pending`, `physical_close_verified`, `worker_finished`, `lease_released`, `device_command_termination_verified=false` |
 
 세 공통 job 도구는 `flipper_job_status(job_id,wait_seconds=0,case_id=None)`,
@@ -47,7 +48,8 @@ SDK는 추가 인자와 타입 변환을 거부한다. `command/dtr/profile/forc
 
 ## 저장소 경로와 한도
 
-허용 루트는 정확 `/ext/pweh/<case_id>/`다. 사용자가 미리 준비하며 서버가 mkdir/delete하지 않는다. list는 루트
+허용 루트는 정확 `/ext/pweh/<case_id>/`다. 사용자가 미리 준비하며 서버가 mkdir하지 않는다. 일반 list/pull은 파일을
+삭제하지 않고, NFC probe만 자신이 생성·검증한 scratch 하나를 제거한다. list는 루트
 또는 그 아래 디렉터리 한 수준, pull은 그 아래 파일 하나다. 원격 path는 최대 512 ASCII bytes, component는
 254 bytes/16개까지이며 `[A-Za-z0-9._ -]+`만 받는다. 빈/`.`/`..` component, 앞뒤 공백, quote, control, backslash,
 이중 slash와 다른 케이스 루트는 거부한다. SPI 앱의 저장 위치나 NFC 폴더를 추정해서 추가하지 않는다.
@@ -65,6 +67,7 @@ SDK는 추가 인자와 타입 변환을 거부한다. `command/dtr/profile/forc
 | pull | 300초, binary 무진전 10초 |
 | 최종 host 검증·등록 | wire 검증 뒤 별도 고정 5초 |
 | close 확인 | 최대 10초 후 미확인 owner 보존 |
+| NFC probe | 전체45초, scratch4KiB, raw 응답4KiB/32줄/줄512B |
 
 시간은 협력 checkpoint의 예산이며 커널 I/O나 장치 명령을 강제 중단하는 watchdog이 아니다. Windows helper는
 자체 유한 정리 절차를 사용하며 close 반환 뒤에도 정리 worker가 끝나지 않았으면 잠금은 남는다.
@@ -100,6 +103,45 @@ flipper_close(case_id)
 
 RAW 분석의 캡처·기기 연관성·RF 허가 미확인 flags는 그대로다. 기존
 [RAW 요약 계약](rf-raw-analysis.md#요약과-보고서-연결)과 [Skill](../../skills/flipper-rf-analysis/SKILL.md)을 쓴다.
+
+## NFC scan 사실 연결
+
+`flipper_nfc_probe(case_id,approval_id=None)`는 기존 ready 세션과 단일 worker 사용권을 사용한다.
+프로필은 `flipper-ntag21x-admission-v1`이다. RF 선택뿐 아니라 장치 SD에 새 scratch를 쓰므로 MODIFY이며,
+승인 지문에 case/session/route/whole scope, 고정 profile hash와 생성·정리 범위를 결속한다.
+무작위 basename은 의미 없는 UUID이므로 지문에서 제외한다. gate 대기/거부 때 probe 명령은0이다.
+
+기존 case 폴더의 bounded 목록에서 생성 basename 부재를 확인한 뒤 공식 NFC subshell에서 명시3A dump만 수행한다.
+NFC `-f`는 인용을 제거하지 않는 option parser이므로 공백 없는 서버 생성 경로를 비인용으로 사용한다.
+상위 storage read/md5/remove는 기존 인용 문법을 유지한다. NFC 색상 prompt와 상위 prompt를 별도로 확인하며
+정상 NFC exit 뒤에만 상위 읽기 parser로 복귀한다. 임의 command·raw 인자·저장소 write API는 추가하지 않는다.
+
+probe 헤더의 유효 UID7/SAK0에서만 SELECT→고정 `0x60` 교환을 허용한다. Tx의 CRC_A와 수신10바이트의 CRC_A를
+검사하고 version8이 NTAG213/215/216의 고정 값이며 raw activation identity가 probe와 같아야 한다.
+ATQA는 raw 출력과 v4 파일의 바이트 순서 차이를 정규화해 비교한다. 페이지 READ·인증·PWD/키·태그 쓰기·다른 계열은 없다.
+첫 probe와 raw는 별도 활성화이며 raw 내부 SELECT와 `0x60` 사이에 host admission 중간점은 없다.
+
+scratch는 host artifact나 원문 transcript로 저장하지 않는다. 원래 size/MD5와 제거 직전 관찰을 대조하고,
+정상 remove 응답 및 후속 목록의 부재까지 확인해야 scan 사실을 보호 원장에 기록한다. 원격 inode를 확인하지 못하므로
+검사·생성·삭제를 원자적 snapshot으로 표시하지 않는다. 목록 완료도는 기존 CLI 응답 종결 의미 그대로다.
+
+정상 결과는 `schema='pweh.nfc-scan/v1'`, `scan_ref`, `family`, `identity_digest`, `uid_length=7`, `profile`,
+`inventory_eligible/probe_identity_match/version_crc_valid/scratch_cleanup_confirmed=true`, `warnings`다.
+`page_read_performed/reselection_atomic/physical_same_tag_verified/device_command_termination_verified=false`를 유지한다.
+UID·ATQA·SAK·GET_VERSION 원문과 scratch 경로/내용은 공개 결과에 없다. identity는 보호 scan fact 안에서만 exact 비교에 쓴다.
+
+같은 case에서 `nfc_tag_inventory_add(case_id,scan_ref)`가 scan 사실을 inventory로 결속한다.
+기존 저장 파일은 해당 inventory와 import 출처 증명을 확인한 뒤 `nfc_parse_file`/`nfc_diff_dumps`가 분석한다.
+import producer/사용자 UID claim/일반 storage pull만으로 실제 scan을 대신할 수 없다.
+
+정상 정책 거부는 GET_VERSION 또는 fact 기록을 막고 확인된 shell에서 자신의 scratch만 정리한다.
+timeout·취소·framing fault 뒤에는 session terminal과 새 TX0을 유지하며 exit/remove/ETX도 보내지 않는다.
+이 경우 원격 파일이 남을 수 있고, host close 확인은 장치 명령 종료나 RF field off와 별개다.
+
+고정 소스 근거는 [NFC shell](https://github.com/flipperdevices/flipperzero-firmware/blob/9e810dc399e027e48ce07751df72168abbb19065/applications/main/nfc/cli/nfc_cli.c),
+[dump](https://github.com/flipperdevices/flipperzero-firmware/blob/9e810dc399e027e48ce07751df72168abbb19065/applications/main/nfc/cli/commands/dump/nfc_cli_command_dump.c),
+[raw 14a](https://github.com/flipperdevices/flipperzero-firmware/blob/9e810dc399e027e48ce07751df72168abbb19065/applications/main/nfc/cli/commands/raw/protocol_handlers/iso14443_3a/nfc_cli_raw_iso14443_3a.c),
+[NFC option parser](https://github.com/flipperdevices/flipperzero-firmware/blob/9e810dc399e027e48ce07751df72168abbb19065/applications/main/nfc/cli/nfc_cli_command_processor.c#L195-L216)다.
 
 ## 취소·정리·오류
 

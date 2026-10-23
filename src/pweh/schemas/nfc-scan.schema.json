@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.nfc-scan/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ok",
+    "schema",
+    "scan_ref",
+    "family",
+    "identity_digest",
+    "uid_length",
+    "profile",
+    "inventory_eligible",
+    "probe_identity_match",
+    "version_crc_valid",
+    "page_read_performed",
+    "reselection_atomic",
+    "physical_same_tag_verified",
+    "device_command_termination_verified",
+    "scratch_cleanup_confirmed",
+    "warnings"
+  ],
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "schema": {
+      "const": "pweh.nfc-scan/v1"
+    },
+    "scan_ref": {
+      "type": "string",
+      "pattern": "^NS-[0-9a-f]{32}$"
+    },
+    "family": {
+      "enum": [
+        "ntag213",
+        "ntag215",
+        "ntag216"
+      ]
+    },
+    "identity_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{16}$"
+    },
+    "uid_length": {
+      "const": 7
+    },
+    "profile": {
+      "const": "flipper-ntag21x-admission-v1"
+    },
+    "inventory_eligible": {
+      "const": true
+    },
+    "probe_identity_match": {
+      "const": true
+    },
+    "version_crc_valid": {
+      "const": true
+    },
+    "page_read_performed": {
+      "const": false
+    },
+    "reselection_atomic": {
+      "const": false
+    },
+    "physical_same_tag_verified": {
+      "const": false
+    },
+    "device_command_termination_verified": {
+      "const": false
+    },
+    "scratch_cleanup_confirmed": {
+      "const": true
+    },
+    "warnings": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "provenance_close_unconfirmed"
+        ]
+      }
+    }
+  }
+}

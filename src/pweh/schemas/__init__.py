@@ -31,6 +31,7 @@ SKILL_DATA_SCHEMAS: dict[str, str] = {
     "android-forensics": "android-forensics",
     "flipper-rf-analysis": "rf-analysis",
     "numeric-observation-analysis": "numeric-analysis",
+    "nfc-behavior-analysis": "nfc-analysis",
 }
 
 

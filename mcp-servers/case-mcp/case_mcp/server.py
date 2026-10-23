@@ -255,7 +255,7 @@ def case_add_note(case_id: str, text: str, author: str = "agent") -> dict[str, A
 def case_paths(case_id: str, purpose: str = "extract", label: str = "run") -> dict[str, Any]:
     case = rt().cases.get(case_id)
     out = _paths(case)
-    base = case.subdir(purpose if purpose in ("extract", "analysis", "signals", "dumps", "jtag", "uart", "notes") else "analysis")
+    base = case.subdir(purpose if purpose in ("extract", "analysis", "signals", "dumps", "jtag", "uart", "notes", "nfc") else "analysis")
     n = 1
     safe_label = "".join(c if c.isalnum() or c in "-_" else "-" for c in label)[:32] or "run"
     while (base / f"{safe_label}-{n:03d}").exists():
@@ -267,7 +267,7 @@ def case_paths(case_id: str, purpose: str = "extract", label: str = "run") -> di
 def _paths(case) -> dict[str, Any]:
     return {
         "case_dir": str(case.dir),
-        **{f"{d}_dir": str(case.dir / d) for d in ("uart", "dumps", "extract", "analysis", "signals", "jtag", "steps", "patches")},
+        **{f"{d}_dir": str(case.dir / d) for d in ("uart", "dumps", "extract", "analysis", "signals", "jtag", "steps", "patches", "nfc")},
         "findings": str(case.findings_path),
         "report": str(case.dir / "report.md"),
     }
@@ -362,14 +362,14 @@ def case_register_artifact(case_id: str, path: str, kind: str, description: str 
 @server.tool(
     description=(
         "케이스 밖의 파일(예: 벤더 공식 펌웨어 다운로드, SPI 클립으로 읽은 덤프)을 케이스로 복사하고 등록. "
-        "dest_subdir 기본 'dumps'."
+        "dest_subdir 기본 'dumps'; NFC 일반 파일은 'nfc'도 허용한다(스캔·출처 증명은 별도)."
     ),
     annotations=ANN_LOCAL_WRITE,
 )
 @safe_tool
 def case_import_file(case_id: str, source_path: str, kind: str = "firmware-image", dest_subdir: str = "dumps", description: str | None = None) -> dict[str, Any]:
     case = rt().cases.get(case_id)
-    if dest_subdir not in ("dumps", "extract", "analysis", "signals", "jtag", "notes", "uart"):
+    if dest_subdir not in ("dumps", "extract", "analysis", "signals", "jtag", "notes", "uart", "nfc"):
         raise ValidationFailed(f"허용되지 않은 dest_subdir: {dest_subdir}")
     # 보호 상태(승인·증명·출처 원장·솔트·감사 로그)와 케이스의 보호 폴더(forensics/·emu/)를 케이스로 복사해 읽어 내지 못하게 한다.
     # 링크를 푼 경로(src)와 풀기 전 경로(raw)를 모두 본다 — 보호 폴더 자체가 다른 곳을 가리키는 링크여도 그 아래 경로로 부르면 막는다.

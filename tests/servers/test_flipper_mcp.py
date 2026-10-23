@@ -24,6 +24,7 @@ TOOLS = {
     "flipper_close": {"case_id"}, "flipper_device_info": {"case_id"},
     "flipper_storage_list": {"case_id", "path"},
     "flipper_storage_pull_start": {"case_id", "flipper_path", "dest_name"},
+    "flipper_nfc_probe": {"case_id", "approval_id"},
     "flipper_job_status": {"job_id", "wait_seconds", "case_id"},
     "flipper_job_cancel": {"job_id"}, "flipper_jobs": {"active_only", "case_id"},
 }
@@ -157,7 +158,7 @@ async def test_exact_public_tool_schema_and_annotations(env):
         schema = tools[name].input_schema
         assert set(schema["properties"]) == keys and schema["additionalProperties"] is False
         assert "ctx" not in schema["properties"]
-        assert tools[name].annotations.open_world_hint is (name in ("flipper_connect", "flipper_storage_pull_start"))
+        assert tools[name].annotations.open_world_hint is (name in ("flipper_connect", "flipper_storage_pull_start", "flipper_nfc_probe"))
     for name in ("flipper_device_info", "flipper_storage_list"):
         assert tools[name].annotations.read_only_hint is True
     assert tools["flipper_close"].annotations.read_only_hint is False
@@ -168,7 +169,8 @@ async def test_exact_public_tool_schema_and_annotations(env):
 async def test_all_sdk_extra_keys_are_rejected_without_raw_input(env, tool, extra, caplog):
     async with Client(S.server) as client:
         result = await invoke(client, env, tool, **{extra: PRIVATE})
-    assert "flipper_invalid_input" in result.get("_error", ""), result
+    expected = "nfc_input_invalid" if tool == "flipper_nfc_probe" else "flipper_invalid_input"
+    assert expected in result.get("_error", ""), result
     assert PRIVATE not in json.dumps(result) + caplog.text
     assert not env.opens and not env.fake.writes
 

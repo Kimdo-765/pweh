@@ -7,7 +7,7 @@ import inspect
 import math
 import re
 import threading
-from typing import Annotated
+from typing import Annotated, ClassVar
 
 import anyio
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata
@@ -24,6 +24,15 @@ from pweh.safety import Classification, Risk
 
 SERVER_NAME = "flipper-mcp"
 _ERRORS = {
+    "nfc_input_invalid": "NFC 입력이 허용된 형식이나 범위가 아닙니다.",
+    "nfc_input_limit": "고정 NFC probe의 입력 한도에 닿았습니다.",
+    "nfc_input_changed": "NFC probe 파일의 확인된 내용이 변경되었습니다.",
+    "nfc_scan_invalid": "고정 NFC probe 응답을 확인하지 못했습니다.",
+    "nfc_family_unsupported": "현재 NFC inventory가 허용하는 태그 계열이 아닙니다.",
+    "nfc_identity_mismatch": "두 NFC 선택의 신원이 일치하지 않습니다.",
+    "nfc_provenance_invalid": "NFC scan 사실을 보호 원장에 결속하지 못했습니다.",
+    "nfc_failed": "NFC probe를 완료하지 못했습니다.",
+    "nfc_cleanup_pending": "NFC scratch 파일의 정리를 확인하지 못했습니다.",
     "flipper_invalid_input": "Flipper 입력이 허용된 형식이나 범위가 아닙니다.",
     "flipper_identity_unknown": "Flipper의 고정 USB 신원을 확인하지 못했습니다.",
     "flipper_identity_changed": "Flipper 포트 또는 USB 범위가 변경되었습니다.",
@@ -56,7 +65,7 @@ _ERRORS = {
     "busy": "요청한 포트 또는 작업이 사용 중입니다.",
 }
 _TOOLS = ("flipper_connect", "flipper_close", "flipper_device_info", "flipper_storage_list",
-          "flipper_storage_pull_start", "flipper_job_status", "flipper_job_cancel", "flipper_jobs")
+          "flipper_storage_pull_start", "flipper_nfc_probe", "flipper_job_status", "flipper_job_cancel", "flipper_jobs")
 CaseId = Annotated[StrictStr, Field(max_length=80, pattern=CASE_ID_RE.pattern)]
 
 
@@ -90,7 +99,8 @@ def _text(value, limit: int) -> None:
 
 
 class _FlipperMetadata(FuncMetadata):
-    """8개 도구의 SDK 오류에서 추가 키·값·원문 위치를 제거한다."""
+    """고정 도구의 SDK 오류에서 추가 키·값·원문 위치를 제거한다."""
+    _input_code: ClassVar[str] = "flipper_invalid_input"
 
     def validate_arguments(self, arguments_to_validate: dict) -> dict:
         try:
@@ -104,9 +114,13 @@ class _FlipperMetadata(FuncMetadata):
         except (ValidationError, PwehError, OverflowError):
             raise ValidationError.from_exception_data(
                 "FlipperInput", [{"type": PydanticCustomError(
-                    "flipper_invalid_input", _ERRORS["flipper_invalid_input"]), "loc": (), "input": None}],
+                    self._input_code, _ERRORS[self._input_code]), "loc": (), "input": None}],
                 hide_input=True,
             ) from None
+
+
+class _NfcMetadata(_FlipperMetadata):
+    _input_code: ClassVar[str] = "nfc_input_invalid"
 
 
 def _fixed_call(fn):
@@ -139,12 +153,13 @@ def _configure_input(instance) -> None:
             model = old.arg_model
             model.model_config.update(strict=True, extra="forbid", hide_input_in_errors=True)
             model.model_rebuild(force=True)
-            tool.fn_metadata = _FlipperMetadata(arg_model=model, output_schema=old.output_schema,
+            metadata = _NfcMetadata if name == "flipper_nfc_probe" else _FlipperMetadata
+            tool.fn_metadata = metadata(arg_model=model, output_schema=old.output_schema,
                                                 output_model=old.output_model, wrap_output=old.wrap_output)
             tool.parameters = model.model_json_schema(by_alias=True)
             if tool.parameters.get("additionalProperties") is not False:
                 raise RuntimeError
-            if name in _TOOLS[5:]:
+            if name in ("flipper_job_status", "flipper_job_cancel", "flipper_jobs"):
                 tool.fn = _fixed_call(tool.fn)
     except Exception:
         raise RuntimeError("Flipper 도구의 비공개 입력 검증 설정을 완료하지 못했습니다.") from None
@@ -155,7 +170,8 @@ server = create_server(SERVER_NAME, title="PWEH Flipper 읽기 전송", instruct
     "flipper_connect → device_info/storage_list/storage_pull_start → job_status → flipper_close 순서다. "
     "connect는 DTR=true 포트 열기로 MODIFY이며 새 배너·버전·프롬프트를 확인하기 전 명령 바이트를 보내지 않는다. "
     "원격 /ext/pweh/<case_id>/ 아래 파일만 최대1MiB 받아 MD5와 host SHA를 확인한다. "
-    "임의 명령·앱 실행·RF/NFC 작업·재생·storage 쓰기는 없다. 파일 전송은 기기 파일 출처나 원자 snapshot 증명이 아니다. "
+    "flipper_nfc_probe는 MODIFY gate 뒤 고정 3A 선택·GET_VERSION과 scratch 한 개 생성/정리만 한다. "
+    "임의 명령·앱 실행·RF 재생·태그 쓰기·일반 storage 쓰기는 없다. 파일 전송은 기기 파일 출처나 원자 snapshot 증명이 아니다. "
     "끝나면 항상 close하며 물리 정리 미확인은 같은 세션과 잠금을 보존한다."
 ))
 
@@ -256,7 +272,7 @@ async def flipper_close(case_id: CaseId) -> dict:
         raise _fixed_error(exc) from None
 
 
-async def _operation(case_id, kind, path, ctx):
+async def _operation(case_id, kind, path, ctx, approval_id=None):
     cancelled = threading.Event()
     holder = {}
     lock = threading.Lock()
@@ -271,6 +287,8 @@ async def _operation(case_id, kind, path, ctx):
 
     try:
         _case_id(case_id)
+        if approval_id is not None:
+            _text(approval_id, 128)
         runtime = rt()
 
         def prepare():
@@ -290,12 +308,19 @@ async def _operation(case_id, kind, path, ctx):
             return owner, use
 
         owner, use = await run_blocking_cancellable(prepare, on_cancel=cancel)
-        action = {**owner.action, "operation": kind}
+        is_probe = kind == "nfc_probe"
+        if is_probe:
+            from .nfc import approval_action
+            action = approval_action(owner)
+        else:
+            action = {**owner.action, "operation": kind}
         if path is not None:
             action["path"] = path
         decision = await runtime.authorize(tool="flipper_" + kind, action=action,
-            classification=Classification(Risk.OBSERVE, "flipper.fixed-read", "고정 Flipper 읽기 명령"),
-            case_id=case_id, ctx=ctx, summary="고정 Flipper 정보 또는 저장소 목록 읽기")
+            classification=(Classification(Risk.MODIFY, "flipper.nfc-scratch-probe", "고정 NFC 선택과 장치 scratch 생성·정리")
+                if is_probe else Classification(Risk.OBSERVE, "flipper.fixed-read", "고정 Flipper 읽기 명령")),
+            case_id=case_id, approval_id=approval_id, ctx=ctx,
+            summary="고정 NFC probe와 scratch 정리" if is_probe else "고정 Flipper 정보 또는 저장소 목록 읽기")
         if not decision.allowed:
             return gate_response(decision)
 
@@ -303,7 +328,9 @@ async def _operation(case_id, kind, path, ctx):
             if not use.claim():
                 raise PwehError(_ERRORS["cancelled"], code="cancelled")
             try:
-                runtime.case(case_id, hardware=True)
+                case = runtime.case(case_id, hardware=True)
+                if is_probe:
+                    return owner._nfc_probe(use, case)
                 return owner.device_info(use) if kind == "device_info" else owner.storage_list(use, path)
             finally:
                 use.finish()
@@ -338,6 +365,23 @@ async def flipper_device_info(case_id: CaseId, ctx: Context | None = None) -> di
 async def flipper_storage_list(case_id: CaseId, path: Annotated[StrictStr, Field(max_length=512)],
                                ctx: Context | None = None) -> dict:
     return await _operation(case_id, "storage_list", path, ctx)
+
+
+@server.tool(description=(
+    "연결된 고정1.5.1 Flipper에서 ISO14443-3A 선택과 고정 GET_VERSION만 수행한다. "
+    "같은 case의 /ext/pweh/<case_id>/ 기존 폴더에 서버 생성 scratch 한 개를 쓰므로 MODIFY gate를 적용한다. "
+    "45초·probe4KiB 한도에서 UID7/SAK0·NTAG213/215/216 version과 CRC, 재선택 identity를 대조하고 "
+    "정상 scratch 부재 확인 뒤 같은 케이스 보호 원장에 scan 사실을 남긴다. "
+    "공개 반환은 scan_ref·family·케이스 솔트 digest이며 UID·ATQA·SAK·원문은 반환하지 않는다. "
+    "페이지 READ·인증·태그 쓰기·임의 raw는 없다. 재선택은 원자적이지 않고 동일 실물·RF off·장치 종료를 증명하지 않는다. "
+    "취소/시간/문법 실패 뒤 새 명령은 보내지 않으며 원격 scratch가 남을 수 있다. "
+    "approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다."
+), annotations=ANN_DEVICE)
+@safe_tool
+async def flipper_nfc_probe(case_id: CaseId,
+    approval_id: Annotated[StrictStr, Field(max_length=128)] | None = None,
+    ctx: Context | None = None) -> dict:
+    return await _operation(case_id, "nfc_probe", None, ctx, approval_id)
 
 
 @server.tool(description=(

@@ -24,6 +24,7 @@
    ├─ pweh-sdr         (mcp-servers/sdr-mcp)         등록된 Flipper RAW 파일의 오프라인 구조·통계 분석
    ├─ pweh-play        (mcp-servers/play-mcp)        공급 숫자 관측값의 오프라인 합의 검증·보고서 저장
    ├─ pweh-flipper     (mcp-servers/flipper-mcp)     고정 CLI 연결·정보·허용 폴더 파일 읽기
+   ├─ pweh-nfc         (mcp-servers/nfc-mcp)         스캔 inventory·일반 NFC 파일의 구조·저장 페이지 비교
    └─ rea              (외부: rea-agents 6.5)        binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩
             │
       [대상 기기]  (또는 테스트용 pweh.mocktarget 시뮬레이터. pweh-forensics 는 기기 대신 사람이 만든 카드 이미지 파일을 받는다)
@@ -62,6 +63,7 @@ MCP 도구와 케이스 입구는 아직 연결하지 않았으며, 파일의 �
 |---|---|
 | `pweh.rf_formats` | Flipper RAW v1의 선언값·부호별 펄스 통계. 줄 전체를 검증한 뒤 집계하고, 손상·미지원·예산 중단과 완전한 검사를 구분한다. 원시 펄스 목록·키·ID는 반환하지 않는다. [제한 프로필](references/flipper-raw-profile.md) |
 | `pweh.nfc_formats` | Flipper NFC v4 ISO14443-3A·NTAG213/215/216 구조와 저장된 페이지의 변화 위치. UID·페이지 내용·PWD/PACK·카운터 원문은 반환하지 않는다. 부분 읽기의 0값을 읽힘 증거로 사용하지 않는다. [제한 프로필](references/nfc-file-profile.md) |
+| `pweh.nfc_inventory` | bounded 보호 원장의 NTAG21x 스캔·inventory 사실과 private 식별값을 검증한다. 공개 파일 파서 결과는 유지하고 원문 식별값은 마스킹 조회 사본에 넣지 않는다. [계약](references/nfc-inventory-analysis.md) |
 | `pweh.vision_sequence` | 최대 256개 숫자 관찰의 최근 창·TTL·신뢰도·득표 판정. `stable/unknown/stale`은 관찰값 합의이며 영상 정지·게임 상태·버튼 동작 판정이 아니다. [모델 계약](references/numeric-observations.md) |
 
 ### 2.1 Windows 번들의 로컬 설치·정적 검사
@@ -117,6 +119,7 @@ cases/<case_id>/
   signals/             *.sr / *.vcd / 디코딩 텍스트
   jtag/                OpenOCD 로그·세션 상태(openocd-<n>.log/.json), 메모리 덤프(기본 위치. kind=flash-dump 면 dumps/),
                        레지스터 스냅샷, JTAGulator 세션 기록(jtagulator-<n>.log)과 스캔 원시 출력·결과(jtagulator-<n>-<scan>-<k>.log/.json)
+  nfc/                 가져온 일반 NFC 파일과 inventory.json 마스킹 조회 사본(보호 원장이 권위)
   jobs/<job_id>.json   백그라운드 작업 상태
   notes/               보드 사진 같은 사람 자료 (case_import_file(dest_subdir="notes")). case_add_note 메모는 case.json 에 저장
   findings.json        발견사항 목록 (각 항목은 schemas/finding.schema.json)
@@ -176,7 +179,7 @@ cases/<case_id>/
   `firmware-static-analysis`, `cctv-auth-bypass-hunt`, `report`. `case_create` 가 모두 `pending` 으로 만든다.
 - **선택 단계**(`OPTIONAL_PHASES`, 다른 목표·계측기용 Skill 에 예약한 이름): `game-save-unlock-analysis`, `numeric-observation-analysis`, `nfc-behavior-analysis`, `game-play-automation`,
   `flipper-rf-analysis`, `sd-card-forensics`, `espprobe`, `firmware-emulation`, `image-hints-analysis`, `android-forensics`. 미리 만들지 않는다. 그 Skill 이 summary 를 기록하거나 `case_set_phase` 로 상태를 정할 때 처음 생기므로,
-  그 목표를 쓰지 않는 케이스의 `case.json`·보고서는 그대로다. 이 가운데 Skill 이 있는 것은 `game-save-unlock-analysis`(요약 스키마 `save-analysis`)와 `sd-card-forensics`(요약 스키마 `sd-forensics`), `firmware-emulation`(요약 스키마 `emulation`), `image-hints-analysis`(요약 스키마 `image-hints`), `android-forensics`(요약 스키마 `android-forensics`), `flipper-rf-analysis`(요약 스키마 `rf-analysis`), `numeric-observation-analysis`(요약 스키마 `numeric-analysis`)이다. 나머지는 아직 없으므로 에이전트용 문서(master-prompt·Skill)에 그 이름을 적지 않는다.
+  그 목표를 쓰지 않는 케이스의 `case.json`·보고서는 그대로다. 이 가운데 Skill 이 있는 것은 `game-save-unlock-analysis`(요약 스키마 `save-analysis`)와 `sd-card-forensics`(요약 스키마 `sd-forensics`), `firmware-emulation`(요약 스키마 `emulation`), `image-hints-analysis`(요약 스키마 `image-hints`), `android-forensics`(요약 스키마 `android-forensics`), `flipper-rf-analysis`(요약 스키마 `rf-analysis`), `numeric-observation-analysis`(요약 스키마 `numeric-analysis`), `nfc-behavior-analysis`(요약 스키마 `nfc-analysis`)이다. 나머지는 아직 없으므로 에이전트용 문서(master-prompt·Skill)에 그 이름을 적지 않는다.
   Skill 을 만들 때 `SKILL_DATA_SCHEMAS`·master-prompt §5 표·`report._PHASE_LABEL` 에 함께 등록한다.
 - 상태 값: `pending`, `in-progress`, `done`, `partial`, `failed`, `skipped`, `blocked`. summary 의 status 는 `success` → `done`, `in-progress` → `in-progress`,
   나머지(`partial`·`failed`·`blocked`·`skipped`)는 같은 이름으로 옮긴다(`SUMMARY_PHASE_STATUS`).
@@ -1332,6 +1335,7 @@ DTR·USB 매핑·전송은 아직 실기 검증하지 않았으며 가짜 전송
 | `flipper_device_info(case_id)` | 고정 loader/info만 보낸다. model/target/format/version/commit/dirty를 투영하며 UID·장치 이름·원시 응답을 반환하지 않는다. 버전 주장은 호환성 관찰이다. |
 | `flipper_storage_list(case_id, path)` | 정확한 `/ext/pweh/<case_id>/` 아래 한 수준을 최대256항목으로 읽는다. 응답 완료와 파일시스템 전체 목록의 완전성을 구분한다. |
 | `flipper_storage_pull_start(case_id, flipper_path, dest_name=None)` | 같은 허용 루트의 단일 파일을 최대1MiB/300초로 읽는 job이다. 선언 크기·opaque binary·정확 종결·별도 device MD5를 검사하고 같은 host FD의 SHA를 재검증해 새0444 파일을 등록한다. |
+| `flipper_nfc_probe(case_id, approval_id=None)` | ready 세션에서 MODIFY gate 뒤 고정 ISO14443-3A probe·GET_VERSION과 임시 SD 파일 정리를 수행한다. 최대45초/4KiB, 성공 때만 보호 scan 사실과 마스킹 참조를 남긴다. 페이지 READ·tag write·임의 raw는 없다. |
 | `flipper_job_status(job_id, wait_seconds=0, case_id=None)` | 현재 작업 또는 같은 케이스 저장 기록 조회. wait는 최대50초다. |
 | `flipper_job_cancel(job_id)` | 취소를 요청하며 이후 새 명령·자동 Ctrl-C·재연결을 하지 않는다. 물리 close 전 lease를 해제하지 않는다. |
 | `flipper_jobs(active_only=False, case_id=None)` | 공통 job 목록·저장 기록 복구 규칙을 사용한다. |
@@ -1345,6 +1349,28 @@ terminal이며 자동 재동기화하지 않는다. 파일 본문에서 prompt/A
 snapshot_atomic/device_file_origin_verified는 false이며 NFC inventory·펌웨어 device-read·
 포렌식 EV 출처로 승격하지 않는다. 등록 후 늦은 취소·감사 실패에도 receipt를 보존한다.
 RAW 파일이면 반환 artifact ID를 `sdr_analyze`로 넘긴다. [전송 계약](references/flipper-read-transport.md).
+
+### 6.14 pweh-nfc (스캔 결속 파일 분석)
+
+`mcp-servers/nfc-mcp/`는 NTAG213/215/216의 보호 스캔 기록과 같은 케이스 등록 파일을
+결속한다. 기존 유효 inventory의 파일 검사에는 live reader가 필요하지 않다.
+
+| 도구 | 계약 |
+|---|---|
+| `nfc_tag_inventory_add(case_id, scan_ref)` | 같은 케이스의 고정 성공 scan을 검사하고 inventory 사실을 등록한다. 같은 scan 재등록은 기존 tag_ref를 반환한다. nfc/inventory.json은 최근32개 마스킹 조회 사본이다. |
+| `nfc_parse_file(case_id, artifact_id, tag_ref, max_seconds=5)` | 등록 일반 파일≤1MiB의 전체 SHA·private 식별값·최신 출처와 기존 provenance-import 증명을 검사한 뒤 기존 NFC 구조 결과를 저장한다. |
+| `nfc_diff_dumps(case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds=5)` | 두 파일 합≤2MiB, 같은 inventory와 두 SHA의 증명을 각각 확인해 기존 저장 페이지 비교 결과를 저장한다. |
+
+세 도구는 소유/허가 확인 뒤 로컬 결과를 쓰며 `ANN_LOCAL_WRITE`다. 임의 UID·계열·키·
+attested 인자를 받지 않는다. 증명 대기 전에 FD를 닫고, 만족 후 새 worker가 입력·원장·증명을
+다시 검사한다. 입력 작업은 최대5초, 마지막 같은 FD/원장/출력 검증·등록은 별도5초 한 번이다.
+원장 snapshot은16MiB/10000entries/64KiB 읽기로 제한하며 기존 체인 검증을 생략하지 않는다.
+
+보고서는 `nfc-file-analysis`, 스캔·inventory 반환은 `nfc-scan`/`nfc-inventory`, Skill 요약은
+`nfc-analysis`다. `inventory_binding_verified=true`와 `physical_same_tag_verified=false`를
+구분하고 기존 부분 읽기·미비교·null을 보존한다. 전체 태그 읽기·동작/진품·RF off는 증명하지
+않는다. 원문 UID·페이지·자격증명은 공개 응답에 없으며 등록 후 receipt를 보존한다.
+[상세 계약](references/nfc-inventory-analysis.md).
 
 ## 7. REA 연동
 

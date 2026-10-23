@@ -55,6 +55,9 @@ LOCAL_WRITE_ALLOW |= {f"mcp__pweh-espprobe__{name}" for name in (
 LOCAL_WRITE_ALLOW.add("mcp__pweh-sdr__sdr_analyze")
 # 공급 숫자 관측값의 합의 결과만 로컬에 기록한다.
 LOCAL_WRITE_ALLOW.add("mcp__pweh-play__vision_validate")
+# 스캔 결속 inventory와 등록 NFC 파일의 로컬 검사 결과다.
+LOCAL_WRITE_ALLOW |= {f"mcp__pweh-nfc__{name}" for name in (
+    "nfc_tag_inventory_add", "nfc_parse_file", "nfc_diff_dumps")}
 # 상태 조회의 기존 자동 허용을 유지한다. 선택 case_id의 종료 기록만 정리하며 기기·작업은 실행하지 않는다.
 LOCAL_WRITE_ALLOW |= {f"mcp__pweh-{prefix}__{prefix}_{suffix}"
                       for prefix in ("uart", "openocd", "sigrok", "jtagulator", "esp", "forensics", "flipper")

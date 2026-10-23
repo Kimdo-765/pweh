@@ -11,13 +11,13 @@ disable-model-invocation: true
 1. `orchestrator/master-prompt.md` 를 **처음부터 끝까지** 읽고, 그 규칙(특히 §1 절대 규칙)을 이번 세션 내내 따른다.
 2. 사용자 메시지(Claude Code 에서는 본문 끝의 `ARGUMENTS:` 줄)에 있는 기기 설명과 목표를 Phase 0 접수(master-prompt §3)의 출발점으로 쓴다.
    비어 있으면 목표와 기기 정보부터 묻는다. 목표는 넷이다: **보안 분석**(기본 — CCTV/IoT 기기, ESP32 보드) / 게임 콘솔 분석 / RF·하드웨어 분석 / SD 카드 포렌식.
-   게임 콘솔 분석은 세이브·해금 분석과 사용자가 원한 세이브 값 변경(사람이 쓴다), 공급 숫자 관측값 검증까지 일부 지원한다(NFC·플레이 자동화는 아직).
+   게임 콘솔 분석은 세이브·해금 분석과 사용자가 원한 세이브 값 변경(사람이 쓴다), 공급 숫자 관측값 검증·스캔 결속 NFC 파일 분석까지 일부 지원한다(태그 전체 덤프·플레이 자동화는 아직).
    SD 카드 포렌식은 `sd-card-forensics` 로 카드 이미지 증거 분석(접수·해시·보관 기록, 파일 목록·삭제 파일 추출, 증거 목록)과 펌웨어의 SD 공격 표면까지 일부 지원한다(선택 BMFF 구조·저장된 후보 prefix 추출 지원, 녹화 내용 해석·녹화 타임라인·원시 카드 전체 카빙은 아직).
    RF·하드웨어 분석은 `flipper-rf-analysis`로 보유 RAW 파일 검사와 선택한 Flipper 고정 CLI 파일 읽기를 일부 지원한다. 실제 전송은 미검증이며 RF 수신·해독·송신은 준비 중이다. 보안 분석이 아닌 목표는 지금 있는 Skill·도구로 할 수 있는 일(master-prompt §3.1)만 한다는 것을 먼저 알린다.
    확보한 ESP32·S3·C3/Arduino AVR 펌웨어를 PC 에서 실행할 때는 선택 단계 `firmware-emulation` 을 쓴다(USB 콘솔·무선·대부분의 주변장치 미지원).
 3. 진행 전에 필요한 MCP 서버가 연결되어 있는지 확인한다.
    - 보안 분석: `pweh-case`, `pweh-uart`, `pweh-fwtriage`, `rea` (선택: `pweh-sigrok`, `pweh-openocd`, `pweh-jtagulator`, ESP32 계열이면 `pweh-esp`).
-   - 게임 콘솔 분석: 공급 숫자만 검증하면 `pweh-case`·`pweh-play`와 `numeric-observation-analysis`를 쓴다. 장비·환경 조회·펌웨어 확보를 요구하지 않는다. 세이브·해금 분석이면 `pweh-case`, `pweh-fwtriage`, `rea` (ESP32 기반이면 `pweh-esp`, 리눅스·MCU 기기면 보안 분석의 서버).
+   - 게임 콘솔 분석: 공급 숫자만 검증하면 `pweh-case`·`pweh-play`와 `numeric-observation-analysis`를 쓴다. 장비·환경 조회·펌웨어 확보를 요구하지 않는다. 세이브·해금 분석이면 `pweh-case`, `pweh-fwtriage`, `rea` (ESP32 기반이면 `pweh-esp`, 리눅스·MCU 기기면 보안 분석의 서버). NFC 파일은 `pweh-case`·`pweh-nfc`와 `nfc-behavior-analysis`를 쓴다. 기존 inventory가 없고 새 스캔을 원하면 `pweh-flipper`를 연결한다.
    - SD 카드 포렌식: `pweh-case`, `pweh-forensics` (펌웨어 쪽 SD 공격 표면도 보면 `pweh-fwtriage`·`rea`, 시험 카드 부팅 로그는 `pweh-uart`).
    - 정지 이미지 힌트(선택): `pweh-case`, 증거면 `pweh-forensics`. `image-hints-analysis`를 쓰며 영상·음성은 처리하지 않는다.
    - 펌웨어 에뮬레이션(선택): `pweh-case`, `pweh-emu`. 콘솔은 `emu_read` 로만 보며 `emu/` 세션 파일은 열지 않는다.
@@ -35,3 +35,5 @@ disable-model-invocation: true
    Windows OpenOCD는 고정 dummy 진단과 `tigard-jtag-v1`의 어댑터 초기화·제한 조회만 지원한다. Tigard 실기 사용은 모델·소유/허가·배선·전압 확인 뒤 master-prompt §4와 `docs/references/windows-openocd-tigard.md`를 따른다. 타깃·메모리·덤프에는 기본 Linux 경로를 쓴다.
    `flipper-rf-analysis`는 케이스에 등록한 Flipper RAW 파일 검사와 `rf-analysis` 요약을 남긴다.
    `numeric-observation-analysis`는 공급 숫자의 합의와 `numeric-analysis` 요약을 남긴다. 게임 분석 완료에는 실제 수행한 경로의 요약만 요구하며 화면 신선도·게임 의미·버튼 동작을 확인했다고 보고하지 않는다. 없는 Skill 이름을 지어 쓰지 않는다.
+
+`nfc-behavior-analysis`는 서버 스캔·inventory와 출처 증명에 결속된 파일의 구조·차이를 검사하고 `nfc-analysis` 요약을 남긴다. 실제 게임 동작·진품·전체 태그 읽기를 확인한 것으로 보고하지 않는다.
