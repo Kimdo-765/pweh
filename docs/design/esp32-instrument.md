@@ -745,5 +745,9 @@ USB 열거·해제 지연·Hi-Z를 증명하지 않는다. 이 항목은 1b에�
 생산자가 없으면 입장에서 거부하며, 공개 여섯 sim 도구에 실제 포트를 추가하지 않는다.
 
 [버스 C 코어](../references/espprobe-bus-core.md)는 typed HAL에서 고정 SPI 읽기/SFDP·24Cxx 시퀀서,
-중복/credit·두 패스·VREF/HB/해제를 검증한다. 현재 hello dispatcher·wire op·CMake·release·caps는 유지한다.
-실제 GPIO/ADC·wire dispatch·덤프 job/출처 원장은 이 결과에 포함되지 않으며 1b 전기적 검증을 대신하지 않는다.
+중복/credit·두 패스·VREF/HB/해제를 검증한다. [내부 wire·수집기](../references/espprobe-bus-wire.md)는
+실제 C HELLO→고정 bus frame→주입 합성 transport→caller FD두 패스→DONE/BYE·close·최종 SHA를 연결한다.
+전역 canonical REQ cache와 cleanup tombstone을 구분하고, DATA 뒤 guard 실패는 완료로 표시하지 않는다.
+현재 hello dispatcher·공개 wire 기능·CMake·release·caps와 여섯 sim 도구는 유지한다.
+실제 GPIO/ADC·운영 USB dispatch·공개 덤프 job/Case·출처 원장은 이 결과에 포함되지 않으며
+1b 전기적 검증을 대신하지 않는다.

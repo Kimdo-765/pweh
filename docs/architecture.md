@@ -1317,7 +1317,11 @@ worker join과 transport 정리가 확인된 뒤만 lease를 반환한다. [내�
 
 `firmware/espprobe/bus/`는 SPI 제한 읽기·SFDP·24Cxx 읽기·credit/중복·전압/시간 해제를 처리하는
 호스트 시험용 C 코어다. typed HAL만 사용하며 현재 hello CMake/release·빈 정책·wire credit 0은 유지한다.
-실제 GPIO·버스 wire dispatcher·덤프 job/출처 연결은 포함하지 않는다.
+[내부 wire·수집기](references/espprobe-bus-wire.md)는 고정 SPI_PROBE/READ_BEGIN/DATA/DONE과
+전역 REQ cache·HB credit을 연결한다. 주입 transport와 caller의 FD두 개만 받는 collector는
+두 패스의 순서·실제 저장량, DONE→BYE ACK→물리 close 확인 뒤 같은 FD의 전체 SHA를 검증한다.
+원래 작업 end≤600초·별도 cleanup5초 한 번을 사용하고 미확정 owner는 명시 close로 재확인한다.
+실제 GPIO·운영 USB dispatcher·공개 덤프 job/Case·출처 연결은 포함하지 않는다.
 [버스 코어 계약](references/espprobe-bus-core.md)과 실제 1b·1c 확인을 구분한다.
 
 **공용 코드와 핀아웃 형식**

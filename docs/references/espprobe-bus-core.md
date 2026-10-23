@@ -3,8 +3,9 @@
 `firmware/espprobe/bus/`는 제한된 읽기 계획, 흐름 제어와 해제를 처리하는 C11 코드다.
 실제 C를 합성 HAL에 연결해 시험하며 동적 할당·ESP-IDF·파일·네트워크를 사용하지 않는다.
 init은 새 저장소의 초기화에만 사용하며 살아 있는 context나 HAL callback에서 다시 호출하지 않는다.
-현재 `probe-hello` 이미지의 빌드 입력에는 이 파일들을 넣지 않는다. 공개 MCP, 새 wire op,
+현재 `probe-hello` 이미지의 빌드 입력에는 이 파일들을 넣지 않는다. 공개 MCP,
 버스 기능 광고·GPIO adapter·덤프 파일과 출처 원장은 이 코어에 포함되지 않는다.
+[내부 wire·수집기](espprobe-bus-wire.md)는 별도 호스트 시험 경로로 이 코어를 연결한다.
 
 ## 내부 세션과 읽기 계획
 
@@ -21,8 +22,9 @@ binding의 진위를 증명하지 않는다. 같은 세대의 해제된 세션�
 상태는 RELEASED → BOUND → READY → RUNNING → DONE이다. 같은 seq·같은 계획은
 이전 응답만 반환하고 버스를 다시 실행하지 않는다. 같은 seq의 다른 계획과 cache 밖의
 옛 seq는 거부한다. cache 4개와 REQ high-water를 구분하고, HB sequence도 따로 유지한다.
-향후 wire dispatcher는 기존 전체 canonical 요청의 동일성과 전역 sequence를 먼저
-검사해야 한다. typed 계획의 동일성이 wire 동일성을 대신하지 않는다.
+내부 wire dispatcher는 전체 canonical 요청의 동일성과 전역 sequence를 먼저 검사한다.
+typed 계획의 동일성이 wire 동일성을 대신하지 않는다. wire generation마다 BEGIN은 한 번만
+허용하며 이 typed 코어의 DONE 뒤 새 BEGIN 가능 여부와 구분한다.
 
 ## SPI 읽기 제한
 
