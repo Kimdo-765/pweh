@@ -573,6 +573,12 @@ pweh-forensics 와 그 코어(`pweh.fs`·`pweh.evidence`·`pweh.safeio`)가 지�
 - 검색은 payload 내부의 표지를 지날 수 있으나 의미는 해석하지 않는다. 원문·채널·시각·extension 내용·개별 payload 지문을 반환하지 않으며 checksum·codec·재생·암호화·완전 녹화도 판정하지 않는다. 잘린 record·검색 한도·출처 불확실성은 partial로 보존한다.
 - 같은 EV fd와 custody 잠금 아래 입력·출력 seal을 검사하고 SDK 타입 오류도 입력 원문을 숨긴다. 커밋 전 실패는 이번 출력만 정리하고 이후 늦은 취소는 결과를 보존한다. 45초는 선택·검색의 공통 예산이며 강제 RSS·커널 I/O 시간 보장은 아니다. 기존 BMFF 추출 입구를 통해 DHAV를 추출할 수 없다. [상한·회계·출처 계약](references/dhav-candidates.md).
 
+**BMFF 스트리밍 검색**
+
+- `forensics_bmff_scan`은 접수 EV에서 ftyp 시작점을 bounded 검색한다. 검색 읽기8..1 GiB·구조 읽기 별도1 MiB·45초를 공유하며 box/brand 상한은 호출 전체에 누적한다. 검색 bytes에는 payload도 포함될 수 있지만 의미를 해독하지 않는다.
+- prefix는 완전한 상자 경계에서만64 MiB까지 인정한다. size0을 EV EOF로 확장하지 않으며, 검색 처리 위치·pending·chain 제한·다음 재개 위치를 구분한다. 원본 파일 끝·전체 녹화·재생·암호화 검증이나 후보 간 관계를 주장하지 않는다.
+- source SHA는 접수값이다. same FD와 최종 custody 잠금 검사를 거쳐 bmff-scan에 저장하고, 추출 전 필요한 범위를 기존 후보 도구로 다시 읽어 구간 SHA에 결속한다. scan 보고서는 기존 extractor 입력이 아니다. [완료도·출처 계약](references/bmff-scan.md).
+
 **DHAV 스트리밍 검색**
 
 - `forensics_dhav_scan`은 접수 EV의 바이트를 검색한다. 검색 읽기는 최대1 GiB, 구조 필드 읽기는 별도1 MiB이며 구조 확인이 검색창 밖에 도달할 수 있다. 읽기량과 처리한 magic 시작 위치의 완료 prefix를 구분한다. 원시 디스크·파일 시스템 할당 상태·조각 재조립은 다루지 않는다.

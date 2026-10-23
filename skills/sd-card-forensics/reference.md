@@ -390,3 +390,35 @@ SHA·출처를 재검증하며 새 format/범위를 받지 않는다. 기존 job
 recovered·notes 및 증거 목록에 남긴다. 출력은 unit-000.bin과 manifest 두 파일이다.
 원래 partial·새 불확실성을 보존하며 complete=true는 지정 bytes 복사 완료일 뿐이다.
 추출물을 직접 열거나 영상·음성을 해독하지 않는다. [추출 계약](../../docs/references/media-unit-extract.md).
+
+## 20. EV의 BMFF 스트리밍 검색
+
+`forensics_bmff_scan(case_id, evidence_id, start_offset=0, max_scan_bytes=1073741824,
+max_seconds=45)`는 같은 접수 EV fd에서 ftyp 시작점과 연속 최상위 상자 prefix를 찾는다.
+max_scan_bytes는8..1 GiB의 연속 검색 읽기 합계다. 검색창은64 KiB 이하, carry는7bytes이고
+구조 읽기≤1 MiB는 별도다. 구조 검사가 창 밖으로 나가도 검색 완료 범위를 늘리지 않는다.
+최대1024probe·128row·prefix64 MiB·JSON1 MiB이며 box/brand 예산도 호출 전체에 누적한다.
+
+source4필드의 evidence_sha256은 접수 해시이며 이번 전체 EV 재해시가 아니다.
+후보 offset은 **EV 절대 상자 헤더 위치**, validated_prefix_length는 완전 상자들의 검증
+prefix 길이다.64 MiB를 넘기는 다음 상자를 일부 잘라 넣지 않으며 size0도 EV 끝까지
+확장하지 않는다. EV 끝이나 prefix 끝을 원본 파일 EOF로 간주하지 않는다.
+
+next_offset은 처리한 연속 위치 prefix 뒤의 재개 위치다. search_complete는 요청 시작 이후,
+whole_evidence_search_complete는 start0 한 호출의 전체 가능한 시작 위치 검색이다.
+candidate_checks_complete는 관찰 anchor의 제한 검사 완료로, 행의 framing_status와 별개다.
+시간/한도 때문에 chain이 미완료여도 이미 검증한 prefix는 partial로 남을 수 있다.
+여러 보고서를 자동 합쳐 전체 완료로 승격하지 않는다. 취소·읽기/무결성 실패는 미게시다.
+
+필요한 행 하나의 offset/validated_prefix_length를 같은 EV의 `forensics_media_candidates`에
+offset/length로 전달한다. 새 구간 보고서가 전체 선택 SHA를 결속하면 그 보고서에 실제로
+있는 후보 번호로만 `forensics_extract_media_candidate`를 호출한다. scan 보고서는 직접
+추출에 쓰지 않는다. 새 후보 offset은 구간 상대이며 이전 index/끝 사유를 복사하지 않는다.
+job 완료를 확인하고 기존 recovered·notes에 기록하며 추출물을 직접 열지 않는다.
+
+`bmff_scan_results[]`는 evidence_id, analysis_path/sha256(analysis), status(report.status),
+evidence_size(report.source), candidates_reported(report.summary)6필드다. EV 크기는
+검색량이 아니며 미검색 범위·재개·부분 chain은 원보고서 coverage를 참조한다.
+기존 media_candidate_results와 prefix 추출의 의미는 바꾸지 않는다. 후보 관계·시각·본문·
+암호화·원본 경계·전체 녹화·재생을 판정하지 않는다. 출력은 `bmff-scan` 사건에 결속되며
+세부 한도·저장 계약은 [BMFF streaming 검색](../../docs/references/bmff-scan.md)을 따른다.

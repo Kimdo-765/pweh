@@ -54,6 +54,10 @@ class _Limit(Exception):
         self.reason = reason
 
 
+class _PrefixTooLarge(Exception):
+    """stream 전용: 첫 ftyp조차 prefix 상한에 들어오지 않는다."""
+
+
 def _new(size: int) -> dict:
     return {"schema": SCHEMA, "profile": PROFILE, "status": "unsupported",
             "media_decoded": False, "playback_verified": False, "recording_time_verified": False,
@@ -76,9 +80,14 @@ def _new(size: int) -> dict:
 
 class _Scanner:
     def __init__(self, data: bytes, limits: BmffCandidateLimits, deadline: float,
-                 cancel: Callable[[], bool] | None):
+                 cancel: Callable[[], bool] | None, *, input_size: int | None = None,
+                 read_at: Callable[[int, int], bytes] | None = None,
+                 max_prefix_bytes: int | None = None):
         self.data, self.limits, self.deadline, self.cancel = data, limits, deadline, cancel
-        self.report = _new(len(data))
+        # 공개 bytes 경로는 원래 입력·읽기·결과를 유지한다. stream은 검증한 내부 reader만 준다.
+        self.input_size = len(data) if input_size is None else input_size
+        self.read_at, self.max_prefix_bytes = read_at, max_prefix_bytes
+        self.report = _new(self.input_size)
         self.cov = self.report["coverage"]
         self.summary = self.report["summary"]
         self.rows = self.report["candidates"]
@@ -110,6 +119,10 @@ class _Scanner:
         self.check()
         if self.cov["structure_bytes_read"] + count > self.limits.max_structure_bytes:
             raise _Limit("structure_byte_limit")
+        if self.read_at is not None:
+            result = self.read_at(offset, count)
+            self.cov["structure_bytes_read"] += count
+            return result
         self.cov["structure_bytes_read"] += count
         return self.data[offset:offset + count]
 
@@ -120,7 +133,7 @@ class _Scanner:
             raise _Limit("box_limit")
         self.cov["boxes_examined"] += 1
         self.header_attempts += 1
-        remaining = len(self.data) - offset
+        remaining = self.input_size - offset
         if remaining < 8:
             return None, 0, 0, "truncated_header"
         raw = self.read(offset, 8)
@@ -159,6 +172,8 @@ class _Scanner:
         _, length, header, failure = self.header(offset, anchor=True)
         known: set[str] = set()
         if failure is None:
+            if self.max_prefix_bytes is not None and length > self.max_prefix_bytes:
+                raise _PrefixTooLarge()
             payload = length - header
             if payload < 8 or (payload - 8) % 4:
                 failure = "invalid_ftyp_shape"
@@ -196,13 +211,16 @@ class _Scanner:
         self.rows.append(row)
         cursor = offset + length
         try:
-            while cursor < len(self.data):
+            while cursor < self.input_size:
                 kind, size, _, failure = self.header(cursor)
                 if failure is not None:
                     row["end_reason"] = failure
                     if failure != "next_ftyp":
                         row["framing_status"] = "partial"
                         self.reason("candidate_framing_partial")
+                    return
+                if self.max_prefix_bytes is not None and cursor + size - offset > self.max_prefix_bytes:
+                    row["end_reason"], row["framing_status"] = "prefix_size_limit", "partial"
                     return
                 row["boxes_validated"] += 1
                 row["box_counts"][kind] += 1
