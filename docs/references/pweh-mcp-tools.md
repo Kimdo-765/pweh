@@ -390,6 +390,8 @@
   케이스에 등록된 일반 파일 하나를 오프라인 RAW 프로필로 검사한다. artifact_id는 같은 케이스 A-id이며 profile='flipper-subghz-raw-v1-strict'를 반드시 지정한다. 소유/허가 확인이 필요하며 forensics/·emu/ 입력은 받지 않는다. 최대1 MiB, max_seconds는0초 초과5초 이하(기본5)이며 입력 선택·읽기·SHA·검사가 같은 예산
 - **`sdr_peaks(case_id, artifact_id, max_seconds?)`**  
   케이스에 등록된 일반 파일 하나를 고정 rtl-power-blog-v1.4.0-csv 프로필로 오프라인 검사한다. artifact_id는 같은 케이스 A-id이며 소유/허가 확인이 필요하다. forensics/·emu/ 입력은 받지 않는다. 파일은 최대1MiB, max_seconds는0초 초과5초 이하(기본5)이며 입력 선택·읽기·SHA·검사가 같은 예산을 사용한다. 결과 생성 뒤 최종 무결
+- **`sdr_import_flipper_sub(case_id, artifact_id, max_seconds?)`**  
+  케이스에 등록된 Flipper Sub-GHz RAW 파일 하나를 오프라인 OOK 텍스트로 변환한다. artifact_id는 같은 케이스 A-id이며 소유/허가 확인이 필요하다. forensics/·emu/ 입력은 받지 않는다. 최대1MiB 입력을 기존 strict RAW 프로필로 먼저 검사하고 complete인 OOK270/OOK650만 허용한다. 짝수 duration을 순서대로 최대1200
 
 ## pweh-play
 

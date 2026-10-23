@@ -51,8 +51,9 @@ LOCAL_WRITE_ALLOW = {f"mcp__pweh-forensics__{name}" for name in (
 # I5 1a는 서버 내부 모델과 로컬 JSON만 다루며 실제 전송 계층이 없다.
 LOCAL_WRITE_ALLOW |= {f"mcp__pweh-espprobe__{name}" for name in (
     "espprobe_connect", "espprobe_self_test", "espprobe_release_all", "espprobe_disconnect")}
-# 등록된 RAW 파일의 오프라인 보고서만 쓰는 도구다.
-LOCAL_WRITE_ALLOW.update({"mcp__pweh-sdr__sdr_analyze", "mcp__pweh-sdr__sdr_peaks"})
+# 등록 파일의 오프라인 보고서·제한 OOK 파생 파일만 쓰는 도구다.
+LOCAL_WRITE_ALLOW.update({"mcp__pweh-sdr__sdr_analyze", "mcp__pweh-sdr__sdr_peaks",
+                          "mcp__pweh-sdr__sdr_import_flipper_sub"})
 # 공급 숫자 관측값의 합의 결과만 로컬에 기록한다.
 LOCAL_WRITE_ALLOW.update({"mcp__pweh-play__vision_validate", "mcp__pweh-play__vision_template_match"})
 # 스캔 결속 inventory와 등록 NFC 파일의 로컬 검사 결과다.

@@ -1,4 +1,4 @@
-"""sdr-mcp: 케이스 등록 RAW·전력 CSV의 제한된 오프라인 검사 입구."""
+"""sdr-mcp: 등록 RAW·전력 CSV 검사와 제한된 로컬 OOK 변환 입구."""
 
 from __future__ import annotations
 
@@ -16,6 +16,8 @@ from pweh.errors import PwehError
 from pweh.mcpkit import ANN_LOCAL_WRITE, create_server, run_blocking_cancellable, safe_tool
 from pweh.rf_formats import PROFILE
 from pweh.runtime import Runtime, get_runtime
+
+from .ook_tools import register_ook_tools
 
 SERVER_NAME = "sdr-mcp"
 _ERRORS = {
@@ -154,10 +156,11 @@ def _power_arguments(case_id, artifact_id, max_seconds) -> None:
 
 
 server = create_server(
-    SERVER_NAME, title="PWEH 오프라인 RAW·전력 CSV 분석",
+    SERVER_NAME, title="PWEH 오프라인 RAW·전력 CSV 분석·OOK 변환",
     instructions=(
         "허가된 케이스에 등록된 파일을 sdr_analyze의 명시 RAW profile 또는 sdr_peaks의 고정 전력 CSV profile로 오프라인 검사한다. "
         "case_import_file의 artifact_id → RAW는 sdr_analyze, 전력 CSV는 sdr_peaks → flipper-rf-analysis의 rf-analysis 요약 순서다. "
+        "sdr_import_flipper_sub는 complete OOK270/OOK650 RAW의 최대1200쌍을 로컬 OOK 파일로 변환하고 manifest를 등록한다. "
         "입력은 최대1 MiB, 작업 최대5초와 결과 생성 뒤 최종 저장 최대5초의 협력 예산이다. "
         "선언·수용 줄 통계·입력 SHA를 기록하며 원시 pulse/주석·CSV 행·날짜/시각은 반환하지 않는다. "
         "complete는 지원 파일 문법의 완료다. RF 수신·송신·재생·프로토콜 해독이나 "
@@ -246,6 +249,7 @@ async def sdr_peaks(
 
 _configure_input(server)
 _configure_power_input(server)
+register_ook_tools(server, globals())
 
 
 def main() -> None:

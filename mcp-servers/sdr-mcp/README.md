@@ -1,6 +1,6 @@
 # pweh-sdr
 
-케이스에 등록된 Flipper Sub-GHz RAW 또는 rtl_power CSV 파일 하나를 오프라인 검사하는 MCP 서버다. 공개 도구는 RAW의 `sdr_analyze`와 전력 CSV의 `sdr_peaks`이며, 파일 선언과 집계 통계를 분석 보고서로 저장한다. 소유 또는 서면 허가가 기록된 케이스에서 사용한다.
+케이스에 등록된 Flipper Sub-GHz RAW 또는 rtl_power CSV 파일 하나를 오프라인 검사하는 MCP 서버다. 공개 도구는 RAW의 `sdr_analyze`, 전력 CSV의 `sdr_peaks`, 제한 변환의 `sdr_import_flipper_sub`다. 파일 검사·집계 또는 로컬 .ook 변환과 해시 보고서를 저장한다. 소유 또는 서면 허가가 기록된 케이스에서 사용한다.
 
 등록 이름은 `pweh-sdr`, 실행 명령은 `pweh-sdr-mcp`(stdio)다. 프로젝트의 Python 패키지 설치에 포함되며 RTL-SDR·Flipper·외부 decoder 실행 파일이 필요하지 않다.
 
@@ -27,7 +27,17 @@ profile 인자는 없으며 `rtl-power-blog-v1.4.0-csv`로 고정한다. ASCII C
 정수 선언·소수 2자리 전력·정확한 `-inf`를 검사하고 완전히 수용한 행의 값만 집계한다.
 유한 값의 상위 32개를 보고된 열 기준으로 반환한다. FFT bin 수·주파수 중심·실제 보정 전력은 확인하지 않는다.
 
-## 결과와 저장
+## 제한 OOK 변환
+
+`sdr_import_flipper_sub(case_id, artifact_id, max_seconds=5)`는 유일하게 등록된 RAW 파일1B..1MiB를
+strict 전체 검사한 뒤 OOK270/650의 짝수 duration2..2400개·magnitude1..INT32_MAX만 변환한다.
+경로·출력명·decoder 인자는 없으며 반환은 `ok`, `report`, `analysis`, `output`, `warnings`다.
+0700의 `analysis/rf-ook-NNN/`에 .ook/manifest 두0444 파일을 만들고 manifest만 등록한다.
+처리≤5초에 선택·변환·작성·최초 해시, 이후 final5초 한 번에 입력/출력 재해시와 등록을 포함한다.
+원문 duration은 로컬 .ook에만 있으며 응답·요약은 참조·해시·집계와 여덟 false flag를 유지한다.
+`offline-ook` 요약은 기존 RAW/CSV 요약과 섞지 않는다. [변환·결과 계약](../../docs/references/rf-ook-conversion.md).
+
+## RAW·전력 CSV 결과와 저장
 
 성공 봉투는 `ok`, `report`, `analysis`, `warnings`다. `report`는 `rf-raw-analysis` 또는 `rf-power-analysis` 스키마의 source/params/inspection을 담고, `analysis`는 생성 경로·SHA256·크기·등록 ID를 담는다.
 

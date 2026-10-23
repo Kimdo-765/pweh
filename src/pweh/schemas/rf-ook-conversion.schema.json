@@ -1,0 +1,267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.rf-ook-conversion/v1",
+  "title": "등록 RAW의 제한된 OOK 변환 매니페스트",
+  "type": "object",
+  "required": [
+    "schema",
+    "profile",
+    "status",
+    "source",
+    "params",
+    "metadata",
+    "conversion",
+    "output",
+    "input_completeness_verified",
+    "capture_verified",
+    "device_association_verified",
+    "authorization_assessed",
+    "decoded",
+    "transmitted",
+    "packet_boundaries_verified",
+    "decoder_compatibility_verified",
+    "limitations"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pweh.rf-ook-conversion/v1"
+    },
+    "profile": {
+      "const": "flipper-raw-ook-v1"
+    },
+    "status": {
+      "const": "complete"
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "kind",
+        "artifact_id",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "kind": {
+          "const": "case-artifact"
+        },
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^A-[0-9]{4,8}$(?![\\s\\S])"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+        }
+      },
+      "additionalProperties": false
+    },
+    "params": {
+      "type": "object",
+      "required": [
+        "source_profile",
+        "max_seconds"
+      ],
+      "properties": {
+        "source_profile": {
+          "const": "flipper-subghz-raw-v1-strict"
+        },
+        "max_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 5
+        }
+      },
+      "additionalProperties": false
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "declared_preset",
+        "declared_frequency_hz"
+      ],
+      "properties": {
+        "declared_preset": {
+          "enum": [
+            "FuriHalSubGhzPresetOok270Async",
+            "FuriHalSubGhzPresetOok650Async"
+          ]
+        },
+        "declared_frequency_hz": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      },
+      "additionalProperties": false
+    },
+    "conversion": {
+      "type": "object",
+      "required": [
+        "format",
+        "unit",
+        "pairing",
+        "duration_count",
+        "pair_count",
+        "total_duration_us"
+      ],
+      "properties": {
+        "format": {
+          "const": "rtl433-ook-text-v1"
+        },
+        "unit": {
+          "const": "us"
+        },
+        "pairing": {
+          "const": "positive-negative"
+        },
+        "duration_count": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 2400
+        },
+        "pair_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1200
+        },
+        "total_duration_us": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 5153960752800
+        }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "required": [
+        "path",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "enum": [
+            "analysis/rf-ook-001/converted.ook",
+            "analysis/rf-ook-002/converted.ook",
+            "analysis/rf-ook-003/converted.ook",
+            "analysis/rf-ook-004/converted.ook",
+            "analysis/rf-ook-005/converted.ook",
+            "analysis/rf-ook-006/converted.ook",
+            "analysis/rf-ook-007/converted.ook",
+            "analysis/rf-ook-008/converted.ook",
+            "analysis/rf-ook-009/converted.ook",
+            "analysis/rf-ook-010/converted.ook",
+            "analysis/rf-ook-011/converted.ook",
+            "analysis/rf-ook-012/converted.ook",
+            "analysis/rf-ook-013/converted.ook",
+            "analysis/rf-ook-014/converted.ook",
+            "analysis/rf-ook-015/converted.ook",
+            "analysis/rf-ook-016/converted.ook",
+            "analysis/rf-ook-017/converted.ook",
+            "analysis/rf-ook-018/converted.ook",
+            "analysis/rf-ook-019/converted.ook",
+            "analysis/rf-ook-020/converted.ook",
+            "analysis/rf-ook-021/converted.ook",
+            "analysis/rf-ook-022/converted.ook",
+            "analysis/rf-ook-023/converted.ook",
+            "analysis/rf-ook-024/converted.ook",
+            "analysis/rf-ook-025/converted.ook",
+            "analysis/rf-ook-026/converted.ook",
+            "analysis/rf-ook-027/converted.ook",
+            "analysis/rf-ook-028/converted.ook",
+            "analysis/rf-ook-029/converted.ook",
+            "analysis/rf-ook-030/converted.ook",
+            "analysis/rf-ook-031/converted.ook",
+            "analysis/rf-ook-032/converted.ook",
+            "analysis/rf-ook-033/converted.ook",
+            "analysis/rf-ook-034/converted.ook",
+            "analysis/rf-ook-035/converted.ook",
+            "analysis/rf-ook-036/converted.ook",
+            "analysis/rf-ook-037/converted.ook",
+            "analysis/rf-ook-038/converted.ook",
+            "analysis/rf-ook-039/converted.ook",
+            "analysis/rf-ook-040/converted.ook",
+            "analysis/rf-ook-041/converted.ook",
+            "analysis/rf-ook-042/converted.ook",
+            "analysis/rf-ook-043/converted.ook",
+            "analysis/rf-ook-044/converted.ook",
+            "analysis/rf-ook-045/converted.ook",
+            "analysis/rf-ook-046/converted.ook",
+            "analysis/rf-ook-047/converted.ook",
+            "analysis/rf-ook-048/converted.ook",
+            "analysis/rf-ook-049/converted.ook",
+            "analysis/rf-ook-050/converted.ook",
+            "analysis/rf-ook-051/converted.ook",
+            "analysis/rf-ook-052/converted.ook",
+            "analysis/rf-ook-053/converted.ook",
+            "analysis/rf-ook-054/converted.ook",
+            "analysis/rf-ook-055/converted.ook",
+            "analysis/rf-ook-056/converted.ook",
+            "analysis/rf-ook-057/converted.ook",
+            "analysis/rf-ook-058/converted.ook",
+            "analysis/rf-ook-059/converted.ook",
+            "analysis/rf-ook-060/converted.ook",
+            "analysis/rf-ook-061/converted.ook",
+            "analysis/rf-ook-062/converted.ook",
+            "analysis/rf-ook-063/converted.ook",
+            "analysis/rf-ook-064/converted.ook"
+          ]
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 47,
+          "maximum": 26443
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+        }
+      },
+      "additionalProperties": false
+    },
+    "input_completeness_verified": {
+      "const": false
+    },
+    "capture_verified": {
+      "const": false
+    },
+    "device_association_verified": {
+      "const": false
+    },
+    "authorization_assessed": {
+      "const": false
+    },
+    "decoded": {
+      "const": false
+    },
+    "transmitted": {
+      "const": false
+    },
+    "packet_boundaries_verified": {
+      "const": false
+    },
+    "decoder_compatibility_verified": {
+      "const": false
+    },
+    "limitations": {
+      "const": [
+        "strict_complete_raw_only",
+        "ook_presets_only",
+        "ordered_duration_pairs_only",
+        "no_gap_or_packet_inference",
+        "no_capture_or_device_verification",
+        "no_protocol_decoding",
+        "no_receiver_or_transmission",
+        "decoder_execution_not_performed",
+        "aggregate_statistics_are_not_anonymization"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

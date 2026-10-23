@@ -26,7 +26,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
    ├─ pweh-forensics   SD 카드 이미지 증거 분석: 접수·해시·보관 기록, 파티션·FAT/exFAT 목록, 삭제 파일 추출(job), 증거 목록 — 기기·카드를 열지 않음 (선택)
    ├─ pweh-espprobe    HELLO·HB 오프라인 시뮬레이터, 실제 포트·핀 미지원 (I5 1a)
    ├─ pweh-emu         ESP32·S3·C3/Arduino AVR 펌웨어 실행, 출처 확인·마스킹 콘솔·세션 종료 — 기기 미접촉 (선택)
-   ├─ pweh-sdr         등록된 Flipper RAW·전력 CSV의 구조·통계 분석, 로컬 보고서 저장 (선택)
+   ├─ pweh-sdr         등록된 Flipper RAW·전력 CSV 분석·제한 OOK 변환, 로컬 보고서 저장 (선택)
    ├─ pweh-play        공급 숫자 합의 검증·저장 PNG 영역 비교, 로컬 보고서 저장 (선택)
    ├─ pweh-flipper     고정 CLI 연결·파일 읽기·NTAG21x 스캔 (선택)
    ├─ pweh-nfc         CU NTAG 스냅샷·inventory에 결속한 NFC 파일 검사·비교 (선택)
@@ -83,7 +83,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
   JPEG·AVC·PS·XM subset의 큰 EV는 `forensics_media_unit_scan`으로 검색한다. 재검증 선택 범위→같은 format의 구간 후보→일치 행의 단일 추출을 따르며 [예산·재개 계약](docs/references/media-unit-scan.md)에 미검사 범위를 남긴다.
   JPEG·AVC Annex B·MPEG-2 PS·XM의 제한된 단위는 `forensics_media_unit_candidates`로 찾고 `forensics_extract_media_unit`로 한 단위만 추출한다([후보](docs/references/media-unit-candidates.md)·[추출](docs/references/media-unit-extract.md)). 닫힌 구조와 PS의 검증된 prefix를 구분하며 미디어 내용은 해독하지 않는다.
   알려진 한계(잘린 이미지·손상된 카드, 같은 계정 프로세스의 경합 창 등)는 [안전 가이드](docs/safety.md) §3.6 에 있다.
-- **RF·하드웨어 분석** — 보유한 Flipper RAW 파일의 구조·통계를 일부 지원한다. 보드 단위 콘솔·신호·덤프는 기존 Skill을 쓴다.
+- **RF·하드웨어 분석** — 보유한 Flipper RAW·전력 CSV 검사와 [제한 OOK 변환](docs/references/rf-ook-conversion.md)을 지원한다. 보드 단위 콘솔·신호·덤프는 기존 Skill을 쓴다.
 
 MCU 에뮬레이션은 확보한 펌웨어로 부팅 로그·UART 응답을 보는 선택 단계다. `firmware-emulation` Skill 이 출처를 확인하고 `emu_read` 로 마스킹한 콘솔을 읽은 뒤 `emu_stop` 으로 끝낸다.
 가져온 파일의 출처는 사람이 증명한다. Wi-Fi·Bluetooth·USB 콘솔·대부분의 주변장치가 없어 앱이 조용하거나 멈출 수 있다. 지원 범위와 격리·마스킹 한계는 [설계](docs/design/emulation.md)와 [안전 가이드](docs/safety.md) §3.7 에 있다.

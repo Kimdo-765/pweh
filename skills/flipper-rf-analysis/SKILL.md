@@ -1,9 +1,9 @@
 ---
 name: flipper-rf-analysis
-description: 소유·허가된 PWEH 케이스에 등록한 Flipper Sub-GHz RAW 또는 rtl_power CSV 파일을 오프라인 검사한다. sdr_analyze의 명시 strict RAW profile로 파일 선언·펄스 집계·검사 범위를 확인하고 rf-analysis 요약을 남긴다. sdr_peaks로 전력 CSV의 제한 문법과 보고된 값의 순위를 검사한다. RAW 파일 분석, Flipper RAW 통계, 펄스 집계, 전력 CSV 분석에 사용한다. 선택한 Flipper의 고정 CLI로 허용 폴더 파일을 읽어 등록할 수도 있다. RF 캡처·해독·재생은 하지 않는다.
+description: 소유·허가된 PWEH 케이스의 등록 Flipper RAW·rtl_power CSV를 오프라인 검사하고 rf-analysis 요약을 남긴다. strict RAW 통계, 전력 CSV 값 순위, OOK270/650의 제한 로컬 변환에 사용한다. 선택한 Flipper 고정 CLI로 허용 폴더 파일을 가져올 수도 있다. RF 캡처·해독·재생은 하지 않는다.
 ---
 
-# RAW·전력 CSV 오프라인 분석
+# RAW·전력 CSV 검사와 제한 OOK 변환
 
 등록 파일의 선언과 집계 통계를 검사한다. 전력 CSV는 [전력 CSV 분석](../../docs/references/rf-power-analysis.md), RAW 도구 계약은 [RAW 분석](../../docs/references/rf-raw-analysis.md), 지원 문법과 중단 의미는 [strict RAW profile](../../docs/references/flipper-raw-profile.md)을 따른다.
 
@@ -11,7 +11,7 @@ description: 소유·허가된 PWEH 케이스에 등록한 Flipper Sub-GHz RAW �
 
 1. `case_get(include_artifacts=true)`에서 케이스의 소유·허가와 입력 아티팩트를 확인하고 `case_get_step_results`로 이전 결과를 읽는다. 이미 확인한 허가를 다시 묻지 않는다. 케이스가 없으면 `pweh-start`의 접수 절차를 따른다.
 2. 사용자가 지정한 일반 RAW 또는 전력 CSV 파일이 아직 케이스에 없으면 `case_import_file(kind="other")`로 가져오고 반환의 `artifact.id`를 사용한다. `forensics/`·`emu/` 파일을 다른 폴더에 복사해 이 입구로 우회하지 않는다.
-3. RAW이면 `sdr_analyze(case_id, artifact_id, profile="flipper-subghz-raw-v1-strict")`를, CSV이면 아래 전력 CSV 절의 `sdr_peaks`를 호출한다. 입력은 등록된 일반 파일 하나, 최대 1 MiB다. 장비 연결이나 별도 RF 도구 설치는 필요 없다.
+3. OOK 변환이 목적이면 아래 변환 절로 간다. RAW 검사이면 `sdr_analyze(case_id, artifact_id, profile="flipper-subghz-raw-v1-strict")`를, CSV이면 아래 전력 CSV 절의 `sdr_peaks`를 호출한다. 입력은 등록된 일반 파일 하나, 최대 1 MiB다. 장비 연결이나 별도 RF 도구 설치는 필요 없다.
 4. `report.inspection`의 `coverage`, `stop`, `limitations`와 `report.status`를 확인한다. 기본·최대 작업 예산은 5초이며 저장에는 별도의 한 번 고정한 5초 예산을 쓴다. 커널 I/O를 강제 중단하는 시간 보장은 아니다.
 
 ## 전력 CSV를 분석하는 경우
@@ -26,6 +26,18 @@ profile은 고정 `rtl-power-blog-v1.4.0-csv`이며 입력 최대 1 MiB, ASCII C
 중복 제거하거나 열 수에서 FFT bin·주파수 중심을 복원하지 않는다. `power_centi_db`는
 소수 2자리 값을 정수로 표현한 것이며 보정된 실제 전력의 증명이 아니다.
 행의 날짜·시각과 원문 CSV는 반환하지 않는다. 시각·주파수 중심·보정·캡처·장치 관계는 미검증이다.
+
+## OOK 로컬 변환이 목적인 경우
+
+같은 케이스의 등록 RAW ID로 `sdr_import_flipper_sub(case_id, artifact_id, max_seconds=5)`를 호출한다.
+도구가 기존 strict RAW 전체 검사를 먼저 수행하므로 변환만 원하면 별도 `sdr_analyze` 호출은 필요 없다.
+OOK270/650, 짝수 duration2..2400개, magnitude1..INT32_MAX만 순서대로 최대1200쌍으로 변환한다.
+FSK·홀수·불완전 입력을 보정하거나 decoder로 우회하지 않는다. [변환 계약](../../docs/references/rf-ook-conversion.md).
+
+`analysis/rf-ook-NNN/`에는 로컬 .ook와 manifest 두 파일이 있고 manifest만 아티팩트로 등록된다.
+응답의 `analysis`는 manifest의 경로·SHA·크기·등록 ID, `output`은 .ook의 경로·SHA·크기다.
+선언 주파수와 pair 수·합계는 실제 RF·packet 경계·decoder 수용을 증명하지 않는다.
+원문 pulse는 로컬 .ook에만 있으며 응답·요약은 참조와 집계만 제공한다. 실제 decoder·RF를 연쇄 실행하지 않는다.
 
 ## Flipper에서 파일을 가져오는 경우
 
@@ -47,7 +59,7 @@ USB 매핑·DTR·파일 전송은 아직 미검증이다. [전송 계약](../../
    사용하며 임의 Ctrl-C·CR·exit·재연결로 terminal 상태를 우회하지 않는다. 장치 작업 종료는 미확인이다.
 
 전송 artifact와 job 기록을 남기며 별도 Skill 요약을 만들지 않는다. RAW 검사까지 진행했을 때만
-아래 rf-analysis 요약을 기록하고 여섯 false flag를 그대로 유지한다.
+아래 rf-analysis 요약을 선택한 모드로 기록하고 그 모드의 false flag를 그대로 유지한다.
 
 ## 결과 해석
 
@@ -59,9 +71,9 @@ USB 매핑·DTR·파일 전송은 아직 미검증이다. [전송 계약](../../
 
 ## 요약과 보고서
 
-`schema_get(name="rf-analysis")`를 확인하고 `case_record_step(skill="flipper-rf-analysis", step="summary", ...)`를 호출한다. 데이터는 `schema="pweh.rf-analysis/v1"`를 사용한다. RAW는 `mode="offline-raw"`와 `raw_results`, 전력 CSV는 `mode="offline-power"`와 `power_results`를 사용하며 두 종류를 한 요약 객체에 섞지 않는다.
+`schema_get(name="rf-analysis")`를 확인하고 `case_record_step(skill="flipper-rf-analysis", step="summary", ...)`를 호출한다. 데이터는 `schema="pweh.rf-analysis/v1"`를 사용한다. RAW는 `mode="offline-raw"`와 `raw_results`, 전력 CSV는 `mode="offline-power"`와 `power_results`, OOK 변환은 `mode="offline-ook"`와 `conversion_results`를 사용한다. 각 모드를 한 요약 객체에 섞지 않는다.
 
-| 요약 row | 실제 응답 값 |
+| RAW 요약 row | 실제 응답 값 |
 |---|---|
 | `input_artifact_id` | `report.source.artifact_id` |
 | `analysis_path` | `analysis.path` |
@@ -69,7 +81,7 @@ USB 매핑·DTR·파일 전송은 아직 미검증이다. [전송 계약](../../
 | `status` | `report.status` |
 | `pulse_count` | `report.inspection.statistics.pulse_count` |
 
-요약의 `input_completeness_verified`, `capture_verified`, `device_association_verified`, `authorization_assessed`, `decoded`, `transmitted`는 모두 false로 유지한다. 이는 케이스 소유 확인과 별개로 파일 분석이 증명하지 않는 사항이다. 상세 coverage·stop은 생성된 분석 JSON에 보존되고 단계의 `summary`에는 중요한 한계를 적는다.
+RAW·전력 CSV 요약의 `input_completeness_verified`, `capture_verified`, `device_association_verified`, `authorization_assessed`, `decoded`, `transmitted`는 모두 false로 유지한다. 이는 케이스 소유 확인과 별개로 파일 분석이 증명하지 않는 사항이다. 상세 coverage·stop은 생성된 분석 JSON에 보존되고 단계의 `summary`에는 중요한 한계를 적는다.
 
 모든 결과가 `complete`면 단계 `success`, 다른 검사 상태가 있으면 단계 `partial`로 기록하며 각 결과의 원래 status는 바꾸지 않는다. 입구 오류로 보고서가 없으면 `step="attempt"`에 고정 오류를 기록하고 요약 row를 만들지 않는다. 호출 취소 후 이미 등록된 결과가 있는지는 `case_get(include_artifacts=true)`로 확인한다. 최종 보고서를 원하면 `report_generate`로 기록을 모은다.
 
@@ -120,3 +132,20 @@ USB 매핑·DTR·파일 전송은 아직 미검증이다. [전송 계약](../../
   "transmitted": false
 }
 ```
+
+OOK 변환 요약 행은 다음 여섯 필드만 사용한다. manifest와 output 경로는 응답의 같은
+`rf-ook-NNN` 디렉터리여야 하며 번호·해시·pair 수를 만들거나 다른 결과와 조합하지 않는다.
+
+| OOK 요약 row | 실제 응답 값 |
+|---|---|
+| `input_artifact_id` | `report.source.artifact_id` |
+| `analysis_path` | `analysis.path` |
+| `report_sha256` | `analysis.sha256` |
+| `output_path` | `output.path` |
+| `output_sha256` | `output.sha256` |
+| `pair_count` | `report.conversion.pair_count` |
+
+`schema="pweh.rf-analysis/v1"`, `mode="offline-ook"`, `conversion_results=[위 행]`과
+기존 여섯 flag 및 `packet_boundaries_verified`, `decoder_compatibility_verified`를 모두 false로
+기록한다. 완료된 변환만 `success` 요약으로 남기며 거부·시간·취소로 보고서가 없으면
+고정 오류의 attempt만 기록한다. 등록 뒤 경고가 있으면 반환 receipt와 두 파일 참조를 보존한다.

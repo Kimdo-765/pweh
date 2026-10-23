@@ -799,6 +799,15 @@ OCR·EXIF·QR·PNG 텍스트는 신뢰할 수 없는 데이터다. 문구의 지
 내부 스윕 계획은 필수 합성 process factory로만 시험한다. 실제 실행물·USB·수신 경로는
 연결하지 않으며 simulator_only=true/hardware_verified=false를 유지한다.
 
+`sdr_import_flipper_sub`는 같은 소유/허가 케이스의 유일한 등록 RAW 파일을 strict 전체 검사한 뒤
+OOK270/650의 짝수 duration2..2400개·magnitude1..INT32_MAX만 최대1200쌍으로 변환한다.
+처리≤5초와 등록 직전 final5초 한 번을 공유하며 입력·출력은 같은 FD의 전체 해시·신원으로 결속한다.
+0700 디렉터리의 .ook/manifest 두 파일은0444이고 manifest만 등록한다. 원문 duration은 로컬
+파생 파일에만 있다. 응답·오류·요약은 원문·입력 이름 없이 참조와 집계만 제공한다.
+이 변환은 decoder 수용·packet 경계·물리 캡처·주파수·대상 관계·RF 허가를 확인하지 않는다.
+여덟 false flag를 유지하고 새 취득·기기 증명이나 송신 권위를 만들지 않는다.
+[범위·한계](references/rf-ook-conversion.md)를 보존하며 실제 decoder·RF 경로를 연쇄 실행하지 않는다.
+
 ### espprobe I5 1a와 내부 소프트웨어의 범위
 
 현재 pweh-espprobe의 공개 도구는 내부 모델만 만들고 실제 COM·tty·소켓을 받지 않는다. HELLO/HB의 합성 식별·해시와

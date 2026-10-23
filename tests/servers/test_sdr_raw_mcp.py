@@ -133,7 +133,7 @@ async def test_tools_list_has_only_explicit_offline_inputs(workspace):
     from sdr_mcp import server as S
     async with Client(S.server) as client:
         tools = (await client.list_tools()).tools
-    assert sorted(t.name for t in tools) == ["sdr_analyze", "sdr_peaks"]
+    assert sorted(t.name for t in tools) == ["sdr_analyze", "sdr_import_flipper_sub", "sdr_peaks"]
     tool = next(t for t in tools if t.name == "sdr_analyze")
     assert tool.annotations.read_only_hint is False
     assert tool.annotations.destructive_hint is False

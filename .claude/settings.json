@@ -106,6 +106,7 @@
       "mcp__pweh-espprobe__espprobe_disconnect",
       "mcp__pweh-sdr__sdr_analyze",
       "mcp__pweh-sdr__sdr_peaks",
+      "mcp__pweh-sdr__sdr_import_flipper_sub",
       "mcp__pweh-play__vision_validate",
       "mcp__pweh-play__vision_template_match",
       "mcp__pweh-flipper__flipper_device_info",

@@ -23,7 +23,8 @@
 | `src/pweh/safety/attestations.py` | 사람 증명 레코드(재사용 가능, 대상·바인딩·만료) | I1 에서 구현 — §3 구현 상태 |
 | `src/pweh/provenance.py` | 출처 원장(기기에서 읽은 산출물만 기록) | I1 에서 구현 — §4 구현 상태 |
 | `src/pweh/rf_formats.py` | 이미 공급된 Flipper RAW v1 bytes의 제한된 구조·펄스 통계 | 순수 코어 구현. [제한 프로필](../references/flipper-raw-profile.md). 수신·디코드·재생·MCP 연결 없음 |
-| `src/pweh/safety/rf.py`, `src/pweh/rf/` | 지역 대역표·RF 수신 분류기, `.ook`·RF 확장 | 후속 제안. RAW 파서가 수신 정책이나 대역 허가를 대신하지 않음 |
+| `src/pweh/rf_ook.py` | strict 전체 RAW의 제한 OOK 변환·manifest 회계 | 구현. OOK270/650·최대1200쌍이며 decoder·RF 실행은 없음. [계약](../references/rf-ook-conversion.md) |
+| `src/pweh/safety/rf.py`, `src/pweh/rf/` | 지역 대역표·RF 수신 분류기와 RF 확장 | 후속 제안. RAW 파서가 수신 정책이나 대역 허가를 대신하지 않음 |
 | `src/pweh/nfc_formats.py` | Flipper NFC v4 ISO14443-3A·NTAG21x의 구조와 저장 페이지 변화 위치 | 순수 코어 구현. [제한 프로필](../references/nfc-file-profile.md). 실제 inventory·태그 권한·MCP 연결 없음 |
 | `src/pweh/nfc/` | CU 형식, ISO14443A 프레임, 태그 계열 정책 | 후속 제안 |
 | `src/pweh/vision_sequence.py` | 유한 숫자 관찰 창의 TTL·신뢰도·N-of-M 합의 | 순수 코어 구현. [모델 계약](../references/numeric-observations.md). OCR·캡처·입력 브리지 없음 |

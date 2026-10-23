@@ -726,7 +726,7 @@
    },
    {
     "name": "schema_get",
-    "description": "PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, cluster-report, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, imported-save-plan, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, media-unit-scan, nfc-analysis, nfc-cu-snapshot, nfc-file-analysis, nfc-inventory, nfc-scan, numeric-analysis, numeric-validation, pinout-scan, rf-analysis, rf-power-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, template-analysis, template-match, uart-recon.",
+    "description": "PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, cluster-report, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, imported-save-plan, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, media-unit-scan, nfc-analysis, nfc-cu-snapshot, nfc-file-analysis, nfc-inventory, nfc-scan, numeric-analysis, numeric-validation, pinout-scan, rf-analysis, rf-ook-conversion, rf-power-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, template-analysis, template-match, uart-recon.",
     "params": [
      {
       "name": "name",
@@ -7584,6 +7584,37 @@
    {
     "name": "sdr_peaks",
     "description": "케이스에 등록된 일반 파일 하나를 고정 rtl-power-blog-v1.4.0-csv 프로필로 오프라인 검사한다. artifact_id는 같은 케이스 A-id이며 소유/허가 확인이 필요하다. forensics/·emu/ 입력은 받지 않는다. 파일은 최대1MiB, max_seconds는0초 초과5초 이하(기본5)이며 입력 선택·읽기·SHA·검사가 같은 예산을 사용한다. 결과 생성 뒤 최종 무결성 검증·저장은 별도 최대5초의 협력 예산이다. complete/partial/malformed/unsupported와 완전히 수용한 행의 선언·집계·최대32개 전력값 순위를 반환하고 analysis/rf-power-NNN.json을0444로 저장·등록한다. 날짜·시각·원문 경로·CSV 행·전체 전력 배열은 반환하지 않는다. 마지막 전력 열도 별도 값으로 센다. 주파수 중심·dBm 보정·실제 RF 취득·기기 귀속·전파 허가를 검증하지 않으며 집계는 익명성 보장이 아니다. RF 수신/송신·외부 도구·프로토콜 decoder는 실행하지 않는다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "artifact_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "max_seconds",
+      "type": "integer/number",
+      "required": false,
+      "default": 5
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   },
+   {
+    "name": "sdr_import_flipper_sub",
+    "description": "케이스에 등록된 Flipper Sub-GHz RAW 파일 하나를 오프라인 OOK 텍스트로 변환한다. artifact_id는 같은 케이스 A-id이며 소유/허가 확인이 필요하다. forensics/·emu/ 입력은 받지 않는다. 최대1MiB 입력을 기존 strict RAW 프로필로 먼저 검사하고 complete인 OOK270/OOK650만 허용한다. 짝수 duration을 순서대로 최대1200쌍으로 옮기며 각 크기는1..2147483647이다. 홀수·FSK·partial 입력은 거부하며 gap·packet 경계를 추론하지 않는다. max_seconds는0초 초과5초 이하(기본5), 케이스 선택·읽기·검사·변환은 같은 예산을 쓰며 최종 무결성 검증·등록은 별도 최대5초다. analysis/rf-ook-NNN/의 converted.ook와 manifest.json을 0444로 저장하고 manifest만 등록한다. 출력은 최대64KiB이며 예약은001..064다. 반환에는 집계·선언·입출력 SHA와 실제 등록 영수증만 있고 원문 경로·주석·duration 배열은 없다. 집계는 익명성 보장이 아니며 캡처 완전성·기기 연관성·전파 허가·decoder 호환을 검증하지 않는다. RF 수신·송신·재생·프로토콜 해독·외부 decoder 실행은 하지 않는다.",
     "params": [
      {
       "name": "case_id",
