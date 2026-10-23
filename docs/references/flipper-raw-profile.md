@@ -1,6 +1,6 @@
 # Flipper RAW 제한 프로필
 
-`pweh.rf_formats.inspect_sub_raw`는 이미 메모리에 있는 bytes의 선언 문법과 pulse 통계를 검사하는 순수 코어다. 파일·장치·RF를 열지 않으며 MCP 도구로 등록되어 있지 않다. 결과는 파일 선언에 대한 검사다. 캡처의 완전성·실제 주파수·대상·허가·수신 품질·재생 가능성을 증명하지 않는다.
+`pweh.rf_formats.inspect_sub_raw`는 이미 메모리에 있는 bytes의 선언 문법과 pulse 통계를 검사하는 순수 코어다. 파일·장치·RF를 열지 않는다. 등록 파일을 분석·저장하는 공개 입구는 `pweh-sdr`의 [`sdr_analyze`](rf-raw-analysis.md)이며 이 코어를 그대로 사용한다. 결과는 파일 선언에 대한 검사다. 캡처의 완전성·실제 주파수·대상·허가·수신 품질·재생 가능성을 증명하지 않는다.
 
 ## API와 한도
 
@@ -24,7 +24,7 @@ report = inspect_sub_raw(data, deadline=deadline, cancel=cancel, limits=RawLimit
 
 실 마감은 호출자 deadline과 시작 시각+runtime 한도 중 이른 쪽이다. 각 줄·숫자 token·문자 검사 중간에 시간을 확인한다. 처리 단계는 물리 줄 시도와 숫자 token 시도마다 하나다. 줄 경계 검색도 줄 상한+CRLF 범위만 읽고, 전체 pulse 배열을 만들지 않는다. 취소 콜백은 빠르게 반환하는 협력 함수여야 하며, Python 콜백 자체를 강제 중단하는 watchdog은 없다.
 
-취소는 결과 대신 고정 `PwehError(code="cancelled")`, 콜백 실패·비bool 반환은 고정 `rf_raw_failed`다. 예외에 입력이나 콜백 오류 문자열을 넣지 않는다. 입력 크기 상한 초과는 내용을 decode하지 않고 `partial/input_limit`로 반환한다.
+취소는 결과 대신 고정 `PwehError(code="cancelled")`, 콜백 실패·비bool 반환은 고정 `rf_raw_failed`다. 예외에 입력이나 콜백 오류 문자열을 넣지 않는다. 순수 코어는 입력 크기 상한 초과를 내용을 decode하지 않고 `partial/input_limit`로 반환한다. 공개 `sdr_analyze`는 1 MiB 초과 파일을 읽기 전에 입구 오류로 거부하므로 그 파일의 부분 보고서를 만들지 않는다.
 
 ## 지원 문법
 
@@ -66,7 +66,7 @@ report = inspect_sub_raw(data, deadline=deadline, cancel=cancel, limits=RawLimit
 - `coverage`: 입력 크기·수용 prefix·남은 suffix, 줄/단계 수, EOF 확인 여부와 통계 범위. `accepted_prefix_bytes + remaining_bytes == input_bytes`이며 남은 범위는 미수용이지 전혀 읽지 않았다는 뜻이 아니다. BOM도 prefix framing에 포함한다.
 - `stop`: 첫 중단의 고정 code·줄 번호·byte offset만. EOF/입구 중단에는 줄 번호가 null이다. EOF에서 필수 누락이면 남은 bytes가 0이어도 complete가 아니다.
 
-`schema="pweh.rf-raw-inspection/v1"`는 내부 결과 버전이다. 반환 객체 외 파일 저장이나 Skill 요약 등록은 하지 않는다. 원시 pulse 배열·키/ID·자유 필드·파일명/경로·주석·원문 오류·hash를 반환하지 않는다. 작은 pulse 수에서는 집계만으로 일부 개별 값을 유추할 수 있으므로 익명화라고 부르지 않는다.
+`schema="pweh.rf-raw-inspection/v1"`는 내부 결과 버전이다. 순수 코어는 반환 객체 외 파일 저장이나 Skill 요약 등록을 하지 않는다. 공개 도구는 이 객체 전체를 입력 아티팩트 ID·SHA가 있는 `rf-raw-analysis` 봉투로 저장하며, `flipper-rf-analysis` Skill은 별도의 `rf-analysis` 요약을 기록한다. 코어는 원시 pulse 배열·키/ID·자유 필드·파일명/경로·주석·원문 오류·hash를 반환하지 않는다. 작은 pulse 수에서는 집계만으로 일부 개별 값을 유추할 수 있으므로 익명화라고 부르지 않는다.
 
 `input_completeness_verified`, `capture_verified`, `device_association_verified`, `authorization_assessed`, `decoded`, `transmitted`는 항상 false다. 예를 들어 마지막 token 12가 문법적으로 완전해도 원래 123이 잘린 것인지는 알 수 없다.
 

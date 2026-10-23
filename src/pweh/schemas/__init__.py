@@ -29,6 +29,7 @@ SKILL_DATA_SCHEMAS: dict[str, str] = {
     "firmware-emulation": "emulation",
     "image-hints-analysis": "image-hints",
     "android-forensics": "android-forensics",
+    "flipper-rf-analysis": "rf-analysis",
 }
 
 

@@ -1,0 +1,107 @@
+{
+  "type": "object",
+  "required": [
+    "schema",
+    "mode",
+    "raw_results",
+    "input_completeness_verified",
+    "capture_verified",
+    "device_association_verified",
+    "authorization_assessed",
+    "decoded",
+    "transmitted"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pweh.rf-analysis/v1"
+    },
+    "mode": {
+      "const": "offline-raw"
+    },
+    "raw_results": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "required": [
+          "input_artifact_id",
+          "analysis_path",
+          "report_sha256",
+          "status",
+          "pulse_count"
+        ],
+        "properties": {
+          "input_artifact_id": {
+            "type": "string",
+            "pattern": "^A-[0-9]{4,8}$"
+          },
+          "analysis_path": {
+            "type": "string",
+            "pattern": "^analysis/rf-raw-[0-9]{3,9}\\.json$"
+          },
+          "report_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "status": {
+            "enum": [
+              "complete",
+              "partial",
+              "malformed",
+              "unsupported"
+            ]
+          },
+          "pulse_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65536
+          }
+        },
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "complete"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "pulse_count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65536
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "input_completeness_verified": {
+      "const": false
+    },
+    "capture_verified": {
+      "const": false
+    },
+    "device_association_verified": {
+      "const": false
+    },
+    "authorization_assessed": {
+      "const": false
+    },
+    "decoded": {
+      "const": false
+    },
+    "transmitted": {
+      "const": false
+    }
+  },
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.rf-analysis/v1",
+  "title": "오프라인 RAW 분석 요약"
+}

@@ -1,0 +1,862 @@
+{
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "source",
+    "params",
+    "inspection"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pweh.rf-raw-analysis/v1"
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "partial",
+        "malformed",
+        "unsupported"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "kind",
+        "artifact_id",
+        "size",
+        "sha256"
+      ],
+      "properties": {
+        "kind": {
+          "const": "case-artifact"
+        },
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^A-[0-9]{4,8}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1048576
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "params": {
+      "type": "object",
+      "required": [
+        "profile",
+        "max_seconds"
+      ],
+      "properties": {
+        "profile": {
+          "const": "flipper-subghz-raw-v1-strict"
+        },
+        "max_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 5
+        }
+      },
+      "additionalProperties": false
+    },
+    "inspection": {
+      "$ref": "#/$defs/inspection"
+    }
+  },
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.rf-raw-analysis/v1",
+  "title": "등록 RAW 파일의 오프라인 검사 결과",
+  "$defs": {
+    "inspection": {
+      "type": "object",
+      "required": [
+        "schema",
+        "status",
+        "profile",
+        "metadata",
+        "statistics",
+        "coverage",
+        "stop",
+        "limitations"
+      ],
+      "properties": {
+        "schema": {
+          "const": "pweh.rf-raw-inspection/v1"
+        },
+        "status": {
+          "enum": [
+            "complete",
+            "partial",
+            "malformed",
+            "unsupported"
+          ]
+        },
+        "profile": {
+          "const": "flipper-subghz-raw-v1-strict"
+        },
+        "metadata": {
+          "type": "object",
+          "required": [
+            "filetype",
+            "version",
+            "declared_frequency_hz",
+            "declared_preset",
+            "protocol"
+          ],
+          "properties": {
+            "filetype": {
+              "enum": [
+                null,
+                "Flipper SubGhz RAW File"
+              ]
+            },
+            "version": {
+              "enum": [
+                null,
+                1
+              ]
+            },
+            "declared_frequency_hz": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "declared_preset": {
+              "enum": [
+                null,
+                "FuriHalSubGhzPresetOok270Async",
+                "FuriHalSubGhzPresetOok650Async",
+                "FuriHalSubGhzPreset2FSKDev238Async",
+                "FuriHalSubGhzPreset2FSKDev12KAsync",
+                "FuriHalSubGhzPreset2FSKDev476Async"
+              ]
+            },
+            "protocol": {
+              "enum": [
+                null,
+                "RAW"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "statistics": {
+          "type": "object",
+          "required": [
+            "pulse_count",
+            "declared_duration_us",
+            "raw_data_lines_accepted",
+            "positive",
+            "negative"
+          ],
+          "properties": {
+            "pulse_count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65536
+            },
+            "declared_duration_us": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9223372036854775807
+            },
+            "raw_data_lines_accepted": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 8192
+            },
+            "positive": {
+              "type": "object",
+              "required": [
+                "count",
+                "min_us",
+                "max_us",
+                "sum_us"
+              ],
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 65536
+                },
+                "min_us": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483647
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "max_us": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483647
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "sum_us": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                }
+              },
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "count": {
+                        "const": 0
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "min_us": {
+                        "type": "null"
+                      },
+                      "max_us": {
+                        "type": "null"
+                      },
+                      "sum_us": {
+                        "const": 0
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "min_us": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2147483647
+                      },
+                      "max_us": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2147483647
+                      },
+                      "sum_us": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9223372036854775807
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            "negative": {
+              "type": "object",
+              "required": [
+                "count",
+                "min_us",
+                "max_us",
+                "sum_us"
+              ],
+              "properties": {
+                "count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 65536
+                },
+                "min_us": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483648
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "max_us": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 2147483648
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "sum_us": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9223372036854775807
+                }
+              },
+              "additionalProperties": false,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "count": {
+                        "const": 0
+                      }
+                    }
+                  },
+                  "then": {
+                    "properties": {
+                      "min_us": {
+                        "type": "null"
+                      },
+                      "max_us": {
+                        "type": "null"
+                      },
+                      "sum_us": {
+                        "const": 0
+                      }
+                    }
+                  },
+                  "else": {
+                    "properties": {
+                      "min_us": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2147483648
+                      },
+                      "max_us": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 2147483648
+                      },
+                      "sum_us": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9223372036854775807
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "coverage": {
+          "type": "object",
+          "required": [
+            "input_bytes",
+            "accepted_prefix_bytes",
+            "remaining_bytes",
+            "remaining_range",
+            "lines_seen",
+            "lines_accepted",
+            "steps_used",
+            "eof_validated",
+            "analysis_complete",
+            "statistics_scope",
+            "input_completeness_verified",
+            "capture_verified",
+            "device_association_verified",
+            "authorization_assessed",
+            "decoded",
+            "transmitted"
+          ],
+          "properties": {
+            "input_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1048576
+            },
+            "accepted_prefix_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1048576
+            },
+            "remaining_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1048576
+            },
+            "remaining_range": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "offset",
+                    "length"
+                  ],
+                  "properties": {
+                    "offset": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1048576
+                    },
+                    "length": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 1048576
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "lines_seen": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 8192
+            },
+            "lines_accepted": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 8192
+            },
+            "steps_used": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "eof_validated": {
+              "type": "boolean"
+            },
+            "analysis_complete": {
+              "type": "boolean"
+            },
+            "statistics_scope": {
+              "enum": [
+                "accepted_prefix",
+                "whole_profile"
+              ]
+            },
+            "input_completeness_verified": {
+              "const": false
+            },
+            "capture_verified": {
+              "const": false
+            },
+            "device_association_verified": {
+              "const": false
+            },
+            "authorization_assessed": {
+              "const": false
+            },
+            "decoded": {
+              "const": false
+            },
+            "transmitted": {
+              "const": false
+            }
+          },
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "remaining_bytes": {
+                    "const": 0
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "remaining_range": {
+                    "type": "null"
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "remaining_range": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "stop": {
+          "anyOf": [
+            {
+              "type": "object",
+              "required": [
+                "code",
+                "line",
+                "offset"
+              ],
+              "properties": {
+                "code": {
+                  "enum": [
+                    "input_limit",
+                    "line_limit",
+                    "line_length_limit",
+                    "pulse_limit",
+                    "duration_limit",
+                    "step_limit",
+                    "time_limit",
+                    "unsupported_encoding",
+                    "unsupported_filetype",
+                    "unsupported_version",
+                    "unsupported_preset",
+                    "unsupported_protocol",
+                    "unsupported_field",
+                    "invalid_utf8",
+                    "invalid_line_ending",
+                    "unexpected_bom",
+                    "control_character",
+                    "field_syntax",
+                    "empty_value",
+                    "duplicate_field",
+                    "metadata_order",
+                    "metadata_incomplete",
+                    "integer_syntax",
+                    "integer_width",
+                    "integer_range",
+                    "zero_duration",
+                    "first_negative",
+                    "sign_not_alternating",
+                    "line_pulse_count",
+                    "missing_header",
+                    "missing_metadata",
+                    "missing_raw_data"
+                  ]
+                },
+                "line": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 8193
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "offset": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1048576
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limitations": {
+          "const": [
+            "strict_profile_only",
+            "file_declarations_only",
+            "accepted_lines_only",
+            "no_capture_completeness_verification",
+            "no_device_or_authorization_verification",
+            "no_protocol_decoding",
+            "no_raw_pulse_output",
+            "no_replay_or_transmission",
+            "aggregate_statistics_are_not_anonymization"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "complete"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "stop": {
+                "type": "null"
+              },
+              "statistics": {
+                "properties": {
+                  "pulse_count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65536
+                  },
+                  "raw_data_lines_accepted": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8192
+                  }
+                }
+              },
+              "metadata": {
+                "properties": {
+                  "filetype": {
+                    "const": "Flipper SubGhz RAW File"
+                  },
+                  "version": {
+                    "const": 1
+                  },
+                  "declared_frequency_hz": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4294967295
+                  },
+                  "declared_preset": {
+                    "enum": [
+                      "FuriHalSubGhzPresetOok270Async",
+                      "FuriHalSubGhzPresetOok650Async",
+                      "FuriHalSubGhzPreset2FSKDev238Async",
+                      "FuriHalSubGhzPreset2FSKDev12KAsync",
+                      "FuriHalSubGhzPreset2FSKDev476Async"
+                    ]
+                  },
+                  "protocol": {
+                    "const": "RAW"
+                  }
+                }
+              },
+              "coverage": {
+                "properties": {
+                  "eof_validated": {
+                    "const": true
+                  },
+                  "analysis_complete": {
+                    "const": true
+                  },
+                  "remaining_bytes": {
+                    "const": 0
+                  },
+                  "remaining_range": {
+                    "type": "null"
+                  },
+                  "statistics_scope": {
+                    "const": "whole_profile"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "stop": {
+                "type": "object"
+              },
+              "coverage": {
+                "properties": {
+                  "eof_validated": {
+                    "const": false
+                  },
+                  "analysis_complete": {
+                    "const": false
+                  },
+                  "statistics_scope": {
+                    "const": "accepted_prefix"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "partial"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "stop": {
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "input_limit",
+                      "line_limit",
+                      "line_length_limit",
+                      "pulse_limit",
+                      "duration_limit",
+                      "step_limit",
+                      "time_limit"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "unsupported"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "stop": {
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "unsupported_encoding",
+                      "unsupported_filetype",
+                      "unsupported_version",
+                      "unsupported_preset",
+                      "unsupported_protocol",
+                      "unsupported_field"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "malformed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "stop": {
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "invalid_utf8",
+                      "invalid_line_ending",
+                      "unexpected_bom",
+                      "control_character",
+                      "field_syntax",
+                      "empty_value",
+                      "duplicate_field",
+                      "metadata_order",
+                      "metadata_incomplete",
+                      "integer_syntax",
+                      "integer_width",
+                      "integer_range",
+                      "zero_duration",
+                      "first_negative",
+                      "sign_not_alternating",
+                      "line_pulse_count",
+                      "missing_header",
+                      "missing_metadata",
+                      "missing_raw_data"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "complete"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "inspection": {
+            "properties": {
+              "status": {
+                "const": "complete"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "partial"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "inspection": {
+            "properties": {
+              "status": {
+                "const": "partial"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "malformed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "inspection": {
+            "properties": {
+              "status": {
+                "const": "malformed"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "unsupported"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "inspection": {
+            "properties": {
+              "status": {
+                "const": "unsupported"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

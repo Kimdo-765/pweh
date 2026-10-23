@@ -273,6 +273,14 @@ def test_optional_phase_registry_is_disjoint_and_labelled():
 #: sd-card-forensics 요약의 최소 data (sd-forensics 스키마 — mode=security 면 privacy·security 만 필수)
 _SD_SECURITY_DATA = {"mode": "security", "security": {"sd_surface_result": None, "checks_found": []},
                      "privacy": {"audio_decoded": False, "face_plate_processing": False, "uploads": False, "recording_content_viewed": False}}
+_RF_RAW_DATA = {
+    "schema": "pweh.rf-analysis/v1", "mode": "offline-raw",
+    "raw_results": [{"input_artifact_id": "A-0001", "analysis_path": "analysis/rf-raw-001.json",
+                     "report_sha256": "0" * 64, "status": "complete", "pulse_count": 1}],
+    "input_completeness_verified": False, "capture_verified": False,
+    "device_association_verified": False, "authorization_assessed": False,
+    "decoded": False, "transmitted": False,
+}
 
 
 def test_optional_phase_status_appears_only_once_recorded(workspace, auth):
@@ -294,7 +302,7 @@ def test_optional_phase_status_appears_only_once_recorded(workspace, auth):
     assert set(phases) == set(PIPELINE_PHASES) | {"sd-card-forensics"}, "다른 선택 단계는 여전히 없다"
     # 상태 대응은 파이프라인 단계와 같다 (success → done, in-progress → in-progress), 파이프라인 단계는 그대로
     case.record_step(skill="sd-card-forensics", step="summary", status="success", summary="완료", data=_SD_SECURITY_DATA)
-    case.record_step(skill="flipper-rf-analysis", step="summary", status="in-progress", summary="진행 중")
+    case.record_step(skill="flipper-rf-analysis", step="summary", status="in-progress", summary="진행 중", data=_RF_RAW_DATA)
     case.record_step(skill="uart-shell-acquisition", step="summary", status="blocked", summary="포트 없음", data=_UART_DATA)
     phases = case.load()["phases"]
     assert phases["sd-card-forensics"]["status"] == "done" and phases["flipper-rf-analysis"]["status"] == "in-progress"

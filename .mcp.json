@@ -87,6 +87,14 @@
         "-c",
         "d=\"$CLAUDE_PROJECT_DIR\"; [ -n \"$d\" ] || d=\"$PWD\"; exec \"$d/scripts/mcp-launch.sh\" pweh-espprobe-mcp"
       ]
+    },
+    "pweh-sdr": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "d=\"$CLAUDE_PROJECT_DIR\"; [ -n \"$d\" ] || d=\"$PWD\"; exec \"$d/scripts/mcp-launch.sh\" pweh-sdr-mcp"
+      ]
     }
   }
 }

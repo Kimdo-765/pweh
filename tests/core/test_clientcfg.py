@@ -818,6 +818,102 @@ def test_check_servers_real_pweh_case_and_failing_command(workspace, tmp_path):
     assert esp["ok"] is False and "실행 파일 없음" in esp["error"]
 
 
+def test_check_server_collects_stderr_after_child_exit(tmp_path, monkeypatch):
+    """자식 종료 뒤에도 수신 스레드가 보류되면 join을 거쳐 stderr를 수집한다."""
+    import threading
+
+    release = threading.Event()
+    entered = threading.Event()
+    joined = threading.Event()
+    readers = []
+    read_err = clientcfg._StdioClient._read_err
+    close = clientcfg._StdioClient.close
+    join = threading.Thread.join
+
+    def delayed_err(self):
+        readers.append(threading.current_thread())
+        entered.set()
+        if release.wait(10):
+            read_err(self)
+
+    def release_on_join(thread, timeout=None):
+        if readers and thread is readers[0]:
+            joined.set()
+            release.set()
+        return join(thread, timeout)
+
+    def close_after_reader_started(self, grace=3.0):
+        assert entered.wait(10)
+        return close(self, grace=grace)
+
+    monkeypatch.setattr(clientcfg._StdioClient, "_read_err", delayed_err)
+    monkeypatch.setattr(clientcfg._StdioClient, "close", close_after_reader_started)
+    monkeypatch.setattr(threading.Thread, "join", release_on_join)
+    try:
+        result = clientcfg.check_server(
+            "pweh-failing", {"command": str(failing_mcp(tmp_path)), "args": []},
+            env=clientcfg.codex_like_env(), timeout=10,
+        )
+        assert entered.wait(1)
+        assert result["ok"] is False
+        assert "boom: 시작 실패" in " ".join(result["stderr_tail"])
+        assert joined.is_set()
+        assert not readers[0].is_alive()
+    finally:
+        release.set()
+        for reader in readers:
+            join(reader, 2)
+
+
+def test_stdio_close_reader_joins_share_a_bounded_deadline(monkeypatch):
+    """첫 reader가 예산을 써도 두 번째에 새 예산을 주거나 stream을 직접 닫지 않는다."""
+    from types import SimpleNamespace
+
+    now = [10.0]
+    waits = []
+
+    class PendingReader:
+        ident = 1
+
+        def join(self, timeout):
+            waits.append(timeout)
+            now[0] += timeout
+
+    class PendingStream:
+        def close(self):
+            pytest.fail("수신 중인 stream은 그 reader만 닫아야 한다")
+
+    cli = clientcfg._StdioClient.__new__(clientcfg._StdioClient)
+    cli.p = SimpleNamespace(stdin=None, stdout=PendingStream(), stderr=PendingStream(), wait=lambda **kwargs: 0)
+    cli._readers = (PendingReader(), PendingReader())
+    monkeypatch.setattr(cli, "_group_alive", lambda: False)
+    monkeypatch.setattr(clientcfg.time, "monotonic", lambda: now[0])
+    cli.close()
+    assert waits == [2.0, 0.0]
+
+
+def test_stdio_close_skips_reader_that_did_not_start(monkeypatch):
+    """reader 시작 실패 뒤 남은 객체도 미시작 Thread.join 없이 정리한다."""
+    import threading
+    from types import SimpleNamespace
+
+    reader = threading.Thread(target=lambda: None, daemon=True)
+    cli = clientcfg._StdioClient.__new__(clientcfg._StdioClient)
+    cli.p = SimpleNamespace(stdin=None, wait=lambda **kwargs: 0)
+    cli._readers = (reader,)
+    monkeypatch.setattr(cli, "_group_alive", lambda: False)
+    with clientcfg._LIVE_LOCK:
+        clientcfg._LIVE.add(cli)
+    try:
+        cli.close()
+        assert reader.ident is None
+        with clientcfg._LIVE_LOCK:
+            assert cli not in clientcfg._LIVE
+    finally:
+        with clientcfg._LIVE_LOCK:
+            clientcfg._LIVE.discard(cli)
+
+
 def test_check_server_uses_codex_like_environment_and_flags_stdout_noise(tmp_path, monkeypatch):
     srv = fake_mcp(tmp_path)
     dump = tmp_path / "env.json"

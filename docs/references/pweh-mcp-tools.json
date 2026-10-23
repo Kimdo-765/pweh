@@ -726,7 +726,7 @@
    },
    {
     "name": "schema_get",
-    "description": "PWEH JSON 스키마 조회. name: android-forensics, auth-hunt, bmff-scan, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, pinout-scan, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, uart-recon.",
+    "description": "PWEH JSON 스키마 조회. name: android-forensics, auth-hunt, bmff-scan, case, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, pinout-scan, rf-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, uart-recon.",
     "params": [
      {
       "name": "name",
@@ -7291,6 +7291,48 @@
       "type": "string",
       "required": true,
       "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": false
+    },
+    "meta": null
+   }
+  ]
+ },
+ "pweh-sdr": {
+  "module": "sdr_mcp.server",
+  "tools": [
+   {
+    "name": "sdr_analyze",
+    "description": "케이스에 등록된 일반 파일 하나를 오프라인 RAW 프로필로 검사한다. artifact_id는 같은 케이스 A-id이며 profile='flipper-subghz-raw-v1-strict'를 반드시 지정한다. 소유/허가 확인이 필요하며 forensics/·emu/ 입력은 받지 않는다. 최대1 MiB, max_seconds는0초 초과5초 이하(기본5)이며 입력 선택·읽기·SHA·검사가 같은 예산을 사용한다. 결과 생성 뒤 최종 무결성 검증·저장은 별도 최대5초의 협력 예산이다. complete/partial/malformed/unsupported와 수용한 완전한 줄의 집계·선언·입력 SHA를 반환하고 analysis/rf-raw-NNN.json을0444로 저장·등록한다. 원문 경로·pulse·주석·키는 반환하지 않는다. complete는 파일 문법 범위의 완료이며 실제 캡처 완전성·기기 연관성·전파 허가의 확인이 아니다. 집계는 익명성 보장이 아니며 RF 수신/송신/재생·외부 decoder 실행은 하지 않는다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "artifact_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "profile",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "max_seconds",
+      "type": "integer/number",
+      "required": false,
+      "default": 5
      }
     ],
     "annotations": {

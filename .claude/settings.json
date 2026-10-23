@@ -100,7 +100,8 @@
       "mcp__pweh-espprobe__espprobe_connect",
       "mcp__pweh-espprobe__espprobe_self_test",
       "mcp__pweh-espprobe__espprobe_release_all",
-      "mcp__pweh-espprobe__espprobe_disconnect"
+      "mcp__pweh-espprobe__espprobe_disconnect",
+      "mcp__pweh-sdr__sdr_analyze"
     ],
     "ask": [
       "mcp__pweh-uart__uart_write",
@@ -171,6 +172,7 @@
     "pweh-forensics",
     "pweh-emu",
     "rea",
-    "pweh-espprobe"
+    "pweh-espprobe",
+    "pweh-sdr"
   ]
 }

@@ -9,6 +9,7 @@ import os
 import threading
 import time
 import zipfile
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -81,9 +82,13 @@ class Owner:
         p=self.env.tmp/f'capture-{len(self.env.owners)}.sr'
         p.write_bytes(data)
         self.fd=os.open(p,os.O_RDONLY)
-        st=os.fstat(self.fd)
+        def seal(st):
+            # 읽기만으로 바뀌는 atime은 제외하고 내용/신원 변경은 ns 단위로 검사한다.
+            return (st.st_dev,st.st_ino,st.st_mode,st.st_uid,st.st_nlink,
+                    st.st_size,st.st_mtime_ns,st.st_ctime_ns)
+        initial=seal(os.fstat(self.fd))
         def check():
-            assert os.fstat(self.fd)==st
+            assert seal(os.fstat(self.fd))==initial
         def committed(receipt): self.publication=receipt
         source=CaptureOutput(self.fd,len(data),check,committed)
         result=publisher(source,exit=self.exit,deadline=deadline,cancel=cancel)
@@ -256,6 +261,49 @@ async def test_job_uses_same_worker_and_normal_commit(env,shortfall):
     assert out['status']=='succeeded' and out['result']['partial'] is shortfall,out
     assert S.rt().jobs.get(started['job_id'])._committed
     assert len(env.case.artifacts())==1 and not env.manager._leases
+
+async def test_job_normal_read_can_update_source_atime(env,monkeypatch):
+    original=Path.write_bytes
+    def write_with_old_atime(path,data):
+        count=original(path,data)
+        if path.parent==env.tmp and path.name=='capture-1.sr':
+            # seal 전에 과거 atime을 두어 첫 실제 pread가 반드시 갱신하게 한다.
+            os.utime(path,ns=(0,path.stat().st_mtime_ns))
+        return count
+    monkeypatch.setattr(Path,'write_bytes',write_with_old_atime)
+    async with Client(S.server) as c:
+        started=await invoke(c,env,background=True)
+        out=await _wait_job(c,started['job_id'])
+    if (env.tmp/'capture-1.sr').stat().st_atime_ns==0:
+        pytest.skip('이 파일 시스템은 읽기 atime을 갱신하지 않음(noatime 등)')
+    assert out['status']=='succeeded' and out['result']['partial'] is False,out
+    assert S.rt().jobs.get(started['job_id'])._committed
+    assert len(env.case.artifacts())==1 and not env.manager._leases
+
+@pytest.mark.parametrize('change',['content','mtime'])
+async def test_job_source_mutation_during_read_is_rejected(env,monkeypatch,change):
+    original=os.pread
+    changed=False
+    def read_then_change(fd,count,offset):
+        nonlocal changed
+        data=original(fd,count,offset)
+        if not changed and env.owners and fd==env.owners[0].fd:
+            changed=True
+            path=env.tmp/'capture-1.sr'
+            if change=='mtime':
+                st=path.stat()
+                os.utime(path,ns=(st.st_atime_ns,st.st_mtime_ns+1))
+            else:
+                with path.open('r+b') as target:
+                    target.write(b'X')
+        return data
+    monkeypatch.setattr(os,'pread',read_then_change)
+    async with Client(S.server) as c:
+        started=await invoke(c,env,background=True)
+        out=await _wait_job(c,started['job_id'])
+    assert changed and out['status']=='failed',out
+    assert out['error']['code']=='sigrok_capture_check_failed'
+    assert not env.case.artifacts() and not env.manager._leases
 
 async def test_job_timeout_persists_partial_without_commit_mark(env):
     env.owner_hook=lambda o:setattr(o,'exit',replace(o.exit,timed_out=True,returncode=-15))

@@ -26,6 +26,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
    ├─ pweh-forensics   SD 카드 이미지 증거 분석: 접수·해시·보관 기록, 파티션·FAT/exFAT 목록, 삭제 파일 추출(job), 증거 목록 — 기기·카드를 열지 않음 (선택)
    ├─ pweh-espprobe    HELLO·HB 오프라인 시뮬레이터, 실제 포트·핀 미지원 (I5 1a)
    ├─ pweh-emu         ESP32·S3·C3/Arduino AVR 펌웨어 실행, 출처 확인·마스킹 콘솔·세션 종료 — 기기 미접촉 (선택)
+   ├─ pweh-sdr         등록된 Flipper RAW 파일의 구조·통계 분석, 로컬 보고서 저장 (선택)
    └─ rea              REA(rea-agents): binwalk/unblob 추출, Ghidra 디컴파일, 참조 추적, 신호 디코딩
             │
       [대상 기기]  (또는 pweh-mock-device 시뮬레이터. pweh-forensics 는 사람이 만든 카드 이미지 파일만 받는다)
@@ -45,7 +46,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
 
 | 단계 | Skill | 하는 일 | 산출물 (cases/<id>/) |
 |---|---|---|---|
-| 0 | `pweh-start` | 접수: **목표 선택**(보안 분석 / 게임 콘솔 분석·SD 카드 포렌식은 일부 지원 / RF·하드웨어는 준비 중), 기기 정보, **소유/허가 확인**, 장비 확인, 프로필 선택, 케이스 생성 | `case.json` |
+| 0 | `pweh-start` | 접수: **목표 선택**(보안 분석 / 게임 콘솔 분석·SD 카드 포렌식·RF 파일 분석은 일부 지원), 기기 정보, **소유/허가 확인**, 목표에 필요한 장비 확인, 프로필 선택, 케이스 생성 | `case.json` |
 | A | `uart-shell-acquisition` | 포트 탐색, 보드레이트 탐지, 부팅 로그, U-Boot 인터럽트, 셸 획득, 기본 정보 수집 | `uart/*.log`, `steps/*` |
 | A′ | `logic-analyzer-protocol-decode` | 핀/보드레이트 모를 때 캡처·디코딩, SPI/I2C 관찰 | `signals/*` |
 | B | `firmware-dump-via-uart` | U-Boot `sf read`+`md.b`(+crc32) 또는 셸 `dd`(+md5) 덤프, 재개 가능 | `dumps/*.bin` + 메타데이터 |
@@ -58,6 +59,10 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
 각 Skill 은 끝날 때 스키마에 맞는 `summary` 를 케이스에 저장한다 (`schemas/*.schema.json`).
 다음 Skill 은 그 요약을 읽어서 이어서 진행한다. 세션이 끊겨도 케이스만 있으면 이어서 할 수 있다.
 
+이미 보유한 Flipper RAW 파일은 [flipper-rf-analysis](skills/flipper-rf-analysis/SKILL.md)로
+등록 파일의 구조·pulse 통계를 분석하고 `rf-analysis` 요약을 남긴다. 이 경로에는 수신 장비나
+펌웨어 확보가 필요하지 않다. 현재 RF 지원은 이 오프라인 파일 검사 범위다.
+
 보안 분석이 아닌 목표는 일부만 지원한다(`orchestrator/master-prompt.md` §3·§3.1).
 - **게임 콘솔 분석** — `game-save-unlock-analysis`: 세이브·해금 오프라인 분석과 사용자가 원한 세이브 값 변경(기기에는 사람이 쓴다). ESP32 기기는 `esp32-flash-dump` 로 먼저 덤프한다.
 - **SD 카드 포렌식** — `sd-card-forensics`: 사람이 하드웨어 쓰기 방지 장치를 거쳐 만든 카드 이미지를 pweh-forensics 로 접수하고(해시·보관 기록·쓰기 방지 장치 사람 증명),
@@ -69,7 +74,7 @@ UART 콘솔, 로직 애널라이저, JTAG, ESP32 esptool 덤프, 펌웨어 분�
   BMFF는 `forensics_bmff_scan`으로 큰 EV의 ftyp 시작점을 검색하고, 완전한 상자 경계의 prefix를 기존 구간 검사·추출로 연결한다. [검색량·완료·재개 계약](docs/references/bmff-scan.md).
   JPEG·AVC Annex B·MPEG-2 PS·XM의 제한된 단위는 `forensics_media_unit_candidates`로 찾고 `forensics_extract_media_unit`로 한 단위만 추출한다([후보](docs/references/media-unit-candidates.md)·[추출](docs/references/media-unit-extract.md)). 닫힌 구조와 PS의 검증된 prefix를 구분하며 미디어 내용은 해독하지 않는다.
   알려진 한계(잘린 이미지·손상된 카드, 같은 계정 프로세스의 경합 창 등)는 [안전 가이드](docs/safety.md) §3.6 에 있다.
-- **RF·하드웨어 분석** — 준비 중. 지금은 기존 Skill 로 보드 단위 콘솔·신호·덤프만 한다.
+- **RF·하드웨어 분석** — 보유한 Flipper RAW 파일의 구조·통계를 일부 지원한다. 보드 단위 콘솔·신호·덤프는 기존 Skill을 쓴다.
 
 MCU 에뮬레이션은 확보한 펌웨어로 부팅 로그·UART 응답을 보는 선택 단계다. `firmware-emulation` Skill 이 출처를 확인하고 `emu_read` 로 마스킹한 콘솔을 읽은 뒤 `emu_stop` 으로 끝낸다.
 가져온 파일의 출처는 사람이 증명한다. Wi-Fi·Bluetooth·USB 콘솔·대부분의 주변장치가 없어 앱이 조용하거나 멈출 수 있다. 지원 범위와 격리·마스킹 한계는 [설계](docs/design/emulation.md)와 [안전 가이드](docs/safety.md) §3.7 에 있다.
@@ -167,12 +172,12 @@ Cursor 는 `/pweh-start` 로 시작한다(`.cursor/mcp.json` 은 `./scripts/inst
 ```
 pweh/
 ├── README.md, project.md(명세), AGENTS.md, CLAUDE.md
-├── pyproject.toml                  하나의 패키지로 코어 + 9개 서버 설치
+├── pyproject.toml                  하나의 패키지로 코어 + 11개 서버 설치
 ├── src/pweh/                       공통 코어 (config, case, safety, provenance, evidence, fs, jobs, mcpkit, report, cli, formats, espfmt, console, schemas, mocktarget)
 ├── mcp-servers/
-│   ├── case-mcp/  uart-mcp/  openocd-mcp/  sigrok-mcp/  jtagulator-mcp/  fwtriage-mcp/  esp-mcp/  forensics-mcp/  emu-mcp/
+│   ├── case-mcp/  uart-mcp/  openocd-mcp/  sigrok-mcp/  jtagulator-mcp/  fwtriage-mcp/  esp-mcp/  forensics-mcp/  emu-mcp/  espprobe-mcp/  sdr-mcp/
 ├── native/emu/                     simavr 기반 AVR 실행기 (로컬 빌드)
-├── skills/                         pweh-start + 9개 Skill (.claude/skills, .agents/skills 에 링크)
+├── skills/                         pweh-start + 12개 Skill (.claude/skills, .agents/skills 에 링크)
 ├── orchestrator/
 │   ├── master-prompt.md            파이프라인 전체 지침 (이 하나로 시작)
 │   └── pipeline-config.yaml        안전 정책, 도구 경로, 대상 기기 프로필

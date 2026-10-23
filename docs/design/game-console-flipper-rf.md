@@ -1,6 +1,6 @@
 # 설계안: 게임 콘솔 분석 + Flipper Zero·RF(주파수) 분석
 
-> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치는 구현됐고 NFC·플레이·RF 확장은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
+> 상태: **설계와 구현 현황 (2차 개정)**. §3.5의 세이브 분석·ESP 패치와 §3.3의 등록 RAW 파일 오프라인 분석은 구현됐다. NFC·플레이·실제 RF 장비 연결은 후속 설계다. 계약(`docs/architecture.md`)이 아니다. 개요·로드맵·결정 사항은 [README.md](README.md),
 > 여러 서버가 함께 쓰는 기반(포트 라우팅, 증명, 출처 기록, 비밀 마스킹, 안전 설정 위치)은 [common-core.md](common-core.md), 환경 감지·포트 라우팅의 상세는 [port-routing.md](port-routing.md) 에 있다.
 > 1차 초안을 네 관점(안전·법, 기술 실현성, PWEH 구조 적합성, 요구사항 충족)으로 적대적 검토한 결과(지적 59건, 반박 0건)를 반영했다.
 > 근거: 공식 Flipper 펌웨어 **1.5.1** 소스, ChameleonUltra v2.2.0 소스, esptool·ESP-IDF NVS 형식, rtl-sdr-blog v1.4.0·rtl_433 25.12,
@@ -52,17 +52,18 @@ NFC·플레이 열의 “가능”은 후속 설계의 기대치다. 현재 세�
 ```
 pweh-flipper (신규)  Flipper Zero 한 대의 모든 앱. 1b 는 CLI 만, RPC 는 2a(.shd 캡처)부터
 pweh-nfc     (신규)  ChameleonUltra(모델이 Ultra 일 때) + 오프라인 NFC 분석(.nfc/.shd 해석·비교·프레임 해석)
-pweh-sdr     (신규)  RTL-SDR 수신 전용(1b). HackRF 는 보유 시 나중에 수신만
+pweh-sdr     (구현)  등록 RAW 파일 오프라인 분석. RTL-SDR 수신(1b)·HackRF 수신은 후속
 pweh-play    (신규)  입력 브리지 + 화면 인식 + 플레이 job (2b·2c)
 pweh-fwtriage(확장)  ESP 파티션·앱 이미지·NVS, 세이브 비교, 체크섬, 패치 빌드, 쓰기 검증, 게임 패턴 팩
 pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브리지·일반 USB-UART 어댑터를 usbipd 없이 (port-routing.md §5.2)
 공통 코어            환경 감지(hostenv)·포트 라우팅(ports)·winserial·wininterop·portlock·증명·출처 원장·비밀 마스킹·safety.rf·nfc·rf 파서 (common-core)
 ```
 
-위 신규 서버는 후속 설계다. 선행 구현한 순수 코어는 `pweh.rf_formats`(RAW 통계), `pweh.nfc_formats`(NFC 구조·저장 페이지 비교),
-`pweh.vision_sequence`(숫자 관찰값 합의)이며, 외부 I/O나 MCP 입구를 갖지 않는다.
+`pweh-sdr`는 `sdr_analyze` 한 도구를 제공하며 등록 RAW 파일의 검사·저장·RF 요약을 연결한다.
+나머지 신규 서버는 후속 설계다. 선행 구현한 순수 코어는 `pweh.rf_formats`(RAW 통계), `pweh.nfc_formats`(NFC 구조·저장 페이지 비교),
+`pweh.vision_sequence`(숫자 관찰값 합의)이며, 코어 자체는 외부 I/O를 하지 않는다. NFC·숫자 코어의 공개 MCP 입구는 아직 없다.
 파일의 선언·저장된 값만 다루므로 실제 수신·태그 소유/허가·완전한 물리 읽기·게임 상태를 확인하지 않는다.
-계약은 [RAW](../references/flipper-raw-profile.md)·[NFC](../references/nfc-file-profile.md)·[숫자 모델](../references/numeric-observations.md)을 따른다.
+계약은 [RAW 코어](../references/flipper-raw-profile.md)·[RAW 공개 입구](../references/rf-raw-analysis.md)·[NFC](../references/nfc-file-profile.md)·[숫자 모델](../references/numeric-observations.md)을 따른다.
 
 기기 단위 서버인 이유: MCP 서버끼리는 서로 부를 수 없고 한 포트는 한 프로세스만 연다. Flipper 의 모든 앱은 pweh-flipper 가, CU 는 pweh-nfc 가 맡는다.
 오프라인 NFC 분석은 장치가 없어도 쓰므로 pweh-nfc 에 둔다(Flipper 가 만든 파일도 해석). 화면 캡처와 입력은 한 루프에서 돌아야 하므로 pweh-play 한 프로세스다.
@@ -111,7 +112,18 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 - **오프라인 분석**: `.nfc`(v2~v4)/`.shd`/CU 덤프 해석, 페이지 비교(잠금·CFG 쓰기 표시), 방향별 패리티를 고려한 프레임 해석. 오프라인 도구도 계열 판정을 적용한다.
   로직 애널라이저 버스 해석(`nfc_bus_interpret`: NCI·PN532·MFRC522)은 실제 캡처가 생길 때까지 미룬다(사람이 Windows 에서 캡처 → `case_import_file` → `sigrok_decode` 경로는 문서로).
 
-### 3.3 pweh-sdr (RTL-SDR, 수신 전용)
+### 3.3 pweh-sdr (현재 오프라인 RAW, 후속 RTL-SDR 수신)
+
+**현재 구현**: `sdr_analyze(case_id, artifact_id, profile="flipper-subghz-raw-v1-strict", max_seconds=5)`.
+소유·허가된 케이스의 등록 일반 파일 하나(최대 1 MiB)를 같은 FD에서 읽어 기존 strict RAW 코어로 검사하고,
+입력 SHA와 전체 검사 결과를 `analysis/rf-raw-NNN.json`에 등록한다. `case_import_file` 응답의 `artifact.id`로 호출한다.
+`complete/partial/malformed/unsupported`와 coverage를 보존하고 `flipper-rf-analysis` Skill의 `rf-analysis` 요약으로 연결한다.
+기본·최대 작업 예산은 5초, 결과 생성 뒤 최종 저장은 별도의 고정 5초 예산이며 협력 취소를 적용한다.
+원시 pulse·입력 이름·주석은 반환하지 않는다. 선언 주파수와 집계는 익명화나 실제 RF 검증을 뜻하지 않는다.
+공개 계약은 [rf-raw-analysis.md](../references/rf-raw-analysis.md)다. 외부 도구·장치·decoder가 필요하지 않다.
+
+아래 RTL-SDR·IQ·decoder 경로는 **후속 설계**다. 현재 `sdr_analyze`는 `.ook` 변환, `rtl_433 -r`,
+프로토콜·키/ID·고정코드/롤링코드 판정, 실제 수신·송신·재생을 하지 않는다.
 
 - Windows 공식 빌드(rtl-sdr-blog v1.4.0 `rtl_power.exe`/`rtl_sdr.exe`/`rtl_eeprom.exe`, `rtl_433_64bit_static.exe` 25.12)를 interop 으로. WinUSB 드라이버(Zadig)는 **Windows 관리자 권한**이 필요한 사람 단계다.
   HackRF 는 Windows 릴리스 zip 이 없어(radioconda·로그인 필요한 CI 산출물) 1b 에서 제외.
@@ -192,8 +204,8 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 2. **대상 등록**: 사람이 대상 기기 버튼을 수신기 가까이(가능하면 차폐함)에서 누르고, 서버가 프로토콜·ID 를 기록한다. 디코드 도구는 등록된 대상만 값으로 남긴다.
 3. 스펙트럼: `sdr_sweep_start`(전력값만) 또는 SDR 이 없으면 §3.1 의 주파수 찾기.
 4. 수신·디코드: OOK 는 Flipper `rx_raw`/`rx_decode` 또는 SDR, FSK 는 SDR 또는 사람의 GUI Read RAW → 가져오기.
-5. 오프라인: `sdr_import_flipper_sub`(.sub → .ook) → `sdr_analyze`(rtl_433 -r, 펄스 분석) → 고정코드/롤링코드 판정. 고정코드도 값은 마스킹("고정코드, n비트").
-6. 재생 위험은 **수신 증거로만**: 같은 버튼 3~5회 프레임 동일, 롤링코드 디코더 적중 없음 → "재생 공격 가능성 높음" + verification_plan(확인 방법만, safety.md §1).
+5. **현재 오프라인 경로**: 사용자 지정 RAW 파일을 `case_import_file` → 반환 `artifact.id`로 명시 strict profile의 `sdr_analyze` → `flipper-rf-analysis` 요약. 파일 선언·펄스 집계·검사 범위만 기록한다. `.ook` 변환·decoder 기반 판정은 후속이며 현재 도구의 인자·출력이 아니다.
+6. 후속 재생 위험 분석은 **수신 증거로만** 한다. 현재 RAW 집계만으로 프레임 동일성·롤링코드 여부·재생 위험을 판정하지 않는다. 실제 decoder 경로를 구현한 뒤에도 verification_plan은 확인 방법만 기록한다(safety.md §1).
 7. IR 수신, 비자격증명 125 kHz/iButton 읽기, GPIO 읽기, UART 브리지(→ uart-shell-acquisition), SPI Mem 가져오기(→ firmware-static-analysis).
 
 ## 6. 안전 규칙 (이 기능 고유분 — 공통 규칙은 common-core §3~§6)
@@ -231,7 +243,8 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 
 ## 7. 케이스·스키마·Skill
 
-- 디렉터리: `rf/`(스윕·디코드·IQ·Flipper 신호), `nfc/`(`tags/`, `sessions/NNN/`, `cu-backup/`, `probe/`), `play/`(`<session>.events.jsonl`, `vision/frames|models|recordings`, `runs/`), `patches/`(이미지 + manifest),
+- 현재 RAW 분석: 기존 `analysis/`에 보고서, `kind="other"`·`extra.type="rf-raw-analysis"`로 등록한다. `flipper-rf-analysis`의 `rf-analysis`는 `offline-raw` 요약만 지원한다. 별도 `rf/` 생성이나 RF 장비 출처 증명은 없다.
+- 후속 디렉터리 설계: `rf/`(스윕·디코드·IQ·Flipper 신호), `nfc/`(`tags/`, `sessions/NNN/`, `cu-backup/`, `probe/`), `play/`(`<session>.events.jsonl`, `vision/frames|models|recordings`, `runs/`), `patches/`(이미지 + manifest, ESP 패치는 이미 구현),
   Flipper 전사 기록은 `rf/flipper/<session>.log`. `STANDARD_DIRS`, `case_paths`, `case_import_file` 허용 목록에 추가. 태그 인벤토리는 서버가 쓰는 `nfc/inventory.json`(권위 기록은 `.pweh/state` 의 증명·원장, 케이스 파일은 사본).
 - 아티팩트 kind: 처음에는 `other` + `extra.type`(`rf-sweep`, `rf-iq`, `rf-capture`, `nfc-tag-dump`, `nfc-session`, `screen-frame`, `input-log`, `save-patch`).
 - 스키마는 Skill 과 **같은 단계**에 등록(SKILL_DATA_SCHEMAS = master-prompt §5 표):
@@ -252,7 +265,8 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 |---|---|---|---|
 | 0 | 공통 기반(common-core): 환경 감지·포트 라우팅(port-routing.md P0–P1), wininterop, portlock, 증명·출처 원장·비밀 마스킹, safety 설정 위치, 테스트 파서 정리 | 없음 | 단위 테스트, 가짜 PnP·가짜 헬퍼 |
 | **1a** | ESP32 세이브·해금 오프라인 트랙: fwtriage ESP·세이브 도구, 게임 패턴 팩, REA 지원 ELF 확인·Xtensa 한계 기록, `game-save-unlock-analysis` | 새 전송 없음(기존 esp_read_flash_start) | 합성 NVS·파티션·체크섬 이미지 |
-| **1b** | **Flipper/CU 실기 관문(미완료)**: DTR → `>: `, `info device`, 1 MB storage md5 왕복, CU GET_APP_VERSION. P2 공통 Windows COM helper와 UART/JTAGulator 연결은 이미 구현됐다. 이 관문 실패 시 원인을 확인하며 PowerShell relay 자동 대체는 제공하지 않는다.<br>후속: pweh-flipper(CLI 만), pweh-nfc(오프라인 + CU 읽기는 Ultra 보유 시), pweh-sdr(RTL-SDR), NFC 읽기·비교 흐름, `flipper-rf-analysis`, `nfc-behavior-analysis` | 사용자 Flipper/CU 연결 | 가짜 Flipper CLI(배너·loader·브리지 모드 포함), 가짜 CU, 가짜 `rtl_*`, 합성 `.sub`/`.nfc` |
+| **1b 오프라인 RAW** | **구현**: 등록 파일 → 명시 strict profile의 `sdr_analyze` → 분석 JSON·아티팩트 → `flipper-rf-analysis`/`rf-analysis` → 보고서. 실제 RF 수신·decoder 경로는 포함하지 않는다. | 소유·허가 케이스의 등록 RAW 파일, 장비 불필요 | 합성 `.sub`, 실제 MCP 입구·FD/해시·취소/등록 수명·요약 |
+| **1b 장비 연결** | **Flipper/CU 실기 관문(미완료)**: DTR → `>: `, `info device`, 1 MB storage md5 왕복, CU GET_APP_VERSION. P2 공통 Windows COM helper와 UART/JTAGulator 연결은 이미 구현됐다. 이 관문 실패 시 원인을 확인하며 PowerShell relay 자동 대체는 제공하지 않는다.<br>후속: pweh-flipper(CLI 만), pweh-nfc(오프라인 + CU 읽기는 Ultra 보유 시), pweh-sdr(RTL-SDR), NFC 읽기·비교 흐름, `nfc-behavior-analysis` | 사용자 Flipper/CU 연결 | 가짜 Flipper CLI(배너·loader·브리지 모드 포함), 가짜 CU, 가짜 `rtl_*`, 합성 `.nfc` |
 | 2a | NFC 에뮬레이션 캡처: Flipper RPC(.shd), CU 스니프(단일 창), 필수 정리 | 1b | 가짜 Flipper RPC 상태 기계, 가짜 CU 창 초기화 |
 | 2b | 자동화 MVP: 화면 OBSERVE 도구, 보드 하나의 브리지 펌웨어(빌드·배포·플래시 절차 — ESP32 계측기 1c 의 `firmware/common`·빌드·고정 흐름 재사용), 세션 예산 안 즉석 입력 | 1b + §10 보드 결정 | 브리지 시뮬레이터(하트비트·한도·디스크립터 해시), 합성 프레임 |
 | 2c | 선언형 플레이 job(최대 2시간, play_policy) + `game-play-automation` | 2b | 합성 프레임 시퀀스, 시뮬레이터 |
@@ -310,7 +324,13 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 | `nfc_parse_file`, `nfc_diff_dumps`, `nfc_decode_frames` | OBSERVE(오프라인) | 계열 판정 적용 |
 | `nfc_job_status/cancel/jobs` | — | 취소 시 정리 실행 |
 
-**pweh-sdr** (1b: RTL-SDR)
+**pweh-sdr** (현재 오프라인 RAW)
+
+| 도구 | 영향 | 비고 |
+|---|---|---|
+| `sdr_analyze(case_id, artifact_id, profile, max_seconds=5)` | 로컬 보고서·아티팩트 등록 | 명시 strict RAW, 등록 파일 최대 1 MiB, 장치 I/O 없음 |
+
+**pweh-sdr 후속 설계** (1b: RTL-SDR, 아래 도구는 미구현)
 
 | 도구 | 위험 | 비고 |
 |---|---|---|
@@ -319,7 +339,7 @@ pweh-uart    (변경)  Windows COM 전송(winserial 헬퍼) — Flipper UART 브
 | `sdr_band_lookup(frequency_hz, bandwidth_hz=None)` | OBSERVE | FSK 전용 표시 |
 | `sdr_target_enroll(case_id, ...)` | INTERACT | 대상 등록 |
 | `sdr_sweep_start`, `sdr_decode_start(..., target)`, `sdr_iq_capture_start` | OBSERVE · job | 캡처 폭·내용 대역 |
-| `sdr_analyze`, `sdr_import_flipper_sub`, `sdr_peaks` | OBSERVE(오프라인) | |
+| `sdr_import_flipper_sub`, `sdr_peaks` | OBSERVE(오프라인) | `.ook` 변환·decoder 연결은 후속; 현재 `sdr_analyze` 계약과 구분 |
 | `sdr_job_status/cancel/jobs` | — | |
 
 **pweh-play** (2b·2c)

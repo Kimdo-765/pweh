@@ -21,6 +21,7 @@
    ├─ pweh-forensics   (mcp-servers/forensics-mcp)   SD·Android 논리 증거 분석: 접수·해시·보관 기록, FAT/exFAT·TAR/ZIP 목록, SQLite·앱 기록·타임라인 — 기기 미접촉 (선택)
    ├─ pweh-emu         (mcp-servers/emu-mcp)         ESP32·S3·C3/Arduino AVR 펌웨어 실행·마스킹 콘솔 — 기기 미접촉 (선택)
    ├─ pweh-espprobe    (mcp-servers/espprobe-mcp)    ESP32-S3 계측기 프로토콜·시뮬레이터 (선택, 현재 오프라인 검증만)
+   ├─ pweh-sdr         (mcp-servers/sdr-mcp)         등록된 Flipper RAW 파일의 오프라인 구조·통계 분석
    └─ rea              (외부: rea-agents 6.5)        binwalk/unblob 추출, Ghidra 디컴파일, sigrok 디코딩
             │
       [대상 기기]  (또는 테스트용 pweh.mocktarget 시뮬레이터. pweh-forensics 는 기기 대신 사람이 만든 카드 이미지 파일을 받는다)
@@ -1265,6 +1266,31 @@ InstrumentTagStore는 uid별 runtime 디렉터리0700·파일0600, nofollow·크
 instrument-aux도 권위 증명과 현재 관찰이 일치해야 만들 수 있으며 허용 권한이 아니다.
 기존 ESP chip/security 사실의 출처 기록은 그대로 재사용하고, 관찰 MAC도 고정 계측기와 대조한다.
 실제 pin 생성과 포트의 원자적 잠금은 후속 단계다. 현재 구현은 합성 PnP와 가짜 프로세스로 검증한다.
+
+### 6.11 pweh-sdr (오프라인 RAW)
+
+등록된 케이스 파일 한 개를 기존 `pweh.rf_formats`의 strict RAW 검사기로 분석한다.
+도구는 하나이며 외부 실행·장치·포트·job·세션을 만들지 않는다.
+
+| 도구 | 계약 |
+|---|---|
+| `sdr_analyze(case_id, artifact_id, profile, max_seconds=5)` | 소유/허가가 확인된 케이스의 유일한 등록 파일 `A-숫자`를 선택한다. 필수 `profile="flipper-subghz-raw-v1-strict"`, 입력 최대1MiB, 유한 숫자 `0 < max_seconds <= 5`. 경로·URL·EV·임의 decoder 인자는 없다. `forensics/`·`emu/`와 별칭, 링크·하드링크, 등록 크기·SHA 불일치를 거부한다. 결과는 `rf-raw-analysis` 보고서와 생성 아티팩트 정보다. |
+
+입력은 같은 읽기 FD로 최대64KiB씩 읽고 등록 SHA와 대조한다. 부모·이름·FD 신원과 입력
+색인을 commit까지 보유·재검증하고 최종 전체 SHA를 한 번 더 계산한다. worker 시작의 작업
+마감은 케이스 선택부터 parser까지, parser 반환 뒤 고정5초의 최종 마감은 JSON·출력 해시·
+잠금·등록까지 공유한다. 협력 검사이므로 모든 OS 호출의 강제 중단 시간을 보장하지 않는다.
+
+`analysis/rf-raw-NNN.json`은 최대128KiB, 0444로 저장한다. 같은 출력 FD·이름·해시를 확인한
+뒤 `kind=other`, `producer=pweh-sdr`, `extra.type=rf-raw-analysis`로 원자 등록한다.
+등록 전 실패는 자신이 만든 동일 inode만 정리하고, 등록 뒤 취소·감사 오류는 결과를 보존한다.
+SDK 입력과 worker 오류는 고정 문구로 반환하며 원문 경로·RAW pulse·예외 내용을 싣지 않는다.
+
+`complete`·`partial`·`malformed`·`unsupported`는 파일 검사 상태다. 수신·프로토콜 해독·송신,
+실제 주파수·대상·획득 출처 확인을 뜻하지 않는다. `flipper-rf-analysis`는 `rf-analysis` 요약을
+기록한다. Claude allow는 로컬 보고서를 쓰는 정확한 `sdr_analyze` 한 도구다.
+자세한 출력은 [rf-raw-analysis](references/rf-raw-analysis.md), 문법은
+[flipper-raw-profile](references/flipper-raw-profile.md)를 따른다.
 
 ## 7. REA 연동
 

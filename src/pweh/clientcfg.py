@@ -1629,10 +1629,12 @@ class _StdioClient:
         self.next_id = 0
         self.p = subprocess.Popen(list(argv), cwd=cwd or None, env=dict(env), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE, start_new_session=True, close_fds=True)
+        self._readers = (threading.Thread(target=self._read_out, daemon=True),
+                         threading.Thread(target=self._read_err, daemon=True))
         with _LIVE_LOCK:
             _LIVE.add(self)
-        threading.Thread(target=self._read_out, daemon=True).start()
-        threading.Thread(target=self._read_err, daemon=True).start()
+        for reader in self._readers:
+            reader.start()
 
     def _exit_code(self, wait: float = 1.0) -> int | None:
         with contextlib.suppress(subprocess.TimeoutExpired):
@@ -1645,22 +1647,24 @@ class _StdioClient:
 
     def _read_out(self) -> None:
         assert self.p.stdout is not None
-        for line in self.p.stdout:
-            s = line.strip()
-            if not s:
-                continue
-            try:
-                self.q.put(json.loads(s))
-            except ValueError:
-                self.nonjson.append(s[:200].decode("utf-8", "replace"))
+        with self.p.stdout:
+            for line in self.p.stdout:
+                s = line.strip()
+                if not s:
+                    continue
+                try:
+                    self.q.put(json.loads(s))
+                except ValueError:
+                    self.nonjson.append(s[:200].decode("utf-8", "replace"))
         self.q.put(None)
 
     def _read_err(self) -> None:
         assert self.p.stderr is not None
-        for line in self.p.stderr:
-            text = line.decode("utf-8", "replace").rstrip()
-            if text:
-                self.stderr.append(text[:300])
+        with self.p.stderr:
+            for line in self.p.stderr:
+                text = line.decode("utf-8", "replace").rstrip()
+                if text:
+                    self.stderr.append(text[:300])
 
     def send(self, obj: Mapping[str, Any], method: str = "") -> None:
         assert self.p.stdin is not None
@@ -1722,6 +1726,12 @@ class _StdioClient:
                 time.sleep(0.05)
         with contextlib.suppress(subprocess.TimeoutExpired):
             self.p.wait(timeout=2)
+        # 자식 종료와 수신 완료는 별개다. stderr snapshot 전에 두 reader를 같은 예산으로 기다린다.
+        # 미종료 reader의 stream은 여기서 닫지 않는다(다른 스레드의 read 잠금을 기다릴 수 있음).
+        reader_deadline = time.monotonic() + 2
+        for reader in self._readers:
+            if reader.ident is not None and reader is not threading.current_thread():
+                reader.join(max(0.0, reader_deadline - time.monotonic()))
         with _LIVE_LOCK:
             _LIVE.discard(self)
 

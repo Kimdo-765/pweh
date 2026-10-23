@@ -376,3 +376,8 @@
 - **`espprobe_disconnect(case_id)`**  
   모델에 BYE를 보내고 시뮬레이터·HB worker를 종료한다. 최종 JSON을 아티팩트로 기록하며 반복 호출 가능.
 
+## pweh-sdr
+
+- **`sdr_analyze(case_id, artifact_id, profile, max_seconds?)`**  
+  케이스에 등록된 일반 파일 하나를 오프라인 RAW 프로필로 검사한다. artifact_id는 같은 케이스 A-id이며 profile='flipper-subghz-raw-v1-strict'를 반드시 지정한다. 소유/허가 확인이 필요하며 forensics/·emu/ 입력은 받지 않는다. 최대1 MiB, max_seconds는0초 초과5초 이하(기본5)이며 입력 선택·읽기·SHA·검사가 같은 예산
+

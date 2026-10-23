@@ -56,6 +56,7 @@ SKILL_NAMES = (
     "firmware-emulation",
     "image-hints-analysis",
     "android-forensics",
+    "flipper-rf-analysis",
 )
 SERVERS = {
     # MCP 서버 이름 → (콘솔 스크립트, 설명)
@@ -69,6 +70,7 @@ SERVERS = {
     "pweh-forensics": ("pweh-forensics-mcp", "SD 카드 이미지 증거 분석 (사람이 만든 이미지 파일만 — 접수·보관 기록·무결성·파일 목록·삭제 파일 추출)"),
     "pweh-emu": ("pweh-emu-mcp", "MCU 펌웨어 에뮬레이션 (Espressif QEMU·Arduino AVR, 출처 확인·마스킹 콘솔)"),
     "pweh-espprobe": ("pweh-espprobe-mcp", "ESP 계측기 오프라인 HELLO·HB 시뮬레이터 (실제 포트 미지원)"),
+    "pweh-sdr": ("pweh-sdr-mcp", "등록된 Flipper RAW 파일의 오프라인 구조·통계 분석"),
 }
 REA_ENV_KEYS = (
     "GHIDRA_INSTALL_DIR", "JAVA_HOME", "REA_SIGROK_COMMAND", "REA_BINWALK_COMMAND", "REA_UNBLOB_COMMAND",
