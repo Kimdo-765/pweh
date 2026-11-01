@@ -22,4 +22,4 @@ ISO14443-3A 헤더는 유효한 scan에 결속하여 구조 검사할 수 있으
 
 CU scan은 `nfc_cu_connect`의 실제 세션으로 `nfc_cu_scan`을 호출해 얻는다. 기존 요약 필드는 동일하며 provider별 원시 식별값을 추가하지 않는다. Flipper의 page READ 없음과 CU의 두 시작 페이지 검증을 혼동하지 않으며, 두 경로 모두 물리 동일 태그 검증은 false다.
 
-CU read job의 실제 snapshot은 [CU 스냅샷 계약](../../docs/references/cu-read-snapshot.md)에 따른다. `registered=true`의 artifact_id로 parse/diff한 뒤 그 분석 receipt만 results에 넣는다. read receipt의 job 상태·read_complete·registered는 각각 구분한다. CU snapshot은 전용 device-read 원장으로 검증하고 일반 가져온 파일의 사람 증명을 대신하지 않는다. 양쪽 읽기와 전체 비교가 완료되지 않은 `stored_pages_equal=null`과 미비교 페이지 수를 보존한다.
+CU read job의 실제 snapshot은 [CU 스냅샷 계약](../../docs/references/cu-read-snapshot.md)에 따른다. `registered=true`의 artifact_id로 parse/diff한 뒤 그 분석 receipt만 results에 넣는다. read receipt의 job 상태·read_complete·registered는 각각 구분한다. CU snapshot은 전용 device-read 원장으로 검증하고 일반 가져온 파일의 사람 증명을 대신하지 않는다. v2.2.0 reader 프로필의 이전 snapshot은 검증·단독 parse와 같은 프로필끼리의 diff만 가능하며 v2.3.0 snapshot과의 diff는 nfc_source_mismatch로 거부된다. 양쪽 읽기와 전체 비교가 완료되지 않은 `stored_pages_equal=null`과 미비교 페이지 수를 보존한다.

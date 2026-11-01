@@ -4,8 +4,8 @@ CU 고정 연결·스캔·페이지 스냅샷 읽기와 같은 케이스의 Flip
 
 | 도구 | 입력 | 결과 |
 |---|---|---|
-| `nfc_cu_connect` | `case_id`, `port`, `approval_id=None` | 고정 Ultra2.2 reader 확인·실제 session_id |
-| `nfc_cu_scan` | `case_id`, `session_id`, `approval_id=None` | 새 scan·GET_VERSION·READ0/1 검증 뒤 마스킹 scan_ref |
+| `nfc_cu_connect` | `case_id`, `port`, `approval_id=None` | 공식 v2.3.0 Ultra reader(APP2.3·GIT 정확 v2.3.0) 확인·실제 session_id |
+| `nfc_cu_scan` | `case_id`, `session_id`, `approval_id=None` | 새 scan·단독 GET_VERSION·새 선택 READ0/1 검증 뒤 마스킹 scan_ref |
 | `nfc_cu_read_start` | `case_id`, `session_id`, `tag_ref`, `approval_id=None` | 유한 페이지 snapshot job·전용 device-read 원장·artifact 등록 |
 | `nfc_job_status` | `job_id`, `wait_seconds=0.0`, `case_id=None` | 작업·저장 기록과 실제 결과 조회 |
 | `nfc_job_cancel` | `job_id` | 취소 요청, 실제 commit 결과 보존 |
@@ -13,9 +13,10 @@ CU 고정 연결·스캔·페이지 스냅샷 읽기와 같은 케이스의 Flip
 | `nfc_cu_disconnect` | `case_id`, `session_id` | 같은 세션의 worker·transport·lease 정리 결과 |
 | `nfc_tag_inventory_add` | `case_id`, `scan_ref` | `tag_ref`, `scan_ref`, family, 케이스 솔트 지문, scan/inventory 원장 seq·SHA |
 | `nfc_parse_file` | `case_id`, `artifact_id`, `tag_ref`, `max_seconds=5` | 기존 순수 검사 결과와 출처 결속, 실제 저장 경로·SHA |
-| `nfc_diff_dumps` | `case_id`, `before_artifact_id`, `after_artifact_id`, `tag_ref`, `max_seconds=5` | 저장 페이지 비교 결과와 두 파일의 출처 결속, 실제 저장 경로·SHA |
+| `nfc_diff_dumps` | `case_id`, `before_artifact_id`, `after_artifact_id`, `tag_ref`, `max_seconds=5` | 저장 페이지 비교 결과와 두 파일의 출처 결속, 실제 저장 경로·SHA. CU snapshot은 같은 reader 프로필끼리만 |
 
-CU는 명시 COM/tty와 현재 USB CDC 신원·전체 sibling 잠금 아래 MODIFY 게이트를 거친다. [고정 CU 계약](../../docs/references/cu-ntag-read-provider.md)의 시작5초·스캔45초·명령2초·close10초를 따르며 실패 뒤 자동 RF-off/재접속을 하지 않는다. 읽기 job은 새 admission 뒤 같은 field에서 시작 페이지4B를 모으고 [스냅샷 계약](../../docs/references/cu-read-snapshot.md)의 전용 원장·파일 등록으로 연결한다. wire45초 뒤 host 검증/저장5초를 한 번 사용한다.
+CU는 명시 COM/tty와 현재 USB CDC 신원·전체 sibling 잠금 아래 MODIFY 게이트를 거친다. [고정 CU 계약](../../docs/references/cu-ntag-read-provider.md)의 시작5초·스캔45초·명령2초·close10초를 따르며 실패 뒤 자동 RF-off/재접속을 하지 않는다. v2.2.0 reader 프로필은 이전 scan·snapshot의 검증 전용이다.
+GET_VERSION은 단독 keep=0 activation이며 NTAG213/215/216이 아니면 READ 없이 거부한다. 읽기 job은 새 admission 뒤 같은 field에서 시작 페이지4B를 모으고 [스냅샷 계약](../../docs/references/cu-read-snapshot.md)의 전용 원장·파일 등록으로 연결한다. wire45초 뒤 host 검증/저장5초를 한 번 사용한다.
 
 `flipper_nfc_probe`는 별도 `pweh-flipper` 서버에서 실행한다. 두 provider의 검증 조건은 독립 유지한다. 성공한 같은 케이스 `scan_ref`를 inventory에 등록한 뒤, `case_import_file` 또는 허용된 Flipper 파일 복사로 등록한 artifact id를 사용한다. 사용자가 제출한 UID·family, cache, 임의 producer 문자열은 scan 사실을 대신하지 않는다. 기존 `provenance-import` 사람 증명을 요구하면 사람이 별도 터미널의 `pweh attest <id>`로 답한다. 에이전트가 증명을 대신하지 않는다.
 

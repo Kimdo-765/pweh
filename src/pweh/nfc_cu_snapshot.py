@@ -27,13 +27,10 @@ LIMITATIONS = ("stored_page_responses_only", "validated_prefix_pages_only",
                "snapshot_not_atomic", "physical_same_tag_not_verified",
                "console_causality_not_verified", "no_tag_authorization_inferred")
 _FAMILIES = {item.family: item for item in CU.NtagFamily}
-_READER = {"profile": CU.PROFILE, "profile_sha256": CU.PROFILE_SHA256,
-           "firmware_commit": CU.FIRMWARE_COMMIT, "app_version": CU.FIRMWARE_VERSION,
-           "git_version": CU.FIRMWARE_GIT_VERSION}
 _TOP = {"schema", "profile", "binding", "reader", "identity", "pages_total", "pages",
         "pages_observed", "read_complete", "stop_reason", "unobserved_fields", *FALSE_FIELDS}
 _TYPED_FIELDS = {"identity", "pages", "binding", "family", "pages_total", "pages_observed",
-                 "read_complete", "stop_reason", "input_size"}
+                 "read_complete", "stop_reason", "input_size", "reader_profile"}
 _clock = time.monotonic
 
 
@@ -50,6 +47,7 @@ class CuSnapshot:
     read_complete: bool
     stop_reason: str | None
     input_size: int
+    reader_profile: str
 
 
 def _error(code: str = "nfc_snapshot_invalid") -> PwehError:
@@ -219,11 +217,22 @@ def _binding(value: object, control: _Control) -> tuple[tuple[str, str | int], .
     return tuple((key, value[key]) for key in BINDING_FIELDS)
 
 
+def _reader(value: object) -> str:
+    """reader 객체는 닫힌 두 행 중 정확한 이름 하나와 다섯 값 전체가 같아야 한다."""
+    _object(value, CU.READER_FIELDS)
+    _require(all(type(value[key]) is str for key in CU.READER_FIELDS))
+    row = CU.known_reader_profile(value["profile"])
+    _require(row is not None and value == row.reader())
+    return row.profile
+
+
 def _checked(snapshot: CuSnapshot, control: _Control) -> None:
     """typed 생성자를 우회한 값도 같은 유한 관계 검사로 닫는다."""
     _require(type(snapshot) is CuSnapshot, "nfc_input_invalid")
     control.check()
     _require(set(vars(snapshot)) == _TYPED_FIELDS)
+    _require(type(snapshot.reader_profile) is str
+             and CU.known_reader_profile(snapshot.reader_profile) is not None)
     _require(type(snapshot.family) is str and len(snapshot.family) == 7 and snapshot.family in _FAMILIES)
     model = _FAMILIES[snapshot.family]
     _require(type(snapshot.pages_total) is int and snapshot.pages_total == model.pages_total)
@@ -279,8 +288,7 @@ def parse_cu_snapshot(data: bytes, *, deadline: float,
     _tree(value, control)
     _object(value, _TOP)
     _require(value["schema"] == SNAPSHOT_SCHEMA and value["profile"] == SNAPSHOT_PROFILE)
-    _object(value["reader"], set(_READER))
-    _require(value["reader"] == _READER)
+    reader_profile = _reader(value["reader"])
     _require(value["unobserved_fields"] == list(UNOBSERVED_FIELDS))
     _require(all(value[key] is False for key in FALSE_FIELDS))
     identity = value["identity"]
@@ -295,6 +303,7 @@ def parse_cu_snapshot(data: bytes, *, deadline: float,
                          _hex(identity["sak"], 1), _hex(identity["mifare_version"], 8), identity["family"]),
         tuple(pages), _binding(value["binding"], control), identity["family"], value["pages_total"],
         value["pages_observed"], value["read_complete"], value["stop_reason"], len(data),
+        reader_profile,
     )
     _checked(result, control)
     return result
@@ -328,12 +337,16 @@ def inspect_cu_snapshot(snapshot: CuSnapshot, *, deadline: float,
 
 def diff_cu_snapshots(before: CuSnapshot, after: CuSnapshot, *, deadline: float,
                       cancel: Callable[[], bool] | None = None) -> dict:
-    """공통 관찰 페이지의 변경 위치만 비교한다. 비교 중 시간 한도만 partial로 마감한다."""
+    """공통 관찰 페이지의 변경 위치만 비교한다. 비교 중 시간 한도만 partial로 마감한다.
+
+    두 snapshot은 같은 reader 프로필이어야 한다. 서로 다른 읽기 recipe의 결과는 비교하지 않는다.
+    """
     control = _Control(deadline, cancel)
     _checked(before, control)
     _checked(after, control)
     _require(before.family == after.family and before.pages_total == after.pages_total
-             and before.binding == after.binding and before.identity == after.identity,
+             and before.binding == after.binding and before.identity == after.identity
+             and before.reader_profile == after.reader_profile,
              "nfc_source_mismatch")
     compared = before_only = after_only = neither = processed = 0
     changed = []

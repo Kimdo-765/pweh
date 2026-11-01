@@ -17,9 +17,17 @@ from pweh.errors import PwehError
 from pweh.jobs import JobContext
 from pweh.nfc_formats import _NfcFileIdentity
 from pweh.safety.attestations import canonical_json
+from core.test_nfc_cu_inventory import legacy_scan_data, record_legacy_scan
 from .fake_cu import setup as setup, FakeCu, UID
 
 PRIVATE = 'CU_READ_PRIVATE_SENTINEL'
+LIVE_EXTRA = {'reader_profile': 'cu-ntag21x-v2.3.0-v1',
+              'reader_profile_sha256': '95132f6c6e6609854cf32af0f1644eb409147cf21060ba97e7eb3dee4d783eb5',
+              'firmware_commit': '4e1a5b267b9ed33559e0e2c9dad61d61eaf64ba1'}
+LIVE_READER = {'profile': 'cu-ntag21x-v2.3.0-v1',
+               'profile_sha256': '95132f6c6e6609854cf32af0f1644eb409147cf21060ba97e7eb3dee4d783eb5',
+               'firmware_commit': '4e1a5b267b9ed33559e0e2c9dad61d61eaf64ba1',
+               'app_version': '2.3', 'git_version': 'v2.3.0'}
 
 
 def end():
@@ -98,6 +106,13 @@ def test_actual_read_registers_only_snapshot_and_actual_receipts(setup, family):
     assert set(row['extra']) == {'snapshot_profile', 'reader_profile', 'reader_profile_sha256',
         'firmware_commit', 'session_id', 'reader_binding', 'binding', 'family', 'pages_total',
         'pages_observed', 'read_complete', 'stop_reason'}
+    assert {key: row['extra'][key] for key in LIVE_EXTRA} == LIVE_EXTRA
+    assert payload['reader'] == LIVE_READER and snapshot.reader_profile == LIVE_READER['profile']
+    # 앞 probe의 READ0/1 뒤에 read job의 새 admission부터 마지막 page까지가 이어진다.
+    probe, reads = env.fake.reads()[:2], env.fake.reads()[2:]
+    assert [data[0] for data in probe] == [0xfc, 0xe4] and len(reads) == payload['pages_total']
+    assert reads[0][0] == 0xfc and {data[0] for data in reads[1:-1]} == {0xec} and reads[-1][0] == 0xe4
+    assert not env.fake.field
     assert result['registered'] and result['status'] == 'ok' and result['warnings'] == []
     assert job._committed and not owner._uses and owner.state == 'ready'
     public = json.dumps(job.to_dict())
@@ -108,6 +123,23 @@ def test_actual_read_registers_only_snapshot_and_actual_receipts(setup, family):
 def test_flipper_inventory_is_not_restricted_to_cu_origin(setup):
     owner, bound = admitted(setup, flipper=True)
     assert launch(setup, owner, bound).status == 'succeeded'
+
+
+def test_live_read_of_inventory_from_literal_legacy_scan_row_is_allowed(setup):
+    # inventory 지문은 identity만 덮으므로 v2.2.0 scan으로 만든 tag_ref도 live recipe로 다시 admission한다.
+    env = setup
+    env.fake = FakeCu()
+    owner = env.connect()
+    # 현재 writer로 만든 행을 고치지 않고 main(v2.2.0) writer 모양의 literal 행을 원장에 직접 기록한다.
+    scan_ref = record_legacy_scan(env.runtime, env.case, uid=UID.hex())
+    assert env.runtime.provenance.entries(env.case)[0]['data'] == legacy_scan_data(uid=UID.hex())
+    bound = I.add_inventory(env.runtime, env.case, scan_ref, deadline=end())
+    job = launch(env, owner, bound)
+    assert job.status == 'succeeded', job.to_dict()
+    row = env.runtime.provenance.entries(env.case)[-1]
+    assert {key: row['extra'][key] for key in LIVE_EXTRA} == LIVE_EXTRA
+    assert output(env, job)[1]['reader'] == LIVE_READER
+    assert env.runtime.provenance.entries(env.case)[0]['data']['profile'] == 'cu-ntag21x-v2.2.0-v1'
 
 
 @pytest.mark.parametrize('reason', ['time_limit', 'nfc_scan_invalid'])

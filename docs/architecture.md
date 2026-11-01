@@ -1476,8 +1476,8 @@ RAW 파일이면 반환 artifact ID를 `sdr_analyze`로 넘긴다. [전송 계�
 
 | 도구 | 계약 |
 |---|---|
-| `nfc_cu_connect(case_id, port, approval_id=None)` | 현재 CDC 신원·전체 USB lease·MODIFY 게이트 뒤115200/8N1/DTR=true/RTS=false로 연다. 네 고정 조회가 Ultra·APP2.2·GIT v2.2.0·reader mode1일 때만 ready다. |
-| `nfc_cu_scan(case_id, session_id, approval_id=None)` | 정확한 세션의 MODIFY 게이트 뒤 mode·새 scan·GET_VERSION·READ0/1을 검증한다. UID/BCC와 세 NTAG 계열 일치 뒤 CU 전용 보호 scan 사실을 기록한다. |
+| `nfc_cu_connect(case_id, port, approval_id=None)` | 현재 CDC 신원·전체 USB lease·MODIFY 게이트 뒤115200/8N1/DTR=true/RTS=false로 연다. 네 고정 조회가 Ultra·APP2.3·GIT 정확 v2.3.0·reader mode1일 때만 ready다. v2.2.0·dev build는 RF 전에 `cu_firmware_unsupported`다. |
+| `nfc_cu_scan(case_id, session_id, approval_id=None)` | 정확한 세션의 MODIFY 게이트 뒤 mode·새 scan·단독 GET_VERSION(keep=0)·새 선택 READ0/1을 검증한다. 세 NTAG가 아닌 version은 READ 없이 `nfc_family_unsupported`다. UID/BCC와 세 NTAG 계열 일치 뒤 CU 전용 보호 scan 사실을 기록한다. |
 | `nfc_cu_read_start(case_id, session_id, tag_ref, approval_id=None)` | 기존 세션·현재 inventory와 MODIFY 게이트 뒤 유한 페이지 읽기 job을 시작한다. 전용 device-read 원장 기록 후 snapshot artifact를 등록한다. |
 | `nfc_job_status(job_id, wait_seconds=0.0, case_id=None)` | 작업과 저장 기록 조회. wait_seconds는0..50초다. |
 | `nfc_job_cancel(job_id)` | 실행 중 작업 취소 요청. 실제 commit 이후 결과는 보존한다. |
@@ -1485,12 +1485,22 @@ RAW 파일이면 반환 artifact ID를 `sdr_analyze`로 넘긴다. [전송 계�
 | `nfc_cu_disconnect(case_id, session_id)` | 허가 철회 뒤에도 같은 세션의 읽기 작업을 취소하고 정리한다. worker·물리 close·lease를 각각 확인하며 미확인 owner는 보존한다. |
 | `nfc_tag_inventory_add(case_id, scan_ref)` | 같은 케이스의 고정 성공 scan을 검사하고 inventory 사실을 등록한다. 같은 scan 재등록은 기존 tag_ref를 반환한다. nfc/inventory.json은 최근32개 마스킹 조회 사본이다. |
 | `nfc_parse_file(case_id, artifact_id, tag_ref, max_seconds=5)` | 등록 일반 파일≤1MiB의 전체 SHA·private 식별값·최신 출처를 확인한다. imported-v4는 기존 사람 증명, CU snapshot은 전용 device-read 원장을 요구한다. |
-| `nfc_diff_dumps(case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds=5)` | 두 파일 합≤2MiB, 같은 inventory와 각 출처를 확인한다. imported끼리 또는 CU snapshot끼리만 비교하며 혼합은 거부한다. |
+| `nfc_diff_dumps(case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds=5)` | 두 파일 합≤2MiB, 같은 inventory와 각 출처를 확인한다. imported끼리 또는 같은 reader 프로필의 CU snapshot끼리만 비교하며 혼합은 거부한다. |
 
 inventory·parse·diff는 소유/허가 확인 뒤 로컬 결과를 쓰는 `ANN_LOCAL_WRITE`다.
 임의 UID·계열·키·attested 인자는 없다. imported 증명 대기 전에 FD를 닫고 새 worker에서
 입력·원장·증명을 재검증한다. 입력 작업은 최대5초, 마지막 같은 FD/원장/출력 검증·등록은
 별도5초 한 번이다. 원장 snapshot은16MiB/10000entries/64KiB 읽기와 기존 체인 검증을 적용한다.
+
+CU reader 프로필은 `cu_protocol.KNOWN`의 닫힌 두 행이다. live 경로(연결·승인 지문·scan 사실·snapshot·
+원장 extra)는 `LIVE`=`cu-ntag21x-v2.3.0-v1`(공식 tag v2.3.0, commit 4e1a5b26)만 쓰고,
+`cu-ntag21x-v2.2.0-v1`은 기존 scan 사실·snapshot·extra의 검증 전용이다. 두 recipe는 canonical JSON literal과
+import 시 hash 대조로 고정한다. 검증기는 `known_reader_profile`의 정확한 str key 조회 뒤 나머지 값 전체 일치를
+요구한다. probe/admission은 GET_VERSION(`f4`)만의 첫 activation 뒤 READ0(`fc`)부터 새 activation으로 읽어
+세 NTAG가 아닌 태그에 READ를 보내지 않고 field를 끈다. version과 페이지는 다른 선택이므로
+`reselection_atomic=false`다. keep=1 READ(`fc`·`ec`)의 timeout·CRC 오류·잘못된 응답·취소, 성공한 keep=1 frame
+(`fc`·`ec`) 뒤 다음 frame 전의 host time_limit·취소, 내부 읽기 admission READ1(`ec`) 뒤 UID/BCC 불일치, scan READ0(`fc`) 실패 뒤 field가
+켜진 채 남는 잔여는 자동2101·field-off 없이 문서화한다.
 
 CU wire 읽기는45초, 명령 하나는 남은 시간과2초 중 작은 예산을 사용한다. admission 뒤
 `time_limit` 또는 `nfc_scan_invalid`만 partial로 게시할 수 있으며 취소·프로토콜·허가·신원 오류는

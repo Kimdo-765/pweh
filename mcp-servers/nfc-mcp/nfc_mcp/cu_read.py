@@ -179,15 +179,13 @@ def _snapshot(read, owner, bound, deadline, cancel):
     if read.read_complete is not True and read.stop_reason not in ('time_limit', 'nfc_scan_invalid'):
         raise _error(read.stop_reason)
     if (type(read.family) is not P.NtagFamily or type(read.identity) is not P.CuScanIdentity
-            or read.profile != P.PROFILE or read.reader_binding != owner._binding()
+            or read.profile != P.LIVE.profile or read.reader_binding != owner._binding()
             or any(getattr(read, key) is not False for key in ('physical_same_tag_verified',
                     'device_command_termination_verified', 'rf_off_verified'))):
         raise _error('nfc_snapshot_invalid')
     I._reader_binding(read.reader_binding)
     snapshot = {'schema': 'pweh.nfc-cu-snapshot/v1', 'profile': 'cu-ntag21x-pages-v1',
-        'binding': _binding(bound), 'reader': {'profile': P.PROFILE, 'profile_sha256': P.PROFILE_SHA256,
-            'firmware_commit': P.FIRMWARE_COMMIT, 'app_version': P.FIRMWARE_VERSION,
-            'git_version': P.FIRMWARE_GIT_VERSION},
+        'binding': _binding(bound), 'reader': P.LIVE.reader(),
         'identity': {'family': read.family.family, 'uid': read.identity.uid.hex(),
             'atqa_msb': read.identity.atqa_msb.hex(), 'sak': read.identity.sak.hex(),
             'mifare_version': read.family.mifare_version.hex()},
@@ -199,7 +197,8 @@ def _snapshot(read, owner, bound, deadline, cancel):
     if not 0 < len(data) <= MAX_BYTES:
         raise _error('nfc_snapshot_invalid')
     parsed = N.parse_cu_snapshot(data, deadline=deadline, cancel=cancel)
-    if dict(parsed.binding) != _binding(bound) or parsed.family != bound.family:
+    if (dict(parsed.binding) != _binding(bound) or parsed.family != bound.family
+            or parsed.reader_profile != P.LIVE.profile):
         raise _error('nfc_source_mismatch')
     I.match_file_identity(bound, parsed.identity)
     return data
@@ -296,8 +295,8 @@ class CuReadWork:
             data = _snapshot(read, self.owner, self.bound, host_end, self.use.cancelled)
             output = _Output(self.case, host_check, host_end)
             output.write(data)
-            extra = {'snapshot_profile': 'cu-ntag21x-pages-v1', 'reader_profile': P.PROFILE,
-                'reader_profile_sha256': P.PROFILE_SHA256, 'firmware_commit': P.FIRMWARE_COMMIT,
+            extra = {'snapshot_profile': 'cu-ntag21x-pages-v1', 'reader_profile': P.LIVE.profile,
+                'reader_profile_sha256': P.LIVE.profile_sha256, 'firmware_commit': P.LIVE.firmware_commit,
                 'session_id': self.owner.session_id, 'reader_binding': copy.deepcopy(read.reader_binding),
                 'binding': _binding(self.bound), 'family': self.bound.family, 'pages_total': read.total_pages,
                 'pages_observed': read.pages_observed, 'read_complete': read.read_complete, 'stop_reason': read.stop_reason}

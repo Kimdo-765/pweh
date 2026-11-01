@@ -8051,7 +8051,7 @@
    },
    {
     "name": "nfc_diff_dumps",
-    "description": "같은 tag_ref에 결속한 before/after 등록 NFC 덤프 두 개의 저장 페이지를 오프라인 비교한다. 두 파일은 모두 imported v4이거나 모두 CU snapshot이어야 하며 혼합은 거부한다. v4는 각각1MiB 이하·현재 provenance-import 증명이 필요하고 CU는64KiB 이하·현재 전용 device-read 결속을 확인한다. read<total·ISO 헤더·불완전 layout에서는 비교 불가/null을 유지한다. raw UID·페이지·Counter·PWD/PACK은 반환하지 않는다. max_seconds는0초 초과5초 이하이며 분석 후 별도5초 최종 검증·등록을 수행한다. analysis/nfc-diff-NNN.json의 실제 경로와 해시를 반환한다. 태그 쓰기·인증·에뮬레이션은 수행하지 않는다.",
+    "description": "같은 tag_ref에 결속한 before/after 등록 NFC 덤프 두 개의 저장 페이지를 오프라인 비교한다. 두 파일은 모두 imported v4이거나 모두 CU snapshot이어야 하며 혼합은 거부한다. CU snapshot은 같은 reader 프로필끼리만 비교하며 v2.2.0·v2.3.0 snapshot 혼합은 nfc_source_mismatch다. v4는 각각1MiB 이하·현재 provenance-import 증명이 필요하고 CU는64KiB 이하·현재 전용 device-read 결속을 확인한다. read<total·ISO 헤더·불완전 layout에서는 비교 불가/null을 유지한다. raw UID·페이지·Counter·PWD/PACK은 반환하지 않는다. max_seconds는0초 초과5초 이하이며 분석 후 별도5초 최종 검증·등록을 수행한다. analysis/nfc-diff-NNN.json의 실제 경로와 해시를 반환한다. 태그 쓰기·인증·에뮬레이션은 수행하지 않는다.",
     "params": [
      {
       "name": "case_id",
@@ -8094,7 +8094,7 @@
    },
    {
     "name": "nfc_cu_connect",
-    "description": "명시 USB CDC CU 포트를 전체 장치 범위로 잠근 뒤 MODIFY gate를 거쳐 연결한다. 115200 8N1/DTR=true/RTS=false이며 모델 Ultra·정확2.2/v2.2.0·현재 reader 모드를 고정 조회한다. 모드 변경은 하지 않으며 호환 확인 전 RF 명령을 보내지 않는다. 모델·버전은 자기 보고이며 서명 증명이 아니다. 조회 worker5초, 정리 최대10초이며 미확인 handle/worker/lease는 보존한다. approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.",
+    "description": "명시 USB CDC CU 포트를 전체 장치 범위로 잠근 뒤 MODIFY gate를 거쳐 연결한다. 115200 8N1/DTR=true/RTS=false이며 모델 Ultra·APP2.3·GIT 정확 v2.3.0·현재 reader 모드를 고정 조회한다. v2.2.0과 v2.3.0 이후 dev build는 cu_firmware_unsupported다. 모드 변경은 하지 않으며 호환 확인 전 RF 명령을 보내지 않는다. 모델·버전은 자기 보고이며 서명 증명이 아니다. 조회 worker5초, 정리 최대10초이며 미확인 handle/worker/lease는 보존한다. approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.",
     "params": [
      {
       "name": "case_id",
@@ -8125,7 +8125,7 @@
    },
    {
     "name": "nfc_cu_scan",
-    "description": "정확한 case/session의 CU reader에서 MODIFY gate 뒤 고정14A 선택·GET_VERSION·READ0/1을 수행한다. 45초 안에 NTAG213/215/216·UID7/ATQA/SAK와 두 시작 페이지의 UID/BCC를 내부 대조하고 scan 사실을 남긴다. READ16B마다 첫4B만 해당 시작 페이지로 사용하며 원시 UID·페이지·version은 반환하지 않는다. reader CRC 성공 관찰과 host RF CRC 검산을 구분한다. 스캔 전에 펌웨어가 RATS를 보낼 수 있다. 원자적 동일 실물·진품·RF off·장치 명령 종료는 증명하지 않는다. 인증·쓰기·전체 태그 덤프·임의 raw는 없으며 불완전 probe는 scan 사실을 만들지 않는다. approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.",
+    "description": "정확한 case/session의 CU reader에서 MODIFY gate 뒤 고정14A 선택·단독 GET_VERSION(field 해제)·새 선택 READ0/1을 수행한다. NTAG213/215/216이 아닌 version 응답은 READ 없이 nfc_family_unsupported로 끝난다. 45초 안에 NTAG213/215/216·UID7/ATQA/SAK와 두 시작 페이지의 UID/BCC를 내부 대조하고 scan 사실을 남긴다. READ16B마다 첫4B만 해당 시작 페이지로 사용하며 원시 UID·페이지·version은 반환하지 않는다. reader CRC 성공 관찰과 host RF CRC 검산을 구분한다. 스캔 전에 펌웨어가 RATS를 보낼 수 있다. 원자적 동일 실물·진품·RF off·장치 명령 종료는 증명하지 않는다. 인증·쓰기·전체 태그 덤프·임의 raw는 없으며 불완전 probe는 scan 사실을 만들지 않는다. approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.",
     "params": [
      {
       "name": "case_id",
@@ -8181,7 +8181,7 @@
    },
    {
     "name": "nfc_cu_read_start",
-    "description": "같은 케이스의 ready CU session_id와 현재 tag_ref에 결속해 NTAG213/215/216 저장 페이지 읽기 job을 시작한다. 고정 Ultra2.2 reader만 사용하며 페이지 범위·임의 명령·인증·쓰기는 받지 않는다. wire45초와 별도 host 게시5초 안에 검증한 prefix를 nfc/cu-read-NNN.json에 저장한다. time_limit/nfc_scan_invalid만 부분 읽기를 보존하며 원장 기록 뒤 artifact 등록 실패는 registered=false인 실제 partial_result로 남긴다. raw UID·페이지는 job 응답에 넣지 않는다. nfc_job_status로 완료를 확인하고 등록 artifact_id를 같은 inventory의 nfc_parse_file/nfc_diff_dumps에 사용한다.",
+    "description": "같은 케이스의 ready CU session_id와 현재 tag_ref에 결속해 NTAG213/215/216 저장 페이지 읽기 job을 시작한다. 고정 Ultra v2.3.0 reader만 사용하며 페이지 범위·임의 명령·인증·쓰기는 받지 않는다. 단독 GET_VERSION 뒤 READ0부터 새 선택으로 읽으며 읽기 중 실패는 field를 남길 수 있다. wire45초와 별도 host 게시5초 안에 검증한 prefix를 nfc/cu-read-NNN.json에 저장한다. time_limit/nfc_scan_invalid만 부분 읽기를 보존하며 원장 기록 뒤 artifact 등록 실패는 registered=false인 실제 partial_result로 남긴다. raw UID·페이지는 job 응답에 넣지 않는다. nfc_job_status로 완료를 확인하고 등록 artifact_id를 같은 inventory의 nfc_parse_file/nfc_diff_dumps에 사용한다.",
     "params": [
      {
       "name": "case_id",

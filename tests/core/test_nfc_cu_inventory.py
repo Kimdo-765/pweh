@@ -12,6 +12,14 @@ from pweh.errors import PwehError
 from pweh.nfc_formats import _NfcFileIdentity
 from .test_nfc_inventory import setup, end, observation as flipper_observation, rewrite
 
+# 독립 literal 고정값. 구현 상수를 읽지 않는다.
+LEGACY = {'profile': 'cu-ntag21x-v2.2.0-v1',
+          'profile_sha256': 'd7e590dce5e5f9723cbff12aa0fcea46d5a9550e392a33cf7b0de5102dffd73c',
+          'firmware_commit': 'f349dbeeaa315776b272ae8fb851cc4042d55f07'}
+LIVE = {'profile': 'cu-ntag21x-v2.3.0-v1',
+        'profile_sha256': '95132f6c6e6609854cf32af0f1644eb409147cf21060ba97e7eb3dee4d783eb5',
+        'firmware_commit': '4e1a5b267b9ed33559e0e2c9dad61d61eaf64ba1'}
+
 
 def observation(family=C.NtagFamily.NTAG213, **changes):
     identity = _NfcFileIdentity(b'SYNTH01', b'\0\x44', b'\0', family.mifare_version, 'iso14443-3a')
@@ -45,7 +53,7 @@ def test_cu_fact_common_inventory_and_old_flipper_roundtrip(setup, family):
     data = entries[0]['data']
     assert entries[0]['fact_kind'] == N.CU_SCAN_FACT
     assert entries[0]['source'] == {'server': 'nfc-mcp', 'tool': 'nfc_cu_scan'}
-    assert data['profile_sha256'] == C.PROFILE_SHA256 and data['firmware_commit'] == C.FIRMWARE_COMMIT
+    assert {key: data[key] for key in LIVE} == LIVE
     assert data['read_requests'] == data['pages_retained'] == 2
     assert not ({'pages', 'probe_sha256', 'probe_size', 'scratch_cleanup_confirmed', 'version_crc_valid'} & data.keys())
     assert entries[1]['fact_kind'] == N.INVENTORY_FACT and len(entries) == 4
@@ -141,7 +149,7 @@ def cu_public_fixture():
     out = old_public_fixture()
     for key in ('probe_identity_match', 'version_crc_valid', 'scratch_cleanup_confirmed'):
         out.pop(key)
-    out.update(profile='cu-ntag21x-v2.2.0-v1', page_read_performed=True, read_requests=2,
+    out.update(profile='cu-ntag21x-v2.3.0-v1', page_read_performed=True, read_requests=2,
         pages_retained=2, page_identity_match=True, reader_crc_check_succeeded=True,
         host_crc_verified=False, rf_off_verified=False)
     return out
@@ -162,13 +170,102 @@ def test_independent_public_fixture_and_only_known_warning(factory):
 def test_old_new_schema_mixing_rejected(factory, mutation):
     data = factory()
     old = factory is old_public_fixture
-    if mutation == 'profile': data['profile'] = C.PROFILE if old else N.PROFILE
+    if mutation == 'profile': data['profile'] = C.LIVE.profile if old else N.PROFILE
     elif mutation == 'both': data['read_requests' if old else 'version_crc_valid'] = 2 if old else True
     elif mutation == 'missing': data.pop('page_read_performed')
     elif mutation == 'raw': data['uid'] = 'PRIVATE'
     elif mutation == 'false': data['physical_same_tag_verified'] = True
     else: data['uid_length'] = True
     with pytest.raises(PwehError): schemas.validate('nfc-scan', data)
+
+
+@pytest.mark.parametrize('profile', ['cu-ntag21x-v2.2.0-v1', 'cu-ntag21x-v2.3.0-v1'])
+def test_public_scan_schema_accepts_exactly_two_reader_names(profile):
+    data = cu_public_fixture()
+    data['profile'] = profile
+    schemas.validate('nfc-scan', data)
+
+
+@pytest.mark.parametrize('profile', ['cu-ntag21x-v2.3.1-v1', 'cu-ntag21x-v2.2.0-v2', 'CU-NTAG21X-V2.3.0-V1',
+    'cu-ntag21x-v2.3.0', 'cu-ntag21x-v2.3.0-v1 ', '', None, 1])
+def test_public_scan_schema_rejects_other_reader_names(profile):
+    data = cu_public_fixture()
+    data['profile'] = profile
+    with pytest.raises(PwehError):
+        schemas.validate('nfc-scan', data)
+
+
+def live_row(runtime, case, family=C.NtagFamily.NTAG213):
+    ref = scan(runtime, case, family)
+    return ref, runtime.provenance.entries(case)
+
+
+# main(v2.2.0)의 record_cu_scan이 남긴 scan 사실 data 전체를 그대로 적은 literal이다. 현재 writer나
+# 구현 상수를 거치지 않으므로 writer의 key 집합·모양이 바뀌어도 이 이전 행은 그대로 검증되어야 한다.
+LEGACY_SCAN_REF = 'NS-' + '0123456789abcdef' * 2
+LEGACY_VERSIONS = {'ntag213': '0004040201000f03', 'ntag215': '0004040201001103', 'ntag216': '0004040201001303'}
+
+
+def legacy_scan_data(family='ntag213', *, uid='53594e54483031', scan_ref=LEGACY_SCAN_REF):
+    return {'scan_ref': scan_ref, 'session_id': 'legacy-v220-cu-session',
+            'reader_binding': {'backend': 'posix-tty', 'lock_key': 'tty:legacy-v220',
+                               'device_id': 'legacy-v220-device', 'scope_keys': ['tty:legacy-v220']},
+            'profile': 'cu-ntag21x-v2.2.0-v1',
+            'profile_sha256': 'd7e590dce5e5f9723cbff12aa0fcea46d5a9550e392a33cf7b0de5102dffd73c',
+            'firmware_commit': 'f349dbeeaa315776b272ae8fb851cc4042d55f07', 'firmware_claim_verified': False,
+            'identity': {'uid': uid, 'atqa_msb': '0044', 'sak': '00',
+                         'mifare_version': LEGACY_VERSIONS[family], 'profile': 'iso14443-3a'},
+            'family': family, 'page_read_performed': True, 'read_requests': 2, 'pages_retained': 2,
+            'page_identity_match': True, 'reader_crc_check_succeeded': True, 'host_crc_verified': False,
+            'steps_complete': True, 'reselection_atomic': False}
+
+
+def record_legacy_scan(runtime, case, family='ntag213', **kwargs):
+    """literal v2.2.0 scan 사실을 원장 API로 직접 기록하고 scan_ref를 돌려준다."""
+    data = legacy_scan_data(family, **kwargs)
+    runtime.provenance.record_device_fact(case, 'nfc-ntag21x-cu-scan-v1', data,
+                                          {'server': 'nfc-mcp', 'tool': 'nfc_cu_scan'})
+    return data['scan_ref']
+
+
+@pytest.mark.parametrize('family', list(C.NtagFamily))
+def test_literal_legacy_v220_scan_row_stays_valid_for_inventory(setup, family):
+    runtime, case = setup
+    scan_ref = record_legacy_scan(runtime, case, family.family)
+    assert runtime.provenance.entries(case)[0]['data'] == legacy_scan_data(family.family)
+    bound = N.add_inventory(runtime, case, scan_ref, deadline=end())
+    assert N.resolve_inventory(runtime, case, bound.tag_ref, deadline=end()).to_dict() == bound.to_dict()
+    N.match_file_identity(bound, replace(observation(family).identity, profile=family.family))
+    # inventory 지문은 reader 프로필과 무관하므로 live scan과 같은 값이다.
+    live = N.add_inventory(runtime, case, scan(runtime, case, family).scan_ref, deadline=end())
+    assert live.identity_digest == bound.identity_digest and live.tag_ref != bound.tag_ref
+    schemas.validate('nfc-inventory', bound.to_dict())
+
+
+@pytest.mark.parametrize('values', [
+    {**LEGACY, 'profile_sha256': LIVE['profile_sha256']},
+    {**LEGACY, 'firmware_commit': LIVE['firmware_commit']},
+    {**LIVE, 'profile_sha256': LEGACY['profile_sha256']},
+    {**LIVE, 'firmware_commit': LEGACY['firmware_commit']},
+    {**LEGACY, 'profile_sha256': '0' * 64},
+    {**LIVE, 'profile_sha256': '0' * 64},
+    {**LIVE, 'firmware_commit': '4c5bc2cb6b023d23f7bbc383c9b2b5e39f95419e'},
+    {**LIVE, 'profile_sha256': LIVE['profile_sha256'].upper()},
+    {**LIVE, 'profile': 'cu-ntag21x-v2.3.1-v1'}, {**LIVE, 'profile': 'cu-ntag21x-v2.2.0-v2'},
+    {**LIVE, 'profile': 'CU-NTAG21X-V2.3.0-V1'}, {**LIVE, 'profile': 'cu-ntag21x-v2.3.0'},
+    {**LIVE, 'profile': 'cu-ntag21x-v2.3.0-v1 '}, {**LIVE, 'profile': None}, {**LIVE, 'profile': 1},
+    {**LIVE, 'profile': ['cu-ntag21x-v2.3.0-v1']}, {**LIVE, 'profile': {'cu-ntag21x-v2.3.0-v1': 1}},
+    {**LIVE, 'profile_sha256': None}, {**LIVE, 'firmware_commit': 1},
+])
+def test_cross_paired_or_unknown_reader_rows_poison_inventory(setup, values):
+    runtime, case = setup
+    ref, entries = live_row(runtime, case)
+    entries[0]['data'].update(values)
+    rewrite(runtime, case, entries)
+    with pytest.raises(PwehError) as exc:
+        N.add_inventory(runtime, case, ref.scan_ref, deadline=end())
+    assert exc.value.code == 'nfc_scan_invalid' and exc.value.data == {}
+    assert len(runtime.provenance.entries(case)) == 1
 
 
 @pytest.mark.parametrize('kwargs,code', [({'cancel': lambda: True}, 'cancelled'),

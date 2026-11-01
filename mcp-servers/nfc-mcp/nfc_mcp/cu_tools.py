@@ -85,7 +85,7 @@ async def _close_prepared(owner):
 def approval_action(owner):
     """probe의 정확 세션과 고정 recipe만 승인 지문에 추가한다."""
     return {**owner.action, 'operation': 'ntag_scan', 'session_id': owner.session_id,
-            'nfc_profile': CU.PROFILE, 'nfc_profile_sha256': CU.PROFILE_SHA256,
+            'nfc_profile': CU.LIVE.profile, 'nfc_profile_sha256': CU.LIVE.profile_sha256,
             'read_requests': 2, 'pages_retained': 2}
 
 
@@ -149,11 +149,11 @@ async def _connect(namespace, case_id, port, approval_id, ctx):
                 runtime.case(case_id, hardware=True)
                 device = owner.start(use, deadline=deadline)
                 if (type(device) is not CU.CuDevice or device.model != 'chameleon-ultra'
-                        or device.app_version != CU.FIRMWARE_VERSION or device.git_version != CU.FIRMWARE_GIT_VERSION
+                        or device.app_version != CU.LIVE.app_version or device.git_version != CU.LIVE.git_version
                         or device.reader_mode is not True):
                     raise _error('cu_protocol_invalid')
                 return {'ok': True, 'case_id': case_id, 'session_id': owner.session_id,
-                    'profile': CU.PROFILE, 'state': 'ready',
+                    'profile': CU.LIVE.profile, 'state': 'ready',
                     'device': {'model': device.model, 'app_version': device.app_version,
                                'git_version': device.git_version, 'reader_mode': True,
                                'firmware_claim_verified': False},
@@ -223,6 +223,9 @@ async def _scan(namespace, case_id, session_id, approval_id, ctx):
                 result = I.record_cu_scan(runtime, case, observation,
                     deadline=deadline, cancel=use.cancelled).to_dict()
                 schemas.validate('nfc-scan', result)
+                # schema는 검증용 두 이름을 모두 받으므로 새 scan은 live 이름인지 따로 확인한다.
+                if result.get('profile') != CU.LIVE.profile:
+                    raise _error('nfc_scan_invalid')
                 return result
             finally:
                 use.finish()
@@ -241,7 +244,8 @@ def register_cu_tools(server, namespace):
     """기존 NFC 서버에 고정 CU 세 도구만 더한다. strict metadata는 서버의 공통 등록 단계가 적용한다."""
     @server.tool(description=(
         '명시 USB CDC CU 포트를 전체 장치 범위로 잠근 뒤 MODIFY gate를 거쳐 연결한다. '
-        '115200 8N1/DTR=true/RTS=false이며 모델 Ultra·정확2.2/v2.2.0·현재 reader 모드를 고정 조회한다. '
+        '115200 8N1/DTR=true/RTS=false이며 모델 Ultra·APP2.3·GIT 정확 v2.3.0·현재 reader 모드를 고정 조회한다. '
+        'v2.2.0과 v2.3.0 이후 dev build는 cu_firmware_unsupported다. '
         '모드 변경은 하지 않으며 호환 확인 전 RF 명령을 보내지 않는다. 모델·버전은 자기 보고이며 서명 증명이 아니다. '
         '조회 worker5초, 정리 최대10초이며 미확인 handle/worker/lease는 보존한다. '
         'approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.'
@@ -252,7 +256,8 @@ def register_cu_tools(server, namespace):
         return await _connect(namespace, case_id, port, approval_id, ctx)
 
     @server.tool(description=(
-        '정확한 case/session의 CU reader에서 MODIFY gate 뒤 고정14A 선택·GET_VERSION·READ0/1을 수행한다. '
+        '정확한 case/session의 CU reader에서 MODIFY gate 뒤 고정14A 선택·단독 GET_VERSION(field 해제)·새 선택 READ0/1을 수행한다. '
+        'NTAG213/215/216이 아닌 version 응답은 READ 없이 nfc_family_unsupported로 끝난다. '
         '45초 안에 NTAG213/215/216·UID7/ATQA/SAK와 두 시작 페이지의 UID/BCC를 내부 대조하고 scan 사실을 남긴다. '
         'READ16B마다 첫4B만 해당 시작 페이지로 사용하며 원시 UID·페이지·version은 반환하지 않는다. '
         'reader CRC 성공 관찰과 host RF CRC 검산을 구분한다. 스캔 전에 펌웨어가 RATS를 보낼 수 있다. '

@@ -15,7 +15,7 @@ description: 소유·허가된 PWEH 케이스에서 NTAG213/215/216 스캔을 in
 4. `flipper_nfc_probe(case_id)`로 고정 SELECT·GET_VERSION을 수행한다. 이 작업은 Flipper SD에 작은 임시 파일을 만들고 제거하므로 MODIFY다. 페이지 READ나 태그 메모리 쓰기는 하지 않는다. 정상 응답의 실제 `scan_ref`만 `nfc_tag_inventory_add`에 전달하고 반환 `tag_ref`를 보존한다.
 5. `approval_required`이면 반환 id와 영향을 설명하고 사람이 별도 터미널에서 `pweh approve <id>`로 승인한 뒤 같은 인자와 `approval_id`로 재호출한다. 에이전트가 승인 명령을 실행하지 않는다. `denied`·지원 밖 계열은 우회하지 않으며 raw 명령·다른 앱으로 대신하지 않는다.
 
-CU Ultra를 사용하는 새 스캔은 [CU 계약](../../docs/references/cu-ntag-read-provider.md)을 따른다. 허가된 reader의 명시 포트로 `nfc_cu_connect(case_id, port)`를 호출하고 실제 반환한 `session_id`로 `nfc_cu_scan(case_id, session_id)`을 호출한다. 두 도구는 MODIFY 게이트를 적용하며 위 승인 규칙을 따른다. CU는 현재 reader 모드의 고정2.2만 받으며 mode/slot을 변경하지 않는다. scan은 GET_VERSION과 READ0/1의 UID/BCC를 확인하고, 실제 scan_ref를 같은 `nfc_tag_inventory_add`로 등록한다. CU 페이지 읽기가 필요하면 아래 절로 진행한다.
+CU Ultra를 사용하는 새 스캔은 [CU 계약](../../docs/references/cu-ntag-read-provider.md)을 따른다. 허가된 reader의 명시 포트로 `nfc_cu_connect(case_id, port)`를 호출하고 실제 반환한 `session_id`로 `nfc_cu_scan(case_id, session_id)`을 호출한다. 두 도구는 MODIFY 게이트를 적용하며 위 승인 규칙을 따른다. CU는 현재 reader 모드의 공식 v2.3.0(APP2.3·GIT 정확 `v2.3.0`)만 받으며 mode/slot을 변경하지 않는다. `cu_firmware_unsupported`(v2.2.0이나 dev build 등)이면 우회하지 않고 사람이 공식 release를 확인하게 한다. scan은 단독 GET_VERSION과 새 선택 READ0/1의 UID/BCC를 확인하고, 실제 scan_ref를 같은 `nfc_tag_inventory_add`로 등록한다. 원조 Ultralight·Ultralight C·EV1처럼 NTAG가 아닌 태그는 고정 오류 nfc_family_unsupported로 끝나며 인증·다른 명령으로 대신하지 않는다. CU 페이지 읽기가 필요하면 아래 절로 진행한다.
 
 ## CU 페이지 스냅샷 읽기
 
@@ -23,7 +23,7 @@ CU Ultra를 사용하는 새 스캔은 [CU 계약](../../docs/references/cu-ntag
 
 `registered=true` 결과의 실제 artifact_id만 아래 parse/diff에 사용한다. 원장 기록 뒤 등록이 실패하면 파일·원장 receipt는 보존되지만 `registered=false`이며 분석 가능한 artifact로 꾸미지 않는다. snapshot은 원시 신원과 페이지를 담으므로 에이전트가 직접 열지 않는다.
 
-미관찰 페이지는 null이다. 모든 페이지가 있어도 `read_complete=false`일 수 있으며 페이지 수로 완료를 추정하지 않는다. 사용자가 콘솔 전후 비교를 원하면 사람이 태그를 콘솔에 제시하고 완료를 알린 뒤 다시 읽는다. CU snapshot끼리만 비교하고 관찰된 변화가 콘솔 때문에 발생했다고 단정하지 않는다.
+미관찰 페이지는 null이다. 모든 페이지가 있어도 `read_complete=false`일 수 있으며 페이지 수로 완료를 추정하지 않는다. 사용자가 콘솔 전후 비교를 원하면 사람이 태그를 콘솔에 제시하고 완료를 알린 뒤 다시 읽는다. 같은 reader 프로필의 CU snapshot끼리만 비교하고 관찰된 변화가 콘솔 때문에 발생했다고 단정하지 않는다.
 
 ## 파일 검사와 비교
 

@@ -216,7 +216,7 @@ class CuScanRef:
     def to_dict(self):
         return {"ok": True, "schema": "pweh.nfc-scan/v1", "scan_ref": self.scan_ref,
                 "family": self.family, "identity_digest": self.identity_digest, "uid_length": 7,
-                "profile": CU.PROFILE, "inventory_eligible": True, "page_read_performed": True,
+                "profile": CU.LIVE.profile, "inventory_eligible": True, "page_read_performed": True,
                 "read_requests": 2, "pages_retained": 2, "page_identity_match": True,
                 "reader_crc_check_succeeded": True, "host_crc_verified": False,
                 "reselection_atomic": False, "physical_same_tag_verified": False,
@@ -296,11 +296,15 @@ def _cu_identity(identity):
 
 
 def _cu_scan(entry, case_id):
+    """CU scan 사실은 닫힌 reader 집합의 정확한 이름 조회 뒤 hash·commit 전체 일치를 요구한다."""
     _fact(entry, case_id, CU_SCAN_FACT, {"server": "nfc-mcp", "tool": "nfc_cu_scan"})
     d = entry["data"]
-    if (set(d) != _CU_SCAN_KEYS or not _matches(_SCAN, d["scan_ref"])
-            or not _valid_text(d["session_id"], 128) or d["profile"] != CU.PROFILE
-            or d["profile_sha256"] != CU.PROFILE_SHA256 or d["firmware_commit"] != CU.FIRMWARE_COMMIT):
+    if set(d) != _CU_SCAN_KEYS:
+        raise error("nfc_scan_invalid")
+    row = CU.known_reader_profile(d["profile"])
+    if (row is None or not _matches(_SCAN, d["scan_ref"]) or not _valid_text(d["session_id"], 128)
+            or type(d["profile_sha256"]) is not str or d["profile_sha256"] != row.profile_sha256
+            or type(d["firmware_commit"]) is not str or d["firmware_commit"] != row.firmware_commit):
         raise error("nfc_scan_invalid")
     for key in ("firmware_claim_verified", "reselection_atomic", "host_crc_verified"):
         if d[key] is not False:
@@ -434,8 +438,8 @@ def record_cu_scan(runtime, case, observation: CuScanObservation, *, deadline, c
         ref = "NS-" + uuid.uuid4().hex
         digest = _digest(runtime, case, o.identity)
         d = {"scan_ref": ref, "session_id": o.session_id, "reader_binding": binding,
-             "profile": CU.PROFILE, "profile_sha256": CU.PROFILE_SHA256,
-             "firmware_commit": CU.FIRMWARE_COMMIT, "firmware_claim_verified": False,
+             "profile": CU.LIVE.profile, "profile_sha256": CU.LIVE.profile_sha256,
+             "firmware_commit": CU.LIVE.firmware_commit, "firmware_claim_verified": False,
              "identity": _identity_data(o.identity), "family": family, "page_read_performed": True,
              "read_requests": 2, "pages_retained": 2, "page_identity_match": True,
              "reader_crc_check_succeeded": True, "host_crc_verified": False,

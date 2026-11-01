@@ -362,10 +362,14 @@ def _cu_sources(runtime, case, inputs, bound, entries, deadline, cancel):
             raise _error('nfc_source_mismatch')
         match_file_identity(bound, snapshot.identity)
         extra = rec.get('extra')
+        # 원장 extra는 이 파일이 선언한 reader 행 전체와 같아야 한다. live 상수로 대신하지 않는다.
+        reader = cu_protocol.known_reader_profile(snapshot.reader_profile)
+        if reader is None:
+            raise _error('nfc_source_mismatch')
         expected = {'snapshot_profile': CU.SNAPSHOT_PROFILE,
-                    'reader_profile': cu_protocol.PROFILE,
-                    'reader_profile_sha256': cu_protocol.PROFILE_SHA256,
-                    'firmware_commit': cu_protocol.FIRMWARE_COMMIT,
+                    'reader_profile': reader.profile,
+                    'reader_profile_sha256': reader.profile_sha256,
+                    'firmware_commit': reader.firmware_commit,
                     'session_id': extra.get('session_id') if type(extra) is dict else None,
                     'reader_binding': extra.get('reader_binding') if type(extra) is dict else None,
                     'binding': binding, 'family': snapshot.family, 'pages_total': snapshot.pages_total,
@@ -380,6 +384,9 @@ def _cu_sources(runtime, case, inputs, bound, entries, deadline, cancel):
         files.append({'artifact_id': row['id'], 'size': row['size'], 'sha256': row['sha256'],
                       'provenance_kind': 'device-read', 'ledger_seq': rec['seq'],
                       'ledger_entry_sha256': hashlib.sha256(canonical_json(rec).encode('utf-8')).hexdigest()})
+    # 서로 다른 reader 프로필의 snapshot은 같은 inventory여도 비교하지 않는다.
+    if len({snapshot.reader_profile for snapshot in snapshots}) > 1:
+        raise _error('nfc_source_mismatch')
     return snapshots, files
 
 

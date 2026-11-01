@@ -1,8 +1,8 @@
 # CU 페이지 snapshot과 같은 inventory 비교
 
-`pweh-nfc`는 고정 ChameleonUltra reader로 NTAG213/215/216의 시작 페이지 응답을
-읽고, 같은 케이스 inventory에 결속한 snapshot을 만든다. 읽기 전에 새 scan·version·
-UID/BCC를 대조한다. 실제 USB/RF 호환성과 물리 동일 태그는 합성 시험으로 확인하지 않는다.
+`pweh-nfc`는 고정 ChameleonUltra reader(공식 v2.3.0)로 NTAG213/215/216의 시작 페이지 응답을
+읽고, 같은 케이스 inventory에 결속한 snapshot을 만든다. 읽기 전에 새 scan·단독 GET_VERSION·
+새 선택의 READ0/1 UID/BCC를 대조한다. 실제 USB/RF 호환성과 물리 동일 태그는 합성 시험으로 확인하지 않는다.
 reader 연결과 wire 규칙은 [CU 전송 계약](cu-ntag-read-provider.md)을 따른다.
 
 ## 읽기와 분석 순서
@@ -38,7 +38,11 @@ worker의 wire 예산은 시작부터45초, 명령 하나는 남은 시간과2�
 장치 명령을 그 시각에 물리적으로 중단한다는 보장은 없다.
 
 각 READ16B 중 시작 페이지의 첫4B만 저장한다. 계열별45/135/231페이지를 유한 순서로
-시도하며, 실패 뒤 남은 페이지를 null로 남긴다. admission 이전 실패는 snapshot을 만들지 않는다.
+시도하며, 실패 뒤 남은 페이지를 null로 남긴다. GET_VERSION(`f4`)은 단독 activation이라 field를 끄고
+끝나며, NTAG213/215/216이 아니면 READ 없이 admission에서 거부한다. 페이지는 READ0 `fc`, READ1~N-2
+`ec`, 마지막 `e4`로 한 선택 안에서 읽는다. 읽기 중 keep=1 READ(`fc`·`ec`)가 실패하거나, 성공한 keep=1 frame
+(`fc`·`ec`) 뒤 다음 frame 전에 time_limit·취소로 멈추거나, admission READ1(`ec`) 뒤 UID/BCC 대조가 실패하면 field가 켜진 채 남을 수 있고
+자동 field-off는 보내지 않는다([CU 전송 계약](cu-ntag-read-provider.md#activation-순서와-hf-field)). admission 이전 실패는 snapshot을 만들지 않는다.
 admission 뒤 time_limit 또는 nfc_scan_invalid만 불완전 읽기로 게시할 수 있다.
 취소·프로토콜·허가·신원 오류는 게시 가능한 partial로 바꾸지 않는다. 실패 뒤 재선택·
 재전송·재연결·남은 페이지 보충은 없다.
@@ -73,8 +77,11 @@ warnings는 해당되는 고정 값만 순서대로 반환한다:
 단일 링크 일반 파일을0444로 게시한다. 원시 identity와 페이지를 포함하므로 에이전트는
 파일을 직접 열지 않고 전용 parse/diff 도구를 사용한다. MCP·job·오류·요약에는 원문을 내보내지 않는다.
 
-snapshot은 현재 scan/inventory의 ref·seq·entry SHA와 케이스 솔트 지문, 고정 reader 버전,
-실제 관찰한 family/identity, 읽은 페이지 prefix와 null suffix를 담는다. duplicate key·
+snapshot은 현재 scan/inventory의 ref·seq·entry SHA와 케이스 솔트 지문, reader 행,
+실제 관찰한 family/identity, 읽은 페이지 prefix와 null suffix를 담는다. reader는
+profile·profile_sha256·firmware_commit·app_version·git_version 다섯 값이며 닫힌 두 행 중 하나와 전체가
+같아야 한다. 새 snapshot은 live `cu-ntag21x-v2.3.0-v1`이고, `cu-ntag21x-v2.2.0-v1`은 이전 snapshot의
+검증 전용이다. schema는 두 완전한 객체의 `oneOf`이며 필드별 enum으로 행을 섞을 수 없다. duplicate key·
 추가 키·잘못된 숫자 타입·깊이8·JSON value2048개·정수 token20자리 상한을 검사한다.
 페이지 길이·관찰수·UID/BCC·계열/version·완료도 관계도 별도로 확인한다.
 
@@ -86,13 +93,16 @@ emulation_performed는 모두false다.
 
 분석 입구는 등록 artifact ID, 같은 FD의 전체 크기·SHA, 현재 inventory, 마지막 동일 경로의
 전용 device-read 원장 행을 함께 대조한다. source는 정확히
-`nfc-mcp/nfc_cu_read_start`여야 한다. producer 문자열·파일명·복사본·일반 device-read·
+`nfc-mcp/nfc_cu_read_start`여야 한다. 원장 extra의 reader_profile·reader_profile_sha256·firmware_commit은
+현재 live 값이 아니라 그 파일이 선언한 reader 행과 같아야 하며, 다르면 nfc_source_mismatch다. producer 문자열·파일명·복사본·일반 device-read·
 가져온 CU JSON으로 대신할 수 없다. 오래된 CU 기록 뒤 다른 kind가 기록된 경우도 거부한다.
 Flipper 또는 CU로 만든 inventory 모두 동일 신원·계열·원장 결속을 만족하면 사용할 수 있다.
 
 기존 imported NFC v4 파일의 사람 출처 증명과 parser는 그대로 유지한다. CU snapshot은
 전용 device-read 출처를 요구하며 import 증명을 새로 만들지 않는다. diff는 imported끼리
-또는 CU snapshot끼리만 허용한다. 두 형식의 혼합은 nfc_source_mismatch다.
+또는 CU snapshot끼리만 허용한다. 두 형식의 혼합은 nfc_source_mismatch다. CU snapshot끼리도 같은
+reader 프로필이어야 한다. v2.2.0 snapshot과 v2.3.0 snapshot은 같은 inventory여도 읽기 recipe가 달라
+비교하지 않고 nfc_source_mismatch로 거부한다. 각 snapshot의 단독 parse와 같은 프로필끼리의 diff는 가능하다.
 
 ## 페이지 비교와 요약
 

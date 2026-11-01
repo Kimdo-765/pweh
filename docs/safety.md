@@ -918,16 +918,27 @@ Flipper probe의 원시 CLI·UID·ATQA·SAK·version·페이지·PWD/PACK는 공
 ### CU 고정 NTAG 읽기
 
 `nfc_cu_connect`, `nfc_cu_scan`, `nfc_cu_read_start`는 소유/허가·명시 세션·현재 CDC 신원·전체 USB lease와
-MODIFY 게이트를 따른다. 고정 Ultra APP2.2/GIT v2.2.0·reader 모드만 받으며 모드·slot을
-바꾸지 않는다. 연결 설정 DTR=true의 영향은 승인 지문에 포함한다.
+MODIFY 게이트를 따른다. 공식 v2.3.0 release의 Ultra APP2.3/GIT 정확 `v2.3.0`·reader 모드만 받으며
+v2.2.0과 tag 뒤 dev build(`v2.3.0-N-g…`)는 RF 명령 전에 거부한다. 모드·slot을 바꾸지 않는다.
+연결 설정 DTR=true의 영향과 live reader profile/hash는 승인 지문에 포함하므로 이전 승인은 다시 쓰지 못한다.
+v2.2.0 profile은 이전 기록의 검증 전용이다. Ultralight C 인증·쓰기·키 변경(2018/2019/2021/2022),
+BLE PIN(1031/1034)·장치 식별자(1011/1012) 조회, 모드 변경(1001), field 직접 제어(2100/2101)는 보내지 않는다.
 
-새 scan→GET_VERSION→READ0/1의 UID/BCC를 대조한 뒤 CU 전용 scan 사실을 남긴다.
+새 scan→단독 GET_VERSION→새 선택 READ0/1의 UID/BCC를 대조한 뒤 CU 전용 scan 사실을 남긴다.
+GET_VERSION은 keep=0이라 성공·실패 모두 firmware가 field를 끄고, NTAG213/215/216이 아닌 응답
+(원조 Ultralight·Ultralight C의 NAK·timeout·CRC 오류, EV1 같은 다른 8B)은 READ 없이 거부한다.
+scan의 READ0(`fc`, keep=1)이 timeout·CRC 오류·잘못된 응답으로 실패하거나, 성공한 READ0 뒤 READ1 전송 전에
+host 취소·time_limit로 멈추면 field가 켜진 채 남을 수 있다. READ1은 `e4`(keep=0)라 보내면 성공·실패 모두
+field를 끄므로 그 뒤 UID/BCC 불일치는 field를 남기지 않는다.
 firmware scan 내부는 SAK bit0x20에서 호스트 거부 전 RATS를 수행할 수 있다. 따라서
 거부 태그에 SELECT 외 RF가 없었다고 보고하지 않는다. reader CRC 성공과 host RF CRC
 검산은 구분하며 후자는 false다. READ16B 중 시작 page4B만 사용하고 나머지12B는
 AUTH0/끝 roll-over 때문에 다른 페이지에 귀속하지 않는다.
 
-`nfc_cu_read_start`는 새 admission과 같은 field를 유지해 시작 페이지별4B를 모은다.
+`nfc_cu_read_start`는 새 admission의 READ0부터 같은 field를 유지해 시작 페이지별4B를 모은다.
+keep=1 READ(`fc`·`ec`)가 timeout·CRC 오류·잘못된 응답·취소로 실패하거나, 성공한 keep=1 frame(`fc`·`ec`)
+뒤 다음 frame 전송 전에 host time_limit·취소로 멈추거나, admission READ1(`ec`) 뒤 host UID/BCC 대조가 실패하면 field가 켜진 채
+남을 수 있다. 자동2101·field-off·재시도는 하지 않는다.
 wire45초 뒤 host 검증/저장5초를 한 번 사용하고, admission 뒤 time_limit·nfc_scan_invalid만
 partial로 보존한다. snapshot의 미관찰 suffix는 null이며 모든 페이지가 있어도 마지막 확인이
 실패하면 읽기 미완료다. 원시 identity·페이지가 있는 `nfc/cu-read-NNN.json`은 전용 도구로만
@@ -936,7 +947,8 @@ partial로 보존한다. snapshot의 미관찰 suffix는 null이며 모든 페�
 전용 device-read 원장 append 뒤 artifact 등록 순서이며 별도 commit이다. 등록 실패는 실제
 원장 receipt와 파일을 보존하고 registered=false를 알린다. 등록된 snapshot은 최신 동일 경로의
 원장 kind/source/extra·SHA·현재 inventory를 확인하며 imported JSON·producer 표기로 대신하지
-못한다. imported 파일의 기존 사람 증명은 유지하고 두 형식의 혼합 diff는 거부한다.
+못한다. imported 파일의 기존 사람 증명은 유지하고 두 형식의 혼합 diff와 서로 다른 reader 프로필의
+snapshot diff는 거부한다.
 태그 쓰기·PWD_AUTH·Classic·키 탐색·임의 RAW·에뮬레이션은 없다.
 
 취소·timeout·프레이밍/신원 오류 뒤에는 새 RF-off·재선택·자동 재접속을 하지 않는다.

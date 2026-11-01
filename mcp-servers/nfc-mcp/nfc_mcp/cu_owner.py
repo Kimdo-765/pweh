@@ -219,7 +219,7 @@ class CuOwner:
     @property
     def action(self):
         return {'port': self.route.device_path, 'route': self.route.approval_identity(),
-                'profile': P.PROFILE, 'profile_sha256': P.PROFILE_SHA256,
+                'profile': P.LIVE.profile, 'profile_sha256': P.LIVE.profile_sha256,
                 'parent': self.route.identity.usb_ancestor, 'scope_keys': list(self.keys),
                 'cdc_basis': self._basis, 'interface_number': self.route.identity.interface_number,
                 'reset_risk': self.route.reset_risk, 'baudrate': 115200, 'dtr': True, 'rts': False}
@@ -255,7 +255,7 @@ class CuOwner:
         _roles(self._runtime, route, 'pre-io')
         use.check(end)
 
-    def _request(self, use, kind, end, *, family=None, page=None, last=False):
+    def _request(self, use, kind, end, *, family=None, page=None, last=False, select=False):
         """고정 enum/phase만 wire로 만든다. 외부 raw frame 입력은 없다."""
         end = min(end, time.monotonic() + COMMAND_SECONDS)
         self._fresh(use, end)
@@ -266,9 +266,10 @@ class CuOwner:
             wire = P.build_cu_query(kind)
             expected = kind.value
         elif kind == 'version':
-            wire, expected = P.build_ntag_version(keep_field=True), 2010
+            # keep=0 단독 activation: firmware가 성공·실패 모두 끝에서 HF field를 끈다.
+            wire, expected = P.build_ntag_version(keep_field=False), 2010
         elif kind == 'read':
-            wire, expected = P.build_ntag_read(family, page, last=last), 2010
+            wire, expected = P.build_ntag_read(family, page, last=last, select=select), 2010
         else:
             raise error()
         position = 0
@@ -333,8 +334,8 @@ class CuOwner:
         if frame.status != 0x68 or frame.data != b'\x01':
             raise error('cu_reader_required')
 
-    def _read_page(self, use, family, page, end, *, last):
-        frame = self._request(use, 'read', end, family=family, page=page, last=last)
+    def _read_page(self, use, family, page, end, *, last, select=False):
+        frame = self._request(use, 'read', end, family=family, page=page, last=last, select=select)
         if frame.status != 0 or len(frame.data) != 16:
             raise error('nfc_scan_invalid')
         return frame.data[:4]
@@ -348,10 +349,14 @@ class CuOwner:
         if expected is not None and (identity.uid, identity.atqa_msb, identity.sak) != (
                 expected.uid, expected.atqa_msb, expected.sak):
             raise error('nfc_identity_mismatch')
+        # 첫 activation은 GET_VERSION(f4) 하나뿐이다. 세 NTAG가 아니면 READ 없이 거부하며
+        # firmware의 keep=0 처리로 field가 꺼진 상태에서 terminal이 된다.
         family = P.parse_ntag_version(self._request(use, 'version', end))
         if expected is not None and family.mifare_version != expected.mifare_version:
             raise error('nfc_identity_mismatch')
-        first = self._read_page(use, family, 0, end, last=False)
+        # 둘째 activation: READ0(fc)이 auto-select로 태그를 다시 깨우고 field를 유지한다.
+        # version과 페이지는 서로 다른 선택에서 관찰되므로 재선택 원자성을 주장하지 않는다.
+        first = self._read_page(use, family, 0, end, last=False, select=True)
         second = self._read_page(use, family, 1, end, last=not reading)
         if first[:3] + second != identity.uid or first[3] != (0x88 ^ first[0] ^ first[1] ^ first[2]):
             raise error('nfc_identity_mismatch')
@@ -391,7 +396,7 @@ class CuOwner:
             reason = public_error(exc).code
         return CuRead(identity, family, family.pages_total, tuple(pages),
                       sum(value is not None for value in pages), reason is None,
-                      reason, self._binding(), P.PROFILE)
+                      reason, self._binding(), P.LIVE.profile)
 
     def _cleanup(self):
         try:

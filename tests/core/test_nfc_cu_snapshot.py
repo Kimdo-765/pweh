@@ -17,9 +17,20 @@ from pweh import schemas
 from pweh.errors import PwehError
 from pweh.nfc_formats import _NfcFileIdentity
 
+# 구현 상수를 읽지 않는 독립 literal reader 두 행.
+LEGACY_READER = {"profile": "cu-ntag21x-v2.2.0-v1",
+                 "profile_sha256": "d7e590dce5e5f9723cbff12aa0fcea46d5a9550e392a33cf7b0de5102dffd73c",
+                 "firmware_commit": "f349dbeeaa315776b272ae8fb851cc4042d55f07",
+                 "app_version": "2.2", "git_version": "v2.2.0"}
+LIVE_READER = {"profile": "cu-ntag21x-v2.3.0-v1",
+               "profile_sha256": "95132f6c6e6609854cf32af0f1644eb409147cf21060ba97e7eb3dee4d783eb5",
+               "firmware_commit": "4e1a5b267b9ed33559e0e2c9dad61d61eaf64ba1",
+               "app_version": "2.3", "git_version": "v2.3.0"}
+READERS = {"legacy": LEGACY_READER, "live": LIVE_READER}
 
-def snapshot_value(family=CU.NtagFamily.NTAG213, *, observed=None, stop_reason=None):
-    """서버/원장 없이 고정 CU 상수와 독립 합성 UID로 JSON 값을 만든다."""
+
+def snapshot_value(family=CU.NtagFamily.NTAG213, *, observed=None, stop_reason=None, reader=LIVE_READER):
+    """서버/원장 없이 고정 reader literal과 독립 합성 UID로 JSON 값을 만든다."""
     uid = bytes.fromhex("04223344556677")
     total = family.pages_total
     observed = total if observed is None else observed
@@ -34,9 +45,7 @@ def snapshot_value(family=CU.NtagFamily.NTAG213, *, observed=None, stop_reason=N
                     "identity_digest": "sha256:" + "3" * 16, "scan_seq": 1,
                     "scan_entry_sha256": "4" * 64, "inventory_seq": 2,
                     "inventory_entry_sha256": "5" * 64},
-        "reader": {"profile": CU.PROFILE, "profile_sha256": CU.PROFILE_SHA256,
-                   "firmware_commit": CU.FIRMWARE_COMMIT, "app_version": CU.FIRMWARE_VERSION,
-                   "git_version": CU.FIRMWARE_GIT_VERSION},
+        "reader": dict(reader),
         "identity": {"family": family.family, "uid": uid.hex(), "atqa_msb": "0044",
                      "sak": "00", "mifare_version": family.mifare_version.hex()},
         "pages_total": total, "pages": pages[:observed] + [None] * (total - observed),
@@ -119,18 +128,20 @@ def assert_report(report, operation):
         assert cov["reasons"] == ([] if read_complete else ["read_partial"]) + ([] if complete else ["time_limit"])
 
 
+@pytest.mark.parametrize("reader", sorted(READERS))
 @pytest.mark.parametrize("family", list(CU.NtagFamily))
 @pytest.mark.parametrize("state", ["full", "prefix2", "prefix7", "full_timeout", "full_invalid"])
-def test_three_families_and_read_completion(family, state):
+def test_three_families_and_read_completion(family, state, reader):
     count = 2 if state == "prefix2" else 7 if state == "prefix7" else family.pages_total
     stop = "time_limit" if state == "full_timeout" else "nfc_scan_invalid" if state == "full_invalid" else None
-    value = snapshot_value(family, observed=count, stop_reason=stop)
+    value = snapshot_value(family, observed=count, stop_reason=stop, reader=READERS[reader])
     assert schema_ok(value)
     result = parse(value)
     assert type(result) is N.CuSnapshot
     assert [field.name for field in dataclasses.fields(result)] == [
         "identity", "pages", "binding", "family", "pages_total", "pages_observed",
-        "read_complete", "stop_reason", "input_size"]
+        "read_complete", "stop_reason", "input_size", "reader_profile"]
+    assert result.reader_profile == READERS[reader]["profile"]
     assert tuple(key for key, _ in result.binding) == N.BINDING_FIELDS
     assert dict(result.binding) == value["binding"]
     assert type(result.identity) is _NfcFileIdentity and result.identity.profile == family.family
@@ -189,12 +200,48 @@ def test_false_fields_are_exact(field, bad):
     error(lambda: parse(value))
 
 
-@pytest.mark.parametrize("field", list(snapshot_value()["reader"]))
-def test_reader_is_pinned(field):
-    value = snapshot_value()
+@pytest.mark.parametrize("reader", sorted(READERS))
+@pytest.mark.parametrize("field", list(LIVE_READER))
+def test_reader_is_pinned(field, reader):
+    value = snapshot_value(reader=READERS[reader])
     value["reader"][field] += "SYNTHETIC_RAW_PRIVATE"
     assert not schema_ok(value)
     error(lambda: parse(value))
+
+
+@pytest.mark.parametrize("base", sorted(READERS))
+@pytest.mark.parametrize("field", list(LIVE_READER))
+def test_cross_paired_reader_rows_are_rejected_by_parser_and_schema(base, field):
+    # 한 필드만 다른 행에서 가져온 조합은 각 필드가 어느 한 행에 속해도 거부한다.
+    other = READERS["live" if base == "legacy" else "legacy"]
+    value = snapshot_value(reader=READERS[base])
+    value["reader"][field] = other[field]
+    assert not schema_ok(value)
+    error(lambda: parse(value))
+
+
+@pytest.mark.parametrize("reader", [
+    {**LIVE_READER, "profile": "cu-ntag21x-v2.3.1-v1"}, {**LIVE_READER, "profile": "CU-NTAG21X-V2.3.0-V1"},
+    {**LIVE_READER, "profile": "cu-ntag21x-v2.3.0"}, {**LIVE_READER, "git_version": "v2.3.0-14-g4c5bc2c"},
+    {**LIVE_READER, "profile": None}, {**LIVE_READER, "profile": 1}, {**LIVE_READER, "app_version": 2.3},
+    {key: value for key, value in LIVE_READER.items() if key != "git_version"},
+    {**LIVE_READER, "Signature": "SYNTHETIC_RAW_PRIVATE"}, [], None, "cu-ntag21x-v2.3.0-v1",
+])
+def test_unknown_or_malformed_reader_is_rejected(reader):
+    value = snapshot_value()
+    value["reader"] = reader
+    assert not schema_ok(value)
+    with pytest.raises(PwehError) as caught:
+        N.parse_cu_snapshot(json.dumps(value).encode("ascii"), deadline=time.monotonic() + 5)
+    assert caught.value.code == "nfc_snapshot_invalid" and "SYNTHETIC_RAW_PRIVATE" not in str(caught.value)
+
+
+def test_schema_reader_branches_equal_closed_registry():
+    branches = schemas.load("nfc-cu-snapshot")["properties"]["reader"]["oneOf"]
+    consts = [{key: spec["const"] for key, spec in branch["properties"].items()} for branch in branches]
+    assert consts == [CU.KNOWN[name].reader() for name in CU.KNOWN] == [LEGACY_READER, LIVE_READER]
+    for branch in branches:
+        assert branch["additionalProperties"] is False and branch["required"] == list(CU.READER_FIELDS)
 
 
 @pytest.mark.parametrize("section,key,bad", [
@@ -266,7 +313,8 @@ def test_schema_draft_constants_and_positive_seq_bound():
     schema = schemas.load("nfc-cu-snapshot")
     Draft202012Validator.check_schema(schema)
     assert schema["$id"] == N.SNAPSHOT_SCHEMA
-    assert schema["properties"]["reader"]["properties"]["profile_sha256"]["const"] == CU.PROFILE_SHA256
+    assert [branch["properties"]["profile_sha256"]["const"] for branch in
+            schema["properties"]["reader"]["oneOf"]] == [LEGACY_READER["profile_sha256"], LIVE_READER["profile_sha256"]]
     value = snapshot_value()
     value["binding"]["scan_seq"] = 2**63 - 1
     value["binding"]["inventory_seq"] = 2**63 - 1
@@ -349,6 +397,7 @@ def test_api_cancel_deadline_and_raw_callback_errors(operation):
     ("input_size", 0), ("input_size", 65537), ("input_size", 1.0),
     ("family", None), ("family", "ntag215"), ("pages", []), ("pages", (b"1234",)),
     ("binding", []), ("binding", ()), ("identity", None),
+    ("reader_profile", None), ("reader_profile", "cu-ntag21x-v2.3.1-v1"), ("reader_profile", b"x"),
 ])
 def test_inspect_and_diff_recheck_forged_typed_values(key, bad):
     valid = parse()
@@ -407,6 +456,27 @@ def test_partial_read_intersection_and_null_suffix(left, right):
     assert summary["after_only_pages"] == max(0, right - left)
     assert summary["neither_observed_pages"] == 45 - max(left, right)
     assert summary["stored_pages_equal"] is None
+
+
+@pytest.mark.parametrize("reader", sorted(READERS))
+def test_same_reader_profile_diff_is_allowed_for_both_rows(reader):
+    before = parse(snapshot_value(reader=READERS[reader]))
+    value = snapshot_value(reader=READERS[reader])
+    value["pages"][3] = "11223344"
+    report = diff(before, parse(value))
+    assert_report(report, "diff")
+    assert report["summary"]["changed_pages"] == [3]
+
+
+@pytest.mark.parametrize("order", ["legacy-live", "live-legacy"])
+def test_cross_reader_profile_diff_is_fixed_source_mismatch(order):
+    first, second = order.split("-")
+    before = parse(snapshot_value(reader=READERS[first]))
+    after = parse(snapshot_value(reader=READERS[second]))
+    error(lambda: diff(before, after), "nfc_source_mismatch")
+    # 각 snapshot 단독 검사는 그대로 가능하다.
+    assert_report(inspect(before), "inspect")
+    assert_report(inspect(after), "inspect")
 
 
 @pytest.mark.parametrize("field", list(N.BINDING_FIELDS) + ["identity", "family"])

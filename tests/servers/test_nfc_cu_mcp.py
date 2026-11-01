@@ -14,7 +14,7 @@ from pweh import cu_protocol as C, nfc_inventory as I, schemas
 from pweh.errors import PwehError
 from pweh.runtime import get_runtime
 from nfc_mcp import server as S, cu_tools as T, cu_owner as O
-from .fake_cu import setup as cu_setup, FakeCu, UID, VERSIONS, frame
+from .fake_cu import setup as cu_setup, FakeCu, UID, VERSIONS, TAG_MODELS, DENIED, frame
 from .test_nfc_mcp import ntag, register, attest
 
 pytestmark = pytest.mark.anyio
@@ -123,9 +123,10 @@ async def test_actual_client_cu_scan_common_inventory_and_file_analysis(cu_setup
     monkeypatch.setattr(S, 'rt', lambda: env.runtime)
     async with Client(S.server) as client:
         connected, owner = await connect(client, env)
-        assert connected['device'] == {'model': 'chameleon-ultra', 'app_version': '2.2',
-            'git_version': 'v2.2.0', 'reader_mode': True, 'firmware_claim_verified': False}
-        assert connected['profile'] == C.PROFILE and connected['rf_off_verified'] is False
+        assert connected['device'] == {'model': 'chameleon-ultra', 'app_version': '2.3',
+            'git_version': 'v2.3.0', 'reader_mode': True, 'firmware_claim_verified': False}
+        assert connected['profile'] == 'cu-ntag21x-v2.3.0-v1' == C.LIVE.profile
+        assert connected['rf_off_verified'] is False
         assert [c for c, _ in env.fake.commands] == [1000, 1017, 1033, 1002]
         assert env.opens[0].dtr is True and env.opens[0].rts is False
         result = await scan(client, env, owner)
@@ -133,12 +134,18 @@ async def test_actual_client_cu_scan_common_inventory_and_file_analysis(cu_setup
         schemas.validate('nfc-scan', result)
         assert result['family'] == f'ntag{model}' and result['read_requests'] == result['pages_retained'] == 2
         assert result['reader_crc_check_succeeded'] is True and result['host_crc_verified'] is False
+        assert result['profile'] == C.LIVE.profile
         assert env.fake.commands[-5:] == [(1002, b''), (2000, b''),
-            (2010, bytes.fromhex('fc0064000860')), (2010, bytes.fromhex('ec006400103000')),
+            (2010, bytes.fromhex('f40064000860')), (2010, bytes.fromhex('fc006400103000')),
             (2010, bytes.fromhex('e4006400103001'))]
         assert not owner._uses and env.fake.field is False
+        assert not {c for c, _ in env.fake.commands} & DENIED
         entries = env.runtime.provenance.entries(env.case)
         assert len(entries) == 1 and entries[0]['fact_kind'] == I.CU_SCAN_FACT
+        assert {k: entries[0]['data'][k] for k in ('profile', 'profile_sha256', 'firmware_commit')} == {
+            'profile': 'cu-ntag21x-v2.3.0-v1',
+            'profile_sha256': '95132f6c6e6609854cf32af0f1644eb409147cf21060ba97e7eb3dee4d783eb5',
+            'firmware_commit': '4e1a5b267b9ed33559e0e2c9dad61d61eaf64ba1'}
         assert entries[0]['data']['reader_binding']['scope_keys'] == list(owner.keys)
         assert entries[0]['source'] == {'server': 'nfc-mcp', 'tool': 'nfc_cu_scan'}
         assert not env.case.load()['artifacts']
@@ -208,7 +215,9 @@ async def test_approval_retry_uses_fixed_profile_and_exact_scan_session(cu_setup
         if owner:
             action = T.approval_action(owner)
             assert action['session_id'] == owner.session_id
-            assert action['nfc_profile_sha256'] == C.PROFILE_SHA256
+            assert action['nfc_profile'] == action['profile'] == 'cu-ntag21x-v2.3.0-v1'
+            assert action['nfc_profile_sha256'] == action['profile_sha256'] == C.LIVE.profile_sha256
+            assert C.LEGACY_V220.profile_sha256 not in json.dumps(action)
             result = await scan(client, env, owner, approval_id=aid)
         else:
             result = await call(client, 'nfc_cu_connect', case_id=env.case.id, port=env.port, approval_id=aid)
@@ -242,6 +251,35 @@ async def test_disconnect_works_after_authorization_revocation(cu_setup, monkeyp
         monkeypatch.setattr(env.runtime, 'case', revoked)
         out = await scan(client, env, owner)
         assert 'authorization_required' in out.get('_error', '') and PRIVATE not in str(out)
+        assert (await close(client, env, owner))['ok']
+
+
+@pytest.mark.parametrize('firmware', ['v2.2.0', 'dev'])
+async def test_connect_rejects_legacy_and_dev_firmware_before_rf(cu_setup, monkeypatch, isolated_ports, firmware):
+    env = cu_setup
+    env.fake = FakeCu(firmware=firmware)
+    monkeypatch.setattr(S, 'rt', lambda: env.runtime)
+    async with Client(S.server) as client:
+        result = await call(client, 'nfc_cu_connect', case_id=env.case.id, port=env.port)
+    assert 'cu_firmware_unsupported' in result.get('_error', ''), result
+    assert 'v2.2.0' not in json.dumps(result) and '4c5bc2c' not in json.dumps(result)
+    assert [c for c, _ in env.fake.commands] == [1000, 1017, 1033, 1002]
+    assert env.case.id not in O._REGISTRY and not isolated_ports['manager']._leases
+    assert env.runtime.provenance.entries(env.case) == []
+
+
+@pytest.mark.parametrize('tag', sorted(TAG_MODELS))
+async def test_scan_of_other_same_atqa_tag_refuses_without_read_and_with_field_off(cu_setup, monkeypatch, tag):
+    env = cu_setup
+    env.fake = FakeCu(tag=tag)
+    monkeypatch.setattr(S, 'rt', lambda: env.runtime)
+    async with Client(S.server) as client:
+        _, owner = await connect(client, env)
+        out = await scan(client, env, owner)
+        assert 'nfc_family_unsupported' in out.get('_error', ''), out
+        assert env.fake.commands[-3:] == [(1002, b''), (2000, b''), (2010, bytes.fromhex('f40064000860'))]
+        assert env.fake.reads() == [] and env.fake.field is False
+        assert env.runtime.provenance.entries(env.case) == [] and owner.state == 'terminal'
         assert (await close(client, env, owner))['ok']
 
 

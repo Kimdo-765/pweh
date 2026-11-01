@@ -131,7 +131,7 @@ server = create_server(SERVER_NAME, title='PWEH NFC scan 결속 분석', instruc
     'flipper_nfc_probe 또는 nfc_cu_connect→nfc_cu_scan의 같은 케이스 scan_ref를 nfc_tag_inventory_add로 등록한다. '
     'nfc_parse_file/nfc_diff_dumps는 등록한 파일과 보호 scan·inventory의 신원을 비교한다. '
     'nfc_cu_read_start는 같은 inventory에 결속한 snapshot을 등록하며 nfc_job_status로 확인한다. '
-    'CU는 고정 Ultra2.2 reader·NTAG21x만 허용하며 끝나면 같은 session_id로 nfc_cu_disconnect한다. '
+    'CU는 고정 Ultra v2.3.0 reader·NTAG21x만 허용하며 끝나면 같은 session_id로 nfc_cu_disconnect한다. '
     '가져온 파일은 기존 provenance-import 사람 증명이 필요하다. raw UID·페이지·키 값은 반환하지 않는다. '
     '태그 쓰기·인증·에뮬레이션·키 탐색·임의 명령은 제공하지 않는다.'
 ))
@@ -209,6 +209,7 @@ async def nfc_parse_file(case_id: CaseId, artifact_id: ArtifactId, tag_ref: TagR
 @server.tool(description=(
     '같은 tag_ref에 결속한 before/after 등록 NFC 덤프 두 개의 저장 페이지를 오프라인 비교한다. '
     '두 파일은 모두 imported v4이거나 모두 CU snapshot이어야 하며 혼합은 거부한다. '
+    'CU snapshot은 같은 reader 프로필끼리만 비교하며 v2.2.0·v2.3.0 snapshot 혼합은 nfc_source_mismatch다. '
     'v4는 각각1MiB 이하·현재 provenance-import 증명이 필요하고 CU는64KiB 이하·현재 전용 device-read 결속을 확인한다. '
     'read<total·ISO 헤더·불완전 layout에서는 비교 불가/null을 유지한다. raw UID·페이지·Counter·PWD/PACK은 반환하지 않는다. '
     'max_seconds는0초 초과5초 이하이며 분석 후 별도5초 최종 검증·등록을 수행한다. '

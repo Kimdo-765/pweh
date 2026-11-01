@@ -19,7 +19,8 @@ def register_cu_read_tools(server, namespace):
     """공통 NFC metadata를 재사용할 단일 고정 읽기 도구를 등록한다."""
     @server.tool(description=(
         '같은 케이스의 ready CU session_id와 현재 tag_ref에 결속해 NTAG213/215/216 저장 페이지 읽기 job을 시작한다. '
-        '고정 Ultra2.2 reader만 사용하며 페이지 범위·임의 명령·인증·쓰기는 받지 않는다. '
+        '고정 Ultra v2.3.0 reader만 사용하며 페이지 범위·임의 명령·인증·쓰기는 받지 않는다. '
+        '단독 GET_VERSION 뒤 READ0부터 새 선택으로 읽으며 읽기 중 실패는 field를 남길 수 있다. '
         'wire45초와 별도 host 게시5초 안에 검증한 prefix를 nfc/cu-read-NNN.json에 저장한다. '
         'time_limit/nfc_scan_invalid만 부분 읽기를 보존하며 원장 기록 뒤 artifact 등록 실패는 '
         'registered=false인 실제 partial_result로 남긴다. raw UID·페이지는 job 응답에 넣지 않는다. '

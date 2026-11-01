@@ -77,32 +77,64 @@
       }
     },
     "reader": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "profile",
-        "profile_sha256",
-        "firmware_commit",
-        "app_version",
-        "git_version"
-      ],
-      "properties": {
-        "profile": {
-          "const": "cu-ntag21x-v2.2.0-v1"
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profile",
+            "profile_sha256",
+            "firmware_commit",
+            "app_version",
+            "git_version"
+          ],
+          "properties": {
+            "profile": {
+              "const": "cu-ntag21x-v2.2.0-v1"
+            },
+            "profile_sha256": {
+              "const": "d7e590dce5e5f9723cbff12aa0fcea46d5a9550e392a33cf7b0de5102dffd73c"
+            },
+            "firmware_commit": {
+              "const": "f349dbeeaa315776b272ae8fb851cc4042d55f07"
+            },
+            "app_version": {
+              "const": "2.2"
+            },
+            "git_version": {
+              "const": "v2.2.0"
+            }
+          }
         },
-        "profile_sha256": {
-          "const": "d7e590dce5e5f9723cbff12aa0fcea46d5a9550e392a33cf7b0de5102dffd73c"
-        },
-        "firmware_commit": {
-          "const": "f349dbeeaa315776b272ae8fb851cc4042d55f07"
-        },
-        "app_version": {
-          "const": "2.2"
-        },
-        "git_version": {
-          "const": "v2.2.0"
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profile",
+            "profile_sha256",
+            "firmware_commit",
+            "app_version",
+            "git_version"
+          ],
+          "properties": {
+            "profile": {
+              "const": "cu-ntag21x-v2.3.0-v1"
+            },
+            "profile_sha256": {
+              "const": "95132f6c6e6609854cf32af0f1644eb409147cf21060ba97e7eb3dee4d783eb5"
+            },
+            "firmware_commit": {
+              "const": "4e1a5b267b9ed33559e0e2c9dad61d61eaf64ba1"
+            },
+            "app_version": {
+              "const": "2.3"
+            },
+            "git_version": {
+              "const": "v2.3.0"
+            }
+          }
         }
-      }
+      ]
     },
     "identity": {
       "type": "object",

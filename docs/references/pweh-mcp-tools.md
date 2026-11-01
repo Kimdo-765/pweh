@@ -428,15 +428,15 @@
 - **`nfc_parse_file(case_id, artifact_id, tag_ref, max_seconds?)`**  
   등록 artifact_id의 Flipper v4 NFC 파일 또는 서버 생성 CU snapshot 하나를 같은 케이스 tag_ref와 결속해 오프라인 검사한다. v4는1MiB, CU snapshot은64KiB 이하 단일 링크 일반 파일이며 forensics/emu/보호 경로는 받지 않는다. UID/ATQA/SAK/GET_VERSION 신원은 내부에서만 비교한다. 가져온 파일은 기존 prove
 - **`nfc_diff_dumps(case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds?)`**  
-  같은 tag_ref에 결속한 before/after 등록 NFC 덤프 두 개의 저장 페이지를 오프라인 비교한다. 두 파일은 모두 imported v4이거나 모두 CU snapshot이어야 하며 혼합은 거부한다. v4는 각각1MiB 이하·현재 provenance-import 증명이 필요하고 CU는64KiB 이하·현재 전용 device-read 결속을 확인한다. read<total·ISO 헤더·
+  같은 tag_ref에 결속한 before/after 등록 NFC 덤프 두 개의 저장 페이지를 오프라인 비교한다. 두 파일은 모두 imported v4이거나 모두 CU snapshot이어야 하며 혼합은 거부한다. CU snapshot은 같은 reader 프로필끼리만 비교하며 v2.2.0·v2.3.0 snapshot 혼합은 nfc_source_mismatch다. v4는 각각1MiB 이하·현재 p
 - **`nfc_cu_connect(case_id, port, approval_id?)`**  
-  명시 USB CDC CU 포트를 전체 장치 범위로 잠근 뒤 MODIFY gate를 거쳐 연결한다. 115200 8N1/DTR=true/RTS=false이며 모델 Ultra·정확2.2/v2.2.0·현재 reader 모드를 고정 조회한다. 모드 변경은 하지 않으며 호환 확인 전 RF 명령을 보내지 않는다. 모델·버전은 자기 보고이며 서명 증명이 아니다. 조회 worker5초, 정리 최대10초이며
+  명시 USB CDC CU 포트를 전체 장치 범위로 잠근 뒤 MODIFY gate를 거쳐 연결한다. 115200 8N1/DTR=true/RTS=false이며 모델 Ultra·APP2.3·GIT 정확 v2.3.0·현재 reader 모드를 고정 조회한다. v2.2.0과 v2.3.0 이후 dev build는 cu_firmware_unsupported다. 모드 변경은 하지 않으며 호환 확인 전 RF 
 - **`nfc_cu_scan(case_id, session_id, approval_id?)`**  
-  정확한 case/session의 CU reader에서 MODIFY gate 뒤 고정14A 선택·GET_VERSION·READ0/1을 수행한다. 45초 안에 NTAG213/215/216·UID7/ATQA/SAK와 두 시작 페이지의 UID/BCC를 내부 대조하고 scan 사실을 남긴다. READ16B마다 첫4B만 해당 시작 페이지로 사용하며 원시 UID·페이지·version은 반환하지 않는다. 
+  정확한 case/session의 CU reader에서 MODIFY gate 뒤 고정14A 선택·단독 GET_VERSION(field 해제)·새 선택 READ0/1을 수행한다. NTAG213/215/216이 아닌 version 응답은 READ 없이 nfc_family_unsupported로 끝난다. 45초 안에 NTAG213/215/216·UID7/ATQA/SAK와 두 시작 페이지의 UID/B
 - **`nfc_cu_disconnect(case_id, session_id)`**  
   정확한 case/session의 CU worker를 취소하고 물리 transport 종료 및 사용권0 뒤 lease를 해제한다. 허가 철회 뒤에도 정리 가능하며 최대10초의 정리 미확인은 세션·잠금을 보존한다. 추가 RF-off·mode 변경 명령은 보내지 않고 RF off나 장치 명령 종료를 검증했다고 하지 않는다.
 - **`nfc_cu_read_start(case_id, session_id, tag_ref, approval_id?)`**  
-  같은 케이스의 ready CU session_id와 현재 tag_ref에 결속해 NTAG213/215/216 저장 페이지 읽기 job을 시작한다. 고정 Ultra2.2 reader만 사용하며 페이지 범위·임의 명령·인증·쓰기는 받지 않는다. wire45초와 별도 host 게시5초 안에 검증한 prefix를 nfc/cu-read-NNN.json에 저장한다. time_limit/nfc_scan_
+  같은 케이스의 ready CU session_id와 현재 tag_ref에 결속해 NTAG213/215/216 저장 페이지 읽기 job을 시작한다. 고정 Ultra v2.3.0 reader만 사용하며 페이지 범위·임의 명령·인증·쓰기는 받지 않는다. 단독 GET_VERSION 뒤 READ0부터 새 선택으로 읽으며 읽기 중 실패는 field를 남길 수 있다. wire45초와 별도 host 게시5
 - **`nfc_job_status(job_id, wait_seconds?, case_id?)`**  
   백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 이 프로세스의 작업만 최대 50초 기다린다. case_id를 주면 해당 케이스의 저장 기록도 조회하고, 소유
 - **`nfc_job_cancel(job_id)`**  

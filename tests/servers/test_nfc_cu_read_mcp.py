@@ -305,6 +305,113 @@ async def test_cu_source_branch_requires_latest_exact_ledger_and_inventory(cu_se
         assert (await disconnect(client, env, owner))['ok']
 
 
+# 구현 상수를 읽지 않는 v2.2.0 literal. 이 build는 v2.2.0 기록을 새로 만들 수 없으므로 실제 live
+# snapshot의 reader와 원장 extra만 바꾼 독립 fixture로 검증 전용 경로를 확인한다.
+LEGACY_READER = {'profile': 'cu-ntag21x-v2.2.0-v1',
+                 'profile_sha256': 'd7e590dce5e5f9723cbff12aa0fcea46d5a9550e392a33cf7b0de5102dffd73c',
+                 'firmware_commit': 'f349dbeeaa315776b272ae8fb851cc4042d55f07',
+                 'app_version': '2.2', 'git_version': 'v2.2.0'}
+LEGACY_EXTRA = {'reader_profile': 'cu-ntag21x-v2.2.0-v1',
+                'reader_profile_sha256': 'd7e590dce5e5f9723cbff12aa0fcea46d5a9550e392a33cf7b0de5102dffd73c',
+                'firmware_commit': 'f349dbeeaa315776b272ae8fb851cc4042d55f07'}
+LIVE_EXTRA = {'reader_profile': 'cu-ntag21x-v2.3.0-v1',
+              'reader_profile_sha256': '95132f6c6e6609854cf32af0f1644eb409147cf21060ba97e7eb3dee4d783eb5',
+              'firmware_commit': '4e1a5b267b9ed33559e0e2c9dad61d61eaf64ba1'}
+
+
+def literal_snapshot(env, job, number, *, reader=LEGACY_READER, extra_values=LEGACY_EXTRA, page=None):
+    row = job['result']['artifact']
+    value = json.loads((env.case.dir / row['path']).read_bytes())
+    value['reader'] = dict(reader)
+    if page is not None:
+        value['pages'][page] = '12345678'
+    data = (json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':')) + '\n').encode('ascii')
+    path = f'nfc/cu-read-{number:03d}.json'
+    target = env.case.dir / path
+    target.write_bytes(data)
+    target.chmod(0o444)
+    env.runtime.provenance.record_device_read(env.case, path, {'server': 'nfc-mcp', 'tool': 'nfc_cu_read_start'},
+                                              literal_extra(value['binding'], extra_values))
+    return env.case.register_artifact(target, kind='other', producer='pweh-nfc', extra={'type': 'nfc-cu-snapshot'})
+
+
+def literal_extra(binding, reader_values=LEGACY_EXTRA):
+    """main(v2.2.0) writer가 남긴 device-read extra 12키를 모두 적은 literal이다.
+
+    현재 writer의 extra를 복사하지 않는다. binding만 이 케이스 inventory에 결속한 값이고, 수치는 이 시험의
+    완전한 NTAG213 읽기와 같다. reader 세 값만 시험 분기별로 바꾼다.
+    """
+    extra = {'snapshot_profile': 'cu-ntag21x-pages-v1',
+             'reader_profile': 'cu-ntag21x-v2.2.0-v1',
+             'reader_profile_sha256': 'd7e590dce5e5f9723cbff12aa0fcea46d5a9550e392a33cf7b0de5102dffd73c',
+             'firmware_commit': 'f349dbeeaa315776b272ae8fb851cc4042d55f07',
+             'session_id': 'legacy-v220-cu-session',
+             'reader_binding': {'backend': 'posix-tty', 'lock_key': 'tty:legacy-v220',
+                                'device_id': 'legacy-v220-device', 'scope_keys': ['tty:legacy-v220']},
+             'binding': copy.deepcopy(binding), 'family': 'ntag213', 'pages_total': 45, 'pages_observed': 45,
+             'read_complete': True, 'stop_reason': None}
+    extra.update(reader_values)
+    return extra
+
+
+def analyses(env):
+    return [a for a in env.case.load()['artifacts'] if a.get('extra', {}).get('type') == 'nfc-file-analysis']
+
+
+async def test_literal_legacy_snapshots_parse_and_diff_but_never_cross_profile(cu_setup, monkeypatch):
+    env = cu_setup
+    async with Client(S.server) as client:
+        owner, inv = await prepare(client, env, monkeypatch)
+        no_attest(monkeypatch, env)
+        live = await read(client, env, owner, inv)
+        assert live['status'] == 'succeeded', live
+        before = literal_snapshot(env, live, 900)
+        after = literal_snapshot(env, live, 901, page=4)
+        assert json.loads((env.case.dir / before['path']).read_bytes())['reader'] == LEGACY_READER
+        parsed = await call(client, 'nfc_parse_file', case_id=env.case.id, artifact_id=before['id'],
+                            tag_ref=inv['tag_ref'])
+        assert parsed.get('ok'), parsed
+        legacy_diff = await call(client, 'nfc_diff_dumps', case_id=env.case.id, tag_ref=inv['tag_ref'],
+                                 before_artifact_id=before['id'], after_artifact_id=after['id'])
+        assert legacy_diff.get('ok'), legacy_diff
+        assert legacy_diff['report']['inspection']['summary']['changed_pages'] == [4]
+        schemas.validate('nfc-file-analysis', legacy_diff['report'])
+        count, made = len(env.runtime.provenance.entries(env.case)), len(analyses(env))
+        live_id = live['result']['artifact']['artifact_id']
+        # 교차 프로필 거부는 입구(prepare_admission)에서 끝나야 한다. 분석 단계에 도달하면 기록한다.
+        reached = []
+        monkeypatch.setattr(A, 'analyze_files', lambda *args, **kwargs: reached.append(args) or {})
+        for ids in ((before['id'], live_id), (live_id, after['id'])):
+            out = await call(client, 'nfc_diff_dumps', case_id=env.case.id, tag_ref=inv['tag_ref'],
+                             before_artifact_id=ids[0], after_artifact_id=ids[1])
+            assert 'nfc_source_mismatch' in out.get('_error', ''), out
+        assert reached == []
+        assert len(env.runtime.provenance.entries(env.case)) == count and len(analyses(env)) == made
+        assert (await disconnect(client, env, owner))['ok']
+
+
+@pytest.mark.parametrize('case', ['legacy-file-live-extra', 'live-file-legacy-extra', 'legacy-file-mixed-extra'])
+async def test_snapshot_reader_must_match_its_own_ledger_extra_row(cu_setup, monkeypatch, case):
+    env = cu_setup
+    async with Client(S.server) as client:
+        owner, inv = await prepare(client, env, monkeypatch)
+        live = await read(client, env, owner, inv)
+        assert live['status'] == 'succeeded', live
+        live_reader = json.loads((env.case.dir / live['result']['artifact']['path']).read_bytes())['reader']
+        if case == 'legacy-file-live-extra':
+            item = literal_snapshot(env, live, 902, extra_values=LIVE_EXTRA)
+        elif case == 'live-file-legacy-extra':
+            item = literal_snapshot(env, live, 903, reader=live_reader)
+        else:
+            item = literal_snapshot(env, live, 904, extra_values={**LEGACY_EXTRA,
+                                    'reader_profile_sha256': LIVE_EXTRA['reader_profile_sha256']})
+        out = await call(client, 'nfc_parse_file', case_id=env.case.id, artifact_id=item['id'],
+                         tag_ref=inv['tag_ref'])
+        assert 'nfc_source_mismatch' in out.get('_error', ''), out
+        assert analyses(env) == []
+        assert (await disconnect(client, env, owner))['ok']
+
+
 async def test_mixed_diff_rejected_before_any_import_append(cu_setup, monkeypatch):
     env = cu_setup
     async with Client(S.server) as client:

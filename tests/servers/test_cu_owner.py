@@ -12,7 +12,10 @@ from nfc_mcp import cu_owner as S
 from pweh import portlock, serialtransport
 from pweh.errors import PwehError
 from pweh.nfc_formats import _NfcFileIdentity
-from .fake_cu import setup, FakeCu, UID, VERSIONS, TOTALS, frame, scan_bytes
+from pweh import cu_protocol as P
+from .fake_cu import setup, FakeCu, UID, VERSIONS, TOTALS, TAG_MODELS, DENIED, frame, scan_bytes
+
+VERSION = bytes.fromhex('f40064000860')
 
 
 def operation(owner, method='probe_ntag', *args, deadline=None, cancel=None):
@@ -48,8 +51,10 @@ def test_real_transport_fixed_start_and_close(setup):
     device = start(owner)
     assert type(owner._transport) is serialtransport.SerialTransport
     assert device.reader_mode and device.model == 'chameleon-ultra'
-    assert device.app_version == '2.2' and device.git_version == 'v2.2.0'
+    assert device.app_version == '2.3' and device.git_version == 'v2.3.0'
     assert setup.fake.commands == [(1000, b''), (1017, b''), (1033, b''), (1002, b'')]
+    assert owner.action['profile'] == 'cu-ntag21x-v2.3.0-v1'
+    assert owner.action['profile_sha256'] == '95132f6c6e6609854cf32af0f1644eb409147cf21060ba97e7eb3dee4d783eb5'
     settings = setup.opens[0]
     assert (settings.baudrate, settings.bytesize, settings.parity, settings.stopbits) == (115200, 8, 'N', 1)
     assert settings.dtr is True and settings.rts is False and settings.write_timeout == 2
@@ -130,6 +135,30 @@ def test_wrong_device_never_sends_rf(setup, command, data, code):
     assert owner.state == 'terminal' and not owner._lease.closed
 
 
+@pytest.mark.parametrize('firmware', ['v2.2.0', 'dev'])
+def test_legacy_and_dev_firmware_are_rejected_before_any_rf(setup, firmware):
+    # dev build는 APP 02 03과 명령표가 release와 같으므로 GIT 정확 일치만 둘을 구별한다.
+    setup.fake = FakeCu(firmware=firmware)
+    owner = setup.prepare()
+    with pytest.raises(PwehError) as caught:
+        start(owner)
+    assert caught.value.code == 'cu_firmware_unsupported' and caught.value.data == {}
+    assert 'v2.' not in str(caught.value) and '4c5bc2c' not in str(caught.value)
+    assert setup.fake.commands == [(1000, b''), (1017, b''), (1033, b''), (1002, b'')]
+    assert owner.state == 'terminal' and not setup.fake.field
+
+
+@pytest.mark.parametrize('app,git', [(b'\x02\x02', b'v2.3.0'), (b'\x02\x03', b'v2.2.0'),
+    (b'\x02\x03', b'v2.3.0-14-g4c5bc2c'), (b'\x02\x03', b'v2.3.0-dirty'), (b'\x02\x04', b'v2.3.0')])
+def test_cross_paired_version_replies_are_rejected(setup, app, git):
+    setup.fake.app, setup.fake.git = app, git
+    owner = setup.prepare()
+    with pytest.raises(PwehError) as caught:
+        start(owner)
+    assert caught.value.code == 'cu_firmware_unsupported'
+    assert all(cmd < 2000 for cmd, _ in setup.fake.commands)
+
+
 @pytest.mark.parametrize('family', [213, 215, 216])
 def test_probe_reads_two_first_pages_and_field_off_only_on_last(setup, family):
     setup.fake = FakeCu(family=family)
@@ -140,10 +169,13 @@ def test_probe_reads_two_first_pages_and_field_off_only_on_last(setup, family):
     assert probe.page_identity_match and probe.reader_crc_check_succeeded and probe.steps_complete
     assert probe.reader_binding == {**owner.route.approval_identity(), 'scope_keys': list(owner.keys)}
     assert not hasattr(probe, 'pages') and UID.hex() not in repr(probe)
+    # 첫 activation은 f4 GET_VERSION 단독이고 READ0(fc)이 다시 선택한다.
     assert setup.fake.commands[4:] == [(1002, b''), (2000, b''),
-        (2010, bytes.fromhex('fc0064000860')), (2010, bytes.fromhex('ec006400103000')),
+        (2010, VERSION), (2010, bytes.fromhex('fc006400103000')),
         (2010, bytes.fromhex('e4006400103001'))]
+    assert [field for cmd, _, field in setup.fake.field_log[4:]] == [False, False, False, True, False]
     assert not setup.fake.field
+    assert not {cmd for cmd, _ in setup.fake.commands} & DENIED
 
 
 @pytest.mark.parametrize('family', [213, 215, 216])
@@ -155,9 +187,11 @@ def test_internal_read_admits_again_and_attributes_only_first_four(setup, family
     assert result.total_pages == result.pages_observed == TOTALS[family]
     assert result.pages == tuple(setup.fake.pages)
     assert not result.physical_same_tag_verified and not result.rf_off_verified
-    reads = [data for cmd, data in setup.fake.commands if cmd == 2010 and len(data) == 7]
-    assert len(reads) == TOTALS[family] and reads[1][0] == 0xec
-    assert all(data[0] == 0xec for data in reads[:-1]) and reads[-1][0] == 0xe4
+    reads = setup.fake.reads()
+    assert len(reads) == TOTALS[family] and reads[0][0] == 0xfc and reads[1][0] == 0xec
+    assert all(data[0] == 0xec for data in reads[1:-1]) and reads[-1][0] == 0xe4
+    raw = [data for cmd, data in setup.fake.commands if cmd == 2010]
+    assert raw[0] == VERSION and raw[1:] == reads and not setup.fake.field
     assert [data[-1] for data in reads] == list(range(TOTALS[family]))
     assert max(setup.fake.read_sizes) <= 1044
 
@@ -176,7 +210,8 @@ def test_read_expected_inventory_mismatch_stops_before_pages(setup, change):
         operation(owner, 'read_ntag', identity)
     assert caught.value.code in ('nfc_identity_mismatch', 'nfc_input_invalid')
     assert not any(cmd == 2010 and len(data) == 7 for cmd, data in setup.fake.commands)
-    assert owner.state == 'terminal'
+    # version 불일치도 keep=0 GET_VERSION 뒤라 field가 꺼진 채 끝난다.
+    assert owner.state == 'terminal' and not setup.fake.field
 
 
 @pytest.mark.parametrize('scan', [b'', scan_bytes(uid=b'1234'), scan_bytes(atqa=b'\x04\x00'),
@@ -189,13 +224,51 @@ def test_scan_rejection_has_no_raw_version_or_read(setup, scan):
     assert all(cmd != 2010 for cmd, _ in setup.fake.commands)
 
 
-@pytest.mark.parametrize('version', [b'', b'\0', b'\0' * 8, VERSIONS[213] + b'\0\0'])
-def test_version_rejection_has_no_pages(setup, version):
+@pytest.mark.parametrize('version,code', [(b'', 'nfc_family_unsupported'), (b'\0', 'nfc_scan_invalid'),
+    (b'\0' * 8, 'nfc_family_unsupported'), (VERSIONS[213] + b'\0\0', 'nfc_scan_invalid')])
+def test_version_rejection_has_no_pages(setup, version, code):
     owner = setup.connect()
     setup.fake.version = version
-    with pytest.raises(PwehError):
+    with pytest.raises(PwehError) as caught:
         operation(owner)
-    assert [data for cmd, data in setup.fake.commands if cmd == 2010] == [bytes.fromhex('fc0064000860')]
+    assert caught.value.code == code
+    assert [data for cmd, data in setup.fake.commands if cmd == 2010] == [VERSION]
+    assert not setup.fake.field and owner.state == 'terminal'
+
+
+@pytest.mark.parametrize('method', ['probe_ntag', 'read_ntag'])
+@pytest.mark.parametrize('tag', sorted(TAG_MODELS))
+def test_same_scan_other_tag_is_refused_with_field_off_and_no_read(setup, method, tag):
+    # MF0ICU1/UL-C/EV1은 NTAG와 같은 UID7·ATQA·SAK로 scan을 통과하고 GET_VERSION에서만 갈린다.
+    setup.fake = FakeCu(tag=tag)
+    owner = setup.connect()
+    args = (expected(),) if method == 'read_ntag' else ()
+    with pytest.raises(PwehError) as caught:
+        operation(owner, method, *args)
+    assert caught.value.code == 'nfc_family_unsupported' and caught.value.data == {}
+    assert setup.fake.commands[4:] == [(1002, b''), (2000, b''), (2010, VERSION)]
+    assert setup.fake.reads() == [] and not setup.fake.field
+    assert setup.fake.field_log[-1] == (2010, b'\xf4', False)
+    assert owner.state == 'terminal'
+    before = list(setup.fake.commands)
+    with pytest.raises(PwehError):
+        owner.reserve_use()
+    assert setup.fake.commands == before
+
+
+@pytest.mark.parametrize('reply', ['no-response', 'status-02', 'status-66'])
+def test_version_failure_without_well_formed_reply_still_ends_with_field_off(setup, monkeypatch, reply):
+    owner = setup.connect()
+    if reply == 'no-response':
+        monkeypatch.setattr(S, 'COMMAND_SECONDS', .005)
+        setup.fake.responses[(2010, VERSION)] = b''
+    else:
+        setup.fake.responses[(2010, VERSION)] = frame(2010, b'', status=int(reply[-2:], 16))
+    with pytest.raises(PwehError) as caught:
+        operation(owner)
+    assert caught.value.code == ('time_limit' if reply == 'no-response' else 'nfc_scan_invalid')
+    # keep=0 frame이므로 firmware 모델에서 응답과 무관하게 field가 꺼진다.
+    assert setup.fake.reads() == [] and not setup.fake.field and owner.state == 'terminal'
 
 
 @pytest.mark.parametrize('page,content', [(0, b'BAD!'), (0, UID[:3] + b'\0'), (1, b'BAD!')])
@@ -205,16 +278,32 @@ def test_uid_bcc_mismatch_never_returns_probe(setup, page, content):
     with pytest.raises(PwehError) as caught:
         operation(owner)
     assert caught.value.code == 'nfc_identity_mismatch' and owner.state == 'terminal'
+    # probe READ1은 e4이므로 host 대조 실패 전에 field가 꺼진다.
+    assert not setup.fake.field
+
+
+@pytest.mark.parametrize('page,content', [(0, b'BAD!'), (1, b'BAD!')])
+def test_read_path_uid_bcc_mismatch_keeps_documented_field_residual(setup, page, content):
+    owner = setup.connect()
+    setup.fake.pages[page] = content
+    with pytest.raises(PwehError) as caught:
+        operation(owner, 'read_ntag', expected())
+    assert caught.value.code == 'nfc_identity_mismatch' and owner.state == 'terminal'
+    # 문서화한 잔여: 내부 읽기의 READ1은 ec라 host 대조 실패 뒤 field가 켜진 채 남고 추가 명령은 없다.
+    assert [data[0] for data in setup.fake.reads()] == [0xfc, 0xec] and setup.fake.field is True
 
 
 @pytest.mark.parametrize('data,status', [(b'', 0), (b'\0' * 15, 0), (b'\0' * 17, 0), (b'\0' * 16, 1)])
 def test_read_invalid_response_stops_probe(setup, data, status):
     owner = setup.connect()
-    setup.fake.responses[(2010, bytes.fromhex('ec006400103000'))] = frame(2010, data, status=status)
+    setup.fake.responses[(2010, bytes.fromhex('fc006400103000'))] = frame(2010, data, status=status)
     with pytest.raises(PwehError) as caught:
         operation(owner)
     assert caught.value.code == 'nfc_scan_invalid'
     assert setup.fake.commands[-1][1][-1] == 0
+    # 문서화한 잔여: probe READ0은 fc(keep=1)라 실패 뒤 field가 켜진 채 남고 terminal은 추가 명령을 보내지 않는다.
+    assert setup.fake.commands[-1] == (2010, bytes.fromhex('fc006400103000')) and setup.fake.field is True
+    assert owner.state == 'terminal'
 
 
 @pytest.mark.parametrize('failure', ['response', 'cancel', 'timeout'])
@@ -237,6 +326,8 @@ def test_read_after_admission_keeps_unknown_pages_and_terminal(setup, monkeypatc
     assert all(page is None for page in result.pages[3:])
     assert not result.read_complete and owner.state == 'terminal'
     assert result.stop_reason == {'response': 'nfc_scan_invalid', 'cancel': 'cancelled', 'timeout': 'time_limit'}[failure]
+    # 문서화한 잔여: keep=1 READ 뒤 실패하면 field가 켜진 채 남고 terminal은 field-off를 보내지 않는다.
+    assert setup.fake.field is True and setup.fake.commands[-1] == (2010, key[1])
     before = list(setup.fake.commands)
     with pytest.raises(PwehError):
         owner.reserve_use()
