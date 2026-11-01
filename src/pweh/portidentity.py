@@ -335,13 +335,26 @@ def probe_identity(endpoint: str | None, *, config: Any = None, runner: Callable
 
 # COM 조상만 읽는 PS_IDENTITIES와 달리 비직렬 WinUSB/JTAG 형제를 포함한다.
 # 두 전체 관찰의 모든 부모 관계를 Python에서 대조한다. 입력을 코드에 보간하지 않는다.
+# 부모 관계는 Get-PnpDevice 가 돌려준 장치마다 Win32_PnPEntity.GetDeviceProperties 를 직접 호출해 읽는다.
+# 결과의 DeviceID 는 입력 키를 되돌린 값이라 귀속 근거가 아니므로, 같은 호출의 DEVPKEY_Device_InstanceId(장치가 직접 돌려준 값)가
+# 요청 ID 와 같은지 확인한다. Get-PnpDeviceProperty -InstanceId <여러 ID> 는 장치가 많으면 WQL 길이 한도로
+# '할당량 위반'(0x8004106c)을 내고(실측 252개 실패), 나눠 보내도 결과 개수는 맞지만 장치 집합이 틀린다
+# (실측 64개 묶음: 실행마다 6~11개 중복·같은 수 누락). ID 하나씩 cmdlet 을 부르면 정확하지만 252개에 약 34초가 걸린다.
+# 한계: 장치당 약 4ms × 두 관찰이라 PNP_TIMEOUT_S(5초) 안에서는 현재 장치 약 550개가 실용 상한이다(넘으면 닫힌 쪽으로 실패).
 PS_USB_SCOPE = r"""$ErrorActionPreference='Stop';[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false);
 function Read-Scope {
  $all=@(Get-PnpDevice -PresentOnly | Select-Object -First 8193);
  if($all.Count -gt 8192){throw 'device limit'};
- $ids=@($all | Where-Object {$_.InstanceId -ne 'HTREE\ROOT\0'} | ForEach-Object {$_.InstanceId});
- $props=@(Get-PnpDeviceProperty -InstanceId $ids -KeyName DEVPKEY_Device_Parent | Select-Object -First 8193);
- if($props.Count -gt 8192){throw 'property limit'};
+ $props=New-Object System.Collections.Generic.List[object];
+ foreach($d in $all){$id=[string]$d.InstanceId;if($id -ne 'HTREE\ROOT\0'){
+  $r=Invoke-CimMethod -InputObject $d -MethodName GetDeviceProperties -Arguments @{devicePropertyKeys=[string[]]@('DEVPKEY_Device_Parent','DEVPKEY_Device_InstanceId')};
+  if($r.ReturnValue -ne 0){throw 'property query failed'};$own=0;
+  foreach($q in @($r.deviceProperties)){$k=[string]$q.KeyName;
+   if($k -eq 'DEVPKEY_Device_InstanceId'){if($own -or -not ($q.Data -is [string]) -or $q.Data -ne $id){throw 'property attribution'};$own=1}
+   elseif($k -eq 'DEVPKEY_Device_Parent'){$props.Add([pscustomobject]@{InstanceId=$id;Data=$q.Data})}
+   else{throw 'property attribution'}};
+  if(-not $own){throw 'property attribution'};
+  if($props.Count -gt 8192){throw 'property limit'}}};
  $parents=@{};foreach($p in $props){if($parents.ContainsKey($p.InstanceId)){throw 'duplicate property'};$parents[$p.InstanceId]=$p};
  $nodes=@();foreach($d in $all){$id=$d.InstanceId;$par=$null;$state='ok';
  if($id -eq 'HTREE\ROOT\0'){$state='root'}else{
