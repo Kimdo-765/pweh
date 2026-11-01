@@ -568,6 +568,7 @@ def test_no_public_arbitrary_encoder_or_read_response_parser():
 
 def every_builder_wire():
     yield from (C.build_cu_query(query) for query in C.CuQuery)
+    yield from (C.build_cu_status_query(query) for query in C.CuStatusQuery)
     yield C.build_ntag_version(keep_field=False)
     for family in C.NtagFamily:
         for page in range(family.pages_total):
@@ -590,12 +591,15 @@ def test_whitelist_is_closed_and_denies_new_v230_and_control_commands():
                 version_options.add(frame.data[0])
             if frame.data[0] == 0xfc:
                 select_payloads.add(frame.data[1:])
-    assert commands == {1000, 1017, 1033, 1002, 2000, 2010}
+    # 상태 조회 getter 1025/1018/2200은 이번 증분에서 의도적으로 허용 목록에 더했다.
+    assert commands == {1000, 1017, 1033, 1002, 2000, 2010, 1025, 1018, 2200}
     assert not commands & DENIED
     assert options == {0xf4, 0xfc, 0xec, 0xe4}
     # GET_VERSION은 f4뿐이고, fc(auto-select+keep)는 page0 READ(0x30 0x00)에만 쓰인다.
     assert version_options == {0xf4}
     assert select_payloads == {b"\x00\x64\x00\x10\x30\x00"}
-    for command in sorted(DENIED) + [1035, 2200, 2201]:
+    # BLE PIN·식별자·slot 별명/정보·long-press·battery-ex·설정 변경은 상태 조회에서도 만들 수 없다.
+    for command in sorted(DENIED) + [1035, 2201, 1008, 1019, 1038, 1041, 1042, 1043]:
         failure(lambda: C._encode(command, b""))
         assert command not in {query.value for query in C.CuQuery}
+        assert command not in {query.value for query in C.CuStatusQuery}

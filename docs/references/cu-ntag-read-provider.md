@@ -13,6 +13,9 @@
 | `nfc_cu_read_start` | `case_id, session_id, tag_ref, approval_id=None` | 같은 inventory·세션·MODIFY 게이트 뒤 유한 페이지 snapshot job 시작 |
 | `nfc_cu_disconnect` | `case_id, session_id` | 사용권 종료·물리 close·lease 해제를 확인. 허가 철회 뒤에도 같은 세션 정리 가능 |
 
+같은 세션의 `nfc_cu_identify`(READ 없는 HF 계열 분류)와 `nfc_cu_status`(RF 없는 배터리·slot·설정 조회)는
+[HF 식별·상태 계약](cu-hf-identify.md)을 따른다.
+
 connect의 실제 `session_id`로 scan을 호출하고, 실제 `scan_ref`를
 `nfc_tag_inventory_add`에 전달한다. 기존 `nfc_parse_file`/`nfc_diff_dumps`의 파일
 출처 증명·같은 FD 검증은 [NFC 분석 계약](nfc-inventory-analysis.md)을 그대로 따른다.
@@ -87,7 +90,8 @@ echo가 없어 완전한 구별이 불가능하며, idle 잔여 검사를 원자
 
 ### 명령 허용 목록
 
-PWEH가 만드는 명령은1000/1017/1033/1002/2000/2010뿐이며 encoder가 그 밖의 ID를 거부한다.
+PWEH가 만드는 명령은1000/1017/1033/1002/2000/2010과 상태 조회 getter1025/1018/2200뿐이며 encoder가 그 밖의 ID를 거부한다.
+getter 셋은 `nfc_cu_status` 전용이며 HF 식별 `nfc_cu_identify`는 1002/2000/2010(`f4` GET_VERSION)만 쓴다([HF 식별 계약](cu-hf-identify.md)).
 2010 option은 아래 네 값(`f4`/`fc`/`ec`/`e4`)만 쓴다. v2.3.0에 새로 생긴 Ultralight C 3DES
 AUTH/READ/WRITE/SET_KEY(2018/2019/2021/2022, [app_cmd.c](https://github.com/RfidResearchGroup/ChameleonUltra/blob/4e1a5b267b9ed33559e0e2c9dad61d61eaf64ba1/firmware/application/src/app_cmd.c#L558-L679))는 payload 검사 전에
 HF field를 켜고 인증·쓰기·키 변경을 수행하므로 보내지 않는다. BLE pairing PIN을 돌려주는 1031/1034,

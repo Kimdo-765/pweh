@@ -1,11 +1,13 @@
 # pweh-nfc
 
-CU 고정 연결·스캔·페이지 스냅샷 읽기와 같은 케이스의 Flipper/CU scan 사실에 결속한 파일 분석 서버다. NTAG213/215/216만 inventory에 등록하며, 파일 내용을 태그에 쓰거나 인증·키 탐색·에뮬레이션을 수행하지 않는다.
+CU 고정 연결·스캔·HF 계열 식별·장치 상태 조회·페이지 스냅샷 읽기와 같은 케이스의 Flipper/CU scan 사실에 결속한 파일 분석 서버다. NTAG213/215/216만 inventory에 등록하며, 파일 내용을 태그에 쓰거나 인증·키 탐색·에뮬레이션을 수행하지 않는다.
 
 | 도구 | 입력 | 결과 |
 |---|---|---|
 | `nfc_cu_connect` | `case_id`, `port`, `approval_id=None` | 공식 v2.3.0 Ultra reader(APP2.3·GIT 정확 v2.3.0) 확인·실제 session_id |
 | `nfc_cu_scan` | `case_id`, `session_id`, `approval_id=None` | 새 scan·단독 GET_VERSION·새 선택 READ0/1 검증 뒤 마스킹 scan_ref |
+| `nfc_cu_identify` | `case_id`, `session_id`, `approval_id=None` | READ·인증 없는 HF 계열 분류(family·§6.2 policy·UID 길이·ATS 유무·계열별 솔트 지문). 세션은 ready 유지 |
+| `nfc_cu_status` | `case_id`, `session_id` | RF 없는 배터리 mV·추정 percent·0부터 센 활성 slot·HF14A 설정 기본값 여부와 연결 때의 모델·APP·GIT |
 | `nfc_cu_read_start` | `case_id`, `session_id`, `tag_ref`, `approval_id=None` | 유한 페이지 snapshot job·전용 device-read 원장·artifact 등록 |
 | `nfc_job_status` | `job_id`, `wait_seconds=0.0`, `case_id=None` | 작업·저장 기록과 실제 결과 조회 |
 | `nfc_job_cancel` | `job_id` | 취소 요청, 실제 commit 결과 보존 |
@@ -16,6 +18,7 @@ CU 고정 연결·스캔·페이지 스냅샷 읽기와 같은 케이스의 Flip
 | `nfc_diff_dumps` | `case_id`, `before_artifact_id`, `after_artifact_id`, `tag_ref`, `max_seconds=5` | 저장 페이지 비교 결과와 두 파일의 출처 결속, 실제 저장 경로·SHA. CU snapshot은 같은 reader 프로필끼리만 |
 
 CU는 명시 COM/tty와 현재 USB CDC 신원·전체 sibling 잠금 아래 MODIFY 게이트를 거친다. [고정 CU 계약](../../docs/references/cu-ntag-read-provider.md)의 시작5초·스캔45초·명령2초·close10초를 따르며 실패 뒤 자동 RF-off/재접속을 하지 않는다. v2.2.0 reader 프로필은 이전 scan·snapshot의 검증 전용이다.
+`nfc_cu_identify`는 MODIFY 게이트 뒤 scan2000과 Type 2 후보의 단독 GET_VERSION 하나로 닫힌 표를 적용하며 scan 사실·inventory를 만들지 않는다. `nfc_cu_status`는 RF 없는 getter만 보내는 INTERACT다. 분류표·근거·한계는 [HF 식별·상태 계약](../../docs/references/cu-hf-identify.md)을 따른다. 교통·결제·출입 자격증명은 policy와 관계없이 범위 밖이다.
 GET_VERSION은 단독 keep=0 activation이며 NTAG213/215/216이 아니면 READ 없이 거부한다. 읽기 job은 새 admission 뒤 같은 field에서 시작 페이지4B를 모으고 [스냅샷 계약](../../docs/references/cu-read-snapshot.md)의 전용 원장·파일 등록으로 연결한다. wire45초 뒤 host 검증/저장5초를 한 번 사용한다.
 
 `flipper_nfc_probe`는 별도 `pweh-flipper` 서버에서 실행한다. 두 provider의 검증 조건은 독립 유지한다. 성공한 같은 케이스 `scan_ref`를 inventory에 등록한 뒤, `case_import_file` 또는 허용된 Flipper 파일 복사로 등록한 artifact id를 사용한다. 사용자가 제출한 UID·family, cache, 임의 producer 문자열은 scan 사실을 대신하지 않는다. 기존 `provenance-import` 사람 증명을 요구하면 사람이 별도 터미널의 `pweh attest <id>`로 답한다. 에이전트가 증명을 대신하지 않는다.
@@ -32,4 +35,4 @@ GET_VERSION은 단독 keep=0 activation이며 NTAG213/215/216이 아니면 READ 
 
 CU snapshot은 `nfc/cu-read-NNN.json`·최대64KiB·0444로 저장한다. 원장 commit 뒤 등록 실패는 파일과 실제 원장 receipt를 보존하며 `registered=false` partial_result를 반환한다. `registered=true`의 artifact ID로만 분석한다. imported와 CU snapshot은 각각 기존 사람 증명과 전용 device-read 원장을 요구하고 혼합 diff는 거부한다. 양쪽 관찰 페이지만 비교하며 양쪽 읽기와 전체 비교가 끝나야 `stored_pages_equal`이 bool이다. read receipt는 inspect/diff 요약으로 대신하지 않는다.
 
-개발 시험은 합성 Flipper/CU wire와 격리 케이스만 사용한다: `tests/servers/test_nfc_mcp.py`, `tests/servers/test_nfc_analysis.py`. 전체 공용 계약은 [architecture](../../docs/architecture.md), 운영 흐름은 [NFC 분석](../../docs/references/nfc-inventory-analysis.md)을 따른다.
+개발 시험은 합성 Flipper/CU wire와 격리 케이스만 사용한다: `tests/servers/test_nfc_mcp.py`, `tests/servers/test_nfc_analysis.py`, `tests/servers/test_nfc_cu_identify.py`, `tests/core/test_cu_identify_protocol.py`. 전체 공용 계약은 [architecture](../../docs/architecture.md), 운영 흐름은 [NFC 분석](../../docs/references/nfc-inventory-analysis.md)을 따른다.

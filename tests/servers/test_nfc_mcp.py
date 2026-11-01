@@ -214,7 +214,7 @@ async def test_identity_mismatch_precedes_attestation(env,data,monkeypatch):
     assert PRIVATE not in json.dumps(out)
 
 
-async def test_exact_ten_tools_annotations_and_closed_sdk():
+async def test_exact_twelve_tools_annotations_and_closed_sdk():
     async with Client(S.server) as client:
         tools=(await client.list_tools()).tools
     expected={'nfc_tag_inventory_add':{'case_id','scan_ref'},
@@ -222,6 +222,8 @@ async def test_exact_ten_tools_annotations_and_closed_sdk():
               'nfc_diff_dumps':{'case_id','before_artifact_id','after_artifact_id','tag_ref','max_seconds'},
               'nfc_cu_connect':{'case_id','port','approval_id'},
               'nfc_cu_scan':{'case_id','session_id','approval_id'},
+              'nfc_cu_identify':{'case_id','session_id','approval_id'},
+              'nfc_cu_status':{'case_id','session_id'},
               'nfc_cu_disconnect':{'case_id','session_id'},
               'nfc_cu_read_start':{'case_id','session_id','tag_ref','approval_id'},
               'nfc_job_status':{'job_id','wait_seconds','case_id'},
@@ -233,7 +235,8 @@ async def test_exact_ten_tools_annotations_and_closed_sdk():
         assert t.input_schema['additionalProperties'] is False
         assert t.annotations.read_only_hint is False
         assert t.annotations.destructive_hint is False
-        assert t.annotations.open_world_hint is (t.name in {'nfc_cu_connect','nfc_cu_scan','nfc_cu_read_start'})
+        assert t.annotations.open_world_hint is (t.name in {'nfc_cu_connect','nfc_cu_scan','nfc_cu_identify',
+                                                            'nfc_cu_status','nfc_cu_read_start'})
 
 
 @pytest.mark.parametrize('mode',['deny','expired','revoked'])

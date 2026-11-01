@@ -1,4 +1,4 @@
-"""고정 CU query·NTAG 읽기의 단일 사용권과 물리 직렬 수명."""
+"""고정 CU query·NTAG 읽기·HF 식별·상태 조회의 단일 사용권과 물리 직렬 수명."""
 from __future__ import annotations
 
 import contextlib
@@ -16,6 +16,7 @@ from pweh.instrument_guard import guard_target_port
 
 START_SECONDS = 5.0
 OPERATION_SECONDS = 45.0
+STATUS_SECONDS = 5.0
 COMMAND_SECONDS = 2.0
 CLOSE_SECONDS = 10.0
 _REGISTRY = {}
@@ -113,6 +114,25 @@ class CuRead:
     physical_same_tag_verified: bool = False
     device_command_termination_verified: bool = False
     rf_off_verified: bool = False
+
+
+@dataclass(frozen=True, repr=False)
+class CuIdentify:
+    """HF 식별의 닫힌 결과. 원시 식별값은 scan/version 안에만 있고 공개 투영이 지문으로 바꾼다."""
+    session_id: str
+    scan: P.CuHfScan
+    version: P.CuHfVersion | None
+    family: str
+    get_version_sent: bool
+    profile: str = P.IDENTIFY.profile
+
+
+@dataclass(frozen=True)
+class CuStatus:
+    """mode 재확인과 세 getter, 연결 때 확인한 고정 장치 사실만 담는다."""
+    session_id: str
+    status: P.CuDeviceStatus
+    device: P.CuDevice
 
 
 @dataclass(frozen=True)
@@ -265,6 +285,9 @@ class CuOwner:
         if type(kind) is P.CuQuery:
             wire = P.build_cu_query(kind)
             expected = kind.value
+        elif type(kind) is P.CuStatusQuery:
+            wire = P.build_cu_status_query(kind)
+            expected = kind.value
         elif kind == 'version':
             # keep=0 단독 activation: firmware가 성공·실패 모두 끝에서 HF field를 끈다.
             wire, expected = P.build_ntag_version(keep_field=False), 2010
@@ -397,6 +420,47 @@ class CuOwner:
         return CuRead(identity, family, family.pages_total, tuple(pages),
                       sum(value is not None for value in pages), reason is None,
                       reason, self._binding(), P.LIVE.profile)
+
+    def identify_hf(self, use, *, deadline):
+        """mode→scan2000→(Type 2 후보만) f4 GET_VERSION 한 번. READ·인증·RATS 명령은 보내지 않는다.
+
+        잘 형성된 분류 결과(none·multiple 포함)는 세션을 ready로 둔다. 잘못된 frame·transport
+        timeout·취소·재검증 실패·mode 변화는 기존과 같이 terminal이다. GET_VERSION은 keep=0이라
+        firmware가 성공·NAK·timeout 모두 끝에서 field를 끄지만 RF off를 검증하지는 않는다.
+        """
+        try:
+            end = _end(deadline, OPERATION_SECONDS)
+            if use.owner is not self or use.opening or self.state != 'ready':
+                raise error()
+            self._mode(use, end)
+            scan = P.classify_cu_scan(self._request(use, P.CuQuery.SCAN_14A, end))
+            version = None
+            if scan.scan_class == 'type2':
+                version = P.classify_type2_version(self._request(use, 'version', end))
+            use.check(end)
+            family = version.family if version is not None else scan.scan_class
+            if family not in P.HF_FAMILIES:
+                raise error('nfc_scan_invalid')
+            return CuIdentify(self.session_id, scan, version, family, version is not None)
+        except Exception as exc:
+            self._terminal()
+            raise public_error(exc) from None
+
+    def device_status(self, use, *, deadline):
+        """mode 재확인 뒤 1025·1018·2200 getter만 보낸다. RF·설정 변경 명령은 없다."""
+        try:
+            end = _end(deadline, STATUS_SECONDS)
+            if (use.owner is not self or use.opening or self.state != 'ready'
+                    or type(self._device) is not P.CuDevice):
+                raise error()
+            self._mode(use, end)
+            replies = tuple(self._request(use, query, end) for query in P.STATUS_QUERIES)
+            status = P.parse_cu_status(replies)
+            use.check(end)
+            return CuStatus(self.session_id, status, self._device)
+        except Exception as exc:
+            self._terminal()
+            raise public_error(exc) from None
 
     def _cleanup(self):
         try:

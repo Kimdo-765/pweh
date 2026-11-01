@@ -1,6 +1,6 @@
 ---
 name: nfc-behavior-analysis
-description: 소유·허가된 PWEH 케이스에서 NTAG213/215/216 스캔을 inventory에 등록하고 CU 페이지 스냅샷을 읽거나 보유 NFC 파일의 구조·저장 페이지 차이를 검사한다. NFC 파일 분석, CU 읽기, NTAG inventory, 두 덤프 비교에 사용한다. 쓰기·인증·에뮬레이션과 게임 반응 확인은 수행하지 않는다.
+description: 소유·허가된 PWEH 케이스에서 NTAG213/215/216 스캔을 inventory에 등록하고 CU 페이지 스냅샷을 읽거나 보유 NFC 파일의 구조·저장 페이지 차이를 검사한다. CU로 READ 없이 HF 카드 계열을 식별하거나 배터리·slot 같은 장치 상태를 확인할 때도 쓴다. NFC 파일 분석, CU 읽기, 카드 종류 확인, NTAG inventory, 두 덤프 비교에 사용한다. 쓰기·인증·에뮬레이션과 게임 반응 확인은 수행하지 않는다.
 ---
 
 # 스캔 기록에 결속한 NFC 파일 분석
@@ -16,6 +16,22 @@ description: 소유·허가된 PWEH 케이스에서 NTAG213/215/216 스캔을 in
 5. `approval_required`이면 반환 id와 영향을 설명하고 사람이 별도 터미널에서 `pweh approve <id>`로 승인한 뒤 같은 인자와 `approval_id`로 재호출한다. 에이전트가 승인 명령을 실행하지 않는다. `denied`·지원 밖 계열은 우회하지 않으며 raw 명령·다른 앱으로 대신하지 않는다.
 
 CU Ultra를 사용하는 새 스캔은 [CU 계약](../../docs/references/cu-ntag-read-provider.md)을 따른다. 허가된 reader의 명시 포트로 `nfc_cu_connect(case_id, port)`를 호출하고 실제 반환한 `session_id`로 `nfc_cu_scan(case_id, session_id)`을 호출한다. 두 도구는 MODIFY 게이트를 적용하며 위 승인 규칙을 따른다. CU는 현재 reader 모드의 공식 v2.3.0(APP2.3·GIT 정확 `v2.3.0`)만 받으며 mode/slot을 변경하지 않는다. `cu_firmware_unsupported`(v2.2.0이나 dev build 등)이면 우회하지 않고 사람이 공식 release를 확인하게 한다. scan은 단독 GET_VERSION과 새 선택 READ0/1의 UID/BCC를 확인하고, 실제 scan_ref를 같은 `nfc_tag_inventory_add`로 등록한다. 원조 Ultralight·Ultralight C·EV1처럼 NTAG가 아닌 태그는 고정 오류 nfc_family_unsupported로 끝나며 인증·다른 명령으로 대신하지 않는다. CU 페이지 읽기가 필요하면 아래 절로 진행한다.
+
+## CU HF 카드 식별과 장치 상태
+
+사용자가 카드 종류를 알고 싶거나 `nfc_cu_scan`이 지원 밖 계열 오류(nfc_family_unsupported)로 끝났으면 [HF 식별 계약](../../docs/references/cu-hf-identify.md)을 따른다. 같은 연결 세션을 쓰며 페이지를 읽지 않는다.
+
+1. `nfc_cu_status(case_id, session_id)`로 장치 상태를 먼저 확인한다. RF가 없는 INTERACT라 승인 없이 실행된다. battery_percent는 전압으로 추정한 값이고, 부팅 직후 약5초는 0일 수 있다. active_slot은 0부터 센다(공식 CLI 표시는 +1). hf14a_config_default가 false면 scan 동작이 달라지므로 식별 결과와 함께 그 사실을 보고한다. 설정은 바꾸지 않는다.
+2. 사람에게 다른 카드를 치우고 카드 한 장만 reader에 올려 달라고 요청하고, 완료 확인 뒤 `nfc_cu_identify(case_id, session_id)`를 호출한다. 이 도구는 MODIFY 게이트를 따르며 위 승인 규칙이 같다. scan2000과, Type 2 후보일 때만 GET_VERSION 하나를 보낸다.
+3. 반환된 family와 policy를 그대로 보고한다. family를 추측해 바꾸거나 READ·인증·다른 명령으로 더 나누지 않는다.
+   - allowed(NTAG213/215/216)이면 필요할 때 위의 `nfc_cu_scan`으로 이어간다.
+   - attestation_required이면 이 계열을 다루는 도구가 아직 없다. 결과만 보고하고 멈춘다. ultralight_or_ultralight_c는 원조 Ultralight와 Ultralight C를 나누지 않은 결과다. type2_version_unreadable은 GET_VERSION 응답이 손상되어 계열을 정하지 못한 결과다.
+   - refused(Classic 2K/4K, MIFARE Plus SL2, ISO14443-4)이면 더 조작하지 않는다.
+   - none·multiple은 배치 문제일 수 있다. 카드가 정확히 한 장인지 사람에게 확인받은 뒤 같은 세션으로 다시 식별할 수 있다. none을 "카드가 없다"는 사실로 보고하지 않는다. ATQA가 다른 카드 여러 장도 none이 될 수 있다.
+   - other는 잘 형성된 레코드가 표에 없는 값이었다는 뜻이다. 배치를 바꿔 다시 시도하지 않고 그대로 보고하고 멈춘다.
+4. 교통·결제·출입·호텔·신분 자격증명(예: 교통 티켓)은 policy와 관계없이 범위 밖이다. 사람 증명으로도 넓히지 않는다.
+5. 잘 형성된 분류는 세션을 ready로 둔다. 고정 오류(잘못된 응답·timeout·취소·mode 변화)는 세션을 terminal로 만든다. 그러면 `nfc_cu_disconnect`로 정리하고 새로 연결한다. 여러 장의 카드도 nfc_scan_invalid가 될 수 있으므로 다시 연결하기 전에 카드가 한 장인지 확인받는다. physical_same_tag_verified와 rf_off_verified는 false로 보고한다.
+6. 결과는 아래 "정리와 요약"의 `nfc-analysis` 요약에 mode `cu-hf-identify`로 기록한다. 식별 반환값의 operation·profile·family·policy·uid_length·ats_present·get_version_sent·page_reads_sent·identity_digest를 `identifications`에, 상태 반환값의 배터리·slot·mode·hf14a_config_default·버전·model을 `device_status`에 그대로 옮긴다(operation은 "cu-identify"). 원시 UID나 사용자가 말한 카드 이름을 family 대신 쓰지 않는다.
 
 ## CU 페이지 스냅샷 읽기
 
@@ -36,7 +52,7 @@ CU Ultra를 사용하는 새 스캔은 [CU 계약](../../docs/references/cu-ntag
 
 이 Skill에서 Flipper 세션을 열었다면 성공·실패·취소 뒤 항상 `flipper_close`를 호출한다. CU 세션을 열었다면 같은 `case_id/session_id`로 `nfc_cu_disconnect`를 호출하고 cleanup 확인 결과를 보존한다. `cleanup_pending`이면 같은 close로 다시 확인한다. 자동 ETX·Enter·재접속이나 실패 뒤 임시 파일 삭제 명령을 보내지 않는다. 임시 파일 정리가 미확인이면 그 상태를 그대로 보고한다. host close는 장치 명령 종료·RF field off의 증거가 아니다.
 
-`schema_get(name="nfc-analysis")`를 확인한 뒤 `case_record_step(skill="nfc-behavior-analysis", step="summary", ...)`로 실제 inventory와 검사 결과를 기록한다. [reference.md](reference.md)의 필드 연결을 쓰며, 실제 수행한 단계만 success/partial로 정리한다. usable scan이나 분석 결과가 없는 오류는 `step="attempt"`에 고정 오류와 다음 조치를 기록하고 결과를 꾸미지 않는다.
+`schema_get(name="nfc-analysis")`를 확인한 뒤 `case_record_step(skill="nfc-behavior-analysis", step="summary", ...)`로 실제 inventory와 검사 결과를 기록한다. inventory·파일 결과가 있으면 mode `scan-bound-offline`(tags 최소 1개)이고, CU 식별·상태만 했다면 mode `cu-hf-identify`로 `identifications`(최소 1개)와 선택 `device_status`를 넣고 tags·results는 빈 배열로 둔다. tags를 꾸며 넣지 않는다. [reference.md](reference.md)의 필드 연결을 쓰며, 실제 수행한 단계만 success/partial로 정리한다. usable scan이나 분석 결과가 없는 오류는 `step="attempt"`에 고정 오류와 다음 조치를 기록하고 결과를 꾸미지 않는다.
 
 `physical_same_tag_verified`, `tag_content_written`, `authentication_attempted`, `emulation_performed`는 false로 유지한다. 원래 읽기 완료도·미관찰 범위를 보존하고 스니프·게임 동작·해금 조건을 검증했다고 보고하지 않는다. read receipt는 일반 단계 기록이나 artifact 참조로 남기고 inspect/diff 결과로 넣지 않는다. CU의 reader CRC 성공은 host RF CRC 검산이나 진품·동일 실물 증명이 아니다. 취소 뒤에는 commit된 결과가 남을 수 있으므로 `case_get(include_artifacts=true)`로 확인하고, 최종 보고서는 `report_generate`로 만든다.
 
@@ -60,6 +76,43 @@ CU Ultra를 사용하는 새 스캔은 [CU 계약](../../docs/references/cu-ntag
     "status": "ok",
     "tag_ref": "NT-00000000000000000000000000000000"
   }],
+  "physical_same_tag_verified": false,
+  "tag_content_written": false,
+  "authentication_attempted": false,
+  "emulation_performed": false
+}
+```
+
+CU 식별·상태만 한 실행의 요약 합성 예시이며, 실행 시 실제 반환값으로 채운다.
+
+```json
+{
+  "schema": "pweh.nfc-analysis/v1",
+  "mode": "cu-hf-identify",
+  "tags": [],
+  "results": [],
+  "identifications": [{
+    "operation": "cu-identify",
+    "profile": "cu-hf14a-identify-v2.3.0-v1",
+    "family": "ultralight_or_ultralight_c",
+    "policy": "attestation_required",
+    "uid_length": 7,
+    "ats_present": false,
+    "get_version_sent": true,
+    "page_reads_sent": false,
+    "identity_digest": "sha256:0000000000000000"
+  }],
+  "device_status": {
+    "battery_mv": 4000,
+    "battery_percent": 80,
+    "battery_percent_is_estimate": true,
+    "active_slot": 0,
+    "mode": "reader",
+    "hf14a_config_default": true,
+    "app_version": "2.3",
+    "git_version": "v2.3.0",
+    "model": "chameleon-ultra"
+  },
   "physical_same_tag_verified": false,
   "tag_content_written": false,
   "authentication_attempted": false,

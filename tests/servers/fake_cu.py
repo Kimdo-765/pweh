@@ -22,13 +22,40 @@ TOTALS = {213: 45, 215: 135, 216: 231}
 FIRMWARES = {'v2.3.0': (b'\x02\x03', b'v2.3.0'), 'v2.2.0': (b'\x02\x02', b'v2.2.0'),
              'dev': (b'\x02\x03', b'v2.3.0-14-g4c5bc2c')}
 # NTAG와 같은 UID7/ATQA 0044/SAK 00을 보이지만 GET_VERSION에서 갈리는 태그의 (status, data).
+# version-crc-error는 3B 이상 응답의 CRC 오류(firmware 0x03)이며 특정 칩 모델이 아니다.
 TAG_MODELS = {'mf0icu1-nak': (0x00, b''), 'mf0icu1-timeout': (0x01, b''),
-              'mf0icu2-crc': (0x03, b''), 'ul-ev1': (0x00, bytes.fromhex('0004030101000b03'))}
+              'version-crc-error': (0x03, b''), 'ul-ev1': (0x00, bytes.fromhex('0004030101000b03')),
+              'ul-ev1-mf0ulh21': (0x00, bytes.fromhex('0004030201000e03')),
+              'type2-other-version': (0x00, bytes.fromhex('0004040101000b03'))}
 # 공식 v2.3.0의 인증·쓰기·키 변경·BLE PIN·고정 식별자·모드·field 직접 제어 명령. 어떤 경로도 보내면 안 된다.
-DENIED = frozenset((1001, 1011, 1012, 1031, 1034, 2016, 2018, 2019, 2021, 2022, 2100, 2101, 3021))
+# 상태 조회도 slot 별명(1008/1038)·slot 정보(1019)·long-press(1041/1042)·battery-ex(1043)·HF14A 설정 변경(2201)을 보내지 않는다.
+DENIED = frozenset((1001, 1008, 1011, 1012, 1019, 1031, 1034, 1038, 1041, 1042, 1043,
+                    2016, 2018, 2019, 2021, 2022, 2100, 2101, 2201, 3021))
+UID4 = bytes.fromhex('a1b2c3d4')
 RAW_OPTIONS = frozenset((0xf4, 0xfc, 0xec, 0xe4))
 VERSION_WIRE = bytes.fromhex('f40064000860')
 _CREATED = []
+
+
+def scan_bytes_for(uid, atqa, sak, ats=b''):
+    return bytes((len(uid),)) + uid + atqa + bytes((sak,)) + bytes((len(ats),)) + ats
+
+
+# 2000 scan 모델의 (status, payload). ATQA는 wire 순서(LSB 먼저)다. 합성 값이며 실제 카드 덤프가 아니다.
+SCAN_MODELS = {
+    'none': (0x01, b''),
+    'multiple': (0x04, b''),
+    'classic-mini': (0x00, scan_bytes_for(UID4, b'\x04\x00', 0x09)),
+    'classic-1k': (0x00, scan_bytes_for(UID4, b'\x04\x00', 0x08)),
+    'classic-4k': (0x00, scan_bytes_for(UID4, b'\x02\x00', 0x18)),
+    'classic-2k': (0x00, scan_bytes_for(UID4, b'\x04\x00', 0x19)),
+    'tnp3xxx': (0x00, scan_bytes_for(UID4, b'\x04\x00', 0x01)),
+    # firmware ATS는 CRC만 뺀 값이므로 TL(전체 길이) 바이트로 시작한다.
+    'iso14443-4': (0x00, scan_bytes_for(UID, b'\x44\x03', 0x20, b'\x06\x75\x77\x81\x02\x80')),
+    'plus-sl2': (0x00, scan_bytes_for(UID4, b'\x04\x00', 0x10)),
+    'other-sak02': (0x00, scan_bytes_for(UID4, b'\x04\x00', 0x02)),
+    'type2-uid4': (0x00, scan_bytes_for(UID4, b'\x44\x00', 0x00)),
+}
 
 
 def frame(command, data=b'', *, status=0x68):
@@ -46,11 +73,13 @@ class FakeCu:
 
     위반은 owner가 고정 오류로 감싸 숨길 수 있으므로 violations에 남기고 fixture 정리에서 검사한다.
     """
-    def __init__(self, *, family=213, chunk=17, write_chunk=4096, firmware='v2.3.0', tag=None):
+    def __init__(self, *, family=213, chunk=17, write_chunk=4096, firmware='v2.3.0', tag=None, scan=None):
         self.family, self.chunk, self.write_chunk = family, chunk, write_chunk
         self.app, self.git = FIRMWARES[firmware]
-        self.tag = tag
-        self.scan_data = scan_bytes()
+        self.tag, self.scan_model = tag, scan
+        self.scan_status, self.scan_data = (0, scan_bytes()) if scan is None else SCAN_MODELS[scan]
+        # 1025 mV·percent, 1018 0부터 센 slot, 2200 forcebcc/cl2/cl3/rats. 합성 기본값이다.
+        self.battery, self.slot, self.hf14a_config = (3900, 61), 0, b'\0\0\0\0'
         self.version_status, self.version = (0, VERSIONS[family]) if tag is None else TAG_MODELS[tag]
         self.pages = [bytes((index, 0x42, 0, 255)) for index in range(TOTALS[family])]
         self.pages[0] = UID[:3] + bytes((0x88 ^ UID[0] ^ UID[1] ^ UID[2],))
@@ -155,7 +184,9 @@ class FakeCu:
         return count
 
     def response(self, command, payload):
-        queries = {1000: self.app, 1017: self.git, 1033: b'\x00', 1002: b'\x01'}
+        queries = {1000: self.app, 1017: self.git, 1033: b'\x00', 1002: b'\x01',
+                   1025: self.battery[0].to_bytes(2, 'big') + bytes((self.battery[1],)),
+                   1018: bytes((self.slot,)), 2200: self.hf14a_config}
         if command in queries:
             if payload != b'':
                 self.violation('조회 payload')
@@ -163,13 +194,13 @@ class FakeCu:
         if command == 2000:
             if payload != b'':
                 self.violation('scan payload')
-            return frame(command, self.scan_data, status=0)
+            return frame(command, self.scan_data, status=self.scan_status)
         if command == 2010 and payload == VERSION_WIRE:
             return frame(command, self.version, status=self.version_status)
         if command == 2010 and len(payload) == 7 and payload[1:6] == bytes.fromhex('0064001030'):
             if payload[0] not in (0xfc, 0xec, 0xe4) or (payload[0] == 0xfc) != (payload[6] == 0):
                 self.violation('READ0 이외 선택 또는 선택 없는 READ0')
-            if self.tag is not None:
+            if self.tag is not None or self.scan_model is not None:
                 self.violation('NTAG가 아닌 태그에 READ')
             if payload[6] >= len(self.pages):
                 self.violation('범위 밖 page')

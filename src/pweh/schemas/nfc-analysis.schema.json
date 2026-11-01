@@ -18,11 +18,14 @@
       "const": "pweh.nfc-analysis/v1"
     },
     "mode": {
-      "const": "scan-bound-offline"
+      "enum": [
+        "scan-bound-offline",
+        "cu-hf-identify"
+      ]
     },
     "tags": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "maxItems": 32,
       "items": {
         "type": "object",
@@ -152,6 +155,184 @@
     },
     "emulation_performed": {
       "const": false
+    },
+    "identifications": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "profile",
+          "family",
+          "policy",
+          "uid_length",
+          "ats_present",
+          "get_version_sent",
+          "page_reads_sent",
+          "identity_digest"
+        ],
+        "properties": {
+          "operation": {
+            "const": "cu-identify"
+          },
+          "profile": {
+            "const": "cu-hf14a-identify-v2.3.0-v1"
+          },
+          "family": {
+            "enum": [
+              "iso14443_4",
+              "mifare_classic_1k",
+              "mifare_classic_2k",
+              "mifare_classic_4k",
+              "mifare_classic_mini",
+              "mifare_classic_tnp3xxx",
+              "mifare_plus_sl2",
+              "multiple",
+              "none",
+              "ntag213",
+              "ntag215",
+              "ntag216",
+              "other",
+              "type2_other_version",
+              "type2_version_unreadable",
+              "ultralight_ev1_mf0ul11",
+              "ultralight_ev1_mf0ul21",
+              "ultralight_ev1_mf0ulh11",
+              "ultralight_ev1_mf0ulh21",
+              "ultralight_or_ultralight_c"
+            ]
+          },
+          "policy": {
+            "enum": [
+              "allowed",
+              "attestation_required",
+              "not_applicable",
+              "refused"
+            ]
+          },
+          "uid_length": {
+            "enum": [
+              null,
+              4,
+              7,
+              10
+            ]
+          },
+          "ats_present": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "get_version_sent": {
+            "type": "boolean"
+          },
+          "page_reads_sent": {
+            "const": false
+          },
+          "identity_digest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{16}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "device_status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "battery_mv",
+        "battery_percent",
+        "battery_percent_is_estimate",
+        "active_slot",
+        "mode",
+        "hf14a_config_default",
+        "app_version",
+        "git_version",
+        "model"
+      ],
+      "properties": {
+        "battery_mv": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "battery_percent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "battery_percent_is_estimate": {
+          "const": true
+        },
+        "active_slot": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "mode": {
+          "const": "reader"
+        },
+        "hf14a_config_default": {
+          "type": "boolean"
+        },
+        "app_version": {
+          "const": "2.3"
+        },
+        "git_version": {
+          "const": "v2.3.0"
+        },
+        "model": {
+          "const": "chameleon-ultra"
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "scan-bound-offline"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "tags": {
+            "minItems": 1
+          }
+        },
+        "not": {
+          "required": [
+            "identifications"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "cu-hf-identify"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "identifications"
+        ]
+      }
+    }
+  ]
 }

@@ -6,6 +6,11 @@
 reader 프로필은 닫힌 두 행이다. 실제 장치 경로(live)는 ``LIVE``(v2.3.0) 하나만 쓰고,
 원장·snapshot 검증기는 ``KNOWN``의 정확한 이름 조회 뒤 전체 값 일치를 요구한다.
 v2.2.0 행은 기존 기록의 검증 전용이며 연결에 쓰지 않는다.
+
+HF 식별 프로필 ``IDENTIFY``(``cu-hf14a-identify-v2.3.0-v1``)는 reader 프로필 집합 밖의 별도 행이다.
+scan 기록·GET_VERSION 응답의 닫힌 분류표와 §6.2 정책을 recipe에 담아 hash로 고정하며
+원장·snapshot 검증(``KNOWN``)에는 쓰지 않는다. 장치 상태 조회는 별도 enum ``CuStatusQuery``로
+1025/1018/2200 세 getter만 만들며 ``CuQuery``의 다섯 조회는 바꾸지 않는다.
 """
 from __future__ import annotations
 
@@ -48,8 +53,39 @@ _V230_RECIPE = (
     '"versions":["0004040201000f03","0004040201001103","0004040201001303"]}'
 )
 _V230_SHA256 = "95132f6c6e6609854cf32af0f1644eb409147cf21060ba97e7eb3dee4d783eb5"
+# HF 식별 recipe: mode→scan2000→(Type 2 후보만) f4 GET_VERSION 한 번의 명령과 닫힌 분류표·정책을 고정한다.
+# 각 표의 근거는 docs/references/cu-hf-identify.md 에 행마다 적는다. READ·인증 명령은 없다.
+_IDENTIFY_RECIPE = (
+    '{"app_version":"2.3","authentication":false,"commands":[1002,2000,2010],"crc_append":true,'
+    '"crc_check":true,"digest_domain":"pweh.cu-hf-identify/v1",'
+    '"firmware_commit":"4e1a5b267b9ed33559e0e2c9dad61d61eaf64ba1","git_version":"v2.3.0",'
+    '"iso14443_4_sak_bit":"20","model":"chameleon-ultra","page_reads":false,'
+    '"policies":{"iso14443_4":"refused","mifare_classic_1k":"attestation_required",'
+    '"mifare_classic_2k":"refused","mifare_classic_4k":"refused",'
+    '"mifare_classic_mini":"attestation_required","mifare_classic_tnp3xxx":"attestation_required",'
+    '"mifare_plus_sl2":"refused","multiple":"not_applicable","none":"not_applicable",'
+    '"ntag213":"allowed","ntag215":"allowed","ntag216":"allowed","other":"not_applicable",'
+    '"type2_other_version":"attestation_required","type2_version_unreadable":"attestation_required",'
+    '"ultralight_ev1_mf0ul11":"attestation_required","ultralight_ev1_mf0ul21":"attestation_required",'
+    '"ultralight_ev1_mf0ulh11":"attestation_required",'
+    '"ultralight_ev1_mf0ulh21":"attestation_required",'
+    '"ultralight_or_ultralight_c":"attestation_required"},"profile":"cu-hf14a-identify-v2.3.0-v1",'
+    '"raw_command":2010,"raw_options":{"version":"f4"},"reader_mode":true,"rf_timeout_ms":100,'
+    '"sak_classes":{"01":"mifare_classic_tnp3xxx","08":"mifare_classic_1k","09":"mifare_classic_mini",'
+    '"10":"mifare_plus_sl2","11":"mifare_plus_sl2","18":"mifare_classic_4k","19":"mifare_classic_2k"},'
+    '"scan_command":2000,"scan_statuses":{"01":"none","04":"multiple"},"type2":{"atqa_msb":"0044",'
+    '"ats_length":0,"sak":"00","uid_length":7},'
+    '"version_fallbacks":{"00-empty":"ultralight_or_ultralight_c","00-other8":"type2_other_version",'
+    '"01-empty":"ultralight_or_ultralight_c","03-empty":"type2_version_unreadable"},'
+    '"versions":{"0004030101000b03":"ultralight_ev1_mf0ul11",'
+    '"0004030101000e03":"ultralight_ev1_mf0ul21","0004030201000b03":"ultralight_ev1_mf0ulh11",'
+    '"0004030201000e03":"ultralight_ev1_mf0ulh21","0004040201000f03":"ntag213",'
+    '"0004040201001103":"ntag215","0004040201001303":"ntag216"}}'
+)
+_IDENTIFY_SHA256 = "d420c720c19ab0f4923879f7d53917a82fb4775f8115e98360ea17f3cf27d90b"
 # 고정 builder가 만들 수 있는 명령 ID 전체. 이 밖의 ID는 encoder 단계에서 거부한다.
-_ALLOWED_COMMANDS = frozenset((1000, 1017, 1033, 1002, 2000, 2010))
+# 1025 배터리·1018 활성 slot·2200 HF14A 설정은 상태 조회 전용 getter다(hook·RF 없음).
+_ALLOWED_COMMANDS = frozenset((1000, 1017, 1033, 1002, 2000, 2010, 1025, 1018, 2200))
 _MESSAGES = {
     "cu_protocol_invalid": "CU 고정 프로토콜의 입력 또는 응답 구조가 올바르지 않습니다.",
     "cu_model_unsupported": "관찰한 모델이 CU Ultra 고정 프로필과 맞지 않습니다.",
@@ -135,6 +171,53 @@ KNOWN = MappingProxyType({LEGACY_V220.profile: LEGACY_V220, V230.profile: V230})
 if (len(KNOWN) != 2 or LEGACY_V220.profile != "cu-ntag21x-v2.2.0-v1"
         or V230.profile != "cu-ntag21x-v2.3.0-v1" or KNOWN[LIVE.profile] is not LIVE):
     raise RuntimeError("CU reader 프로필 집합이 고정 두 행과 다릅니다.")
+
+# HF 식별 프로필은 reader 프로필 집합에 넣지 않는다. 같은 live firmware 사실에만 결속한다.
+IDENTIFY = _frozen_profile(_IDENTIFY_RECIPE, _IDENTIFY_SHA256, b"\x02\x03")
+HF_POLICY_VALUES = ("allowed", "attestation_required", "refused", "not_applicable")
+
+
+def _identify_tables(profile: CuReaderProfile) -> tuple:
+    """recipe 하나에서 실행 표를 만들고 표끼리의 닫힌 관계를 import 단계에서 확인한다."""
+    r = json.loads(profile.recipe)
+    policies = r["policies"]
+    families = frozenset(policies)
+    scan = {int(key, 16): value for key, value in r["scan_statuses"].items()}
+    saks = {int(key, 16): value for key, value in r["sak_classes"].items()}
+    versions = {bytes.fromhex(key): value for key, value in r["versions"].items()}
+    fallbacks = dict(r["version_fallbacks"])
+    type2 = r["type2"]
+    targets = set(scan.values()) | set(saks.values()) | set(versions.values()) | set(fallbacks.values())
+    valid = (profile.profile == "cu-hf14a-identify-v2.3.0-v1" and profile.profile not in KNOWN
+             and (profile.firmware_commit, profile.app_version, profile.git_version, profile.app_wire)
+             == (LIVE.firmware_commit, LIVE.app_version, LIVE.git_version, LIVE.app_wire)
+             and r["model"] == "chameleon-ultra" and r["reader_mode"] is True
+             and r["commands"] == [1002, 2000, 2010] and r["scan_command"] == 2000
+             and r["raw_command"] == 2010 and r["raw_options"] == {"version": "f4"}
+             and r["page_reads"] is False and r["authentication"] is False
+             and r["iso14443_4_sak_bit"] == "20" and set(scan) == {0x01, 0x04}
+             and type2 == {"uid_length": 7, "atqa_msb": "0044", "sak": "00", "ats_length": 0}
+             and all(len(key) == 8 for key in versions) and not any(sak & 0x20 for sak in saks)
+             and set(fallbacks) == {"00-empty", "00-other8", "01-empty", "03-empty"}
+             and targets | {"iso14443_4", "other"} == families
+             and set(policies.values()) <= set(HF_POLICY_VALUES)
+             and r["digest_domain"] == "pweh.cu-hf-identify/v1")
+    if not valid:
+        raise RuntimeError("CU HF 식별 recipe의 분류표가 닫힌 관계와 다릅니다.")
+    return (MappingProxyType(dict(policies)), MappingProxyType(scan), MappingProxyType(saks),
+            MappingProxyType(versions), MappingProxyType(fallbacks), r["digest_domain"].encode("ascii"))
+
+
+(HF_POLICIES, _HF_SCAN_STATUSES, _HF_SAK_CLASSES, _HF_VERSIONS, _HF_VERSION_FALLBACKS,
+ HF_DIGEST_DOMAIN) = _identify_tables(IDENTIFY)
+HF_FAMILIES = frozenset(HF_POLICIES)
+# version 바이트 없이 끝나는 GET_VERSION fallback 계열. 정확8B 응답의 계열과 겹치지 않는다.
+_HF_EMPTY_FAMILIES = frozenset(value for key, value in _HF_VERSION_FALLBACKS.items() if key.endswith("-empty"))
+if _HF_EMPTY_FAMILIES & (set(_HF_VERSIONS.values()) | {_HF_VERSION_FALLBACKS["00-other8"]}):
+    raise RuntimeError("CU HF 식별 recipe의 빈 응답 계열이 version 계열과 겹칩니다.")
+# scan 단계의 닫힌 분류. type2만 GET_VERSION 단계로 넘어가며 최종 family가 아니다.
+HF_SCAN_CLASSES = frozenset(set(_HF_SCAN_STATUSES.values()) | set(_HF_SAK_CLASSES.values())
+                            | {"type2", "iso14443_4", "other"})
 
 
 def known_reader_profile(name: object) -> CuReaderProfile | None:
@@ -391,3 +474,158 @@ def parse_ntag_version(frame: CuFrame) -> NtagFamily:
     if frame.status in (0x00, 0x01, 0x03) and not data:
         _error("nfc_family_unsupported")
     _error("nfc_scan_invalid")
+
+
+@dataclass(frozen=True, repr=False)
+class CuHfScan:
+    """HF scan 한 응답의 닫힌 분류. 원시 식별값은 내부 지문 계산에만 쓰고 repr로 내보내지 않는다.
+
+    none·multiple은 레코드가 없으므로 식별값이 모두 None이다.
+    """
+
+    scan_class: str
+    uid: bytes | None
+    atqa_msb: bytes | None
+    sak: int | None
+    ats_length: int | None
+
+    def __post_init__(self) -> None:
+        empty = self.scan_class in ("none", "multiple")
+        valid = type(self.scan_class) is str and self.scan_class in HF_SCAN_CLASSES
+        if valid and empty:
+            valid = self.uid is None and self.atqa_msb is None and self.sak is None and self.ats_length is None
+        elif valid:
+            valid = (type(self.uid) is bytes and len(self.uid) in (4, 7, 10)
+                     and type(self.atqa_msb) is bytes and len(self.atqa_msb) == 2
+                     and type(self.sak) is int and 0 <= self.sak <= 0xff
+                     and type(self.ats_length) is int and 0 <= self.ats_length <= 0xff)
+        if not valid:
+            _error("nfc_scan_invalid")
+
+
+@dataclass(frozen=True, repr=False)
+class CuHfVersion:
+    """Type 2 후보의 GET_VERSION 분류. version은 정확8B 응답일 때만 보관한다."""
+
+    family: str
+    version: bytes | None
+
+    def __post_init__(self) -> None:
+        valid = (type(self.family) is str and self.family in HF_FAMILIES
+                 and (self.version is None or (type(self.version) is bytes and len(self.version) == 8)))
+        if valid:
+            if self.version is None:
+                # 빈 payload fallback(4bit NAK·timeout·CRC 오류)의 계열만 version 없이 만들 수 있다.
+                valid = self.family in _HF_EMPTY_FAMILIES
+            else:
+                valid = self.family == _HF_VERSIONS.get(self.version, _HF_VERSION_FALLBACKS["00-other8"])
+        if not valid:
+            _error("nfc_scan_invalid")
+
+
+def classify_cu_scan(frame: CuFrame) -> CuHfScan:
+    """2000 응답 하나를 닫힌 scan 분류표로 나눈다. 판정 순서는 recipe와 같다.
+
+    status0x01·0x04의 빈 payload는 각각 none(깨끗한 ATQA 없음)·multiple(firmware 충돌 상태)이다.
+    서로 다른 ATQA의 카드 여러 장도 firmware에서 0x01이 되므로 none은 "카드 없음"의 증명이 아니다.
+    status0x00은 레코드 정확 하나만 받는다. SAK bit0x20 → iso14443_4, 정확 SAK 다섯 값 →
+    Classic 계열, 정확 SAK 0x10/0x11 → mifare_plus_sl2, UID7·ATQA0044·SAK00·ATS0 → type2,
+    그 밖의 잘 형성된 레코드 → other.
+    ATQA는 Type 2 문을 제외하고 계열 판정에 쓰지 않는다. 다른 상태·길이는 nfc_scan_invalid다.
+    """
+    if type(frame) is not CuFrame or frame.command != 2000:
+        _error("nfc_scan_invalid")
+    data = frame.data
+    if frame.status in _HF_SCAN_STATUSES:
+        if data:
+            _error("nfc_scan_invalid")
+        return CuHfScan(_HF_SCAN_STATUSES[frame.status], None, None, None, None)
+    if frame.status != 0 or not data or data[0] not in (4, 7, 10):
+        _error("nfc_scan_invalid")
+    uid_size = data[0]
+    fixed_size = 1 + uid_size + 2 + 1 + 1
+    if len(data) < fixed_size or len(data) != fixed_size + data[fixed_size - 1]:
+        _error("nfc_scan_invalid")
+    uid = data[1:1 + uid_size]
+    atqa = data[1 + uid_size:3 + uid_size][::-1]
+    sak = data[3 + uid_size]
+    ats_length = data[fixed_size - 1]
+    if sak & 0x20:
+        scan_class = "iso14443_4"
+    elif sak in _HF_SAK_CLASSES:
+        scan_class = _HF_SAK_CLASSES[sak]
+    elif (uid_size, atqa, sak, ats_length) == (7, b"\x00\x44", 0x00, 0):
+        scan_class = "type2"
+    else:
+        scan_class = "other"
+    return CuHfScan(scan_class, uid, atqa, sak, ats_length)
+
+
+def classify_type2_version(frame: CuFrame) -> CuHfVersion:
+    """keep=0 단독 GET_VERSION 응답을 닫힌 표로 분류한다. READ로 계열을 더 나누지 않는다.
+
+    status0x00 정확8B는 NXP 정확 값이면 그 계열, 아니면 type2_other_version이다.
+    status0x00(3B 미만 응답=4bit NAK)·0x01(timeout)의 빈 payload는 GET_VERSION에 답하지 않은
+    ultralight_or_ultralight_c다. status0x03은 3B 이상 응답이 왔지만 CRC가 틀린 경우라
+    (원조 UL·UL C는 GET_VERSION에 3B 이상 답하지 않는다) 계열을 정하지 않은 type2_version_unreadable이다.
+    그 밖의 명령·상태·길이 조합은 nfc_scan_invalid다.
+    """
+    if type(frame) is not CuFrame or frame.command != 2010:
+        _error("nfc_scan_invalid")
+    data = frame.data
+    if frame.status == 0 and len(data) == 8:
+        return CuHfVersion(_HF_VERSIONS.get(data, _HF_VERSION_FALLBACKS["00-other8"]), data)
+    if frame.status in (0x00, 0x01, 0x03) and not data:
+        return CuHfVersion(_HF_VERSION_FALLBACKS[f"{frame.status:02x}-empty"], None)
+    _error("nfc_scan_invalid")
+
+
+class CuStatusQuery(Enum):
+    """장치 상태의 고정 getter 세 개. CuQuery와 분리해 reader recipe를 바꾸지 않는다."""
+
+    BATTERY_INFO = 1025
+    ACTIVE_SLOT = 1018
+    HF14A_CONFIG = 2200
+
+
+STATUS_QUERIES = (CuStatusQuery.BATTERY_INFO, CuStatusQuery.ACTIVE_SLOT, CuStatusQuery.HF14A_CONFIG)
+
+
+def build_cu_status_query(query: CuStatusQuery) -> bytes:
+    """exact enum에 해당하는 빈 DATA getter만 만든다."""
+    if type(query) is not CuStatusQuery:
+        _error()
+    return _encode(query.value, b"")
+
+
+@dataclass(frozen=True)
+class CuDeviceStatus:
+    """세 getter의 검증한 값. 배터리 percent는 전압 곡선 추정이다."""
+
+    battery_mv: int
+    battery_percent: int
+    active_slot: int
+    hf14a_config_default: bool
+
+    def __post_init__(self) -> None:
+        if (type(self.battery_mv) is not int or not 0 <= self.battery_mv <= 0xffff
+                or type(self.battery_percent) is not int or not 0 <= self.battery_percent <= 100
+                or type(self.active_slot) is not int or not 0 <= self.active_slot <= 7
+                or type(self.hf14a_config_default) is not bool):
+            _error()
+
+
+def parse_cu_status(replies: tuple[CuFrame, ...]) -> CuDeviceStatus:
+    """1025·1018·2200 순서의 일반 성공 응답 셋을 정확 길이로 검사한다.
+
+    1025는 mV u16 BE와 percent u8, 1018은 0부터 센 slot 하나(0..7), 2200은 forcebcc·forcecl2·
+    forcecl3·forcerats 네 값(각 0..2)이다. 네 값이 모두0일 때만 기본 설정이다.
+    """
+    if type(replies) is not tuple or len(replies) != 3:
+        _error()
+    battery, slot, config = tuple(_response(frame, query.value, 0x68, code="cu_protocol_invalid")
+                                  for frame, query in zip(replies, STATUS_QUERIES))
+    if (len(battery) != 3 or len(slot) != 1 or len(config) != 4
+            or battery[2] > 100 or slot[0] > 7 or any(value > 2 for value in config)):
+        _error()
+    return CuDeviceStatus(int.from_bytes(battery[:2], "big"), battery[2], slot[0], config == b"\x00" * 4)

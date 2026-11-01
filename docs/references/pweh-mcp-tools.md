@@ -433,6 +433,10 @@
   명시 USB CDC CU 포트를 전체 장치 범위로 잠근 뒤 MODIFY gate를 거쳐 연결한다. 115200 8N1/DTR=true/RTS=false이며 모델 Ultra·APP2.3·GIT 정확 v2.3.0·현재 reader 모드를 고정 조회한다. v2.2.0과 v2.3.0 이후 dev build는 cu_firmware_unsupported다. 모드 변경은 하지 않으며 호환 확인 전 RF 
 - **`nfc_cu_scan(case_id, session_id, approval_id?)`**  
   정확한 case/session의 CU reader에서 MODIFY gate 뒤 고정14A 선택·단독 GET_VERSION(field 해제)·새 선택 READ0/1을 수행한다. NTAG213/215/216이 아닌 version 응답은 READ 없이 nfc_family_unsupported로 끝난다. 45초 안에 NTAG213/215/216·UID7/ATQA/SAK와 두 시작 페이지의 UID/B
+- **`nfc_cu_identify(case_id, session_id, approval_id?)`**  
+  정확한 case/session의 ready CU reader에서 MODIFY gate 뒤 mode 확인과 고정14A scan을 한 번 보내고, UID7/ATQA0044/SAK00/ATS0인 Type 2 후보에만 단독 GET_VERSION(f4, keep=0) 하나를 더 보내 닫힌 표로 계열을 분류한다. READ(0x30)·인증·RATS 직접 송신·모드 변경은 없으며 Ultralight와 Ul
+- **`nfc_cu_status(case_id, session_id)`**  
+  정확한 case/session의 ready CU에 RF 없이 mode(1002)·배터리(1025)·활성 slot(1018)·HF14A 설정(2200) getter만 보내고 연결 때 확인한 모델·APP·GIT을 함께 반환한다. 상태를 바꾸지 않는 INTERACT로 gate 감사 기록을 남긴다. battery_percent는 전압 곡선 추정이며 부팅 직후 약5초는 mV·percent가 0일 수 
 - **`nfc_cu_disconnect(case_id, session_id)`**  
   정확한 case/session의 CU worker를 취소하고 물리 transport 종료 및 사용권0 뒤 lease를 해제한다. 허가 철회 뒤에도 정리 가능하며 최대10초의 정리 미확인은 세션·잠금을 보존한다. 추가 RF-off·mode 변경 명령은 보내지 않고 RF off나 장치 명령 종료를 검증했다고 하지 않는다.
 - **`nfc_cu_read_start(case_id, session_id, tag_ref, approval_id?)`**  

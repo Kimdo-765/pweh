@@ -1471,13 +1471,15 @@ RAW 파일이면 반환 artifact ID를 `sdr_analyze`로 넘긴다. [전송 계�
 ### 6.14 pweh-nfc (CU 페이지 스냅샷·스캔 결속 파일 분석)
 
 `mcp-servers/nfc-mcp/`는 NTAG213/215/216의 보호 스캔 기록과 같은 케이스 등록 파일을
-결속한다. CU Ultra의 고정 연결·스캔·페이지 스냅샷 읽기도 이 서버가 소유한다.
+결속한다. CU Ultra의 고정 연결·스캔·HF 계열 식별·장치 상태 조회·페이지 스냅샷 읽기도 이 서버가 소유한다.
 기존 유효 inventory에 결속한 파일 분석에는 live reader가 필요하지 않다.
 
 | 도구 | 계약 |
 |---|---|
 | `nfc_cu_connect(case_id, port, approval_id=None)` | 현재 CDC 신원·전체 USB lease·MODIFY 게이트 뒤115200/8N1/DTR=true/RTS=false로 연다. 네 고정 조회가 Ultra·APP2.3·GIT 정확 v2.3.0·reader mode1일 때만 ready다. v2.2.0·dev build는 RF 전에 `cu_firmware_unsupported`다. |
 | `nfc_cu_scan(case_id, session_id, approval_id=None)` | 정확한 세션의 MODIFY 게이트 뒤 mode·새 scan·단독 GET_VERSION(keep=0)·새 선택 READ0/1을 검증한다. 세 NTAG가 아닌 version은 READ 없이 `nfc_family_unsupported`다. UID/BCC와 세 NTAG 계열 일치 뒤 CU 전용 보호 scan 사실을 기록한다. |
+| `nfc_cu_identify(case_id, session_id, approval_id=None)` | 정확한 ready 세션의 MODIFY 게이트 뒤 mode·scan2000과 UID7/ATQA0044/SAK00/ATS0 후보에만 단독 GET_VERSION(`f4`) 하나를 보낸다. 닫힌 표로 family와 §6.2 `policy`를 분류하며 READ·인증은 없다. 계열별 케이스 솔트 지문만 반환하고 scan 사실·inventory는 만들지 않는다. 잘 형성된 분류는 세션을 ready로 둔다. |
+| `nfc_cu_status(case_id, session_id)` | 정확한 ready 세션에 RF 없이 mode1002·배터리1025·활성 slot1018(0부터)·HF14A 설정2200 getter만 보낸다. INTERACT(`cu.status`)로 항상 허용·감사 기록하며 percent는 전압 추정이다. |
 | `nfc_cu_read_start(case_id, session_id, tag_ref, approval_id=None)` | 기존 세션·현재 inventory와 MODIFY 게이트 뒤 유한 페이지 읽기 job을 시작한다. 전용 device-read 원장 기록 후 snapshot artifact를 등록한다. |
 | `nfc_job_status(job_id, wait_seconds=0.0, case_id=None)` | 작업과 저장 기록 조회. wait_seconds는0..50초다. |
 | `nfc_job_cancel(job_id)` | 실행 중 작업 취소 요청. 실제 commit 이후 결과는 보존한다. |
@@ -1501,6 +1503,12 @@ import 시 hash 대조로 고정한다. 검증기는 `known_reader_profile`의 �
 `reselection_atomic=false`다. keep=1 READ(`fc`·`ec`)의 timeout·CRC 오류·잘못된 응답·취소, 성공한 keep=1 frame
 (`fc`·`ec`) 뒤 다음 frame 전의 host time_limit·취소, 내부 읽기 admission READ1(`ec`) 뒤 UID/BCC 불일치, scan READ0(`fc`) 실패 뒤 field가
 켜진 채 남는 잔여는 자동2101·field-off 없이 문서화한다.
+
+HF 식별 프로필 `cu-hf14a-identify-v2.3.0-v1`은 `KNOWN` 밖의 별도 canonical recipe·hash다. scan 분류표
+(none=0x01·multiple=0x04 COLLISION·SAK bit0x20·정확 SAK 0x09/0x08/0x18/0x19/0x01 Classic·0x10/0x11 Plus SL2·Type 2 문·other), NXP 정확 GET_VERSION
+일곱 값과 fallback(4bit NAK·timeout → ultralight_or_ultralight_c, 3B 이상 CRC 오류 → type2_version_unreadable), §6.2 정책 표를 담고 승인 지문에 들어간다.
+none은 깨끗한 ATQA가 없다는 뜻이다. ATQA가 다른 카드 여러 장도 0x01이 되고 같은 ATQA 여러 장은 0x07 등 terminal 오류가 될 수 있어 "카드 없음"·"한 장"을 증명하지 않는다. 상태 getter는 `CuStatusQuery`(1025/1018/2200)이며
+`CuQuery` 다섯 조회와 reader recipe는 바뀌지 않는다. 표의 근거는 [HF 식별 계약](references/cu-hf-identify.md)을 따른다.
 
 CU wire 읽기는45초, 명령 하나는 남은 시간과2초 중 작은 예산을 사용한다. admission 뒤
 `time_limit` 또는 `nfc_scan_invalid`만 partial로 게시할 수 있으며 취소·프로토콜·허가·신원 오류는

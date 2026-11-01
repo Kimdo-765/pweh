@@ -8155,6 +8155,62 @@
     "meta": null
    },
    {
+    "name": "nfc_cu_identify",
+    "description": "정확한 case/session의 ready CU reader에서 MODIFY gate 뒤 mode 확인과 고정14A scan을 한 번 보내고, UID7/ATQA0044/SAK00/ATS0인 Type 2 후보에만 단독 GET_VERSION(f4, keep=0) 하나를 더 보내 닫힌 표로 계열을 분류한다. READ(0x30)·인증·RATS 직접 송신·모드 변경은 없으며 Ultralight와 Ultralight C를 READ로 나누지 않는다. 결과는 family·§6.2 policy·UID 길이·ATS 유무·계열별 케이스 솔트 지문이며 원시 UID/ATQA/SAK/version과 scan 사실·inventory는 만들지 않는다. 잘 형성된 분류(none·multiple 포함)는 세션을 ready로 두고 잘못된 응답·transport timeout·취소는 terminal이다. scan 중 firmware가 SAK bit0x20 태그에 RATS를 보낼 수 있고 RF off·동일 실물은 검증하지 않는다. 교통·결제·출입 자격증명은 policy와 관계없이 범위 밖이다. approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "nfc_cu_status",
+    "description": "정확한 case/session의 ready CU에 RF 없이 mode(1002)·배터리(1025)·활성 slot(1018)·HF14A 설정(2200) getter만 보내고 연결 때 확인한 모델·APP·GIT을 함께 반환한다. 상태를 바꾸지 않는 INTERACT로 gate 감사 기록을 남긴다. battery_percent는 전압 곡선 추정이며 부팅 직후 약5초는 mV·percent가 0일 수 있다. active_slot은 0부터 센다. hf14a_config_default는 2200의 네 값(forcebcc/cl2/cl3/rats)이 모두0인지다. BLE PIN·장치 식별자·slot 별명·emulator 상태 조회와 설정 변경 명령은 보내지 않는다. 성공하면 세션은 ready로 남는다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
     "name": "nfc_cu_disconnect",
     "description": "정확한 case/session의 CU worker를 취소하고 물리 transport 종료 및 사용권0 뒤 lease를 해제한다. 허가 철회 뒤에도 정리 가능하며 최대10초의 정리 미확인은 세션·잠금을 보존한다. 추가 RF-off·mode 변경 명령은 보내지 않고 RF off나 장치 명령 종료를 검증했다고 하지 않는다.",
     "params": [
