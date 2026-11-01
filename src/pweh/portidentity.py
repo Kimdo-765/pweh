@@ -4,6 +4,7 @@ OS 관찰 실패는 unknown이다. 시험은 Windows runner 또는 합성 sysfs/
 """
 from __future__ import annotations
 
+import atexit
 import json
 import math
 import os
@@ -12,6 +13,7 @@ import signal
 import select
 import stat
 import subprocess
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -121,7 +123,10 @@ ConvertTo-Json -InputObject $out -Depth 6 -Compress"""
 
 def _windows_output(config: Any = None, *, script: str | None = None,
                     deadline: float | None = None, cancel: Callable[[], bool] | None = None) -> bytes:
-    """고정 읽기 질의만 실행한다. caller 예산은 늘리지 않고 wrapper 수거는 별도 최대 2초다."""
+    """고정 읽기 질의 하나를 상주 작업자에 요청한다. caller 예산은 늘리지 않고 wrapper 수거는 별도 최대 2초다.
+
+    요청마다 새 PnP 관찰이다(결과 캐시 없음). lock 대기도 같은 deadline·취소를 쓴다.
+    """
     end = _windows_scope_deadline(time.monotonic() + PNP_TIMEOUT_S if deadline is None else deadline)
     if cancel is not None and not callable(cancel):
         raise ValueError("pnp_query_callback_failed")
@@ -145,9 +150,11 @@ def _windows_output(config: Any = None, *, script: str | None = None,
     tick()
     from . import hostenv
     if hostenv.disabled_keys(config) & {"interop", "windows_tools", "serial_helper"}:
+        _retire_idle_worker()
         raise ValueError("hostenv_disabled")
     exe = hostenv.powershell_path()
     if not exe or os.name != "posix":
+        _retire_idle_worker()
         raise ValueError("pnp_backend_unavailable")
     # 임의 프로필·Python/PowerShell 모듈 환경을 전달하지 않는다. WSL interop 연결 정보만 유지한다.
     env = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
@@ -155,52 +162,12 @@ def _windows_output(config: Any = None, *, script: str | None = None,
         if key in os.environ:
             env[key] = os.environ[key]
     script = PS_IDENTITIES if script is None else script
-    if script not in (PS_IDENTITIES, PS_USB_SCOPE):
+    # 허용 목록은 두 고정 상수뿐이다. 작업자에는 script 가 아니라 고정 토큰만 보낸다.
+    if type(script) is not str or script not in (PS_IDENTITIES, PS_USB_SCOPE):
         raise ValueError("pnp_script_not_allowed")
+    token = "IDENT" if script == PS_IDENTITIES else "SCOPE"
     tick()
-    p = subprocess.Popen([exe, "-NoProfile", "-NonInteractive", "-Command", script],
-                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                         env=env, cwd="/", start_new_session=True, bufsize=0)
-    assert p.stdout is not None
-    chunks = bytearray()
-    try:
-        fd = p.stdout.fileno()
-        os.set_blocking(fd, False)
-        while True:
-            tick()
-            left = end - time.monotonic()
-            if not select.select([fd], [], [], min(left, 0.1))[0]:
-                continue
-            try:
-                data = os.read(fd, min(65536, MAX_OUTPUT + 1 - len(chunks)))
-            except BlockingIOError:
-                continue
-            if not data:
-                break
-            chunks.extend(data)
-            if len(chunks) > MAX_OUTPUT:
-                raise ValueError("pnp_output_limit")
-        # stdout EOF 뒤에도 같은 deadline/취소를 확인하며 leader 완료를 기다린다.
-        while True:
-            tick()
-            try:
-                rc = p.wait(timeout=max(0.0, min(0.1, end - time.monotonic())))
-                break
-            except subprocess.TimeoutExpired:
-                continue
-        tick()
-        if rc != 0:
-            raise ValueError("pnp_query_failed")
-        return bytes(chunks)
-    finally:
-        if p.poll() is None:
-            try:
-                os.killpg(p.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        # read thread나 buffered reader lock이 없으므로 자식이 pipe를 붙잡아도 종료가 막히지 않는다.
-        p.stdout.close()
-        p.wait(timeout=2)
+    return _worker_manager().request(exe, env, token, end, tick)
 
 
 def _text(v: Any, *, optional: bool = False) -> str | None:
@@ -377,6 +344,303 @@ PS_USB_SCOPE = _PS_CM_LIB + r"""function Read-Scope {
 };
 $one=Read-Scope;$two=Read-Scope;
 ConvertTo-Json -InputObject @{schema='pweh.pnp-usb-scope/v1';snapshots=@($one,$two)} -Depth 6 -Compress"""
+
+
+# 상주 작업자: 위 두 고정 질의를 한 powershell.exe 안의 고정 scriptblock 으로 두고, stdin 한 줄의 고정 토큰으로만 고른다.
+# 한 번 실행 방식은 질의마다 시작(약 0.12 s)과 Reflection.Emit 준비(약 0.06 s)를 반복해 CU connect 예산(5 s 안에 재관찰 6회)을 넘었다.
+# 요청마다 새 PnP 관찰이며 결과를 캐시하지 않는다. 작업자 문자열은 import 때 고정 상수로만 만들고 입력을 코드에 넣지 않는다.
+# - 한 줄이 서수 비교(`[StringComparison]::Ordinal`)로 정확히 `IDENT` → 신원 본문, `SCOPE` → 형제 본문, stdin EOF → exit 0,
+#   그 밖의 줄 → exit 3. `-ceq` 는 문화권 비교라 NUL·soft hyphen 이 끼인 줄도 토큰과 같다고 보므로 쓰지 않는다.
+# - 줄 끝은 .NET ReadLine 규칙(CR·LF·CRLF)이다. Python 은 `토큰 + LF` 만 보낸다. 한 번에 두 줄이 가면 두 번째 틀은
+#   비동기화(틀 뒤 남는 바이트 또는 재사용 전 요청 없이 온 바이트)로 닫힌 쪽에서 실패한다.
+# - 응답 틀: ASCII `OK <10진 바이트 수>\n` 다음 정확히 그만큼의 UTF-8 JSON. 본문의 throw 는 작업자를 끝낸다($ErrorActionPreference='Stop').
+# - scriptblock 의 변수 대입은 자식 범위라 요청마다 라이브러리 초기값($B 2048 바이트 등)에서 시작한다.
+_PS_WORKER_LOOP = (
+    "$O=[Console]::OpenStandardOutput();$E=New-Object System.Text.UTF8Encoding($false);\n"
+    "while($true){$l=[Console]::In.ReadLine();if($null -eq $l){exit 0};"
+    "if([string]::Equals($l,'IDENT',[StringComparison]::Ordinal)){$j=[string](& $SBI)}"
+    "elseif([string]::Equals($l,'SCOPE',[StringComparison]::Ordinal)){$j=[string](& $SBS)}else{exit 3};"
+    "$p=$E.GetBytes($j);$h=$E.GetBytes('OK '+$p.Length+\"`n\");$O.Write($h,0,$h.Length);$O.Write($p,0,$p.Length);$O.Flush()}\n")
+
+
+def _build_worker_script() -> str:
+    """두 고정 질의의 본문(공통 라이브러리 뒤)을 scriptblock 으로 감싼다. 상수 밖의 값은 쓰지 않는다."""
+    lib = _PS_CM_LIB
+    if not (PS_IDENTITIES.startswith(lib) and PS_USB_SCOPE.startswith(lib)):
+        raise RuntimeError("pnp_worker_script_invalid")
+    return (lib + "\n$SBI={" + PS_IDENTITIES[len(lib):] + "};\n$SBS={" + PS_USB_SCOPE[len(lib):] + "};\n"
+            + _PS_WORKER_LOOP)
+
+
+_PS_WORKER = _build_worker_script()
+_WORKER_IDLE_S = 120.0     # 이만큼 요청이 없으면 stdin 을 닫아 내린다.
+_WORKER_GRACE_S = 1.0      # 유휴 종료에서 stdin EOF 뒤 스스로 끝나기를 기다리는 시간. 넘으면 SIGKILL.
+_WORKER_REAP_S = 2.0       # SIGKILL 뒤 wrapper 수거 상한(caller deadline 과 별도).
+_WORKER_HEADER_MAX = 16    # 'OK ' + 숫자 + 개행 앞까지의 상한. MAX_OUTPUT 은 7자리다.
+_WORKER_HEADER = re.compile(rb"OK (0|[1-9][0-9]*)")
+_WORKER_ERRORS = frozenset({
+    "pnp_query_callback_failed", "pnp_query_cancelled", "pnp_timeout_windows_child_unverified",
+    "pnp_output_limit", "pnp_query_failed",
+})
+
+
+def _current_pid() -> int:
+    return os.getpid()
+
+
+class _PnpWorker:
+    """상주 powershell.exe 한 개(POSIX 쪽 interop wrapper). 요청은 manager lock 안에서만 주고받는다."""
+
+    __slots__ = ("proc", "spawn_key", "used")
+
+    def __init__(self, proc: Any, spawn_key: tuple, used: float):
+        self.proc, self.spawn_key, self.used = proc, spawn_key, used
+
+
+def _stop_proc(proc: Any, *, graceful: bool = False) -> None:
+    """작업자 process group 을 끝내고 wrapper 를 최대 2초 수거한다. 예외를 내지 않는다.
+
+    POSIX wrapper 수거는 Windows 쪽 작업자 종료의 증거가 아니다.
+    graceful 이면 stdin 을 닫고(작업자는 EOF 에 exit 0) 잠시 기다린 뒤에만 SIGKILL 한다.
+    """
+    if graceful:
+        try:
+            proc.stdin.close()
+        except (OSError, ValueError, AttributeError):
+            pass
+        try:
+            proc.wait(timeout=_WORKER_GRACE_S)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+    try:
+        running = proc.poll() is None
+    except OSError:
+        running = False
+    if running:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    # read thread나 buffered reader lock이 없으므로 자식이 pipe를 붙잡아도 종료가 막히지 않는다.
+    for stream in (proc.stdin, proc.stdout):
+        try:
+            if stream is not None:
+                stream.close()
+        except (OSError, ValueError):
+            pass
+    try:
+        proc.wait(timeout=_WORKER_REAP_S)
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+
+
+def _read_frame(fd: int, end: float, tick: Callable[[], None]) -> bytes:
+    """응답 틀 하나를 읽는다. 머리 형식·길이·남는 바이트·EOF 는 모두 실패이며 stream 을 다시 맞추지 않는다."""
+    buf = bytearray()
+    need = None
+    while True:
+        tick()
+        left = end - time.monotonic()
+        if not select.select([fd], [], [], max(0.0, min(left, 0.05)))[0]:
+            continue
+        try:
+            chunk = os.read(fd, 65536 if need is None else max(1, min(65536, need + 1 - len(buf))))
+        except BlockingIOError:
+            continue
+        if not chunk:
+            raise ValueError("pnp_query_failed")
+        buf.extend(chunk)
+        if need is None:
+            stop = buf.find(b"\n", 0, _WORKER_HEADER_MAX + 1)
+            if stop < 0:
+                if len(buf) > _WORKER_HEADER_MAX:
+                    raise ValueError("pnp_query_failed")
+                continue
+            match = _WORKER_HEADER.fullmatch(bytes(buf[:stop]))
+            if match is None:
+                raise ValueError("pnp_query_failed")
+            need = int(match.group(1))
+            if need > MAX_OUTPUT:
+                raise ValueError("pnp_output_limit")
+            del buf[:stop + 1]
+        if len(buf) > need:
+            raise ValueError("pnp_query_failed")
+        if len(buf) == need:
+            # 틀 뒤에 이미 와 있는 바이트(또는 EOF)는 비동기화다.
+            if select.select([fd], [], [], 0)[0]:
+                raise ValueError("pnp_query_failed")
+            tick()
+            return bytes(buf)
+
+
+class _WorkerManager:
+    """프로세스당 하나. 동시에 요청 하나만 보낸다. fork 한 자식은 부모의 pipe 를 쓰지 않는다(pid 확인)."""
+
+    def __init__(self) -> None:
+        self.pid = _current_pid()
+        self.lock = threading.Lock()
+        self.worker: _PnpWorker | None = None
+        self.reaper = False
+
+    def abandon(self) -> None:
+        """fork 한 자식에서 물려받은 pipe 사본만 닫는다. 부모의 작업자를 죽이거나 수거하지 않는다."""
+        worker, self.worker = self.worker, None
+        if worker is not None:
+            for stream in (worker.proc.stdin, worker.proc.stdout):
+                try:
+                    if stream is not None:
+                        stream.close()
+                except (OSError, ValueError):
+                    pass
+
+    def request(self, exe: str, env: dict[str, str], token: str, end: float, tick: Callable[[], None]) -> bytes:
+        while not self.lock.acquire(timeout=max(0.0, min(0.05, end - time.monotonic()))):
+            tick()
+        try:
+            # 기다리다 끝난 caller 는 아직 토큰을 보내지 않았으므로 다른 caller 의 작업자를 건드리지 않는다.
+            tick()
+            worker = self._ready(exe, env)
+            tick()
+            return self._exchange(worker, token, end, tick)
+        finally:
+            self.lock.release()
+
+    def _drop(self, worker: _PnpWorker) -> None:
+        if self.worker is worker:
+            self.worker = None
+        _stop_proc(worker.proc)
+
+    def _ready(self, exe: str, env: dict[str, str]) -> _PnpWorker:
+        key = (exe, tuple(sorted(env.items())))
+        worker = self.worker
+        if worker is not None:
+            try:
+                # 유휴 중에 끝났거나(EOF) 요청 없이 바이트가 와 있으면(비동기화) 다시 쓰지 않고 새로 띄운다.
+                stale = (worker.spawn_key != key or worker.proc.poll() is not None
+                         or bool(select.select([worker.proc.stdout.fileno()], [], [], 0)[0]))
+            except (OSError, ValueError):
+                stale = True
+            if not stale:
+                return worker
+            self._drop(worker)
+        try:
+            proc = subprocess.Popen([exe, "-NoProfile", "-NonInteractive", "-Command", _PS_WORKER],
+                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                    env=env, cwd="/", start_new_session=True, bufsize=0)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            raise ValueError("pnp_query_failed") from None
+        worker = _PnpWorker(proc, key, time.monotonic())
+        try:
+            os.set_blocking(proc.stdout.fileno(), False)
+        except (OSError, ValueError, AttributeError):
+            _stop_proc(proc)
+            raise ValueError("pnp_query_failed") from None
+        self.worker = worker
+        if not self.reaper:
+            self.reaper = True
+            try:
+                _start_reaper(self)
+            except RuntimeError:
+                # 감시 thread 를 못 띄워도 질의는 유효하다. 다음 spawn 이 다시 시도하고 atexit·stdin EOF 종료는 남는다.
+                self.reaper = False
+        return worker
+
+    def _exchange(self, worker: _PnpWorker, token: str, end: float, tick: Callable[[], None]) -> bytes:
+        try:
+            line = token.encode("ascii") + b"\n"
+            if worker.proc.stdin.write(line) != len(line):
+                raise ValueError("pnp_query_failed")
+            payload = _read_frame(worker.proc.stdout.fileno(), end, tick)
+        except BaseException as exc:
+            # 토큰을 보낸 뒤의 모든 실패: 작업자를 버리고 다음 호출이 새로 띄운다.
+            self._drop(worker)
+            if type(exc) is ValueError and len(exc.args) == 1 and exc.args[0] in _WORKER_ERRORS:
+                raise
+            if isinstance(exc, Exception):
+                raise ValueError("pnp_query_failed") from None
+            raise
+        worker.used = time.monotonic()
+        return payload
+
+    def reap_idle(self) -> bool:
+        """유휴 시간이 지난 작업자를 내린다. 더 지켜볼 작업자가 없으면 True(감시 thread 종료)."""
+        if not self.lock.acquire(blocking=False):
+            return False
+        try:
+            worker = self.worker
+            if worker is None or self.pid != _current_pid():
+                self.reaper = False
+                return True
+            if time.monotonic() - worker.used < _WORKER_IDLE_S:
+                return False
+            self.worker = None
+            self.reaper = False
+        finally:
+            self.lock.release()
+        _stop_proc(worker.proc, graceful=True)
+        return True
+
+
+def _reaper_loop(manager: _WorkerManager) -> None:
+    while not manager.reap_idle():
+        threading.Event().wait(max(0.01, _WORKER_IDLE_S / 4))
+
+
+def _start_reaper(manager: _WorkerManager) -> None:
+    """유휴 종료 감시 daemon thread. manager lock 안에서 한 번만 시작한다."""
+    threading.Thread(target=_reaper_loop, args=(manager,), name="pweh-pnp-worker-idle", daemon=True).start()
+
+
+_MANAGER = _WorkerManager()
+
+
+def _worker_manager() -> _WorkerManager:
+    global _MANAGER
+    manager = _MANAGER
+    if manager.pid != _current_pid():
+        # fork 한 자식: 새 lock·새 작업자. 물려받은 lock 은 영원히 잡혀 있을 수 있다.
+        _MANAGER = _WorkerManager()
+        manager.abandon()
+        manager = _MANAGER
+    return manager
+
+
+def _retire_idle_worker() -> None:
+    """hostenv disable 키가 켜졌거나 PowerShell backend 가 사라졌을 때 이 프로세스의 유휴 작업자를 바로 내린다.
+
+    lock 을 기다리지 않는다. 진행 중 요청이 있으면(그 요청은 꺼지기 전 검사를 통과했다) 건드리지 않고
+    다음 호출이나 유휴 감시가 내린다. fork 한 자식은 새 manager 라 부모의 작업자를 건드리지 않는다. 예외를 내지 않는다.
+    """
+    manager = _worker_manager()
+    if not manager.lock.acquire(blocking=False):
+        return
+    try:
+        worker, manager.worker = manager.worker, None
+    finally:
+        manager.lock.release()
+    if worker is not None:
+        _stop_proc(worker.proc)
+
+
+def _shutdown_worker() -> None:
+    """프로세스 종료(atexit) 때 이 프로세스가 띄운 작업자만 끝낸다. fork 한 자식은 부모의 작업자를 건드리지 않는다."""
+    manager = _MANAGER
+    if manager.pid != _current_pid():
+        return
+    worker, manager.worker = manager.worker, None
+    if worker is not None:
+        _stop_proc(worker.proc)
+
+
+def _after_fork_in_child() -> None:
+    global _MANAGER
+    manager, _MANAGER = _MANAGER, _WorkerManager()
+    manager.abandon()
+
+
+atexit.register(_shutdown_worker)
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_after_fork_in_child)
 
 
 _SCOPE_REASONS = frozenset({

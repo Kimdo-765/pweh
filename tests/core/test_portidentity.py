@@ -139,8 +139,11 @@ else:
  os._exit(0)
 '''
     def launch(argv, **kwargs):
-        assert argv[-1] == P.PS_IDENTITIES
+        assert argv[-1] == P._PS_WORKER
         return original([sys.executable, '-c', script, str(pidfile)], **kwargs)
+    # 상주 작업자: 새 manager 로 시작하고 유휴 감시 thread 는 띄우지 않는다.
+    monkeypatch.setattr(P, '_MANAGER', P._WorkerManager())
+    monkeypatch.setattr(P, '_start_reaper', lambda manager: None)
     monkeypatch.setattr(hostenv, 'disabled_keys', lambda config: set())
     monkeypatch.setattr(hostenv, 'powershell_path', lambda: '/synthetic/powershell.exe')
     monkeypatch.setattr(P.subprocess, 'Popen', launch)
@@ -149,7 +152,7 @@ else:
     try:
         with pytest.raises(ValueError, match='pnp_timeout_windows_child_unverified'):
             P._windows_output({})
-        assert time.monotonic() - start < 2
+        assert time.monotonic() - start < 2 and P._MANAGER.worker is None
     finally:
         if pidfile.exists():
             os.kill(int(pidfile.read_text()), signal.SIGKILL)

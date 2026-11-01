@@ -5,15 +5,47 @@
 CU·직렬 장비 연결이 막혔다. 장치별 cmdlet/CIM 호출은 정확했지만 명령 프레임마다 다시 하는 관찰로는 너무 느려
 (CU 프레임 예산 2초) cfgmgr32 직접 호출로 바꿨다. 실제 Windows 시험은 WSL interop 이 있을 때만 실행한다.
 """
+import functools
 import json
 import re
 import subprocess
+import time
 
 import pytest
 
 from pweh import hostenv, portidentity as I
 
 _COM = re.compile(r"\((COM[1-9][0-9]{0,3})\)$", re.I)
+
+
+@functools.lru_cache(maxsize=1)
+def _windows_runs() -> bool:
+    """고정 경로의 powershell.exe 가 WSL interop 으로 실제 실행되는가(세션에 한 번만 확인).
+
+    파일만 있고 실행되지 않는 호스트(interop 꺼짐·실행 불가 파일)에서는 실패가 아니라 skip 이어야 한다.
+    """
+    exe = hostenv.powershell_path()
+    if not exe:
+        return False
+    try:
+        out = subprocess.run([exe, "-NoProfile", "-NonInteractive", "-Command", "exit 0"],
+                             capture_output=True, timeout=60, cwd="/")
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0
+
+
+def _need_windows():
+    if not _windows_runs():
+        pytest.skip("WSL interop 으로 PowerShell 을 실행할 수 없음")
+
+
+@pytest.fixture(autouse=True)
+def _stop_resident_worker():
+    """실제 상주 powershell.exe 작업자를 시험마다 끝내 다음 시험·세션에 남기지 않는다."""
+    I._shutdown_worker()
+    yield
+    I._shutdown_worker()
 
 
 def test_pnp_queries_use_fixed_native_calls_and_keep_guards():
@@ -74,8 +106,7 @@ ConvertTo-Json -InputObject $rows -Compress"""
 @pytest.mark.external
 def test_native_pnp_queries_match_cmdlet_reference_on_real_windows():
     """실제 PnP 에서 장치 집합(대소문자 포함)·COM·Class·부모가 기존 cmdlet/WMI 관찰과 같아야 한다."""
-    if not hostenv.powershell_path():
-        pytest.skip("WSL interop PowerShell 이 없음")
+    _need_windows()
     scope = json.loads(I._windows_output(script=I.PS_USB_SCOPE))
     ref = _reference()
     assert scope["schema"] == "pweh.pnp-usb-scope/v1" and len(scope["snapshots"]) == 2
@@ -115,11 +146,58 @@ def test_native_pnp_queries_match_cmdlet_reference_on_real_windows():
 @pytest.mark.external
 def test_native_pnp_queries_survive_small_property_buffer():
     """속성 버퍼가 부족할 때(CR_BUFFER_SMALL) 다시 읽는 분기가 같은 결과를 내야 한다."""
-    if not hostenv.powershell_path():
-        pytest.skip("WSL interop PowerShell 이 없음")
+    _need_windows()
     initial = "$B=New-Object byte[] 2048;"
     assert I._PS_CM_LIB.count(initial) == 1
     for script in (I.PS_IDENTITIES, I.PS_USB_SCOPE):
         small = script.replace(initial, "$B=New-Object byte[] 4;")
         assert json.loads(_powershell(small) or b"[]") == json.loads(_powershell(script) or b"[]")
 
+
+@pytest.mark.external
+def test_resident_worker_matches_one_shot_queries():
+    """상주 작업자의 두 응답은 같은 고정 질의를 한 번 실행한 JSON 과 같다(끝 CRLF 만 다르다)."""
+    _need_windows()
+    for script in (I.PS_IDENTITIES, I.PS_USB_SCOPE):
+        worker = I._windows_output(script=script)
+        assert not worker.endswith(b"\n")
+        assert json.loads(worker or b"[]") == json.loads(_powershell(script) or b"[]")
+
+
+@pytest.mark.external
+@pytest.mark.parametrize("line", [b"Get-Process\n", b"IDE\x00NT\n", b"IDENT\x00\n", b"\x00SCOPE\n", b"ident\n"],
+                         ids=["command", "inner-nul", "trailing-nul", "leading-nul", "lowercase"])
+def test_resident_worker_garbage_token_exits_and_next_call_recovers(line):
+    """서수 비교로 고정 토큰과 다른 줄(문화권 비교가 무시하는 NUL 포함)을 받은 작업자는 exit 3 으로 끝나고,
+    다음 호출은 새 작업자로 정상 응답한다."""
+    _need_windows()
+    first = json.loads(I._windows_output(script=I.PS_USB_SCOPE))
+    proc = I._MANAGER.worker.proc
+    with I._MANAGER.lock:
+        proc.stdin.write(line)
+    assert proc.wait(timeout=15) == 3
+    again = json.loads(I._windows_output(script=I.PS_USB_SCOPE))
+    assert I._MANAGER.worker.proc is not proc and again["schema"] == first["schema"] == "pweh.pnp-usb-scope/v1"
+
+
+@pytest.mark.external
+def test_resident_worker_exits_on_stdin_eof():
+    """stdin EOF(서버 종료)에 작업자가 스스로 exit 0 한다 — 유휴 종료가 SIGKILL 없이 끝난다."""
+    _need_windows()
+    I._windows_output(script=I.PS_IDENTITIES)
+    with I._MANAGER.lock:
+        worker, I._MANAGER.worker = I._MANAGER.worker, None
+    I._stop_proc(worker.proc, graceful=True)
+    assert worker.proc.returncode == 0
+
+
+@pytest.mark.external
+def test_resident_worker_scope_calls_fit_budget():
+    """연속 형제 관찰 10회가 각각 PNP_TIMEOUT_S 보다 훨씬 짧다(첫 회는 작업자 시작 포함). 넉넉한 상한으로 본다."""
+    _need_windows()
+    spent = []
+    for _ in range(10):
+        start = time.monotonic()
+        json.loads(I._windows_output(script=I.PS_USB_SCOPE))
+        spent.append(time.monotonic() - start)
+    assert max(spent) < 1.5, spent

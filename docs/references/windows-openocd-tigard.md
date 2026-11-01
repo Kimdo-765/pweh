@@ -41,6 +41,6 @@ VID/PID만 맞는 다른 FTDI 장치도 후보 집합에 포함된다. 후보가
 
 `test_openocd_windows_tigard.py`는 독립 합성 PnP graph, 기존 OS lease, 공개 MCP, 승인 대기·fresh 변경·raw cancellation·정리 미확인·target0/가드 실패를 검사한다. 등록 합성 번들과 실제 Windows owner 코드를 Linux 가짜 pipe 자식에 연결하는 시험도 포함한다. 실제 Windows·PnP·USB 장치는 사용하지 않는다. 물리 장비 수용 시험은 별도이며 이 문서에서 성공을 주장하지 않는다.
 
-고정 읽기 전용 PnP 질의는 query와 parse에 같은 최대 5초 deadline을 적용하고, wrapper 정리에는 별도 최대 2초를 둔다. 이 경로는 Windows의 질의 child가 실제로 종료했는지까지 확인하지 못한다. 질의 실패 시 OpenOCD를 시작하지 않는 계약과, 실행된 OpenOCD를 exact owner로 추적하여 종료를 확인하는 계약은 별개다.
+고정 읽기 전용 PnP 질의는 서버 프로세스의 상주 powershell.exe 작업자에 보내며 query와 parse에 같은 최대 5초 deadline을 적용한다. 실패·시간 초과·취소면 작업자 process group을 끝내고 wrapper 정리에 별도 최대 2초를 둔다. 이 경로는 Windows 쪽 작업자가 실제로 종료했는지까지 확인하지 못한다([상주 작업자](../design/port-routing.md#44-장치-식별--vidpid-만으로-정하지-않는다)). 질의 실패 시 OpenOCD를 시작하지 않는 계약과, 실행된 OpenOCD를 exact owner로 추적하여 종료를 확인하는 계약은 별개다.
 
 고정 upstream commit `e5888bda38f4952e2ae92f7dc5b25fc9a2d1c2b3`의 [Tigard cfg](https://github.com/openocd-org/openocd/blob/e5888bda38f4952e2ae92f7dc5b25fc9a2d1c2b3/tcl/interface/ftdi/tigard.cfg)는 필터·channel·reset layout의 근거다. [초기화 순서](https://github.com/openocd-org/openocd/blob/e5888bda38f4952e2ae92f7dc5b25fc9a2d1c2b3/src/openocd.c#L100)와 [JTAG 자동 발견 및 오류 처리](https://github.com/openocd-org/openocd/blob/e5888bda38f4952e2ae92f7dc5b25fc9a2d1c2b3/src/jtag/core.c#L1421)는 target 없는 active init 및 degraded 결과의 근거다.
