@@ -279,7 +279,7 @@ route:sdr/video 서버 없음 [P4]                    route:block  사람 이미
 
 | 출처 | 얻는 값 |
 |---|---|
-| Windows (WSL 에서) | CIM `Win32_PnPEntity` 의 `PNPDeviceID`·`Service`·`Status`·`Manufacturer`(esp `_PS_LIST_COM` 확장). 복합 장치의 자식(`&MI_xx`)은 읽기 전용 PnP 속성 `DEVPKEY_Device_Parent` 로 부모 인스턴스 id(시리얼 포함)를, `DEVPKEY_Device_LocationPaths` 로 물리 위치를 얻는다. 질의 시간은 [미확인]이다(≤2 s 묶음) |
+| Windows (WSL 에서) | 목록 표시(esp `_PS_LIST_COM`)는 CIM `Win32_PnPEntity` 의 `PNPDeviceID`·`Service`·`Status`·`Manufacturer`. route 신원(`PS_IDENTITIES`)과 whole-device 형제(`PS_USB_SCOPE`)는 cfgmgr32 를 직접 부른다: 현재 장치 목록(`CM_GETIDLIST_FILTER_PRESENT`, WMI 처럼 대문자 정규화), 장치별 읽기 전용 속성 `DEVPKEY_NAME`(`(COMn)`)·`DEVPKEY_Device_Class`·`DEVPKEY_Device_Parent`(부모 인스턴스 id, 시리얼 포함)·`DEVPKEY_Device_LocationPaths`(물리 위치). 장치 수백 개에서 신원 약 0.3 s, 두 관찰 형제 약 0.35 s 였다 — CU 처럼 명령 프레임마다 다시 관찰하는 소비자(프레임 예산 2 s)를 위해 cmdlet·장치별 CIM 호출(관찰 한 번 1~2.7 s)에서 바꿨다. `Get-PnpDeviceProperty -InstanceId <여러 ID>` 는 장치가 많으면 WMI 할당량 위반을 내고 나눠 보내도 결과 장치 집합이 틀리므로 쓰지 않는다 |
 | 리눅스·WSL(usbipd 후) | pyserial `ListPortInfo` 의 vid·pid·serial_number·location(`1-1.2:1.0` → 인터페이스 번호)·manufacturer·product·interface, `/dev/serial/by-id` 이름. usbipd 로 붙으면 location 이 vhci 경로라 attach 마다 바뀐다. 시리얼은 그대로다 |
 | macOS | pyserial IOKit(`IOUSBHostDevice`)의 vid·pid·serial·location·interface 이름 |
 

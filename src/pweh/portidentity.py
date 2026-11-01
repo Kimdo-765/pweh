@@ -77,20 +77,45 @@ def unknown(endpoint: str | None, reason: str, *, kind: str = "unknown") -> Port
     return PortIdentity(endpoint or "<automatic>", kind=kind, reasons=(reason,))
 
 
-# 입력을 코드에 보간하지 않고 전체 present COM 목록을 정해진 상한 안에서 읽는다.
-PS_IDENTITIES = r"""$ErrorActionPreference='Stop';[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false);
-$all=@(Get-PnpDevice -PresentOnly);if($all.Count -gt 8192){throw 'device limit'};
-$ports=@($all | Where-Object {$_.FriendlyName -match '\(COM[1-9][0-9]{0,3}\)$'});
+# Windows PnP 관찰은 cfgmgr32 를 Reflection.Emit P/Invoke 로 직접 부른다(C# 컴파일 없음, 입력을 코드에 보간하지 않음).
+# CU 등은 명령 프레임마다 이 관찰을 다시 하므로(프레임 예산 2초, connect 5초 안에 5회) 빨라야 한다.
+# Get-PnpDevice/Get-PnpDeviceProperty·장치별 CIM 호출은 정확하지만 장치 수백 개에서 관찰 한 번이 1~2.7초였고,
+# 이 방식은 같은 장치 집합·이름의 COM·Class·부모·LocationPaths 를 내며 두 관찰 합계가 약 0.4초다.
+# - 현재 장치: CM_Get_Device_ID_ListW(CM_GETIDLIST_FILTER_PRESENT=0x100) = Get-PnpDevice -PresentOnly 집합.
+#   WMI 처럼 InstanceId 를 대문자로 정규화한다(목록은 저장된 대소문자 그대로라 그대로 쓰면 route 결속이 바뀐다).
+# - 속성: CM_Get_DevNode_PropertyW 로 DEVPKEY_NAME(COM 추출용)·Device_Class·Device_Parent·Device_LocationPaths.
+#   없는 값(CR_NO_SUCH_VALUE)만 null 이고 그 밖의 오류·예상 밖 형식은 throw 로 전체가 실패한다.
+# - PowerShell 함수 호출은 호출당 약 0.1ms 라 장치 루프 안에서는 같은 고정 블록을 펼쳐 쓴다.
+_PS_CM_LIB = r"""$ErrorActionPreference='Stop';[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false);
+$ab=[AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName 'PwehCm'),[Reflection.Emit.AssemblyBuilderAccess]::Run);
+$tb=$ab.DefineDynamicModule('PwehCm').DefineType('PwehCm.N','Public,Class,Sealed');
+foreach($s in @(@('CM_Get_Device_ID_List_SizeW',@([UInt32].MakeByRefType(),[IntPtr],[UInt32])),@('CM_Get_Device_ID_ListW',@([IntPtr],[byte[]],[UInt32],[UInt32])),
+ @('CM_Locate_DevNodeW',@([UInt32].MakeByRefType(),[string],[UInt32])),@('CM_Get_DevNode_PropertyW',@([UInt32],[byte[]],[UInt32].MakeByRefType(),[byte[]],[UInt32].MakeByRefType(),[UInt32])))){
+ $m=$tb.DefinePInvokeMethod($s[0],'cfgmgr32.dll',[Reflection.MethodAttributes]'Public,Static,PinvokeImpl',[Reflection.CallingConventions]::Standard,[UInt32],[Type[]]$s[1],[Runtime.InteropServices.CallingConvention]::Winapi,[Runtime.InteropServices.CharSet]::Unicode);
+ $m.SetImplementationFlags([Reflection.MethodImplAttributes]::PreserveSig)};
+$CM=$tb.CreateType();$U=[Text.Encoding]::Unicode;$B=New-Object byte[] 2048;
+$KN=New-Object byte[] 20;[Guid]::Parse('b725f130-47ef-101a-a5f1-02608c9eebac').ToByteArray().CopyTo($KN,0);$KN[16]=10;
+$KP=New-Object byte[] 20;[Guid]::Parse('4340a6c5-93fa-4706-972c-7b648008a5a7').ToByteArray().CopyTo($KP,0);$KP[16]=8;
+$KC=New-Object byte[] 20;[Guid]::Parse('a45c254e-df1c-4efd-8020-67d146a850e0').ToByteArray().CopyTo($KC,0);$KC[16]=9;
+$KL=New-Object byte[] 20;[Guid]::Parse('a45c254e-df1c-4efd-8020-67d146a850e0').ToByteArray().CopyTo($KL,0);$KL[16]=37;
+function Read-Ids {for($t=0;$t -lt 3;$t++){[uint32]$n=0;$r=$CM::CM_Get_Device_ID_List_SizeW([ref]$n,[IntPtr]::Zero,0x100);if($r -ne 0){throw "cm list size $r"};
+ $L=New-Object byte[] ($n*2);$r=$CM::CM_Get_Device_ID_ListW([IntPtr]::Zero,$L,$n,0x100);if($r -eq 0x1A){continue};if($r -ne 0){throw "cm list $r"};
+ $o=New-Object System.Collections.Generic.List[string];foreach($x in $U.GetString($L).Split([char]0)){if($x){$o.Add($x.ToUpperInvariant())}};return ,$o.ToArray()};throw 'cm list unstable'};
+"""
+
+# 전체 present COM 목록과 각 COM 의 부모 체인을 정해진 상한 안에서 읽는다.
+PS_IDENTITIES = _PS_CM_LIB + r"""$ids=Read-Ids;if($ids.Count -gt 8192){throw 'device limit'};$present=@{};$ports=@();
+foreach($id in $ids){if($present.ContainsKey($id)){throw 'duplicate device'};$present[$id]=$true;[uint32]$dn=0;$r=$CM::CM_Locate_DevNodeW([ref]$dn,$id,0);if($r -ne 0){throw "cm locate $r"};[uint32]$ty=0;[uint32]$sz=$B.Length;$r=$CM::CM_Get_DevNode_PropertyW($dn,$KN,[ref]$ty,$B,[ref]$sz,0);if($r -eq 0x1A){$B=New-Object byte[] $sz;[uint32]$sz=$B.Length;$r=$CM::CM_Get_DevNode_PropertyW($dn,$KN,[ref]$ty,$B,[ref]$sz,0)};if($r -eq 0x25){$nm=$null}elseif($r -ne 0){throw "cm prop $r"}elseif($ty -ne 0x12){throw "cm prop type $ty"}else{$nm=$U.GetString($B,0,$sz).TrimEnd([char]0)};
+ if([string]$nm -match '\(COM[1-9][0-9]{0,3}\)$'){$ports+=,@($id,[string]$nm)}};
 if($ports.Count -gt 512){throw 'port limit'};$out=@();
-foreach($d in $ports){$id=$d.InstanceId;$nodes=@();$seen=@{};
+foreach($pt in $ports){$id=$pt[0];$nodes=@();$seen=@{};
 for($i=0;$i -lt 8;$i++){if($seen.ContainsKey($id)){throw 'parent cycle'};$seen[$id]=$true;
-$present=@($all | Where-Object {$_.InstanceId -eq $id});if($present.Count -ne 1){throw 'parent absent'};
-$p=(Get-PnpDeviceProperty -InstanceId $id -KeyName 'DEVPKEY_Device_Parent').Data;
-$loc=@((Get-PnpDeviceProperty -InstanceId $id -KeyName 'DEVPKEY_Device_LocationPaths' -ErrorAction SilentlyContinue).Data);
-$nodes+=@{instance_id=$id;parent=$p;present=$true;location_paths=$loc};
+if(-not $present.ContainsKey($id)){throw 'parent absent'};[uint32]$dn=0;$r=$CM::CM_Locate_DevNodeW([ref]$dn,$id,0);if($r -ne 0){throw "cm locate $r"};
+[uint32]$ty=0;[uint32]$sz=$B.Length;$r=$CM::CM_Get_DevNode_PropertyW($dn,$KP,[ref]$ty,$B,[ref]$sz,0);if($r -eq 0x1A){$B=New-Object byte[] $sz;[uint32]$sz=$B.Length;$r=$CM::CM_Get_DevNode_PropertyW($dn,$KP,[ref]$ty,$B,[ref]$sz,0)};if($r -eq 0x25){$p=$null}elseif($r -ne 0){throw "cm prop $r"}elseif($ty -ne 0x12){throw "cm prop type $ty"}else{$p=$U.GetString($B,0,$sz).TrimEnd([char]0)};[uint32]$ty=0;[uint32]$sz=$B.Length;$r=$CM::CM_Get_DevNode_PropertyW($dn,$KL,[ref]$ty,$B,[ref]$sz,0);if($r -eq 0x1A){$B=New-Object byte[] $sz;[uint32]$sz=$B.Length;$r=$CM::CM_Get_DevNode_PropertyW($dn,$KL,[ref]$ty,$B,[ref]$sz,0)};if($r -eq 0x25){$loc=$null}elseif($r -ne 0){throw "cm prop $r"}elseif($ty -ne 0x2012){throw "cm prop type $ty"}else{$loc=@($U.GetString($B,0,$sz).Split([char]0) | Where-Object {$_})};
+$nodes+=@{instance_id=$id;parent=$p;present=$true;location_paths=@($loc)};
 if($id -match '^USB\\VID_[0-9A-F]{4}&PID_[0-9A-F]{4}\\'){break};
 if(-not $p){break};$id=$p};
-$out+=@{port=([regex]::Match($d.FriendlyName,'\((COM[1-9][0-9]{0,3})\)$').Groups[1].Value);nodes=$nodes}};
+$out+=@{port=([regex]::Match($pt[1],'\((COM[1-9][0-9]{0,3})\)$').Groups[1].Value);nodes=$nodes}};
 ConvertTo-Json -InputObject $out -Depth 6 -Compress"""
 
 
@@ -335,35 +360,18 @@ def probe_identity(endpoint: str | None, *, config: Any = None, runner: Callable
 
 # COM 조상만 읽는 PS_IDENTITIES와 달리 비직렬 WinUSB/JTAG 형제를 포함한다.
 # 두 전체 관찰의 모든 부모 관계를 Python에서 대조한다. 입력을 코드에 보간하지 않는다.
-# 부모 관계는 Get-PnpDevice 가 돌려준 장치마다 Win32_PnPEntity.GetDeviceProperties 를 직접 호출해 읽는다.
-# 결과의 DeviceID 는 입력 키를 되돌린 값이라 귀속 근거가 아니므로, 같은 호출의 DEVPKEY_Device_InstanceId(장치가 직접 돌려준 값)가
-# 요청 ID 와 같은지 확인한다. Get-PnpDeviceProperty -InstanceId <여러 ID> 는 장치가 많으면 WQL 길이 한도로
-# '할당량 위반'(0x8004106c)을 내고(실측 252개 실패), 나눠 보내도 결과 개수는 맞지만 장치 집합이 틀린다
-# (실측 64개 묶음: 실행마다 6~11개 중복·같은 수 누락). ID 하나씩 cmdlet 을 부르면 정확하지만 252개에 약 34초가 걸린다.
-# 한계: 장치당 약 4ms × 두 관찰이라 PNP_TIMEOUT_S(5초) 안에서는 현재 장치 약 550개가 실용 상한이다(넘으면 닫힌 쪽으로 실패).
-PS_USB_SCOPE = r"""$ErrorActionPreference='Stop';[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false);
-function Read-Scope {
- $all=@(Get-PnpDevice -PresentOnly | Select-Object -First 8193);
- if($all.Count -gt 8192){throw 'device limit'};
- $props=New-Object System.Collections.Generic.List[object];
- foreach($d in $all){$id=[string]$d.InstanceId;if($id -ne 'HTREE\ROOT\0'){
-  $r=Invoke-CimMethod -InputObject $d -MethodName GetDeviceProperties -Arguments @{devicePropertyKeys=[string[]]@('DEVPKEY_Device_Parent','DEVPKEY_Device_InstanceId')};
-  if($r.ReturnValue -ne 0){throw 'property query failed'};$own=0;
-  foreach($q in @($r.deviceProperties)){$k=[string]$q.KeyName;
-   if($k -eq 'DEVPKEY_Device_InstanceId'){if($own -or -not ($q.Data -is [string]) -or $q.Data -ne $id){throw 'property attribution'};$own=1}
-   elseif($k -eq 'DEVPKEY_Device_Parent'){$props.Add([pscustomobject]@{InstanceId=$id;Data=$q.Data})}
-   else{throw 'property attribution'}};
-  if(-not $own){throw 'property attribution'};
-  if($props.Count -gt 8192){throw 'property limit'}}};
- $parents=@{};foreach($p in $props){if($parents.ContainsKey($p.InstanceId)){throw 'duplicate property'};$parents[$p.InstanceId]=$p};
- $nodes=@();foreach($d in $all){$id=$d.InstanceId;$par=$null;$state='ok';
- if($id -eq 'HTREE\ROOT\0'){$state='root'}else{
-  if(-not $parents.ContainsKey($id)){throw 'missing parent property'};
-  $par=$parents[$id].Data;if(-not ($par -is [string]) -or -not $par){throw 'invalid parent property'}};
- $com=$null;$m=[regex]::Match([string]$d.FriendlyName,'\((COM[1-9][0-9]{0,3})\)$','IgnoreCase');
- if($m.Success){$com=$m.Groups[1].Value.ToUpperInvariant()};
- $nodes+=@{instance_id=$id;parent=$par;parent_state=$state;com=$com;pnp_class=[string]$d.Class}};
- return @{present_count=$all.Count;nodes=$nodes;errors=@()}
+# 부모 관계는 장치마다 같은 cfgmgr32 호출로 읽는다(위 _PS_CM_LIB 설명). 예전 Get-PnpDeviceProperty -InstanceId <여러 ID> 는
+# 장치가 많으면 WQL 길이 한도로 '할당량 위반'(0x8004106c)을 냈고, 나눠 보내도 결과 장치 집합에 중복·누락이 생겼다.
+# 한 관찰 안의 중복 장치·부모 없음은 throw, 그래프 간극·순환·두 관찰 불일치는 Python 쪽 검사가 거부한다.
+PS_USB_SCOPE = _PS_CM_LIB + r"""function Read-Scope {
+ $ids=Read-Ids;if($ids.Count -gt 8192){throw 'device limit'};$seen=@{};
+ $nodes=New-Object System.Collections.Generic.List[object];
+ foreach($id in $ids){if($seen.ContainsKey($id)){throw 'duplicate device'};$seen[$id]=$true;[uint32]$dn=0;$r=$CM::CM_Locate_DevNodeW([ref]$dn,$id,0);if($r -ne 0){throw "cm locate $r"};
+  $par=$null;$state='ok';if($id -eq 'HTREE\ROOT\0'){$state='root'}else{[uint32]$ty=0;[uint32]$sz=$B.Length;$r=$CM::CM_Get_DevNode_PropertyW($dn,$KP,[ref]$ty,$B,[ref]$sz,0);if($r -eq 0x1A){$B=New-Object byte[] $sz;[uint32]$sz=$B.Length;$r=$CM::CM_Get_DevNode_PropertyW($dn,$KP,[ref]$ty,$B,[ref]$sz,0)};if($r -eq 0x25){$par=$null}elseif($r -ne 0){throw "cm prop $r"}elseif($ty -ne 0x12){throw "cm prop type $ty"}else{$par=$U.GetString($B,0,$sz).TrimEnd([char]0)};if(-not ($par -is [string]) -or -not $par){throw 'invalid parent property'}};
+  [uint32]$ty=0;[uint32]$sz=$B.Length;$r=$CM::CM_Get_DevNode_PropertyW($dn,$KN,[ref]$ty,$B,[ref]$sz,0);if($r -eq 0x1A){$B=New-Object byte[] $sz;[uint32]$sz=$B.Length;$r=$CM::CM_Get_DevNode_PropertyW($dn,$KN,[ref]$ty,$B,[ref]$sz,0)};if($r -eq 0x25){$nm=$null}elseif($r -ne 0){throw "cm prop $r"}elseif($ty -ne 0x12){throw "cm prop type $ty"}else{$nm=$U.GetString($B,0,$sz).TrimEnd([char]0)};[uint32]$ty=0;[uint32]$sz=$B.Length;$r=$CM::CM_Get_DevNode_PropertyW($dn,$KC,[ref]$ty,$B,[ref]$sz,0);if($r -eq 0x1A){$B=New-Object byte[] $sz;[uint32]$sz=$B.Length;$r=$CM::CM_Get_DevNode_PropertyW($dn,$KC,[ref]$ty,$B,[ref]$sz,0)};if($r -eq 0x25){$cl=$null}elseif($r -ne 0){throw "cm prop $r"}elseif($ty -ne 0x12){throw "cm prop type $ty"}else{$cl=$U.GetString($B,0,$sz).TrimEnd([char]0)};
+  $com=$null;$m=[regex]::Match([string]$nm,'\((COM[1-9][0-9]{0,3})\)$','IgnoreCase');if($m.Success){$com=$m.Groups[1].Value.ToUpperInvariant()};
+  $nodes.Add(@{instance_id=$id;parent=$par;parent_state=$state;com=$com;pnp_class=[string]$cl})};
+ return @{present_count=$ids.Count;nodes=$nodes.ToArray();errors=@()}
 };
 $one=Read-Scope;$two=Read-Scope;
 ConvertTo-Json -InputObject @{schema='pweh.pnp-usb-scope/v1';snapshots=@($one,$two)} -Depth 6 -Compress"""
