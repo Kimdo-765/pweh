@@ -29,6 +29,35 @@ def test_pnp_queries_use_fixed_native_calls_and_keep_guards():
     assert "'invalid parent property'" in I.PS_USB_SCOPE and "snapshots=@($one,$two)" in I.PS_USB_SCOPE
 
 
+# 예전(cmdlet 기반) 신원 질의. 느리지만 독립 기준으로 쓴다(location_paths 포함).
+_LEGACY_IDENTITIES = r"""$ErrorActionPreference='Stop';[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false);
+$all=@(Get-PnpDevice -PresentOnly);if($all.Count -gt 8192){throw 'device limit'};
+$ports=@($all | Where-Object {$_.FriendlyName -match '\(COM[1-9][0-9]{0,3}\)$'});
+if($ports.Count -gt 512){throw 'port limit'};$out=@();
+foreach($d in $ports){$id=$d.InstanceId;$nodes=@();$seen=@{};
+for($i=0;$i -lt 8;$i++){if($seen.ContainsKey($id)){throw 'parent cycle'};$seen[$id]=$true;
+$present=@($all | Where-Object {$_.InstanceId -eq $id});if($present.Count -ne 1){throw 'parent absent'};
+$p=(Get-PnpDeviceProperty -InstanceId $id -KeyName 'DEVPKEY_Device_Parent').Data;
+$loc=@((Get-PnpDeviceProperty -InstanceId $id -KeyName 'DEVPKEY_Device_LocationPaths' -ErrorAction SilentlyContinue).Data);
+$nodes+=@{instance_id=$id;parent=$p;present=$true;location_paths=$loc};
+if($id -match '^USB\\VID_[0-9A-F]{4}&PID_[0-9A-F]{4}\\'){break};
+if(-not $p){break};$id=$p};
+$out+=@{port=([regex]::Match($d.FriendlyName,'\((COM[1-9][0-9]{0,3})\)$').Groups[1].Value);nodes=$nodes}};
+ConvertTo-Json -InputObject $out -Depth 6 -Compress"""
+
+
+def _powershell(script):
+    out = subprocess.run([hostenv.powershell_path(), "-NoProfile", "-NonInteractive", "-Command", script],
+                         capture_output=True, timeout=120, cwd="/")
+    assert out.returncode == 0, out.stderr.decode("utf-8", "replace")[:500]
+    return out.stdout
+
+
+def _rows(raw):
+    rows = json.loads(raw or b"[]")
+    return rows if isinstance(rows, list) else [rows]
+
+
 def _reference():
     """느리지만 독립적인 기준: Get-PnpDevice 집합·이름·Class 와 장치별 WMI GetDeviceProperties 부모."""
     script = r"""$ErrorActionPreference='Stop';[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false);
@@ -63,8 +92,8 @@ def test_native_pnp_queries_match_cmdlet_reference_on_real_windows():
                 assert key == "HTREE\\ROOT\\0" and node["parent"] is None
             else:
                 assert node["parent_state"] == "ok" and node["parent"] == want["parent"]
-    rows = json.loads(I._windows_output(script=I.PS_IDENTITIES) or b"[]")
-    rows = rows if isinstance(rows, list) else [rows]
+    native = I._windows_output(script=I.PS_IDENTITIES)
+    rows = _rows(native)
     want_ports = sorted(_COM.search(r["name"]).group(1) for r in ref.values() if _COM.search(r["name"]))
     assert sorted(r["port"] for r in rows) == want_ports
     for row in rows:
@@ -74,3 +103,23 @@ def test_native_pnp_queries_match_cmdlet_reference_on_real_windows():
             assert a["parent"] == b["instance_id"]
         for n in chain:
             assert n["parent"] == ref[n["instance_id"].upper()]["parent"]
+    # 예전 cmdlet 질의와 원시 행(location_paths 포함)·route 신원 해석이 같아야 한다.
+    legacy = _powershell(_LEGACY_IDENTITIES)
+    assert sorted(json.dumps(r, sort_keys=True) for r in rows) == sorted(json.dumps(r, sort_keys=True) for r in _rows(legacy))
+    for row in rows:
+        new, old = I.parse_windows(row["port"], native).to_dict(), I.parse_windows(row["port"], legacy).to_dict()
+        new.pop("observed_at"), old.pop("observed_at")
+        assert new == old
+
+
+@pytest.mark.external
+def test_native_pnp_queries_survive_small_property_buffer():
+    """속성 버퍼가 부족할 때(CR_BUFFER_SMALL) 다시 읽는 분기가 같은 결과를 내야 한다."""
+    if not hostenv.powershell_path():
+        pytest.skip("WSL interop PowerShell 이 없음")
+    initial = "$B=New-Object byte[] 2048;"
+    assert I._PS_CM_LIB.count(initial) == 1
+    for script in (I.PS_IDENTITIES, I.PS_USB_SCOPE):
+        small = script.replace(initial, "$B=New-Object byte[] 4;")
+        assert json.loads(_powershell(small) or b"[]") == json.loads(_powershell(script) or b"[]")
+

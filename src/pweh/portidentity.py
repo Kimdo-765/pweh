@@ -363,6 +363,8 @@ def probe_identity(endpoint: str | None, *, config: Any = None, runner: Callable
 # 부모 관계는 장치마다 같은 cfgmgr32 호출로 읽는다(위 _PS_CM_LIB 설명). 예전 Get-PnpDeviceProperty -InstanceId <여러 ID> 는
 # 장치가 많으면 WQL 길이 한도로 '할당량 위반'(0x8004106c)을 냈고, 나눠 보내도 결과 장치 집합에 중복·누락이 생겼다.
 # 한 관찰 안의 중복 장치·부모 없음은 throw, 그래프 간극·순환·두 관찰 불일치는 Python 쪽 검사가 거부한다.
+# 실용 상한: 장치당 약 0.37ms(신원+두 관찰)·약 370B 라 CU 프레임 예산(2초)은 현재 장치 약 1,800개, 출력 상한 MAX_OUTPUT
+# (1 MiB)은 약 2,800개에서 넘는다. 둘 다 time_limit/pnp_output_limit 으로 닫힌 쪽에서 실패한다('device limit' 8192 보다 먼저).
 PS_USB_SCOPE = _PS_CM_LIB + r"""function Read-Scope {
  $ids=Read-Ids;if($ids.Count -gt 8192){throw 'device limit'};$seen=@{};
  $nodes=New-Object System.Collections.Generic.List[object];
