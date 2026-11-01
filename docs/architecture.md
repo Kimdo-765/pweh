@@ -1471,7 +1471,7 @@ RAW 파일이면 반환 artifact ID를 `sdr_analyze`로 넘긴다. [전송 계�
 ### 6.14 pweh-nfc (CU 페이지 스냅샷·스캔 결속 파일 분석)
 
 `mcp-servers/nfc-mcp/`는 NTAG213/215/216의 보호 스캔 기록과 같은 케이스 등록 파일을
-결속한다. CU Ultra의 고정 연결·스캔·HF 계열 식별·장치 상태 조회·페이지 스냅샷 읽기도 이 서버가 소유한다.
+결속한다. CU Ultra의 고정 연결·스캔·HF/LF 계열 식별·장치 상태 조회·페이지 스냅샷 읽기도 이 서버가 소유한다.
 기존 유효 inventory에 결속한 파일 분석에는 live reader가 필요하지 않다.
 
 | 도구 | 계약 |
@@ -1479,6 +1479,7 @@ RAW 파일이면 반환 artifact ID를 `sdr_analyze`로 넘긴다. [전송 계�
 | `nfc_cu_connect(case_id, port, approval_id=None)` | 현재 CDC 신원·전체 USB lease·MODIFY 게이트 뒤115200/8N1/DTR=true/RTS=false로 연다. 네 고정 조회가 Ultra·APP2.3·GIT 정확 v2.3.0·reader mode1일 때만 ready다. v2.2.0·dev build는 RF 전에 `cu_firmware_unsupported`다. |
 | `nfc_cu_scan(case_id, session_id, approval_id=None)` | 정확한 세션의 MODIFY 게이트 뒤 mode·새 scan·단독 GET_VERSION(keep=0)·새 선택 READ0/1을 검증한다. 세 NTAG가 아닌 version은 READ 없이 `nfc_family_unsupported`다. UID/BCC와 세 NTAG 계열 일치 뒤 CU 전용 보호 scan 사실을 기록한다. |
 | `nfc_cu_identify(case_id, session_id, approval_id=None)` | 정확한 ready 세션의 MODIFY 게이트 뒤 mode·scan2000과 UID7/ATQA0044/SAK00/ATS0 후보에만 단독 GET_VERSION(`f4`) 하나를 보낸다. 닫힌 표로 family와 §6.2 `policy`를 분류하며 READ·인증은 없다. 계열별 케이스 솔트 지문만 반환하고 scan 사실·inventory는 만들지 않는다. 잘 형성된 분류는 세션을 ready로 둔다. |
+| `nfc_cu_lf_identify(case_id, session_id, approval_id=None)` | 정확한 ready 세션의 MODIFY 게이트(`cu.lf-identify`) 뒤 mode1002와 125 kHz 고정 scan을 3000→3002(1B `00`)→3010(1B `00`)→3004→3014→3019→3021 순서로 보내 첫 `0x40`에서 멈춘다. family(EM410x는 variant)·§6.2 `policy`(감지 계열은 모두 `refused`, 미감지는 family `none`·policy `not_applicable`)·`scans_sent`만 반환한다. `identity_digest`는 모든 계열에서 null이며 원시 ID·지문 등 ID 파생 값·HID format·scan 사실·inventory는 만들지 않는다. 감지·none은 세션을 ready로 두고 잘못된 응답·`0x66`·timeout·취소는 terminal이다. |
 | `nfc_cu_status(case_id, session_id)` | 정확한 ready 세션에 RF 없이 mode1002·배터리1025·활성 slot1018(0부터)·HF14A 설정2200 getter만 보낸다. INTERACT(`cu.status`)로 항상 허용·감사 기록하며 percent는 전압 추정이다. |
 | `nfc_cu_read_start(case_id, session_id, tag_ref, approval_id=None)` | 기존 세션·현재 inventory와 MODIFY 게이트 뒤 유한 페이지 읽기 job을 시작한다. 전용 device-read 원장 기록 후 snapshot artifact를 등록한다. |
 | `nfc_job_status(job_id, wait_seconds=0.0, case_id=None)` | 작업과 저장 기록 조회. wait_seconds는0..50초다. |
@@ -1509,6 +1510,12 @@ HF 식별 프로필 `cu-hf14a-identify-v2.3.0-v1`은 `KNOWN` 밖의 별도 canon
 일곱 값과 fallback(4bit NAK·timeout → ultralight_or_ultralight_c, 3B 이상 CRC 오류 → type2_version_unreadable), §6.2 정책 표를 담고 승인 지문에 들어간다.
 none은 깨끗한 ATQA가 없다는 뜻이다. ATQA가 다른 카드 여러 장도 0x01이 되고 같은 ATQA 여러 장은 0x07 등 terminal 오류가 될 수 있어 "카드 없음"·"한 장"을 증명하지 않는다. 상태 getter는 `CuStatusQuery`(1025/1018/2200)이며
 `CuQuery` 다섯 조회와 reader recipe는 바뀌지 않는다. 표의 근거는 [HF 식별 계약](references/cu-hf-identify.md)을 따른다.
+
+LF 식별 프로필 `cu-lf125-identify-v2.3.0-v1`도 `KNOWN`·HF 식별 밖의 별도 canonical recipe·hash다. `CuLfScan` 일곱 scan의 순서·payload·`0x40` 성공 길이
+(EM410x tag_type 101–104 → 7B 또는 Electra 15B, HID/ioProx/Pyramid 16B, Viking 4B, PAC 8B, Jablotron 5B), 상태 표(`0x40` 감지·`0x41` 미감지·`0x66` mode 오류),
+§6.2 정책 표와 ID 파생 출력 없음(`id_derived_outputs="none"`, 지문 domain 없음)을 담고 승인 지문에 들어간다. encoder 허용 목록은 이 일곱 ID만큼만 넓혔다. T55xx 쓰기·EM4x05(LOGIN)·스니프·원시 ADC·emulator ID 명령은 만들 수 없다.
+각 scan은 `before_reader_run`만 쓰며 firmware read 함수가 끝에서 125 kHz radio를 끈다(`lf_field_off_by_firmware=true`, 물리 미측정).
+표의 근거 줄은 [LF 식별 계약](references/cu-lf-identify.md)을 따른다.
 
 CU wire 읽기는45초, 명령 하나는 남은 시간과2초 중 작은 예산을 사용한다. admission 뒤
 `time_limit` 또는 `nfc_scan_invalid`만 partial로 게시할 수 있으며 취소·프로토콜·허가·신원 오류는

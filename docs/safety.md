@@ -922,12 +922,14 @@ Flipper probe의 원시 CLI·UID·ATQA·SAK·version·페이지·PWD/PACK는 공
 
 ### CU 고정 NTAG 읽기
 
-`nfc_cu_connect`, `nfc_cu_scan`, `nfc_cu_identify`, `nfc_cu_read_start`는 소유/허가·명시 세션·현재 CDC 신원·전체 USB lease와
+`nfc_cu_connect`, `nfc_cu_scan`, `nfc_cu_identify`, `nfc_cu_lf_identify`, `nfc_cu_read_start`는 소유/허가·명시 세션·현재 CDC 신원·전체 USB lease와
 MODIFY 게이트를 따른다. `nfc_cu_status`는 같은 세션·lease·frame별 재검증을 따르는 INTERACT다. 공식 v2.3.0 release의 Ultra APP2.3/GIT 정확 `v2.3.0`·reader 모드만 받으며
 v2.2.0과 tag 뒤 dev build(`v2.3.0-N-g…`)는 RF 명령 전에 거부한다. 모드·slot을 바꾸지 않는다.
 연결 설정 DTR=true의 영향과 live reader profile/hash는 승인 지문에 포함하므로 이전 승인은 다시 쓰지 못한다.
 v2.2.0 profile은 이전 기록의 검증 전용이다. Ultralight C 인증·쓰기·키 변경(2018/2019/2021/2022),
 BLE PIN(1031/1034)·장치 식별자(1011/1012) 조회, 모드 변경(1001), field 직접 제어(2100/2101)는 보내지 않는다.
+LF는 식별 전용 scan 일곱 개(3000/3002/3010/3004/3014/3019/3021)만 만들 수 있다. T55xx 쓰기(3001/3003/3005/3006/3011/3015/3016/3018/3020),
+EM4x05 scan(3030, 비밀번호0 LOGIN 시도), LF 스니프·원시 ADC(3031/3009/3007/3008/3032), ioProx 변환(3012/3013), emulator ID(5000–5013)는 보내지 않는다.
 
 새 scan→단독 GET_VERSION→새 선택 READ0/1의 UID/BCC를 대조한 뒤 CU 전용 scan 사실을 남긴다.
 GET_VERSION은 keep=0이라 성공·실패 모두 firmware가 field를 끄고, NTAG213/215/216이 아닌 응답
@@ -964,6 +966,21 @@ GET_VERSION의 CRC 오류는 3B 이상 응답이 왔다는 뜻이라 Ultralight�
 반환하지 않고 계열별 domain을 분리한 케이스 솔트 지문만 돌려준다. scan 사실·inventory를 만들지 않으며 잘 형성된 분류는 세션을 ready로 둔다.
 `nfc_cu_status`는 RF 없는 getter 1002/1025/1018/2200만 보내는 INTERACT(명령을 보내지만 상태를 바꾸지 않음. 다른 CU 장치 도구의 MODIFY와 다른 의도한 선택이며 근거는 HF 식별·상태 계약)이며 BLE PIN(1031/1034)·장치 식별자(1011/1012)·slot 별명
 (1008/1038)·slot/emulator 정보·setter는 보내지 않는다. 표와 근거는 [HF 식별·상태 계약](references/cu-hf-identify.md)에 있다.
+
+`nfc_cu_lf_identify`는 같은 세션의 MODIFY 게이트(`cu.lf-identify`) 뒤 mode1002와 125 kHz 고정 scan을 정해진 순서로 보내고 첫 감지에서 멈춘다.
+LF scan은 **125 kHz RF를 방사한다**. scan 하나마다 firmware가 약0.5–0.56초 LF field를 켜고 read 함수 끝에서 끈다.
+일곱 scan이 모두 미감지면 합해서 약3.6초다. radio 정지는 firmware 소스 경로의 사실이며 물리 측정이 아니다(`lf_field_off_by_firmware=true`).
+NFC·125 kHz 리더 field의 무선 방사 쟁점은 설계 §6.1의 열린 법적 질문으로 남는다. 그래서 짧게·가까이 쓰고 실행마다 게이트를 거친다.
+설계 §6.2의 125 kHz 출입 계열(EM4100/EM-Marin·HID Prox·ioProx·Viking·PAC/Stanley·Jablotron·Pyramid)은 감지되면 모두 `refused`이고 원시 ID를 돌려주지 않는다.
+원시 ID·EM410x ID·HID FC/CN·issue level·OEM·format·ioProx·PAC·Pyramid 원시 frame과 그 지문·조각은 결과·로그·예외·승인 action·감사 기록에 넣지 않는다.
+LF 식별은 케이스 솔트 지문도 만들지 않는다(`identity_digest`는 모든 계열에서 null). 125 kHz 출입 ID는 24–40비트 자격증명이라
+Viking(32비트)·PAC·HID 26비트(24비트)는 물론 EM410x·Jablotron(40비트)도 전용 계산이면 전수 대입 범위 안이고,
+솔트는 같은 OS 계정이 읽을 수 있으므로(§3.5 **비밀값**) 솔트 지문은 그 계정에게서 ID를 가리지 못한다. 설계 §6.2의 "거부(ID 마스킹)"는 ID 파생 출력이 없다는 뜻으로 구현한다.
+감지 계열은 모두 거부라 inventory가 없으므로 지문이 쓰일 곳도 없다. 대가로 LF 식별 결과끼리 같은 카드인지 비교할 수 없다.
+§6.2의 "장난감·동물·시험용 태그" ID별 사람 증명 예외는 아직 구현하지 않았으므로 감지 결과를 보고하고 멈춘다.
+교통·결제·출입 자격증명은 policy와 관계없이 범위 밖이다(§1.3). scan 사실·inventory는 만들지 않는다.
+감지·전부 미감지는 세션을 ready로 둔다. 잘못된 응답·`0x66` mode 오류·timeout·취소·재검증 실패는 terminal이며 그 뒤 scan을 보내지 않는다.
+근거 줄은 [LF 식별 계약](references/cu-lf-identify.md)에 있다.
 
 취소·timeout·프레이밍/신원 오류 뒤에는 새 RF-off·재선택·자동 재접속을 하지 않는다.
 `nfc_cu_disconnect`는 허가 철회 뒤에도 정확한 case/session을 정리하고 미확인 owner·

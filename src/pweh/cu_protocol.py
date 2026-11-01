@@ -11,6 +11,10 @@ HF 식별 프로필 ``IDENTIFY``(``cu-hf14a-identify-v2.3.0-v1``)는 reader 프�
 scan 기록·GET_VERSION 응답의 닫힌 분류표와 §6.2 정책을 recipe에 담아 hash로 고정하며
 원장·snapshot 검증(``KNOWN``)에는 쓰지 않는다. 장치 상태 조회는 별도 enum ``CuStatusQuery``로
 1025/1018/2200 세 getter만 만들며 ``CuQuery``의 다섯 조회는 바꾸지 않는다.
+
+LF 식별 프로필 ``LF_IDENTIFY``(``cu-lf125-identify-v2.3.0-v1``)도 reader 프로필 집합 밖의 별도 행이다.
+125 kHz 고정 scan 일곱 개(``CuLfScan``)의 순서·payload·성공 길이·§6.2 정책을 recipe에 담아 hash로 고정한다.
+T55xx/EM4x05·쓰기·스니프·emulator 명령은 만들 수 없다. 근거는 docs/references/cu-lf-identify.md 에 행마다 적는다.
 """
 from __future__ import annotations
 
@@ -85,7 +89,9 @@ _IDENTIFY_RECIPE = (
 _IDENTIFY_SHA256 = "d420c720c19ab0f4923879f7d53917a82fb4775f8115e98360ea17f3cf27d90b"
 # 고정 builder가 만들 수 있는 명령 ID 전체. 이 밖의 ID는 encoder 단계에서 거부한다.
 # 1025 배터리·1018 활성 slot·2200 HF14A 설정은 상태 조회 전용 getter다(hook·RF 없음).
-_ALLOWED_COMMANDS = frozenset((1000, 1017, 1033, 1002, 2000, 2010, 1025, 1018, 2200))
+# 3000/3002/3010/3004/3014/3019/3021은 LF 식별 전용 125 kHz scan이다(reader mode hook만, 쓰기·인증 없음).
+_ALLOWED_COMMANDS = frozenset((1000, 1017, 1033, 1002, 2000, 2010, 1025, 1018, 2200,
+                               3000, 3002, 3010, 3004, 3014, 3019, 3021))
 _MESSAGES = {
     "cu_protocol_invalid": "CU 고정 프로토콜의 입력 또는 응답 구조가 올바르지 않습니다.",
     "cu_model_unsupported": "관찰한 모델이 CU Ultra 고정 프로필과 맞지 않습니다.",
@@ -629,3 +635,177 @@ def parse_cu_status(replies: tuple[CuFrame, ...]) -> CuDeviceStatus:
             or battery[2] > 100 or slot[0] > 7 or any(value > 2 for value in config)):
         _error()
     return CuDeviceStatus(int.from_bytes(battery[:2], "big"), battery[2], slot[0], config == b"\x00" * 4)
+
+
+# LF 125 kHz 식별 recipe: mode1002 뒤 고정 순서 scan 일곱 개를 첫 감지(0x40)에서 멈추며 보낸다.
+# 명령·payload·성공 길이·EM410x tag_type 표·§6.2 정책을 고정하며 각 값의 근거(firmware 줄)는
+# docs/references/cu-lf-identify.md 에 행마다 적는다. T55xx·EM4x05·쓰기·스니프·emulator 명령은 없다.
+# "id_derived_outputs":"none" — 125 kHz 출입 ID(24–40비트)는 케이스 솔트 지문도 전수 대입으로 되돌릴 수 있으므로
+# 원시 ID와 그 지문·조각 같은 ID 파생 값을 결과·로그·예외·승인 action에 하나도 내지 않는다(설계 §6.2 거부(ID 마스킹)).
+# 계열·EM410x 변형마다 고정인 길이는 개별 ID에서 나온 값이 아니다.
+_LF_IDENTIFY_RECIPE = (
+    '{"app_version":"2.3","authentication":false,"commands":[1002,3000,3002,3010,3004,3014,3019,'
+    '3021],"em410x_lengths":{"101":7,"102":7,"103":7,'
+    '"104":15},"em410x_variants":{"101":"em410x_16","102":"em410x_32","103":"em410x_64",'
+    '"104":"em410x_electra"},"firmware_commit":"4e1a5b267b9ed33559e0e2c9dad61d61eaf64ba1",'
+    '"git_version":"v2.3.0","hid_format_returned":false,"id_derived_outputs":"none","id_returned":false,'
+    '"lf_field_off_by_firmware":true,"model":"chameleon-ultra","policies":{"em410x":"refused",'
+    '"hidprox":"refused","ioprox":"refused","jablotron":"refused","none":"not_applicable",'
+    '"pac":"refused","pyramid":"refused","viking":"refused"},"profile":"cu-lf125-identify-v2.3.0-v1",'
+    '"reader_mode":true,"scans":[{"command":3000,"family":"em410x","found_length":null,'
+    '"name":"em410x_scan","payload":""},{"command":3002,"family":"hidprox","found_length":16,'
+    '"name":"hidprox_scan","payload":"00"},{"command":3010,"family":"ioprox","found_length":16,'
+    '"name":"ioprox_scan","payload":"00"},{"command":3004,"family":"viking","found_length":4,'
+    '"name":"viking_scan","payload":""},{"command":3014,"family":"pac","found_length":8,'
+    '"name":"pac_scan","payload":""},{"command":3019,"family":"jablotron","found_length":5,'
+    '"name":"jablotron_scan","payload":""},{"command":3021,"family":"pyramid","found_length":16,'
+    '"name":"pyramid_scan","payload":""}],"statuses":{"found":"40","mode_error":"66",'
+    '"not_found":"41"},"stop_at_first_found":true,"tag_writes":false}'
+)
+_LF_IDENTIFY_SHA256 = "fefb6e77a90e0c5ebf255f378619313db848a26460efffdd19a86f599f582535"
+LF_IDENTIFY = _frozen_profile(_LF_IDENTIFY_RECIPE, _LF_IDENTIFY_SHA256, b"\x02\x03")
+LF_POLICY_VALUES = ("refused", "not_applicable")
+
+
+class CuLfScan(Enum):
+    """고정 LF scan 일곱 개. 값은 firmware data_cmd.h 의 명령 ID이고 정의 순서가 송신 순서다(숫자 순서가 아니다)."""
+
+    EM410X = 3000
+    HIDPROX = 3002
+    IOPROX = 3010
+    VIKING = 3004
+    PAC = 3014
+    JABLOTRON = 3019
+    PYRAMID = 3021
+
+
+@dataclass(frozen=True)
+class CuLfScanSpec:
+    """recipe 한 행의 실행 값. payload는 고정 바이트이고 found_length None은 EM410x tag_type 표를 따른다."""
+
+    name: str
+    payload: bytes
+    family: str
+    found_length: int | None
+
+
+def _lf_tables(profile: CuReaderProfile) -> tuple:
+    """recipe 하나에서 LF 실행 표를 만들고 표끼리의 닫힌 관계를 import 단계에서 확인한다."""
+    r = json.loads(profile.recipe)
+    order = tuple(CuLfScan)
+    rows = r["scans"]
+    policies = r["policies"]
+    variants = {int(key): value for key, value in r["em410x_variants"].items()}
+    lengths = {int(key): value for key, value in r["em410x_lengths"].items()}
+    specs = {}
+    valid = (type(rows) is list and len(rows) == len(order) == 7
+             and all(type(row) is dict and set(row) == {"name", "command", "payload", "family", "found_length"}
+                     for row in rows))
+    if valid:
+        specs = {scan: CuLfScanSpec(row["name"], bytes.fromhex(row["payload"]), row["family"], row["found_length"])
+                 for scan, row in zip(order, rows)}
+        families = [spec.family for spec in specs.values()]
+        valid = (profile.profile == "cu-lf125-identify-v2.3.0-v1" and profile.profile not in KNOWN
+                 and profile.profile != IDENTIFY.profile
+                 and (profile.firmware_commit, profile.app_version, profile.git_version, profile.app_wire)
+                 == (LIVE.firmware_commit, LIVE.app_version, LIVE.git_version, LIVE.app_wire)
+                 and r["model"] == "chameleon-ultra" and r["reader_mode"] is True
+                 and [row["command"] for row in rows] == [scan.value for scan in order]
+                 and r["commands"] == [CuQuery.DEVICE_MODE.value] + [scan.value for scan in order]
+                 and r["statuses"] == {"found": "40", "not_found": "41", "mode_error": "66"}
+                 and r["stop_at_first_found"] is True and r["lf_field_off_by_firmware"] is True
+                 and r["id_returned"] is False and r["hid_format_returned"] is False
+                 and r["authentication"] is False and r["tag_writes"] is False
+                 and len(set(families)) == 7 and "none" not in families
+                 and len({spec.name for spec in specs.values()}) == 7
+                 and all(spec.payload in (b"", b"\x00") for spec in specs.values())
+                 and specs[CuLfScan.EM410X].found_length is None
+                 and all(type(spec.found_length) is int and 1 <= spec.found_length <= 16
+                         for scan, spec in specs.items() if scan is not CuLfScan.EM410X)
+                 and set(variants) == set(lengths) == {101, 102, 103, 104}
+                 and lengths == {101: 7, 102: 7, 103: 7, 104: 15}
+                 and len(set(variants.values())) == 4
+                 and all(value.startswith("em410x_") for value in variants.values())
+                 and set(policies) == set(families) | {"none"}
+                 and all(policies[family] == "refused" for family in families)
+                 and policies["none"] == "not_applicable"
+                 and set(policies.values()) <= set(LF_POLICY_VALUES)
+                 and r.get("id_derived_outputs") == "none" and "digest_domain" not in r)
+    if not valid:
+        raise RuntimeError("CU LF 식별 recipe의 분류표가 닫힌 관계와 다릅니다.")
+    return (MappingProxyType(specs), MappingProxyType(dict(policies)), MappingProxyType(variants),
+            MappingProxyType(lengths))
+
+
+LF_SCAN_SPECS, LF_POLICIES, _EM410X_VARIANTS, _EM410X_LENGTHS = _lf_tables(LF_IDENTIFY)
+LF_SCAN_ORDER = tuple(CuLfScan)
+LF_FAMILIES = frozenset(LF_POLICIES)
+LF_VARIANTS = frozenset(_EM410X_VARIANTS.values())
+LF_SCAN_NAMES = MappingProxyType({scan: spec.name for scan, spec in LF_SCAN_SPECS.items()})
+# EM410x 변형별 ID 길이(tag_type 2B를 뺀 값). 응답 길이 검사에만 쓰며 ID 파생 값은 만들지 않는다.
+_EM410X_ID_LENGTHS = MappingProxyType({_EM410X_VARIANTS[key]: value - 2 for key, value in _EM410X_LENGTHS.items()})
+_LF_FOUND, _LF_NOT_FOUND, _LF_MODE_ERROR = 0x40, 0x41, 0x66
+
+
+def build_lf_scan(scan: CuLfScan) -> bytes:
+    """exact enum에 해당하는 고정 LF scan 한 frame만 만든다. 3002·3010은 1B 0x00, 나머지는 빈 DATA다."""
+    if type(scan) is not CuLfScan:
+        _error()
+    return _encode(scan.value, LF_SCAN_SPECS[scan].payload)
+
+
+@dataclass(frozen=True, repr=False)
+class CuLfReply:
+    """LF scan 한 응답의 닫힌 분류. 원시 ID는 계열별 정확 길이 검사에만 메모리에 잠시 두며
+    공개 투영·지문·로그·repr로 내보내지 않는다.
+
+    not found이면 family·variant·ID가 모두 None이다. variant는 EM410x tag_type에서만 정한다.
+    """
+
+    scan: CuLfScan
+    found: bool
+    family: str | None
+    variant: str | None
+    id_bytes: bytes | None
+
+    def __post_init__(self) -> None:
+        valid = type(self.scan) is CuLfScan and type(self.found) is bool
+        if valid and not self.found:
+            valid = self.family is None and self.variant is None and self.id_bytes is None
+        elif valid:
+            spec = LF_SCAN_SPECS[self.scan]
+            valid = (type(self.family) is str and self.family == spec.family and type(self.id_bytes) is bytes)
+            if valid and self.scan is CuLfScan.EM410X:
+                valid = (type(self.variant) is str and self.variant in _EM410X_ID_LENGTHS
+                         and len(self.id_bytes) == _EM410X_ID_LENGTHS[self.variant])
+            elif valid:
+                valid = self.variant is None and len(self.id_bytes) == spec.found_length
+        if not valid:
+            _error("nfc_scan_invalid")
+
+
+def classify_lf_scan(scan: CuLfScan, frame: CuFrame) -> CuLfReply:
+    """보낸 scan의 응답 하나를 닫힌 표로 나눈다.
+
+    0x41 빈 payload → 미감지(다음 scan으로 계속). 0x66 빈 payload → reader mode 아님(cu_reader_required).
+    0x40은 정확한 성공 길이만 받는다. EM410x는 tag_type 101–104와 그 tag_type의 길이(7 또는 Electra 15)가
+    모두 맞아야 한다. 그 밖의 명령·상태·길이 조합은 nfc_scan_invalid다.
+    """
+    if type(scan) is not CuLfScan or type(frame) is not CuFrame or frame.command != scan.value:
+        _error("nfc_scan_invalid")
+    data = frame.data
+    if frame.status == _LF_MODE_ERROR and not data:
+        _error("cu_reader_required")
+    if frame.status == _LF_NOT_FOUND and not data:
+        return CuLfReply(scan, False, None, None, None)
+    if frame.status != _LF_FOUND:
+        _error("nfc_scan_invalid")
+    spec = LF_SCAN_SPECS[scan]
+    if scan is CuLfScan.EM410X:
+        tag_type = int.from_bytes(data[:2], "big") if len(data) >= 2 else None
+        if tag_type not in _EM410X_VARIANTS or len(data) != _EM410X_LENGTHS[tag_type]:
+            _error("nfc_scan_invalid")
+        return CuLfReply(scan, True, spec.family, _EM410X_VARIANTS[tag_type], data[2:])
+    if len(data) != spec.found_length:
+        _error("nfc_scan_invalid")
+    return CuLfReply(scan, True, spec.family, None, data)

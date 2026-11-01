@@ -18,7 +18,11 @@ from pweh import cu_protocol as C
 PRIVATE = "SYNTHETIC_CU_PRIVATE"
 UID = b"SYNTH01"
 # 공식 v2.3.0에서 새로 생겼거나 남아 있는 인증·쓰기·키·BLE PIN·고정 식별자·모드·field 직접 제어 명령.
-DENIED = frozenset((1001, 1011, 1012, 1031, 1034, 2016, 2018, 2019, 2021, 2022, 2100, 2101, 3021))
+# LF는 data_cmd.h(L103-L123·L199-L216)의 T55xx 복제·블록 쓰기·EM4x05 LOGIN scan·스니프·원시 ADC·ioProx 변환·
+# emulator ID 명령이다. 3021 Pyramid scan은 LF 식별 고정 scan이 되어 이 목록에서 뺐다.
+LF_DENIED = frozenset((3001, 3003, 3005, 3006, 3007, 3008, 3009, 3011, 3012, 3013, 3015, 3016, 3018, 3020,
+                       3030, 3031, 3032, *range(5000, 5014)))
+DENIED = frozenset((1001, 1011, 1012, 1031, 1034, 2016, 2018, 2019, 2021, 2022, 2100, 2101)) | LF_DENIED
 LEGACY_READER = {"profile": "cu-ntag21x-v2.2.0-v1",
                  "profile_sha256": "d7e590dce5e5f9723cbff12aa0fcea46d5a9550e392a33cf7b0de5102dffd73c",
                  "firmware_commit": "f349dbeeaa315776b272ae8fb851cc4042d55f07",
@@ -569,6 +573,7 @@ def test_no_public_arbitrary_encoder_or_read_response_parser():
 def every_builder_wire():
     yield from (C.build_cu_query(query) for query in C.CuQuery)
     yield from (C.build_cu_status_query(query) for query in C.CuStatusQuery)
+    yield from (C.build_lf_scan(scan) for scan in C.CuLfScan)
     yield C.build_ntag_version(keep_field=False)
     for family in C.NtagFamily:
         for page in range(family.pages_total):
@@ -591,8 +596,9 @@ def test_whitelist_is_closed_and_denies_new_v230_and_control_commands():
                 version_options.add(frame.data[0])
             if frame.data[0] == 0xfc:
                 select_payloads.add(frame.data[1:])
-    # 상태 조회 getter 1025/1018/2200은 이번 증분에서 의도적으로 허용 목록에 더했다.
-    assert commands == {1000, 1017, 1033, 1002, 2000, 2010, 1025, 1018, 2200}
+    # 상태 조회 getter 1025/1018/2200과 LF 식별 scan 일곱 개는 각 증분에서 의도적으로 허용 목록에 더했다.
+    assert commands == {1000, 1017, 1033, 1002, 2000, 2010, 1025, 1018, 2200,
+                        3000, 3002, 3010, 3004, 3014, 3019, 3021}
     assert not commands & DENIED
     assert options == {0xf4, 0xfc, 0xec, 0xe4}
     # GET_VERSION은 f4뿐이고, fc(auto-select+keep)는 page0 READ(0x30 0x00)에만 쓰인다.
@@ -603,3 +609,4 @@ def test_whitelist_is_closed_and_denies_new_v230_and_control_commands():
         failure(lambda: C._encode(command, b""))
         assert command not in {query.value for query in C.CuQuery}
         assert command not in {query.value for query in C.CuStatusQuery}
+        assert command not in {scan.value for scan in C.CuLfScan}

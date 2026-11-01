@@ -20,7 +20,8 @@
     "mode": {
       "enum": [
         "scan-bound-offline",
-        "cu-hf-identify"
+        "cu-hf-identify",
+        "cu-lf-identify"
       ]
     },
     "tags": {
@@ -247,6 +248,295 @@
         }
       }
     },
+    "lf_identifications": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "profile",
+          "family",
+          "variant",
+          "policy",
+          "scans_sent",
+          "identity_digest",
+          "id_returned"
+        ],
+        "properties": {
+          "operation": {
+            "const": "cu-lf-identify"
+          },
+          "profile": {
+            "const": "cu-lf125-identify-v2.3.0-v1"
+          },
+          "family": {
+            "enum": [
+              "em410x",
+              "hidprox",
+              "ioprox",
+              "jablotron",
+              "none",
+              "pac",
+              "pyramid",
+              "viking"
+            ]
+          },
+          "variant": {
+            "enum": [
+              null,
+              "em410x_16",
+              "em410x_32",
+              "em410x_64",
+              "em410x_electra"
+            ]
+          },
+          "policy": {
+            "enum": [
+              "not_applicable",
+              "refused"
+            ]
+          },
+          "scans_sent": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 7,
+            "uniqueItems": true,
+            "prefixItems": [
+              {
+                "const": "em410x_scan"
+              },
+              {
+                "const": "hidprox_scan"
+              },
+              {
+                "const": "ioprox_scan"
+              },
+              {
+                "const": "viking_scan"
+              },
+              {
+                "const": "pac_scan"
+              },
+              {
+                "const": "jablotron_scan"
+              },
+              {
+                "const": "pyramid_scan"
+              }
+            ],
+            "items": {
+              "enum": [
+                "em410x_scan",
+                "hidprox_scan",
+                "ioprox_scan",
+                "viking_scan",
+                "pac_scan",
+                "jablotron_scan",
+                "pyramid_scan"
+              ]
+            }
+          },
+          "identity_digest": {
+            "type": "null"
+          },
+          "id_returned": {
+            "const": false
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "family": {
+                  "const": "em410x"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "variant": {
+                  "enum": [
+                    "em410x_16",
+                    "em410x_32",
+                    "em410x_64",
+                    "em410x_electra"
+                  ]
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "variant": {
+                  "const": null
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "family": {
+                  "const": "none"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "policy": {
+                  "const": "not_applicable"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "policy": {
+                  "const": "refused"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "family": {
+                  "const": "em410x"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "scans_sent": {
+                  "minItems": 1,
+                  "maxItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "family": {
+                  "const": "hidprox"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "scans_sent": {
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "family": {
+                  "const": "ioprox"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "scans_sent": {
+                  "minItems": 3,
+                  "maxItems": 3
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "family": {
+                  "const": "viking"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "scans_sent": {
+                  "minItems": 4,
+                  "maxItems": 4
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "family": {
+                  "const": "pac"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "scans_sent": {
+                  "minItems": 5,
+                  "maxItems": 5
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "family": {
+                  "const": "jablotron"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "scans_sent": {
+                  "minItems": 6,
+                  "maxItems": 6
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "family": {
+                  "const": "pyramid"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "scans_sent": {
+                  "minItems": 7,
+                  "maxItems": 7
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "family": {
+                  "const": "none"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "scans_sent": {
+                  "minItems": 7,
+                  "maxItems": 7
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
     "device_status": {
       "type": "object",
       "additionalProperties": false,
@@ -314,8 +604,17 @@
           }
         },
         "not": {
-          "required": [
-            "identifications"
+          "anyOf": [
+            {
+              "required": [
+                "identifications"
+              ]
+            },
+            {
+              "required": [
+                "lf_identifications"
+              ]
+            }
           ]
         }
       }
@@ -331,6 +630,20 @@
       "then": {
         "required": [
           "identifications"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "cu-lf-identify"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "lf_identifications"
         ]
       }
     }

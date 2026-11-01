@@ -38,6 +38,7 @@ async def wait_until(check):
     ('nfc_cu_connect', {'port': 'COM81'}),
     ('nfc_cu_scan', {'session_id': 'a' * 32}),
     ('nfc_cu_identify', {'session_id': 'a' * 32}),
+    ('nfc_cu_lf_identify', {'session_id': 'a' * 32}),
     ('nfc_cu_status', {'session_id': 'a' * 32}),
     ('nfc_cu_disconnect', {'session_id': 'a' * 32}),
 ])
@@ -66,6 +67,8 @@ async def test_sdk_errors_hide_raw_input_and_never_prepare(workspace, auth, monk
     ('nfc_cu_scan', {'session_id': 'PRIVATE\n'}),
     ('nfc_cu_identify', {'session_id': 'PRIVATE\n'}),
     ('nfc_cu_identify', {'session_id': 'a' * 32, 'approval_id': '\x7fPRIVATE'}),
+    ('nfc_cu_lf_identify', {'session_id': 'PRIVATE\n'}),
+    ('nfc_cu_lf_identify', {'session_id': 'a' * 32, 'approval_id': '\x7fPRIVATE'}),
     ('nfc_cu_status', {'session_id': 'PRIVATE\x80'}),
     ('nfc_cu_disconnect', {'session_id': 'PRIVATE\x80'}),
 ])
@@ -231,7 +234,8 @@ async def test_approval_retry_uses_fixed_profile_and_exact_scan_session(cu_setup
         assert (await close(client, env, owner))['ok']
 
 
-@pytest.mark.parametrize('tool', ['nfc_cu_scan', 'nfc_cu_identify', 'nfc_cu_status', 'nfc_cu_disconnect'])
+@pytest.mark.parametrize('tool', ['nfc_cu_scan', 'nfc_cu_identify', 'nfc_cu_lf_identify', 'nfc_cu_status',
+                                  'nfc_cu_disconnect'])
 @pytest.mark.parametrize('wrong', ['case', 'session'])
 async def test_other_case_or_session_does_not_touch_owner(cu_setup, monkeypatch, auth, tool, wrong):
     env = cu_setup

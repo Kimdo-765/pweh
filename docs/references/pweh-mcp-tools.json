@@ -8186,6 +8186,37 @@
     "meta": null
    },
    {
+    "name": "nfc_cu_lf_identify",
+    "description": "정확한 case/session의 ready CU reader에서 MODIFY gate 뒤 mode(1002)를 확인하고 125 kHz 고정 LF scan을 EM410x(3000)→HID Prox(3002, 1B 0x00)→ioProx(3010, 1B 0x00)→Viking(3004)→PAC(3014)→Jablotron(3019)→Pyramid(3021) 순서로 보내 첫 감지에서 멈춘다. scan마다 firmware가 약0.5–0.56초 LF field를 켠 뒤 끄며 RF off는 물리 확인하지 않는다. 결과는 family(EM410x는 variant)·§6.2 policy·실제 보낸 scans_sent뿐이다. 감지한 125 kHz 계열은 모두 refused(출입 자격증명, ID 마스킹)이고 전부 미감지는 none이다. 원시 ID·지문 등 ID 파생 값(identity_digest는 항상 null)·FC/CN·issue level·OEM·HID format·frame과 scan 사실·inventory는 만들지 않는다. T55xx·EM4x05(LOGIN)·LF 쓰기·스니프·emulator·slot·모드 변경 명령은 보내지 않는다. 감지·none은 세션을 ready로 두고 잘못된 응답·mode 오류·transport timeout·취소는 terminal이다. 교통·결제·출입 자격증명은 policy와 관계없이 범위 밖이다. approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
     "name": "nfc_cu_status",
     "description": "정확한 case/session의 ready CU에 RF 없이 mode(1002)·배터리(1025)·활성 slot(1018)·HF14A 설정(2200) getter만 보내고 연결 때 확인한 모델·APP·GIT을 함께 반환한다. 상태를 바꾸지 않는 INTERACT로 gate 감사 기록을 남긴다. battery_percent는 전압 곡선 추정이며 부팅 직후 약5초는 mV·percent가 0일 수 있다. active_slot은 0부터 센다. hf14a_config_default는 2200의 네 값(forcebcc/cl2/cl3/rats)이 모두0인지다. BLE PIN·장치 식별자·slot 별명·emulator 상태 조회와 설정 변경 명령은 보내지 않는다. 성공하면 세션은 ready로 남는다.",
     "params": [

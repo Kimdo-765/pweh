@@ -14,7 +14,7 @@
 | `nfc_cu_disconnect` | `case_id, session_id` | 사용권 종료·물리 close·lease 해제를 확인. 허가 철회 뒤에도 같은 세션 정리 가능 |
 
 같은 세션의 `nfc_cu_identify`(READ 없는 HF 계열 분류)와 `nfc_cu_status`(RF 없는 배터리·slot·설정 조회)는
-[HF 식별·상태 계약](cu-hf-identify.md)을 따른다.
+[HF 식별·상태 계약](cu-hf-identify.md)을 따른다. `nfc_cu_lf_identify`(125 kHz 고정 scan, ID 마스킹)는 [LF 식별 계약](cu-lf-identify.md)을 따른다.
 
 connect의 실제 `session_id`로 scan을 호출하고, 실제 `scan_ref`를
 `nfc_tag_inventory_add`에 전달한다. 기존 `nfc_parse_file`/`nfc_diff_dumps`의 파일
@@ -90,13 +90,15 @@ echo가 없어 완전한 구별이 불가능하며, idle 잔여 검사를 원자
 
 ### 명령 허용 목록
 
-PWEH가 만드는 명령은1000/1017/1033/1002/2000/2010과 상태 조회 getter1025/1018/2200뿐이며 encoder가 그 밖의 ID를 거부한다.
-getter 셋은 `nfc_cu_status` 전용이며 HF 식별 `nfc_cu_identify`는 1002/2000/2010(`f4` GET_VERSION)만 쓴다([HF 식별 계약](cu-hf-identify.md)).
+PWEH가 만드는 명령은1000/1017/1033/1002/2000/2010, 상태 조회 getter1025/1018/2200, LF 식별 scan3000/3002/3010/3004/3014/3019/3021뿐이며
+encoder가 그 밖의 ID를 거부한다. getter 셋은 `nfc_cu_status` 전용이며 HF 식별 `nfc_cu_identify`는 1002/2000/2010(`f4` GET_VERSION)만 쓴다([HF 식별 계약](cu-hf-identify.md)).
+LF scan 일곱 개는 `nfc_cu_lf_identify` 전용이며 3002·3010만 1B `00`, 나머지는 빈 DATA다([LF 식별 계약](cu-lf-identify.md)).
 2010 option은 아래 네 값(`f4`/`fc`/`ec`/`e4`)만 쓴다. v2.3.0에 새로 생긴 Ultralight C 3DES
 AUTH/READ/WRITE/SET_KEY(2018/2019/2021/2022, [app_cmd.c](https://github.com/RfidResearchGroup/ChameleonUltra/blob/4e1a5b267b9ed33559e0e2c9dad61d61eaf64ba1/firmware/application/src/app_cmd.c#L558-L679))는 payload 검사 전에
 HF field를 켜고 인증·쓰기·키 변경을 수행하므로 보내지 않는다. BLE pairing PIN을 돌려주는 1031/1034,
-고정 장치 식별자1011/1012, 모드 변경1001, field 직접 제어2100/2101, scan-keep2016, LF Pyramid scan3021도
-보내지 않는다. 명령 ID는 공식 host enum이 아니라 firmware `data_cmd.h`를 기준으로 한다.
+고정 장치 식별자1011/1012, 모드 변경1001, field 직접 제어2100/2101, scan-keep2016도 보내지 않는다.
+LF는 T55xx 쓰기·EM4x05(LOGIN)·스니프·원시 ADC·ioProx 변환·emulator ID 명령을 보내지 않는다.
+명령 ID는 공식 host enum이 아니라 firmware `data_cmd.h`를 기준으로 한다.
 
 ### activation 순서와 HF field
 

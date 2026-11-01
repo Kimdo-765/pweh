@@ -40,3 +40,21 @@ inventory·파일 결과가 함께 있는 실행은 mode `scan-bound-offline` �
 식별의 `identity_digest`는 계열별 domain을 분리한 케이스 솔트 지문이다. inventory의 `identity_digest`와 같은 값이 아니다.
 같은 카드라도 두 값을 비교해 결속하지 않는다. NTAG를 inventory에 올리려면 `nfc_cu_scan`의 실제 scan_ref를 쓴다.
 `policy`는 설계 §6.2 표의 정보이며 사람 증명이나 다른 도구를 대신하지 않는다. 표의 근거와 한계는 [HF 식별 계약](../../docs/references/cu-hf-identify.md)에 있다.
+
+## CU LF 식별 기록
+
+`nfc_cu_lf_identify`의 결과도 inventory 결속 결과가 아니므로 tags/results에 넣지 않는다.
+LF 식별(과 상태 조회)만 한 실행은 `nfc-analysis` 요약의 mode `cu-lf-identify`로 `step="summary"`에 기록한다(tags·results는 빈 배열).
+HF와 LF 식별을 함께 했다면 둘 중 한 식별 mode를 쓰고 `identifications`와 `lf_identifications`를 같은 요약에 넣는다.
+`scan-bound-offline` 요약은 `lf_identifications`를 받지 않는다.
+
+| 요약 필드 | 근거 |
+|---|---|
+| `lf_identifications[].operation` | "cu-lf-identify" 고정 |
+| `lf_identifications[].profile/family/variant/policy/scans_sent/identity_digest` | LF 식별 반환값 그대로(variant는 em410x만 값, identity_digest는 모든 계열에서 null) |
+| `lf_identifications[].id_returned` | 반환값의 false를 그대로 둔다 |
+
+LF `identity_digest`는 항상 null이다. 125 kHz 출입 ID는 24–40비트라 케이스 솔트 지문도 솔트를 읽는 같은 OS 계정이 전수 대입으로 되돌릴 수 있으므로
+LF 식별은 지문을 포함한 ID 파생 값을 만들지 않는다. 그래서 LF 결과끼리나 HF 식별·inventory 지문과 같은 카드인지 비교·결속하지 않는다.
+감지 계열의 `policy`는 모두 refused다. §6.2의 장난감·동물·시험 태그 사람 증명 예외는 아직 없으므로 사람 증명으로 바꾸지 않는다.
+원시 ID·FC/CN·HID format은 반환되지 않으므로 요약에도 넣지 않는다. 근거와 한계는 [LF 식별 계약](../../docs/references/cu-lf-identify.md)에 있다.

@@ -27,10 +27,31 @@ TAG_MODELS = {'mf0icu1-nak': (0x00, b''), 'mf0icu1-timeout': (0x01, b''),
               'version-crc-error': (0x03, b''), 'ul-ev1': (0x00, bytes.fromhex('0004030101000b03')),
               'ul-ev1-mf0ulh21': (0x00, bytes.fromhex('0004030201000e03')),
               'type2-other-version': (0x00, bytes.fromhex('0004040101000b03'))}
+# 공식 v2.3.0 data_cmd.h(L103-L123·L199-L216)의 LF 쓰기(T55xx 복제·블록 쓰기)·EM4x05 LOGIN scan·스니프·원시 ADC·
+# ioProx 변환·emulator ID 명령. LF 식별을 포함한 어떤 경로도 보내면 안 된다.
+LF_DENIED = frozenset((3001, 3003, 3005, 3006, 3007, 3008, 3009, 3011, 3012, 3013, 3015, 3016, 3018, 3020,
+                       3030, 3031, 3032, *range(5000, 5014)))
 # 공식 v2.3.0의 인증·쓰기·키 변경·BLE PIN·고정 식별자·모드·field 직접 제어 명령. 어떤 경로도 보내면 안 된다.
 # 상태 조회도 slot 별명(1008/1038)·slot 정보(1019)·long-press(1041/1042)·battery-ex(1043)·HF14A 설정 변경(2201)을 보내지 않는다.
+# 3021 Pyramid scan은 LF 식별의 고정 scan이 되어 이 목록에서 뺐다(HF 경로의 명령 순서 검사가 대신 막는다).
 DENIED = frozenset((1001, 1008, 1011, 1012, 1019, 1031, 1034, 1038, 1041, 1042, 1043,
-                    2016, 2018, 2019, 2021, 2022, 2100, 2101, 2201, 3021))
+                    2016, 2018, 2019, 2021, 2022, 2100, 2101, 2201)) | LF_DENIED
+# LF 식별의 고정 scan(명령, 정확 payload)과 송신 순서. 숫자 순서가 아니다.
+LF_SCANS = ((3000, b''), (3002, b'\x00'), (3010, b'\x00'), (3004, b''), (3014, b''), (3019, b''), (3021, b''))
+LF_SCAN_PAYLOADS = dict(LF_SCANS)
+# 합성 LF ID. 실제 카드 값이 아니며 공개 결과·로그에 hex로 나오지 않아야 한다.
+EM_ID = bytes.fromhex('5aa51337c0')
+ELECTRA_EPILOGUE = bytes.fromhex('e1ec7a0011223344')
+HID16 = bytes.fromhex('01') + (0xc0ffee).to_bytes(4, 'big') + (0x5eed1234).to_bytes(5, 'big') + b'\x07\xbe\xef' + b'\0' * 3
+IOPROX16 = bytes.fromhex('01a5') + (0x4d2e).to_bytes(2, 'big') + bytes.fromhex('f00dfacecafe1234') + b'\0' * 4
+# (감지되는 scan 명령, 0x40 payload). em410x 변형은 tag_type 101–104(u16 BE)와 ID 5B, Electra는 ID 13B다.
+LF_MODELS = {
+    'em410x-16': (3000, b'\x00\x65' + EM_ID), 'em410x-32': (3000, b'\x00\x66' + EM_ID),
+    'em410x-64': (3000, b'\x00\x67' + EM_ID), 'electra': (3000, b'\x00\x68' + EM_ID + ELECTRA_EPILOGUE),
+    'hidprox': (3002, HID16), 'ioprox': (3010, IOPROX16), 'viking': (3004, bytes.fromhex('5ca1ab1e')),
+    'pac': (3014, b'SYNPAC01'), 'jablotron': (3019, bytes.fromhex('a5b4c3d2e1')),
+    'pyramid': (3021, bytes.fromhex('0000000000000001dead5eedc0de4242')),
+}
 UID4 = bytes.fromhex('a1b2c3d4')
 RAW_OPTIONS = frozenset((0xf4, 0xfc, 0xec, 0xe4))
 VERSION_WIRE = bytes.fromhex('f40064000860')
@@ -73,10 +94,13 @@ class FakeCu:
 
     위반은 owner가 고정 오류로 감싸 숨길 수 있으므로 violations에 남기고 fixture 정리에서 검사한다.
     """
-    def __init__(self, *, family=213, chunk=17, write_chunk=4096, firmware='v2.3.0', tag=None, scan=None):
+    def __init__(self, *, family=213, chunk=17, write_chunk=4096, firmware='v2.3.0', tag=None, scan=None, lf=None):
         self.family, self.chunk, self.write_chunk = family, chunk, write_chunk
         self.app, self.git = FIRMWARES[firmware]
         self.tag, self.scan_model = tag, scan
+        # LF 모델 이름. None이면 모든 LF scan이 0x41(미감지)이다.
+        self.lf_found = None if lf is None else LF_MODELS[lf]
+        self.lf_log = []
         self.scan_status, self.scan_data = (0, scan_bytes()) if scan is None else SCAN_MODELS[scan]
         # 1025 mV·percent, 1018 0부터 센 slot, 2200 forcebcc/cl2/cl3/rats. 합성 기본값이다.
         self.battery, self.slot, self.hf14a_config = (3900, 61), 0, b'\0\0\0\0'
@@ -135,6 +159,8 @@ class FakeCu:
         """firmware의 activate/auto-select 처리를 응답 계산 전에 반영한다."""
         if command in DENIED:
             self.violation('거부 목록 명령 송신')
+        if command in LF_SCAN_PAYLOADS and payload != LF_SCAN_PAYLOADS[command]:
+            self.violation('고정 payload 이외 LF scan')
         if command != 2010:
             return
         if len(payload) < 5 or payload[0] not in RAW_OPTIONS:
@@ -147,6 +173,9 @@ class FakeCu:
 
     def _after(self, command, payload):
         """응답 내용과 무관하게 keep=0 RAW와 scan 뒤 field를 끈다. keep=1 실패는 켜진 채 남는다."""
+        if command in LF_SCAN_PAYLOADS:
+            # firmware의 각 LF read 함수는 끝에서 stop_lf_125khz_radio를 부른다. HF field는 건드리지 않는다.
+            self.lf_log.append(command)
         if command == 2000:
             self.field = False
         elif command == 2010 and payload and not payload[0] & 0x08:
@@ -195,6 +224,10 @@ class FakeCu:
             if payload != b'':
                 self.violation('scan payload')
             return frame(command, self.scan_data, status=self.scan_status)
+        if command in LF_SCAN_PAYLOADS:
+            if self.lf_found is not None and self.lf_found[0] == command:
+                return frame(command, self.lf_found[1], status=0x40)
+            return frame(command, b'', status=0x41)
         if command == 2010 and payload == VERSION_WIRE:
             return frame(command, self.version, status=self.version_status)
         if command == 2010 and len(payload) == 7 and payload[1:6] == bytes.fromhex('0064001030'):

@@ -1,6 +1,6 @@
 ---
 name: nfc-behavior-analysis
-description: 소유·허가된 PWEH 케이스에서 NTAG213/215/216 스캔을 inventory에 등록하고 CU 페이지 스냅샷을 읽거나 보유 NFC 파일의 구조·저장 페이지 차이를 검사한다. CU로 READ 없이 HF 카드 계열을 식별하거나 배터리·slot 같은 장치 상태를 확인할 때도 쓴다. NFC 파일 분석, CU 읽기, 카드 종류 확인, NTAG inventory, 두 덤프 비교에 사용한다. 쓰기·인증·에뮬레이션과 게임 반응 확인은 수행하지 않는다.
+description: 소유·허가된 PWEH 케이스에서 NTAG213/215/216 스캔을 inventory에 등록하고 CU 페이지 스냅샷을 읽거나 보유 NFC 파일의 구조·저장 페이지 차이를 검사한다. CU로 READ 없이 HF 카드 계열이나 125 kHz LF 카드 계열(ID 마스킹)을 식별하거나 배터리·slot 같은 장치 상태를 확인할 때도 쓴다. NFC 파일 분석, CU 읽기, 카드 종류 확인, NTAG inventory, 두 덤프 비교에 사용한다. 쓰기·인증·에뮬레이션과 게임 반응 확인은 수행하지 않는다.
 ---
 
 # 스캔 기록에 결속한 NFC 파일 분석
@@ -33,6 +33,20 @@ CU Ultra를 사용하는 새 스캔은 [CU 계약](../../docs/references/cu-ntag
 5. 잘 형성된 분류는 세션을 ready로 둔다. 고정 오류(잘못된 응답·timeout·취소·mode 변화)는 세션을 terminal로 만든다. 그러면 `nfc_cu_disconnect`로 정리하고 새로 연결한다. 여러 장의 카드도 nfc_scan_invalid가 될 수 있으므로 다시 연결하기 전에 카드가 한 장인지 확인받는다. physical_same_tag_verified와 rf_off_verified는 false로 보고한다.
 6. 결과는 아래 "정리와 요약"의 `nfc-analysis` 요약에 mode `cu-hf-identify`로 기록한다. 식별 반환값의 operation·profile·family·policy·uid_length·ats_present·get_version_sent·page_reads_sent·identity_digest를 `identifications`에, 상태 반환값의 배터리·slot·mode·hf14a_config_default·버전·model을 `device_status`에 그대로 옮긴다(operation은 "cu-identify"). 원시 UID나 사용자가 말한 카드 이름을 family 대신 쓰지 않는다.
 
+## CU LF 125 kHz 카드 식별
+
+사용자가 125 kHz 카드(출입 카드·키 fob 등)의 계열을 알고 싶으면 [LF 식별 계약](../../docs/references/cu-lf-identify.md)을 따른다. 같은 연결 세션을 쓴다.
+
+1. 사람에게 다른 카드를 치우고 카드 한 장만 reader의 LF 안테나 위에 올려 달라고 요청하고, 완료 확인 뒤 `nfc_cu_lf_identify(case_id, session_id)`를 호출한다. 이 도구는 MODIFY 게이트를 따르며 위 승인 규칙이 같다. 125 kHz field를 scan마다 약0.5초, 모두 미감지면 합해서 약3.6초 방사한다.
+2. 도구는 EM410x→HID Prox→ioProx→Viking→PAC→Jablotron→Pyramid 순서로 scan하고 첫 감지에서 멈춘다. scans_sent는 실제로 보낸 scan 목록이다. 다른 scan·쓰기·EM4x05·스니프 명령으로 더 나누지 않는다.
+3. 반환된 family·variant·policy를 그대로 보고한다.
+   - 감지된 계열(em410x·hidprox·ioprox·viking·pac·jablotron·pyramid)은 모두 refused다. 125 kHz 출입 자격증명이므로 더 조작하지 않는다. 원시 ID·FC/CN도 ID에서 만든 지문도 돌려주지 않으며(`identity_digest`는 항상 null) 사용자에게 다른 방법으로 ID를 읽거나 되살리자고 제안하지 않는다. 케이스 솔트 파일도 읽지 않는다.
+   - 설계 §6.2의 "장난감·동물·시험용 태그" 사람 증명 예외는 아직 구현되지 않았다. 사용자가 장난감 태그라고 말해도 결과를 보고하고 멈춘다.
+   - none은 일곱 scan이 모두 해독하지 못했다는 뜻이다. 카드가 없다는 증명이 아니다. firmware에 scan이 없는 계열(Indala·AWID·FDX-B 등)도 none이다. 배치를 확인한 뒤 같은 세션으로 다시 식별할 수 있다.
+4. 교통·결제·출입·호텔·신분 자격증명은 policy와 관계없이 범위 밖이다.
+5. 감지·none은 세션을 ready로 둔다. 고정 오류(잘못된 응답·mode 오류·timeout·취소)는 세션을 terminal로 만든다. 그러면 `nfc_cu_disconnect`로 정리하고 새로 연결한다. physical_same_tag_verified는 false, lf_field_off_by_firmware는 true(firmware 소스 경로이며 물리 측정이 아님)로 보고한다.
+6. 결과는 아래 "정리와 요약"의 `nfc-analysis` 요약에 mode `cu-lf-identify`로 기록한다. 반환값의 profile·family·variant·policy·scans_sent·identity_digest(항상 null)·id_returned를 `lf_identifications`에 그대로 옮긴다(operation은 "cu-lf-identify"). identity_digest에 다른 값을 채우지 않는다. 같은 실행의 HF 식별 결과는 `identifications`, 상태 조회는 `device_status`에 함께 넣는다.
+
 ## CU 페이지 스냅샷 읽기
 
 [스냅샷 계약](../../docs/references/cu-read-snapshot.md)을 읽고 실제 session_id와 tag_ref로 `nfc_cu_read_start`를 호출한다. 이 도구도 MODIFY 게이트를 따른다. `nfc_job_status`로 실제 job_id를 조회하고 필요하면 `nfc_job_cancel`로 취소한다. 작업 목록은 `nfc_jobs`로 확인한다.
@@ -52,7 +66,7 @@ CU Ultra를 사용하는 새 스캔은 [CU 계약](../../docs/references/cu-ntag
 
 이 Skill에서 Flipper 세션을 열었다면 성공·실패·취소 뒤 항상 `flipper_close`를 호출한다. CU 세션을 열었다면 같은 `case_id/session_id`로 `nfc_cu_disconnect`를 호출하고 cleanup 확인 결과를 보존한다. `cleanup_pending`이면 같은 close로 다시 확인한다. 자동 ETX·Enter·재접속이나 실패 뒤 임시 파일 삭제 명령을 보내지 않는다. 임시 파일 정리가 미확인이면 그 상태를 그대로 보고한다. host close는 장치 명령 종료·RF field off의 증거가 아니다.
 
-`schema_get(name="nfc-analysis")`를 확인한 뒤 `case_record_step(skill="nfc-behavior-analysis", step="summary", ...)`로 실제 inventory와 검사 결과를 기록한다. inventory·파일 결과가 있으면 mode `scan-bound-offline`(tags 최소 1개)이고, CU 식별·상태만 했다면 mode `cu-hf-identify`로 `identifications`(최소 1개)와 선택 `device_status`를 넣고 tags·results는 빈 배열로 둔다. tags를 꾸며 넣지 않는다. [reference.md](reference.md)의 필드 연결을 쓰며, 실제 수행한 단계만 success/partial로 정리한다. usable scan이나 분석 결과가 없는 오류는 `step="attempt"`에 고정 오류와 다음 조치를 기록하고 결과를 꾸미지 않는다.
+`schema_get(name="nfc-analysis")`를 확인한 뒤 `case_record_step(skill="nfc-behavior-analysis", step="summary", ...)`로 실제 inventory와 검사 결과를 기록한다. inventory·파일 결과가 있으면 mode `scan-bound-offline`(tags 최소 1개)이고, CU 식별·상태만 했다면 mode `cu-hf-identify`로 `identifications`(최소 1개)와 선택 `device_status`를 넣고 tags·results는 빈 배열로 둔다. LF 식별만 했거나 LF 식별이 중심이면 mode `cu-lf-identify`로 `lf_identifications`(최소 1개)를 넣는다. 두 식별 mode 모두 다른 쪽 식별 배열과 `device_status`를 함께 넣을 수 있다. `scan-bound-offline` 요약에는 두 식별 배열을 넣지 않는다. tags를 꾸며 넣지 않는다. [reference.md](reference.md)의 필드 연결을 쓰며, 실제 수행한 단계만 success/partial로 정리한다. usable scan이나 분석 결과가 없는 오류는 `step="attempt"`에 고정 오류와 다음 조치를 기록하고 결과를 꾸미지 않는다.
 
 `physical_same_tag_verified`, `tag_content_written`, `authentication_attempted`, `emulation_performed`는 false로 유지한다. 원래 읽기 완료도·미관찰 범위를 보존하고 스니프·게임 동작·해금 조건을 검증했다고 보고하지 않는다. read receipt는 일반 단계 기록이나 artifact 참조로 남기고 inspect/diff 결과로 넣지 않는다. CU의 reader CRC 성공은 host RF CRC 검산이나 진품·동일 실물 증명이 아니다. 취소 뒤에는 commit된 결과가 남을 수 있으므로 `case_get(include_artifacts=true)`로 확인하고, 최종 보고서는 `report_generate`로 만든다.
 
@@ -101,6 +115,42 @@ CU 식별·상태만 한 실행의 요약 합성 예시이며, 실행 시 실제
     "get_version_sent": true,
     "page_reads_sent": false,
     "identity_digest": "sha256:0000000000000000"
+  }],
+  "device_status": {
+    "battery_mv": 4000,
+    "battery_percent": 80,
+    "battery_percent_is_estimate": true,
+    "active_slot": 0,
+    "mode": "reader",
+    "hf14a_config_default": true,
+    "app_version": "2.3",
+    "git_version": "v2.3.0",
+    "model": "chameleon-ultra"
+  },
+  "physical_same_tag_verified": false,
+  "tag_content_written": false,
+  "authentication_attempted": false,
+  "emulation_performed": false
+}
+```
+
+CU LF 식별(과 상태 조회)만 한 실행의 요약 합성 예시이며, 실행 시 실제 반환값으로 채운다.
+
+```json
+{
+  "schema": "pweh.nfc-analysis/v1",
+  "mode": "cu-lf-identify",
+  "tags": [],
+  "results": [],
+  "lf_identifications": [{
+    "operation": "cu-lf-identify",
+    "profile": "cu-lf125-identify-v2.3.0-v1",
+    "family": "em410x",
+    "variant": "em410x_64",
+    "policy": "refused",
+    "scans_sent": ["em410x_scan"],
+    "identity_digest": null,
+    "id_returned": false
   }],
   "device_status": {
     "battery_mv": 4000,

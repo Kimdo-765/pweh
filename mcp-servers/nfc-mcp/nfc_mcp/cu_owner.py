@@ -1,4 +1,4 @@
-"""고정 CU query·NTAG 읽기·HF 식별·상태 조회의 단일 사용권과 물리 직렬 수명."""
+"""고정 CU query·NTAG 읽기·HF/LF 식별·상태 조회의 단일 사용권과 물리 직렬 수명."""
 from __future__ import annotations
 
 import contextlib
@@ -125,6 +125,15 @@ class CuIdentify:
     family: str
     get_version_sent: bool
     profile: str = P.IDENTIFY.profile
+
+
+@dataclass(frozen=True, repr=False)
+class CuLfIdentify:
+    """LF 식별의 닫힌 결과. replies는 실제로 보낸 scan 순서다. 원시 ID는 길이 검사 뒤 공개 투영이 버리며 지문도 만들지 않는다."""
+    session_id: str
+    replies: tuple
+    family: str
+    profile: str = P.LF_IDENTIFY.profile
 
 
 @dataclass(frozen=True)
@@ -288,6 +297,9 @@ class CuOwner:
         elif type(kind) is P.CuStatusQuery:
             wire = P.build_cu_status_query(kind)
             expected = kind.value
+        elif type(kind) is P.CuLfScan:
+            wire = P.build_lf_scan(kind)
+            expected = kind.value
         elif kind == 'version':
             # keep=0 단독 activation: firmware가 성공·실패 모두 끝에서 HF field를 끈다.
             wire, expected = P.build_ntag_version(keep_field=False), 2010
@@ -442,6 +454,33 @@ class CuOwner:
             if family not in P.HF_FAMILIES:
                 raise error('nfc_scan_invalid')
             return CuIdentify(self.session_id, scan, version, family, version is not None)
+        except Exception as exc:
+            self._terminal()
+            raise public_error(exc) from None
+
+    def identify_lf(self, use, *, deadline):
+        """mode→고정 순서 LF scan(3000·3002·3010·3004·3014·3019·3021)을 첫 감지에서 멈추며 보낸다.
+
+        T55xx·EM4x05(LOGIN)·쓰기·스니프·emulator·slot 명령은 보내지 않는다. 각 scan은 firmware가 끝에서
+        125 kHz radio를 끄지만 물리 측정은 아니다. 감지(0x40 정확 길이)와 전부 미감지(none)는 세션을 ready로
+        두고, 잘못된 frame·mode 오류(0x66)·transport timeout·취소·재검증 실패는 terminal이다.
+        """
+        try:
+            end = _end(deadline, OPERATION_SECONDS)
+            if use.owner is not self or use.opening or self.state != 'ready':
+                raise error()
+            self._mode(use, end)
+            replies = []
+            for scan in P.LF_SCAN_ORDER:
+                reply = P.classify_lf_scan(scan, self._request(use, scan, end))
+                replies.append(reply)
+                if reply.found:
+                    break
+            use.check(end)
+            family = replies[-1].family if replies[-1].found else 'none'
+            if family not in P.LF_FAMILIES:
+                raise error('nfc_scan_invalid')
+            return CuLfIdentify(self.session_id, tuple(replies), family)
         except Exception as exc:
             self._terminal()
             raise public_error(exc) from None

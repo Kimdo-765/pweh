@@ -1,4 +1,4 @@
-"""CU 고정 reader 연결·NTAG probe·HF 식별·상태 조회·정리의 MCP 입구."""
+"""CU 고정 reader 연결·NTAG probe·HF/LF 식별·상태 조회·정리의 MCP 입구."""
 from __future__ import annotations
 
 import re
@@ -23,6 +23,8 @@ ApprovalId = Annotated[StrictStr, Field(min_length=1, max_length=128)]
 START_SECONDS = 5
 SCAN_SECONDS = 45
 IDENTIFY_SECONDS = 45
+# mode 한 번과 LF scan 최대7개가 각각 명령2초 상한 안에 끝나는 예산(각 scan firmware 시간은 약0.5–0.56초).
+LF_IDENTIFY_SECONDS = 20
 STATUS_SECONDS = 5
 CLOSE_SECONDS = 10
 _CODES = frozenset((
@@ -99,6 +101,15 @@ def identify_approval_action(owner):
             'version_requests_max': 1, 'page_reads': 0, 'authentication': False}
 
 
+def lf_identify_approval_action(owner):
+    """LF 식별의 정확 세션·고정 LF recipe·scan 순서만 승인 지문에 추가한다. 쓰기·인증은 0이다."""
+    return {**owner.action, 'operation': 'lf_identify', 'session_id': owner.session_id,
+            'lf_identify_profile': CU.LF_IDENTIFY.profile,
+            'lf_identify_profile_sha256': CU.LF_IDENTIFY.profile_sha256,
+            'lf_scan_commands': [scan.value for scan in CU.LF_SCAN_ORDER], 'stop_at_first_found': True,
+            'authentication': False, 'tag_writes': 0}
+
+
 def status_action(owner):
     """상태 조회의 정확 세션과 고정 getter 목록. INTERACT 감사 기록에 남는다."""
     return {**owner.action, 'operation': 'device_status', 'session_id': owner.session_id,
@@ -141,6 +152,37 @@ def _identify_projection(runtime, case_id, session_id, result):
             'authentication_attempted': False,
             'identity_digest': _identify_digest(runtime, case_id, result.family, scan, version),
             'physical_same_tag_verified': False, 'rf_off_verified': False}
+
+
+def _lf_identify_projection(case_id, session_id, result):
+    """LF 닫힌 분류만 공개한다. 원시 ID·FC/CN·issue level·OEM·HID format·frame은 반환하지 않는다.
+
+    125 kHz 출입 ID는 24–40비트라 케이스 솔트 지문도 솔트를 읽는 같은 OS 계정이 전수 대입으로 되돌릴 수 있다.
+    그래서 ID 파생 값은 지문을 포함해 하나도 만들지 않는다. identity_digest 키는 결과 모양을 유지하려고 두며
+    모든 계열에서 None이다. 감지 계열은 모두 refused라 inventory가 없으므로 지문이 쓰일 곳도 없다.
+    """
+    from .cu_owner import CuLfIdentify
+    if (type(result) is not CuLfIdentify or result.session_id != session_id
+            or result.profile != CU.LF_IDENTIFY.profile or type(result.replies) is not tuple
+            or not 1 <= len(result.replies) <= len(CU.LF_SCAN_ORDER)
+            or any(type(reply) is not CU.CuLfReply for reply in result.replies)
+            or tuple(reply.scan for reply in result.replies) != CU.LF_SCAN_ORDER[:len(result.replies)]
+            or any(reply.found for reply in result.replies[:-1])
+            or type(result.family) is not str or result.family not in CU.LF_FAMILIES):
+        raise _error('nfc_scan_invalid')
+    last = result.replies[-1]
+    if last.found:
+        if result.family != last.family:
+            raise _error('nfc_scan_invalid')
+    elif result.family != 'none' or len(result.replies) != len(CU.LF_SCAN_ORDER):
+        raise _error('nfc_scan_invalid')
+    return {'ok': True, 'case_id': case_id, 'session_id': session_id, 'profile': CU.LF_IDENTIFY.profile,
+            'family': result.family, 'variant': last.variant if last.found else None,
+            'policy': CU.LF_POLICIES[result.family],
+            'scans_sent': [CU.LF_SCAN_NAMES[reply.scan] for reply in result.replies], 'id_returned': False,
+            'identity_digest': None,
+            'physical_same_tag_verified': False, 'lf_field_off_by_firmware': True,
+            'authentication_attempted': False}
 
 
 def _status_projection(case_id, session_id, result):
@@ -220,6 +262,18 @@ async def _identify(namespace, case_id, session_id, approval_id, ctx):
         classification=Classification(Risk.MODIFY, 'cu.hf-identify',
                                       '고정14A scan과 Type 2 후보의 단독 GET_VERSION 한 번(READ·인증 없음)'),
         summary='CU HF 카드 계열 식별(페이지 읽기 없음)', run=run)
+
+
+async def _lf_identify(namespace, case_id, session_id, approval_id, ctx):
+    def run(runtime, owner, use):
+        result = owner.identify_lf(use, deadline=time.monotonic() + LF_IDENTIFY_SECONDS)
+        return _lf_identify_projection(case_id, session_id, result)
+
+    return await _session_tool(namespace, case_id, session_id, approval_id, ctx, tool='nfc_cu_lf_identify',
+        action=lf_identify_approval_action,
+        classification=Classification(Risk.MODIFY, 'cu.lf-identify',
+                                      '125 kHz 고정 LF scan 최대7개(첫 감지에서 멈춤, 쓰기·인증·스니프 없음)'),
+        summary='CU LF 125 kHz 카드 계열 식별(ID 마스킹)', run=run)
 
 
 async def _status(namespace, case_id, session_id, ctx):
@@ -386,7 +440,7 @@ async def _scan(namespace, case_id, session_id, approval_id, ctx):
 
 
 def register_cu_tools(server, namespace):
-    """기존 NFC 서버에 고정 CU 다섯 도구만 더한다. strict metadata는 서버의 공통 등록 단계가 적용한다."""
+    """기존 NFC 서버에 고정 CU 여섯 도구만 더한다. strict metadata는 서버의 공통 등록 단계가 적용한다."""
     @server.tool(description=(
         '명시 USB CDC CU 포트를 전체 장치 범위로 잠근 뒤 MODIFY gate를 거쳐 연결한다. '
         '115200 8N1/DTR=true/RTS=false이며 모델 Ultra·APP2.3·GIT 정확 v2.3.0·현재 reader 모드를 고정 조회한다. '
@@ -431,6 +485,24 @@ def register_cu_tools(server, namespace):
         return await _identify(namespace, case_id, session_id, approval_id, ctx)
 
     @server.tool(description=(
+        '정확한 case/session의 ready CU reader에서 MODIFY gate 뒤 mode(1002)를 확인하고 125 kHz 고정 LF scan을 '
+        'EM410x(3000)→HID Prox(3002, 1B 0x00)→ioProx(3010, 1B 0x00)→Viking(3004)→PAC(3014)→Jablotron(3019)→Pyramid(3021) '
+        '순서로 보내 첫 감지에서 멈춘다. scan마다 firmware가 약0.5–0.56초 LF field를 켠 뒤 끄며 RF off는 물리 확인하지 않는다. '
+        '결과는 family(EM410x는 variant)·§6.2 policy·실제 보낸 scans_sent뿐이다. '
+        '감지한 125 kHz 계열은 모두 refused(출입 자격증명, ID 마스킹)이고 전부 미감지는 none이다. '
+        '원시 ID·지문 등 ID 파생 값(identity_digest는 항상 null)·FC/CN·issue level·OEM·HID format·frame과 '
+        'scan 사실·inventory는 만들지 않는다. '
+        'T55xx·EM4x05(LOGIN)·LF 쓰기·스니프·emulator·slot·모드 변경 명령은 보내지 않는다. '
+        '감지·none은 세션을 ready로 두고 잘못된 응답·mode 오류·transport timeout·취소는 terminal이다. '
+        '교통·결제·출입 자격증명은 policy와 관계없이 범위 밖이다. '
+        'approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.'
+    ), annotations=ANN_DEVICE)
+    @safe_tool
+    async def nfc_cu_lf_identify(case_id: CaseId, session_id: SessionId,
+            approval_id: ApprovalId | None = None, ctx: Context | None = None) -> dict:
+        return await _lf_identify(namespace, case_id, session_id, approval_id, ctx)
+
+    @server.tool(description=(
         '정확한 case/session의 ready CU에 RF 없이 mode(1002)·배터리(1025)·활성 slot(1018)·HF14A 설정(2200) getter만 보내고 '
         '연결 때 확인한 모델·APP·GIT을 함께 반환한다. 상태를 바꾸지 않는 INTERACT로 gate 감사 기록을 남긴다. '
         'battery_percent는 전압 곡선 추정이며 부팅 직후 약5초는 mV·percent가 0일 수 있다. active_slot은 0부터 센다. '
@@ -468,5 +540,6 @@ def register_cu_tools(server, namespace):
             raise _fixed(exc) from None
 
     namespace.update(nfc_cu_connect=nfc_cu_connect, nfc_cu_scan=nfc_cu_scan,
-                     nfc_cu_identify=nfc_cu_identify, nfc_cu_status=nfc_cu_status,
+                     nfc_cu_identify=nfc_cu_identify, nfc_cu_lf_identify=nfc_cu_lf_identify,
+                     nfc_cu_status=nfc_cu_status,
                      nfc_cu_disconnect=nfc_cu_disconnect)

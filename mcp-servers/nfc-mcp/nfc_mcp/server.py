@@ -25,7 +25,7 @@ from . import analysis as A
 
 SERVER_NAME = 'nfc-mcp'
 _TOOLS = ('nfc_tag_inventory_add', 'nfc_parse_file', 'nfc_diff_dumps',
-          'nfc_cu_connect', 'nfc_cu_scan', 'nfc_cu_identify', 'nfc_cu_status',
+          'nfc_cu_connect', 'nfc_cu_scan', 'nfc_cu_identify', 'nfc_cu_lf_identify', 'nfc_cu_status',
           'nfc_cu_disconnect', 'nfc_cu_read_start',
           'nfc_job_status', 'nfc_job_cancel', 'nfc_jobs')
 CaseId = Annotated[StrictStr, Field(max_length=80, pattern=CASE_ID_RE.pattern)]
@@ -134,7 +134,8 @@ server = create_server(SERVER_NAME, title='PWEH NFC scan 결속 분석', instruc
     'nfc_cu_read_start는 같은 inventory에 결속한 snapshot을 등록하며 nfc_job_status로 확인한다. '
     'CU는 고정 Ultra v2.3.0 reader·NTAG21x만 허용하며 끝나면 같은 session_id로 nfc_cu_disconnect한다. '
     'nfc_cu_identify는 페이지 READ·인증 없이 HF 카드 계열과 §6.2 정책만 분류하고 nfc_cu_status는 RF 없이 배터리·slot·설정을 조회한다. '
-    '가져온 파일은 기존 provenance-import 사람 증명이 필요하다. raw UID·페이지·키 값은 반환하지 않는다. '
+    'nfc_cu_lf_identify는 고정 125 kHz scan을 첫 감지에서 멈추며 LF 계열과 정책(감지 계열은 모두 refused, ID 마스킹)만 분류한다. '
+    '가져온 파일은 기존 provenance-import 사람 증명이 필요하다. raw UID·LF ID·페이지·키 값은 반환하지 않는다. '
     '태그 쓰기·인증·에뮬레이션·키 탐색·임의 명령은 제공하지 않는다.'
 ))
 

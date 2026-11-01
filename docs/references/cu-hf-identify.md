@@ -4,6 +4,7 @@
 [설계 §6.2](../design/game-console-flipper-rf.md#62-태그-계열-정책-서버-자신의-스캔-결과로만-판정)의 정책 칸을 함께 돌려준다.
 페이지 READ·인증·쓰기는 하지 않는다. `nfc_cu_status`는 RF 없이 배터리·활성 slot·HF14A 설정 같은 장치 상태만 읽는다.
 두 도구 모두 [고정 CU 계약](cu-ntag-read-provider.md)의 `nfc_cu_connect` 세션을 그대로 쓰며 연결·정리 규칙은 그 문서를 따른다.
+125 kHz LF 카드 식별(`nfc_cu_lf_identify`)은 [LF 식별 계약](cu-lf-identify.md)에 있다.
 구현 검증은 가짜 transport·합성 응답으로 했다. 실제 RC522·실물 카드에서의 동작은 아직 확인하지 않았다.
 
 교통·결제·출입·호텔·신분 자격증명은 [설계 §1.3](../design/game-console-flipper-rf.md#13-범위-밖-항상-거부--코드-규칙으로-만든다)에 따라
