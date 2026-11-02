@@ -424,7 +424,7 @@
 ## pweh-nfc
 
 - **`nfc_tag_inventory_add(case_id, scan_ref)`**  
-  같은 케이스 flipper_nfc_probe 또는 nfc_cu_scan의 보호된 scan_ref를 NTAG213/215/216 inventory로 등록한다. 사용자 UID/family나 cache로 scan을 대신하지 않는다. 공개 tag_ref·scan_ref·케이스 솔트 지문과 scan/inventory 원장 seq/hash만 반환한다. 물리적으로 같은 태그인지는 검증하지 않는다.
+  같은 케이스 flipper_nfc_probe 또는 nfc_cu_scan의 보호된 NS- scan_ref를 NTAG213/215/216 inventory로 등록한다. nfc_cu_ul_scan의 US- scan_ref는 같은 케이스의 tag-ownership 사람 증명을 다시 확인한 뒤 Ultralight inventory(UT- tag_ref)로 등록하며, 증명이 철회·만료되었으면 기다리지 
 - **`nfc_parse_file(case_id, artifact_id, tag_ref, max_seconds?)`**  
   등록 artifact_id의 Flipper v4 NFC 파일 또는 서버 생성 CU snapshot 하나를 같은 케이스 tag_ref와 결속해 오프라인 검사한다. v4는1MiB, CU snapshot은64KiB 이하 단일 링크 일반 파일이며 forensics/emu/보호 경로는 받지 않는다. UID/ATQA/SAK/GET_VERSION 신원은 내부에서만 비교한다. 가져온 파일은 기존 prove
 - **`nfc_diff_dumps(case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds?)`**  
@@ -437,6 +437,8 @@
   정확한 case/session의 ready CU reader에서 MODIFY gate 뒤 mode 확인과 고정14A scan을 한 번 보내고, UID7/ATQA0044/SAK00/ATS0인 Type 2 후보에만 단독 GET_VERSION(f4, keep=0) 하나를 더 보내 닫힌 표로 계열을 분류한다. READ(0x30)·인증·RATS 직접 송신·모드 변경은 없으며 Ultralight와 Ul
 - **`nfc_cu_lf_identify(case_id, session_id, approval_id?)`**  
   정확한 case/session의 ready CU reader에서 MODIFY gate 뒤 mode(1002)를 확인하고 125 kHz 고정 LF scan을 EM410x(3000)→HID Prox(3002, 1B 0x00)→ioProx(3010, 1B 0x00)→Viking(3004)→PAC(3014)→Jablotron(3019)→Pyramid(3021) 순서로 보내 첫 감지에서 멈춘다. sc
+- **`nfc_cu_ul_scan(case_id, session_id, approval_id?)`**  
+  정확한 case/session의 ready CU reader에서 MODIFY gate 뒤 nfc_cu_identify와 같은 mode(1002)·고정14A scan과 UID7/ATQA0044/SAK00/ATS0 Type 2 후보의 단독 GET_VERSION(f4, keep=0) 하나만 보내 Ultralight 계열 (원조 UL/UL C, EV1 MF0UL11/MF0ULH11/MF0UL21/M
 - **`nfc_cu_status(case_id, session_id)`**  
   정확한 case/session의 ready CU에 RF 없이 mode(1002)·배터리(1025)·활성 slot(1018)·HF14A 설정(2200) getter만 보내고 연결 때 확인한 모델·APP·GIT을 함께 반환한다. 상태를 바꾸지 않는 INTERACT로 gate 감사 기록을 남긴다. battery_percent는 전압 곡선 추정이며 부팅 직후 약5초는 mV·percent가 0일 수 
 - **`nfc_cu_disconnect(case_id, session_id)`**  

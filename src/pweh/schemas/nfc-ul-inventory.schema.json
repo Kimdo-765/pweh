@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.nfc-ul-inventory/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ok",
+    "schema",
+    "tag_ref",
+    "scan_ref",
+    "family",
+    "ul_identity_digest",
+    "policy_profile",
+    "attestation",
+    "source",
+    "inventory_binding_verified",
+    "physical_same_tag_verified",
+    "warnings"
+  ],
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "schema": {
+      "const": "pweh.nfc-ul-inventory/v1"
+    },
+    "tag_ref": {
+      "type": "string",
+      "pattern": "^UT-[0-9a-f]{32}$"
+    },
+    "scan_ref": {
+      "type": "string",
+      "pattern": "^US-[0-9a-f]{32}$"
+    },
+    "family": {
+      "enum": [
+        "ultralight_ev1_mf0ul11",
+        "ultralight_ev1_mf0ulh11",
+        "ultralight_ev1_mf0ul21",
+        "ultralight_ev1_mf0ulh21",
+        "ultralight_or_ultralight_c"
+      ]
+    },
+    "ul_identity_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{16}$"
+    },
+    "policy_profile": {
+      "const": "ultralight-attested-v1"
+    },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "attestation_id",
+        "inventory_attestation_id"
+      ],
+      "properties": {
+        "kind": {
+          "const": "tag-ownership"
+        },
+        "attestation_id": {
+          "type": "string",
+          "pattern": "^att-[0-9a-f]{10}$"
+        },
+        "inventory_attestation_id": {
+          "type": "string",
+          "pattern": "^att-[0-9a-f]{10}$"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scan_seq",
+        "scan_entry_sha256",
+        "inventory_seq",
+        "inventory_entry_sha256"
+      ],
+      "properties": {
+        "scan_seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "scan_entry_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "inventory_seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "inventory_entry_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "inventory_binding_verified": {
+      "const": true
+    },
+    "physical_same_tag_verified": {
+      "const": false
+    },
+    "warnings": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "provenance_close_unconfirmed"
+        ]
+      }
+    }
+  }
+}

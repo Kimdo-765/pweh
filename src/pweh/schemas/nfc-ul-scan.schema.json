@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.nfc-ul-scan/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ok",
+    "schema",
+    "scan_ref",
+    "family",
+    "ul_identity_digest",
+    "uid_length",
+    "profile",
+    "policy",
+    "policy_profile",
+    "attestation",
+    "inventory_eligible",
+    "page_read_performed",
+    "read_requests",
+    "version_requests",
+    "authentication_attempted",
+    "physical_same_tag_verified",
+    "rf_off_verified",
+    "warnings"
+  ],
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "schema": {
+      "const": "pweh.nfc-ul-scan/v1"
+    },
+    "scan_ref": {
+      "type": "string",
+      "pattern": "^US-[0-9a-f]{32}$"
+    },
+    "family": {
+      "enum": [
+        "ultralight_ev1_mf0ul11",
+        "ultralight_ev1_mf0ulh11",
+        "ultralight_ev1_mf0ul21",
+        "ultralight_ev1_mf0ulh21",
+        "ultralight_or_ultralight_c"
+      ]
+    },
+    "ul_identity_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{16}$"
+    },
+    "uid_length": {
+      "const": 7
+    },
+    "profile": {
+      "const": "cu-ultralight-v2.3.0-v1"
+    },
+    "policy": {
+      "const": "attestation_required"
+    },
+    "policy_profile": {
+      "const": "ultralight-attested-v1"
+    },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "attestation_id"
+      ],
+      "properties": {
+        "kind": {
+          "const": "tag-ownership"
+        },
+        "attestation_id": {
+          "type": "string",
+          "pattern": "^att-[0-9a-f]{10}$"
+        }
+      }
+    },
+    "inventory_eligible": {
+      "const": true
+    },
+    "page_read_performed": {
+      "const": false
+    },
+    "read_requests": {
+      "type": "integer",
+      "const": 0
+    },
+    "version_requests": {
+      "type": "integer",
+      "const": 1
+    },
+    "authentication_attempted": {
+      "const": false
+    },
+    "physical_same_tag_verified": {
+      "const": false
+    },
+    "rf_off_verified": {
+      "const": false
+    },
+    "warnings": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "provenance_close_unconfirmed"
+        ]
+      }
+    }
+  }
+}

@@ -186,8 +186,13 @@ def test_input_validation(workspace, auth):
 
 
 def test_kinds_closed_set_and_code_only_extension():
-    assert {"tag-purpose", "wiring", "console-offline", "payment-locked", "hdmi-source", "bridge-serial", "write-blocker",
-            "provenance-import", "instrument-pin", "radio-target", "module-kc"} == set(ATTESTATION_KINDS)
+    assert {"tag-purpose", "tag-ownership", "wiring", "console-offline", "payment-locked", "hdmi-source", "bridge-serial",
+            "write-blocker", "provenance-import", "instrument-pin", "radio-target", "module-kc"} == set(ATTESTATION_KINDS)
+    # tag-purpose 는 그대로 두고(게임·장난감 태그, 자격증명 아님), Ultralight 소유 확인은 별도 종류다.
+    assert ATTESTATION_KINDS["tag-purpose"] == (
+        "태그의 목적·소유 (이 케이스의 콘솔과 쓰는 게임·장난감 태그이며 결제·교통·출입·호텔·신분 자격증명이 아님)")
+    assert ATTESTATION_KINDS["tag-ownership"] == (
+        "태그 소유 (사용자 본인 소유이거나 소유자의 서면 허가를 받은 태그 — 읽기 전용 페이지 스냅샷용, 쓰기·복제·에뮬레이션·인증 없음)")
     with pytest.raises(TypeError):
         ATTESTATION_KINDS["agent-made"] = "x"  # type: ignore[index]  # 읽기 전용 표
     with pytest.raises(ValidationFailed):

@@ -26,7 +26,18 @@ FIRMWARES = {'v2.3.0': (b'\x02\x03', b'v2.3.0'), 'v2.2.0': (b'\x02\x02', b'v2.2.
 TAG_MODELS = {'mf0icu1-nak': (0x00, b''), 'mf0icu1-timeout': (0x01, b''),
               'version-crc-error': (0x03, b''), 'ul-ev1': (0x00, bytes.fromhex('0004030101000b03')),
               'ul-ev1-mf0ulh21': (0x00, bytes.fromhex('0004030201000e03')),
-              'type2-other-version': (0x00, bytes.fromhex('0004040101000b03'))}
+              'type2-other-version': (0x00, bytes.fromhex('0004040101000b03')),
+              'ul-ev1-mf0ulh11': (0x00, bytes.fromhex('0004030201000b03')),
+              'ul-ev1-mf0ul21': (0x00, bytes.fromhex('0004030101000e03'))}
+# Ultralight 계열 scan 모델: TAG_MODELS 이름과 recipe 계열. READ 없는 scan 경로만 쓴다(READ는 여전히 위반이다).
+UL_SCAN_MODELS = {'mf0icu1': ('mf0icu1-nak', 'ultralight_or_ultralight_c'),
+                  'mf0icu1-silent': ('mf0icu1-timeout', 'ultralight_or_ultralight_c'),
+                  'mf0ul11': ('ul-ev1', 'ultralight_ev1_mf0ul11'),
+                  'mf0ulh11': ('ul-ev1-mf0ulh11', 'ultralight_ev1_mf0ulh11'),
+                  'mf0ul21': ('ul-ev1-mf0ul21', 'ultralight_ev1_mf0ul21'),
+                  'mf0ulh21': ('ul-ev1-mf0ulh21', 'ultralight_ev1_mf0ulh21')}
+# 합성 EV1 MF0UL11 일회용 종이 승차권 모델의 UID. 실제 승차권 값이 아니다.
+TICKET_UID = bytes.fromhex('04c0ffee5a1e7b')
 # 공식 v2.3.0 data_cmd.h(L103-L123·L199-L216)의 LF 쓰기(T55xx 복제·블록 쓰기)·EM4x05 LOGIN scan·스니프·원시 ADC·
 # ioProx 변환·emulator ID 명령. LF 식별을 포함한 어떤 경로도 보내면 안 된다.
 LF_DENIED = frozenset((3001, 3003, 3005, 3006, 3007, 3008, 3009, 3011, 3012, 3013, 3015, 3016, 3018, 3020,
@@ -94,14 +105,17 @@ class FakeCu:
 
     위반은 owner가 고정 오류로 감싸 숨길 수 있으므로 violations에 남기고 fixture 정리에서 검사한다.
     """
-    def __init__(self, *, family=213, chunk=17, write_chunk=4096, firmware='v2.3.0', tag=None, scan=None, lf=None):
+    def __init__(self, *, family=213, chunk=17, write_chunk=4096, firmware='v2.3.0', tag=None, scan=None, lf=None,
+                 uid=None):
         self.family, self.chunk, self.write_chunk = family, chunk, write_chunk
         self.app, self.git = FIRMWARES[firmware]
         self.tag, self.scan_model = tag, scan
         # LF 모델 이름. None이면 모든 LF scan이 0x41(미감지)이다.
         self.lf_found = None if lf is None else LF_MODELS[lf]
         self.lf_log = []
-        self.scan_status, self.scan_data = (0, scan_bytes()) if scan is None else SCAN_MODELS[scan]
+        # uid는 Type 2 scan 레코드의 합성 UID만 바꾼다(다른 태그 시험용). READ 페이지는 기본 UID 그대로다.
+        self.scan_status, self.scan_data = ((0, scan_bytes(uid=UID if uid is None else uid)) if scan is None
+                                            else SCAN_MODELS[scan])
         # 1025 mV·percent, 1018 0부터 센 slot, 2200 forcebcc/cl2/cl3/rats. 합성 기본값이다.
         self.battery, self.slot, self.hf14a_config = (3900, 61), 0, b'\0\0\0\0'
         self.version_status, self.version = (0, VERSIONS[family]) if tag is None else TAG_MODELS[tag]

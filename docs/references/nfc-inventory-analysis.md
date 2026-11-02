@@ -10,7 +10,7 @@
 | 도구 | 정확한 인자 | 역할 |
 |---|---|---|
 | `flipper_nfc_probe` | `case_id, approval_id=None` | 기존 ready Flipper 세션에서 고정 probe·GET_VERSION·임시 SD 파일 정리 후 scan 사실 등록 |
-| `nfc_tag_inventory_add` | `case_id, scan_ref` | 같은 케이스 보호 원장의 허용 scan을 inventory에 결속 |
+| `nfc_tag_inventory_add` | `case_id, scan_ref` | 같은 케이스 보호 원장의 허용 scan을 inventory에 결속. `US-` scan_ref(`nfc_cu_ul_scan`)는 `tag-ownership` 증명을 다시 확인한 뒤 UL inventory(`UT-`)로 결속 |
 | `nfc_parse_file` | `case_id, artifact_id, tag_ref, max_seconds=5` | 같은 inventory와 출처 증명에 결속한 파일의 기존 구조 검사 |
 | `nfc_diff_dumps` | `case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds=5` | 두 파일 각각의 결속을 확인한 뒤 기존 저장 페이지 비교 |
 
@@ -108,3 +108,15 @@ scan은 `nfc-scan`, inventory는 `nfc-inventory` schema의 마스킹 projection�
 ## CU 스캔을 사용하는 경우
 
 [CU 고정 읽기 계약](cu-ntag-read-provider.md)의 connect→scan→disconnect로 받은 실제 scan_ref도 같은 inventory 입구에 전달한다. CU는 READ0/1과 reader CRC 검증을 포함하는 별도 source/profile이며 Flipper의 page READ 없음·scratch 정리·host CRC 규칙을 바꾸지 않는다. 기존 imported 파일의 식별값·출처 증명·최종 FD 검사는 동일하다. [CU 페이지 스냅샷](cu-read-snapshot.md)은 read job이 직접 만든 등록 artifact와 최신 동일 경로의 전용 device-read 원장·현재 inventory를 확인한다. CU끼리의 diff는 양쪽 관찰 페이지만 비교하고 읽기/비교 미완료의 null을 유지한다. imported와 CU snapshot의 혼합 비교는 거부하며 가져온 파일을 device-read로 승격하지 않는다.
+
+Ultralight 계열은 별도 namespace다. `nfc_cu_ul_scan`은 READ 없이 계열을 확인하고 사람의 `tag-ownership` 증명(사용자 소유 또는 소유자 서면 허가) 뒤에만
+`nfc-ultralight-cu-scan-v1` 사실(`ul_scan_ref` `US-…`, 원장 `attestation_id`)을 남긴다. `nfc_tag_inventory_add`는 `US-` scan_ref를 받으면 같은 증명을 ctx 없이 다시 확인하고
+(없으면 기다리지 않고 `attestation_required`) 원장 잠금 안에서 같은 증명 id를 재확인한 뒤 `nfc-ultralight-inventory-v1`(`ul_tag_ref` `UT-…`)을 기록한다.
+UL 행은 `scan_ref`·`tag_ref` 키를 쓰지 않으므로 NTAG 색인·NTAG cache(`nfc/inventory.json`)·NS-/NT- 흐름은 바뀌지 않는다.
+UL 키를 가진 다른 kind 행이나 형식이 다른 UL 행은 UL 색인 전체를 오염으로 보고, NTAG 키를 가진 UL 행은 두 색인 모두 거부한다.
+UL scan 행의 프로필은 닫힌 UL 프로필 집합(`UL_KNOWN`)의 정확한 이름 조회 뒤 hash·commit 전체 일치로 검증한다(NTAG `KNOWN`과 같은 방식).
+UL recipe를 다시 고정할 때는 새 이름을 쓰고 이전 행을 검증 전용으로 남기므로 이미 기록한 UL scan·inventory 행은 그대로 검증된다.
+inventory 결과의 `attestation.attestation_id`는 이번 호출에서 다시 확인한 현재 증명 id, `attestation.inventory_attestation_id`는 inventory 행의 id다(재증명 뒤에는 다를 수 있다).
+UL 확인 지점은 기록의 질문 문구 전체와 recipe의 `decided_via` 목록(cli-tty·elicitation)도 확인한다.
+한계: GET_VERSION의 status `0x01`·빈 payload(`01-empty`)는 원조 Ultralight의 무응답과, scan 뒤 auto-select 전에 태그가 field를 벗어난 경우(firmware는 auto-select 실패 때 scan 상태 `0x01`을 돌려준다)가 섞인다. 그래서 그 한 번의 응답으로 NTAG213 같은 다른 Type 2 태그도 `ultralight_or_ultralight_c` UL scan 사실·inventory로 남을 수 있다. 원조 UL/UL C 결과는 태그를 움직이지 않은 채 `nfc_cu_identify`로 다시 확인하고, 다음 단계(페이지 읽기)는 읽기 직전 GET_VERSION의 `01-empty`를 의심해 다룬다(하드웨어 확인 항목).
+`UT-` tag_ref의 페이지 스냅샷·parse/diff는 아직 없다(다음 단계).

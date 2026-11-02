@@ -194,7 +194,7 @@ REA 는 Codex 에서도 런처로 실행돼 env.sh 를 실행할 때 불러온�
   - **elicitation 확인 폼**: Claude Code v2.1.76+ 에서 다이얼로그가 뜬다. 확인 코드를 입력하고 Accept 한다.
   - **CLI**: 별도 터미널에서 `.venv/bin/pweh approve <approval_id>` 를 실행한다.
 - 승인과 별도로, 에이전트가 확인할 수 없는 사실(콘솔 오프라인, 잰 전압, 가져온 파일의 출처 등)이 필요한 도구는 **사람 증명**을 요구할 수 있다
-  (`status: attestation_required` + `attestation_id`. 지금은 세이브 쓰기 명령을 보여 주기 전의 `fw_patch_build` 와 SD 카드 이미징의 쓰기 방지 장치를 묻는 `forensics_acquisition_attest` 다 — [safety.md](safety.md) §3.5).
+  (`status: attestation_required` + `attestation_id`. 지금은 세이브 쓰기 명령을 보여 주기 전의 `fw_patch_build`, SD 카드 이미징의 쓰기 방지 장치를 묻는 `forensics_acquisition_attest`, 가져온 펌웨어의 출처를 묻는 `emu_start`, Ultralight 계열 태그의 `tag-ownership`(사용자 소유 또는 소유자 서면 허가)을 묻는 `nfc_cu_ul_scan`·`nfc_tag_inventory_add` 다 — [safety.md](safety.md) §3.5).
   같은 두 경로(`safety.approval_methods`)를 쓴다: elicitation 확인 폼(항목마다 답 + 확인 코드) 또는 별도 터미널의 `.venv/bin/pweh attest <attestation_id>`(대화형 터미널 전용).
   증명은 소비되지 않고 재사용되며, 에이전트는 같은 인자로 다시 호출한다(`attestation_id` 를 넘기지 않는다).
 

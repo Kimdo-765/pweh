@@ -726,7 +726,7 @@
    },
    {
     "name": "schema_get",
-    "description": "PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, cluster-report, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, imported-save-plan, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, media-unit-scan, nfc-analysis, nfc-cu-snapshot, nfc-file-analysis, nfc-inventory, nfc-scan, numeric-analysis, numeric-validation, pinout-scan, rf-analysis, rf-ook-conversion, rf-power-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, template-analysis, template-match, uart-recon.",
+    "description": "PWEH JSON 스키마 조회. name: allocation-window, android-forensics, auth-hunt, bmff-scan, case, cluster-report, dhav-candidates, dhav-record-extract, dhav-scan, emulation, finding, firmware-dump, image-hints, imported-save-plan, media-candidates, media-inventory, media-prefix-extract, media-unit-candidates, media-unit-extract, media-unit-scan, nfc-analysis, nfc-cu-snapshot, nfc-file-analysis, nfc-inventory, nfc-scan, nfc-ul-inventory, nfc-ul-scan, numeric-analysis, numeric-validation, pinout-scan, rf-analysis, rf-ook-conversion, rf-power-analysis, rf-raw-analysis, save-analysis, sd-forensics, sd-ioc-scan, secrets-scan, secrets-survey, signal-capture, static-analysis, step-result, template-analysis, template-match, uart-recon.",
     "params": [
      {
       "name": "name",
@@ -7989,7 +7989,7 @@
   "tools": [
    {
     "name": "nfc_tag_inventory_add",
-    "description": "같은 케이스 flipper_nfc_probe 또는 nfc_cu_scan의 보호된 scan_ref를 NTAG213/215/216 inventory로 등록한다. 사용자 UID/family나 cache로 scan을 대신하지 않는다. 공개 tag_ref·scan_ref·케이스 솔트 지문과 scan/inventory 원장 seq/hash만 반환한다. 물리적으로 같은 태그인지는 검증하지 않는다.",
+    "description": "같은 케이스 flipper_nfc_probe 또는 nfc_cu_scan의 보호된 NS- scan_ref를 NTAG213/215/216 inventory로 등록한다. nfc_cu_ul_scan의 US- scan_ref는 같은 케이스의 tag-ownership 사람 증명을 다시 확인한 뒤 Ultralight inventory(UT- tag_ref)로 등록하며, 증명이 철회·만료되었으면 기다리지 않고 attestation_required를 돌려준다(사람이 pweh attest <id> 후 같은 인자로 재호출). 사용자 UID/family나 cache로 scan을 대신하지 않는다. 공개 tag_ref·scan_ref·케이스 솔트 지문과 scan/inventory 원장 seq/hash만 반환한다. 물리적으로 같은 태그인지는 검증하지 않는다.",
     "params": [
      {
       "name": "case_id",
@@ -8156,7 +8156,7 @@
    },
    {
     "name": "nfc_cu_identify",
-    "description": "정확한 case/session의 ready CU reader에서 MODIFY gate 뒤 mode 확인과 고정14A scan을 한 번 보내고, UID7/ATQA0044/SAK00/ATS0인 Type 2 후보에만 단독 GET_VERSION(f4, keep=0) 하나를 더 보내 닫힌 표로 계열을 분류한다. READ(0x30)·인증·RATS 직접 송신·모드 변경은 없으며 Ultralight와 Ultralight C를 READ로 나누지 않는다. 결과는 family·§6.2 policy·UID 길이·ATS 유무·계열별 케이스 솔트 지문이며 원시 UID/ATQA/SAK/version과 scan 사실·inventory는 만들지 않는다. 잘 형성된 분류(none·multiple 포함)는 세션을 ready로 두고 잘못된 응답·transport timeout·취소는 terminal이다. scan 중 firmware가 SAK bit0x20 태그에 RATS를 보낼 수 있고 RF off·동일 실물은 검증하지 않는다. 교통·결제·출입 자격증명은 policy와 관계없이 범위 밖이다. approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.",
+    "description": "정확한 case/session의 ready CU reader에서 MODIFY gate 뒤 mode 확인과 고정14A scan을 한 번 보내고, UID7/ATQA0044/SAK00/ATS0인 Type 2 후보에만 단독 GET_VERSION(f4, keep=0) 하나를 더 보내 닫힌 표로 계열을 분류한다. READ(0x30)·인증·RATS 직접 송신·모드 변경은 없으며 Ultralight와 Ultralight C를 READ로 나누지 않는다. 결과는 family·§6.2 policy·UID 길이·ATS 유무·계열별 케이스 솔트 지문이며 원시 UID/ATQA/SAK/version과 scan 사실·inventory는 만들지 않는다. 잘 형성된 분류(none·multiple 포함)는 세션을 ready로 두고 잘못된 응답·transport timeout·취소는 terminal이다. scan 중 firmware가 SAK bit0x20 태그에 RATS를 보낼 수 있고 RF off·동일 실물은 검증하지 않는다. 교통·결제·출입 자격증명은 policy와 관계없이 범위 밖이다. 예외: 사용자 소유(또는 소유자 서면 허가) Ultralight 계열 태그는 사용한 교통 승차권도 nfc_cu_ul_scan의 tag-ownership 사람 증명 뒤 scan·inventory(읽기 전용 페이지 snapshot 대상)에 올릴 수 있다. approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.",
     "params": [
      {
       "name": "case_id",
@@ -8188,6 +8188,37 @@
    {
     "name": "nfc_cu_lf_identify",
     "description": "정확한 case/session의 ready CU reader에서 MODIFY gate 뒤 mode(1002)를 확인하고 125 kHz 고정 LF scan을 EM410x(3000)→HID Prox(3002, 1B 0x00)→ioProx(3010, 1B 0x00)→Viking(3004)→PAC(3014)→Jablotron(3019)→Pyramid(3021) 순서로 보내 첫 감지에서 멈춘다. scan마다 firmware가 약0.5–0.56초 LF field를 켠 뒤 끄며 RF off는 물리 확인하지 않는다. 결과는 family(EM410x는 variant)·§6.2 policy·실제 보낸 scans_sent뿐이다. 감지한 125 kHz 계열은 모두 refused(출입 자격증명, ID 마스킹)이고 전부 미감지는 none이다. 원시 ID·지문 등 ID 파생 값(identity_digest는 항상 null)·FC/CN·issue level·OEM·HID format·frame과 scan 사실·inventory는 만들지 않는다. T55xx·EM4x05(LOGIN)·LF 쓰기·스니프·emulator·slot·모드 변경 명령은 보내지 않는다. 감지·none은 세션을 ready로 두고 잘못된 응답·mode 오류·transport timeout·취소는 terminal이다. 교통·결제·출입 자격증명은 policy와 관계없이 범위 밖이다. approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.",
+    "params": [
+     {
+      "name": "case_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "session_id",
+      "type": "string",
+      "required": true,
+      "default": null
+     },
+     {
+      "name": "approval_id",
+      "type": "string/null",
+      "required": false,
+      "default": null
+     }
+    ],
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": false,
+     "openWorldHint": true
+    },
+    "meta": null
+   },
+   {
+    "name": "nfc_cu_ul_scan",
+    "description": "정확한 case/session의 ready CU reader에서 MODIFY gate 뒤 nfc_cu_identify와 같은 mode(1002)·고정14A scan과 UID7/ATQA0044/SAK00/ATS0 Type 2 후보의 단독 GET_VERSION(f4, keep=0) 하나만 보내 Ultralight 계열 (원조 UL/UL C, EV1 MF0UL11/MF0ULH11/MF0UL21/MF0ULH21)인지 확인한다. READ(0x30)·인증·쓰기·RATS 직접 송신은 없다. Ultralight 계열이 아니면(NTAG·Classic·none·type2_other_version 등) 사람 증명 요청·scan 사실 없이 nfc_family_unsupported로 끝나고 세션은 ready로 남는다. Ultralight 계열이면 CU 사용권을 놓은 뒤 tag-ownership 사람 증명(이 태그가 사용자 소유이거나 소유자의 서면 허가를 받음)을 찾고 없으면 기다리지 않고 attestation_required를 돌려준다. 사람이 별도 터미널에서 pweh attest <id>로 답한 뒤 같은 인자로 다시 호출하면 frame을 새로 보내 같은 계열·지문·케이스일 때만 scan 사실(US- scan_ref)을 남긴다. 거부(denied)면 다시 호출하지 말고 보고한다. 사용자 소유 태그는 사용한 교통 승차권 같은 자격증명도 읽기 전용 범위에 들어가며 쓰기·복제·에뮬레이션·인증·키 탐색은 없다. 원시 UID·version은 반환하지 않고 Ultralight 전용 domain의 케이스 솔트 지문 ul_identity_digest만 돌려준다. GET_VERSION status0x01·빈 응답은 원조 UL의 무응답과 scan 뒤 태그가 field를 벗어난 경우가 섞여 원조 UL/UL C로 보이므로 그 결과는 태그를 움직이지 않은 채 nfc_cu_identify로 다시 확인한다. scan_ref는 nfc_tag_inventory_add로 inventory(UT- tag_ref)에 올린다. 페이지 snapshot 읽기는 아직 없다. approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.",
     "params": [
      {
       "name": "case_id",

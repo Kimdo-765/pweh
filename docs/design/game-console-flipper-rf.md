@@ -28,12 +28,20 @@
 | 시판 콘솔(Switch/PS/Xbox) | 가능(태그 쪽만) | 정적 분석 불가(암호화) | **불가** — 세이브가 암호화·서명돼 있어 수정은 복제 방지 우회 경계를 넘는다 | 가능(입력 경로가 맞으면) | 캡처 카드, 입력 방식 |
 | 아케이드 기판 | 해당 없음이 많음 | 가능(덤프가 있으면) | 구현: NVRAM 원시 파일 비교·체크섬 후보 분석·명시 값의 로컬 계획. 기기 쓰기 준비는 후속 | 가능(free-play 설정, 동전 라인 금지) | JAMMA 접점 |
 
-NFC·플레이 열의 “가능”은 후속 설계의 기대치다. 현재 NFC 구현은 NTAG21x 스캔과 등록 파일 검사·비교에 한정된다. 현재 세이브 도구의 입력·패치 제한은 §3.5를 따른다.
+NFC·플레이 열의 “가능”은 후속 설계의 기대치다. 현재 NFC 구현은 NTAG21x 스캔과 등록 파일 검사·비교, 그리고 소유 증명(`tag-ownership`)을 받은 Ultralight 계열 태그의 READ 없는 scan·inventory 등록에 한정된다(Ultralight 페이지 스냅샷 읽기는 다음 단계). 현재 세이브 도구의 입력·패치 제한은 §3.5를 따른다.
 
 ### 1.3 범위 밖 (항상 거부 — 코드 규칙으로 만든다)
 
 - 사용자 소유(또는 서면 허가) 기기만. 결과는 로컬에만: 온라인 리더보드·대회·계정 제출 금지, 나중에 동기화되지 않게 안내.
 - 결제·교통·출입·호텔·신분 자격증명: 14443-4 계열 NFC, 출입용 125 kHz·iButton 계열(§6.2). 남의 태그·피규어 복제, 다운로드한 덤프 에뮬레이션.
+  - **개정(2026-11-02, 저장소 소유자 결정)**: 소유자는 "not credential이어도 본인 소유면 상관없음", "현재 GVB 카드로 진행"이라고 결정했다.
+    그래서 **MIFARE Ultralight 계열**(MF0ICU1, MF0ICU2의 공개 페이지, EV1 MF0UL11/MF0UL21/MF0ULH11/MF0ULH21)에 한해, 사람이 `tag-ownership`
+    증명으로 "사용자 본인 소유이거나 소유자의 서면 허가를 받은 태그"라고 확인한 한 장은 자격증명(예: 사용자 본인의 사용했거나 만료된 GVB 종이 승차권,
+    EV1 MF0UL11)이어도 저장 페이지를 **읽기 전용**으로 스냅샷할 수 있다. 첫 단계는 READ 없는 scan·inventory 등록이고 페이지 읽기는 다음 단계다.
+    그대로 금지인 동작: 모든 쓰기(0xA2/0xA0)·매직 UID 쓰기, 에뮬레이션·복제·재생, PWD_AUTH(0x1B), UL C 3DES 인증(0x1A)과 CU 2018–2022,
+    키 복구, READ_SIG/READ_CNT/FAST_READ/CHECK_TEARING/VCSL.
+    기존 §6.2 판정이 그대로인 계열: LF 125 kHz(거부·ID 마스킹), MIFARE Classic(Mini/1K/TNP3xxx는 기존 목적+소유 증명 행, 2K/4K는 거부), Plus·ISO14443-4·EMV·DESFire(거부).
+    "소유면 충분하다"는 이 Ultralight 읽기 전용 예외 밖의 다른 계열·도구로 넓히지 않는다.
 - 복제 방지·저작권 보호 우회: amiibo 류 콘솔 키 기반 태그 암호(복호·재암호·재서명), 따로 파는 토큰·DLC·온라인 구매로 여는 콘텐츠(entitlement), 온라인 동기화되는 서명·HMAC 위조. 플랫폼·DRM 키는 존재만 보고(값 마스킹, 내보내기·복호 금지).
 - 키 복구(darkside/nested/hardnested/사전/mfkey32 'Detect Reader')와 PWD 무차별 대입·UID 기반 PWD 생성기, 매직 UID 태그 쓰기, 실물 태그 쓰기.
 - **송신 축소(사용자 경계보다 좁힘)**: 사용자는 "허용 대역에서 승인 시 송신"을 허락했지만, 이 설계는 **Sub-GHz·IR·LF 에뮬레이션 송신을 넣지 않는다**.
@@ -268,12 +276,18 @@ read64KiB 안에서 최신 pending 하나·drop·tail·EOF·수신 시각을 기
 | 계열 | 판정 |
 |---|---|
 | NTAG21x (T2T, SAK 0x00, GET_VERSION 으로 확인) | 허용 |
-| MIFARE Ultralight/UL-C/EV1 (교통·행사 티켓에도 쓰임) | 증명 후 허용 |
+| MIFARE Ultralight/UL-C/EV1 (교통·행사 티켓에도 쓰임) | 증명 후 허용 — 증명은 **소유**(`tag-ownership`: 사용자 본인 소유 또는 소유자 서면 허가). 자격증명이어도 읽기 전용 스냅샷만(2026-11-02 개정, 아래) |
 | MIFARE Classic Mini/1K/TNP3xxx (SAK 0x09/0x08/0x01), ISO15693/SLIX | 증명 후 허용 — 증명 문구는 **목적+소유**: "이 케이스의 콘솔과 쓰는 게임·장난감 태그이고 결제·교통·출입·호텔·신분 자격증명이 아님" |
 | SAK bit 0x20(14443-4: EMV·DESFire·SEOS·JCOP), Classic 4K/2K(0x18/0x19)·Plus, 14443-B, FeliCa(아케이드 계정 카드 포함), ST25TB, Type 4 | 거부 — 더 조작하지 않고 probe 파일 삭제 |
 | 125 kHz 출입 계열: EM4100/EM-Marin, HID Prox(H10301), Indala, AWID, ioProx, Paradox, Keri, Gallagher, Nexwatch, PAC/Stanley, Viking, Pyramid, Jablotron | 거부(ID 마스킹). 예외: ID 마다 "장난감·동물·시험용 태그" 사람 증명 |
 | iButton DS1990A, Cyfral, Metakom (현관·인터폰 키) | 거부(같은 예외) |
 
+- **Ultralight 개정(2026-11-02)**: 저장소 소유자의 결정 "not credential이어도 본인 소유면 상관없음", "현재 GVB 카드로 진행"에 따라 Ultralight 계열 행의
+  증명은 목적(게임·장난감 태그·자격증명 아님)이 아니라 소유다. 질문은 `owned_tag` 하나("방금 CU 리더에 올려 스캔한 태그 한 장(위 대상의 계열·지문)은
+  내가 소유했거나 소유자의 서면 허가를 받은 것이다")이며 기존 `tag-purpose` 종류와 문구는 바꾸지 않았다(그 문구는 승차권에 대해 사람이 사실과 다르게
+  답하게 만든다). subject 는 계열·Ultralight 전용 케이스 솔트 지문·정책 프로필이고 원시 UID를 넣지 않는다. 예외는 저장 페이지의 읽기 전용 스냅샷뿐이며
+  쓰기(0xA2/0xA0)·매직 UID 쓰기·에뮬레이션·복제·재생·PWD_AUTH(0x1B)·UL C 3DES(0x1A)·CU 2018–2022·키 복구·READ_SIG/READ_CNT/FAST_READ/CHECK_TEARING/VCSL은
+  그대로 금지다. LF 125 kHz·Classic/Plus/ISO14443-4/EMV/DESFire 행은 바뀌지 않는다.
 - 가져온 태그 덤프는 이 케이스에서 실제로 스캔·인벤토리에 올린 태그와 UID/ATQA/SAK 가 같을 때만 받는다(소유 증명, 다운로드 덤프 차단).
 - 에뮬레이션 입력은 인벤토리 태그 읽기 또는 그 읽기에 콘솔이 쓴 `.shd` 와 **sha256 이 같아야** 한다(편집·합성 이미지 금지 — 파생 변형은 §10 결정, 기본 없음). 출처는 출처 원장으로 확인한다(common-core §4).
 - 키·비밀번호(콘솔 PWD_AUTH, MIFARE 키)·롤링코드는 케이스 파일에만 두고 응답·보고서·게이트 action·감사 기록에는 솔트 다이제스트만.

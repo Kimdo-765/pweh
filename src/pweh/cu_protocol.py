@@ -15,6 +15,12 @@ scan 기록·GET_VERSION 응답의 닫힌 분류표와 §6.2 정책을 recipe에
 LF 식별 프로필 ``LF_IDENTIFY``(``cu-lf125-identify-v2.3.0-v1``)도 reader 프로필 집합 밖의 별도 행이다.
 125 kHz 고정 scan 일곱 개(``CuLfScan``)의 순서·payload·성공 길이·§6.2 정책을 recipe에 담아 hash로 고정한다.
 T55xx/EM4x05·쓰기·스니프·emulator 명령은 만들 수 없다. 근거는 docs/references/cu-lf-identify.md 에 행마다 적는다.
+
+Ultralight 계열 프로필 ``UL_READ``(``cu-ultralight-v2.3.0-v1``)도 reader 프로필 집합 밖의 별도 행이다.
+HF 식별 recipe hash에 결속하며 다섯 Ultralight 계열의 페이지 범위·보류 페이지·사람 증명(tag-ownership) 질문 hash를
+recipe에 담는다. READ builder는 f4(keep=0) 단독 activation과 0x2C 미만의 보류되지 않은 page만 만든다.
+UL scan 사실 검증은 별도 닫힌 집합 ``UL_KNOWN``의 정확한 이름 조회 뒤 hash·commit 전체 일치를 요구한다
+(다시 고정할 때는 새 이름을 쓰고 이전 행을 검증 전용으로 남긴다).
 """
 from __future__ import annotations
 
@@ -809,3 +815,260 @@ def classify_lf_scan(scan: CuLfScan, frame: CuFrame) -> CuLfReply:
     if len(data) != spec.found_length:
         _error("nfc_scan_invalid")
     return CuLfReply(scan, True, spec.family, None, data)
+
+
+# Ultralight 계열 recipe: HF 식별과 같은 scan wire(1002→2000→f4 GET_VERSION, READ 0)로 계열을 확인하고,
+# 사람이 "소유했거나 소유자의 서면 허가를 받은 태그"라고 증명(tag-ownership)한 뒤에만 scan 사실을 남긴다.
+# 페이지 READ(0x30, 페이지마다 f4 단독 activation)의 계열별 범위·보류 페이지·멈춤 규칙도 이 hash에 포함한다.
+# reader 프로필 집합(KNOWN) 밖의 별도 행이며 NTAG 원장·snapshot 검증에는 쓰지 않는다. 근거는 MF0ICU1 Rev 3.9,
+# MF0ICU2 Rev 3.5, MF0ULX1 Rev 3.3과 v2.3.0 rc522.c·app_cmd.c다(docs/references/cu-hf-identify.md).
+_UL_READ_RECIPE = (
+    '{"app_version":"2.3","authentication":false,"commands":[1002,2000,2010],"crc_append":true,'
+    '"crc_check":true,"digest_domain":"pweh.nfc-ultralight-tag/v1","families":{'
+    '"ultralight_ev1_mf0ul11":{"last_target":17,"pages_total":20,"version":"0004030101000b03",'
+    '"withheld":{"pwd_pack_readback_zero":[18,19]}},'
+    '"ultralight_ev1_mf0ul21":{"last_target":38,"pages_total":41,"version":"0004030101000e03",'
+    '"withheld":{"pwd_pack_readback_zero":[39,40]}},'
+    '"ultralight_ev1_mf0ulh11":{"last_target":17,"pages_total":20,"version":"0004030201000b03",'
+    '"withheld":{"pwd_pack_readback_zero":[18,19]}},'
+    '"ultralight_ev1_mf0ulh21":{"last_target":38,"pages_total":41,"version":"0004030201000e03",'
+    '"withheld":{"pwd_pack_readback_zero":[39,40]}},'
+    '"ultralight_or_ultralight_c":{"last_target":43,"pages_total":48,"version":null,'
+    '"version_replies":["00-empty","01-empty"],"withheld":{"key_never_readable":[44,45,46,47]}}},'
+    '"firmware_commit":"4e1a5b267b9ed33559e0e2c9dad61d61eaf64ba1","git_version":"v2.3.0",'
+    '"identify_profile":"cu-hf14a-identify-v2.3.0-v1",'
+    '"identify_profile_sha256":"d420c720c19ab0f4923879f7d53917a82fb4775f8115e98360ea17f3cf27d90b",'
+    '"min_retained_pages":3,"model":"chameleon-ultra",'
+    '"never_sent_opcodes":["1a","1b","39","3a","3c","3e","4b","a0","a2"],"overlap_check":true,'
+    '"page_attribution_bytes":4,"policy":"attestation_required","policy_profile":"ultralight-attested-v1",'
+    '"profile":"cu-ultralight-v2.3.0-v1","raw_command":2010,"raw_options":{"read":"f4","version":"f4"},'
+    '"read_activation":"per_page","read_opcode":"30","reader_mode":true,"rf_timeout_ms":100,'
+    '"scan_page_reads":0,"stop":{"nak_ends_read":true,"nak_min_page":3,'
+    '"ready_after":["end_of_targets","nak_with_rollover","nak_without_rollover"]},'
+    '"tag_ownership":{"binding_scope":"case","decided_via":["cli-tty","elicitation"],"kind":"tag-ownership",'
+    '"question_ids":["owned_tag"],'
+    '"questions_sha256":"dc25a3def996c4057831e39976a03c307c19a782949f9b7be179349f7085ec39"},'
+    '"type2":{"atqa_msb":"0044","ats_length":0,"sak":"00","uid_length":7},"uid_check":["uid7","bcc0","bcc1"]}'
+)
+_UL_READ_SHA256 = "fde75c1da05251b816628e491b9e554d556857f455b39dc439df46a78225b728"
+UL_READ = _frozen_profile(_UL_READ_RECIPE, _UL_READ_SHA256, b"\x02\x03")
+# UL-C 키 페이지 0x2C–0x2F는 어떤 경우에도 읽을 수 없다(MF0ICU2 §7.5.7). builder가 이 이상을 만들지 않는다.
+UL_READ_PAGE_LIMIT = 0x2c
+_UL_NEVER_SENT = frozenset(("1a", "1b", "39", "3a", "3c", "3e", "4b", "a0", "a2"))
+# 계열 행마다 기대하는 datasheet 기하: (전체 페이지, 보류 이유, 끝 보류 페이지 수).
+# EV1은 GET_VERSION storage size byte(version[6])로 고른다. 0x0b는 MF0UL11/MF0ULH11 20페이지, 0x0e는 MF0UL21/MF0ULH21
+# 41페이지이며 끝 두 페이지가 PWD·PACK(MF0ULX1 §8.5·§8.6.1, 읽으면 00h)이다. 원조 UL/UL C(version 없음)는 48페이지 중
+# 0x2C–0x2F가 UL C 키 페이지(MF0ICU2 §7.5.7, 읽을 수 없음)다. recipe 행이 이 기하와 다르면 import가 실패한다.
+_UL_LAYOUTS = MappingProxyType({0x0b: (20, "pwd_pack_readback_zero", 2), 0x0e: (41, "pwd_pack_readback_zero", 2),
+                                None: (48, "key_never_readable", 4)})
+
+
+@dataclass(frozen=True)
+class CuUlSpec:
+    """Ultralight 계열 한 행의 실행 값. withheld는 (이유, 페이지 번호들)의 고정 tuple이다."""
+
+    family: str
+    version: bytes | None
+    pages_total: int
+    last_target: int
+    withheld: tuple
+
+    def __post_init__(self) -> None:
+        valid = (type(self.family) is str and (self.version is None or (type(self.version) is bytes
+                                                                     and len(self.version) == 8))
+                 and type(self.pages_total) is int and type(self.last_target) is int
+                 and type(self.withheld) is tuple
+                 and all(type(row) is tuple and len(row) == 2 and type(row[0]) is str and type(row[1]) is tuple
+                         and all(type(page) is int for page in row[1]) for row in self.withheld))
+        if not valid:
+            _error()
+
+    @property
+    def withheld_pages(self) -> frozenset:
+        return frozenset(page for _, pages in self.withheld for page in pages)
+
+
+def _ul_tables(profile: CuReaderProfile) -> tuple:
+    """recipe 하나에서 Ultralight 실행 표를 만들고 HF 식별 표와의 닫힌 관계를 import 단계에서 확인한다."""
+    try:
+        r = json.loads(profile.recipe)
+        identify = json.loads(IDENTIFY.recipe)
+        families = r["families"]
+        expected = {family for family, policy in HF_POLICIES.items()
+                    if policy == "attestation_required" and family.startswith("ultralight")}
+        legacy_replies = {key for key, value in _HF_VERSION_FALLBACKS.items() if value == "ultralight_or_ultralight_c"}
+        owner = r["tag_ownership"]
+        stop = r["stop"]
+        never = r["never_sent_opcodes"]
+        valid = (profile.profile == "cu-ultralight-v2.3.0-v1" and profile.profile not in KNOWN
+                 and profile.profile not in (IDENTIFY.profile, LF_IDENTIFY.profile)
+                 and (profile.firmware_commit, profile.app_version, profile.git_version, profile.app_wire)
+                 == (LIVE.firmware_commit, LIVE.app_version, LIVE.git_version, LIVE.app_wire)
+                 and r["model"] == "chameleon-ultra" and r["reader_mode"] is True
+                 and r["commands"] == [1002, 2000, 2010] and r["raw_command"] == 2010
+                 and r["raw_options"] == {"version": "f4", "read": "f4"}
+                 and r["read_activation"] == "per_page" and r["read_opcode"] == "30"
+                 and r["authentication"] is False
+                 and type(r["scan_page_reads"]) is int and r["scan_page_reads"] == 0
+                 and r["crc_append"] is True and r["crc_check"] is True
+                 and type(r["rf_timeout_ms"]) is int and r["rf_timeout_ms"] == 100
+                 and type(r["page_attribution_bytes"]) is int and r["page_attribution_bytes"] == 4
+                 and r["identify_profile"] == IDENTIFY.profile
+                 and r["identify_profile_sha256"] == IDENTIFY.profile_sha256
+                 and r["type2"] == identify["type2"]
+                 and type(r["digest_domain"]) is str and r["digest_domain"].isascii()
+                 and r["digest_domain"].encode("ascii") != HF_DIGEST_DOMAIN
+                 and r["digest_domain"] == "pweh.nfc-ultralight-tag/v1"
+                 and type(families) is dict and len(expected) == 5 and set(families) == expected
+                 and r["policy"] == "attestation_required"
+                 and all(HF_POLICIES[family] == r["policy"] for family in families)
+                 and r["policy_profile"] == "ultralight-attested-v1"
+                 and type(never) is list and set(never) == _UL_NEVER_SENT and len(never) == len(_UL_NEVER_SENT)
+                 and "30" not in never and "60" not in never
+                 and r["overlap_check"] is True and r["uid_check"] == ["uid7", "bcc0", "bcc1"]
+                 and type(r["min_retained_pages"]) is int and r["min_retained_pages"] == 3
+                 and type(stop) is dict and set(stop) == {"nak_ends_read", "nak_min_page", "ready_after"}
+                 and stop["nak_ends_read"] is True and type(stop["nak_min_page"]) is int
+                 and stop["nak_min_page"] == r["min_retained_pages"]
+                 and stop["ready_after"] == ["end_of_targets", "nak_with_rollover", "nak_without_rollover"]
+                 and type(owner) is dict
+                 and set(owner) == {"binding_scope", "decided_via", "kind", "question_ids", "questions_sha256"}
+                 and owner["kind"] == "tag-ownership" and owner["binding_scope"] == "case"
+                 and owner["decided_via"] == ["cli-tty", "elicitation"] and owner["question_ids"] == ["owned_tag"]
+                 and type(owner["questions_sha256"]) is str and len(owner["questions_sha256"]) == 64
+                 and all(c in "0123456789abcdef" for c in owner["questions_sha256"]))
+        specs = {}
+        if valid:
+            for family, row in families.items():
+                legacy = family == "ultralight_or_ultralight_c"
+                keys = {"last_target", "pages_total", "version", "withheld"} | ({"version_replies"} if legacy else set())
+                withheld = row["withheld"] if type(row) is dict else None
+                if (type(row) is not dict or set(row) != keys or type(withheld) is not dict or not withheld
+                        or type(row["pages_total"]) is not int or row["pages_total"] not in (20, 41, 48)
+                        or type(row["last_target"]) is not int
+                        or not r["min_retained_pages"] - 1 <= row["last_target"] < UL_READ_PAGE_LIMIT):
+                    valid = False
+                    break
+                pages = [page for value in withheld.values() for page in value]
+                if (any(type(value) is not list or value != sorted(value) for value in withheld.values())
+                        or any(type(page) is not int for page in pages)
+                        or pages != list(range(row["last_target"] + 1, row["pages_total"]))):
+                    valid = False
+                    break
+                if legacy:
+                    version = None
+                    if (row["version"] is not None or type(row["version_replies"]) is not list
+                            or len(row["version_replies"]) != len(legacy_replies)
+                            or set(row["version_replies"]) != legacy_replies):
+                        valid = False
+                        break
+                else:
+                    if type(row["version"]) is not str or len(row["version"]) != 16:
+                        valid = False
+                        break
+                    version = bytes.fromhex(row["version"])
+                    if _HF_VERSIONS.get(version) != family:
+                        valid = False
+                        break
+                total, reason, count = _UL_LAYOUTS.get(None if version is None else version[6], (None, None, 0))
+                if (row["pages_total"] != total or set(withheld) != {reason}
+                        or withheld[reason] != list(range(total - count, total))):
+                    valid = False
+                    break
+                specs[family] = CuUlSpec(family, version, row["pages_total"], row["last_target"],
+                                         tuple((reason, tuple(value)) for reason, value in sorted(withheld.items())))
+    except (KeyError, TypeError, ValueError, AttributeError, CuProtocolError):
+        valid = False
+    if not valid or set(specs) != expected:
+        raise RuntimeError("CU Ultralight recipe의 계열·페이지 표가 닫힌 관계와 다릅니다.")
+    ownership = MappingProxyType({"kind": owner["kind"], "binding_scope": owner["binding_scope"],
+                                  "decided_via": tuple(owner["decided_via"]),
+                                  "question_ids": tuple(owner["question_ids"]),
+                                  "questions_sha256": owner["questions_sha256"]})
+    return (MappingProxyType(specs), r["digest_domain"].encode("ascii"), r["policy_profile"], ownership)
+
+
+UL_SPECS, UL_DIGEST_DOMAIN, UL_POLICY_PROFILE, UL_OWNERSHIP = _ul_tables(UL_READ)
+UL_FAMILIES = frozenset(UL_SPECS)
+# Ultralight scan 사실을 검증하는 닫힌 프로필 집합(이름 → 고정 행). NTAG ``KNOWN``처럼 정확한 이름으로만 찾고
+# hash·commit 전체 일치를 요구한다. 새 scan은 언제나 live ``UL_READ``로 기록한다.
+# UL_READ를 다시 고정할 때는 같은 이름을 다시 쓰지 않는다. 새 이름의 행을 UL_READ로 두고, 이전 행은 고정 hash literal
+# (``_frozen_profile``)로 이 집합에 검증 전용으로 남긴다. 이전 행은 현재 ``_ul_tables``·IDENTIFY 관계로 다시 검사하지
+# 않으므로 IDENTIFY를 다시 고정해도 이미 기록한 UL scan·inventory 행은 그대로 검증된다. 같은 이름에 다른 hash를 두면
+# 이전 행은 모두 오염으로 거부된다. 모든 행은 같은 계열 집합·지문 domain·정책 프로필을 써야 한다(바꾸려면 새 namespace다).
+UL_KNOWN = MappingProxyType({UL_READ.profile: UL_READ})
+
+
+def _ul_known_valid() -> bool:
+    try:
+        for name, row in UL_KNOWN.items():
+            r = json.loads(row.recipe)
+            if (type(row) is not CuReaderProfile or row.profile != name or name in KNOWN
+                    or name in (IDENTIFY.profile, LF_IDENTIFY.profile)
+                    or r["digest_domain"].encode("ascii") != UL_DIGEST_DOMAIN
+                    or r["policy_profile"] != UL_POLICY_PROFILE or set(r["families"]) != UL_FAMILIES):
+                return False
+        return UL_KNOWN.get(UL_READ.profile) is UL_READ
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return False
+
+
+if (UL_READ.profile in KNOWN or len(KNOWN) != 2 or UL_DIGEST_DOMAIN == HF_DIGEST_DOMAIN
+        or set(UL_KNOWN) & set(KNOWN) or not _ul_known_valid()):
+    raise RuntimeError("CU Ultralight 프로필이 reader 프로필 집합 또는 식별 지문 domain과 겹칩니다.")
+
+
+def known_ul_profile(name: object) -> CuReaderProfile | None:
+    """Ultralight scan 프로필을 정확한 str 이름 하나로만 조회한다. 호출자는 hash·commit 전체 일치를 따로 확인한다."""
+    if type(name) is not str:
+        return None
+    return UL_KNOWN.get(name)
+
+
+def build_ul_read(spec: CuUlSpec, page: int) -> bytes:
+    """Ultralight 계열 READ 한 frame. f4(auto-select·keep=0) 단독 activation만 만든다.
+
+    고정 표의 같은 행 객체(``UL_SPECS``)와 0..last_target의 보류되지 않은 정수 page만 받는다.
+    keep=1(fc/ec/e4) option·0x2C 이상·PWD/PACK·UL-C 키 페이지는 만들 수 없고 option 인자도 없다.
+    """
+    if (type(spec) is not CuUlSpec or UL_SPECS.get(spec.family) is not spec or type(page) is not int
+            or not 0 <= page <= spec.last_target or page >= UL_READ_PAGE_LIMIT or page in spec.withheld_pages):
+        _error()
+    return _encode(2010, b"\xf4\x00\x64\x00\x10\x30" + bytes((page,)))
+
+
+@dataclass(frozen=True, repr=False)
+class CuUlReply:
+    """Ultralight READ 응답 한 개의 닫힌 분류. data는 16B일 때만 보관하며 repr로 내보내지 않는다."""
+
+    kind: str
+    data: bytes | None
+    status: int
+
+    def __post_init__(self) -> None:
+        valid = type(self.kind) is str and type(self.status) is int and 0 <= self.status <= 0xffff
+        if valid and self.kind == "data":
+            valid = type(self.data) is bytes and len(self.data) == 16 and self.status == 0
+        elif valid and self.kind == "nak":
+            valid = self.data is None and self.status == 0
+        elif valid:
+            valid = self.kind == "rf_error" and self.data is None
+        if not valid:
+            _error("nfc_scan_invalid")
+
+
+def classify_ul_read(frame: CuFrame) -> CuUlReply:
+    """2010 READ 응답을 data(status0·16B)·nak(status0·빈 payload)·rf_error(그 밖)로 나눈다.
+
+    check_crc에서 3B 미만 응답은 빈 payload와 전송 상태(오류 없으면 0x00)가 되므로(rc522.c L1653-1657)
+    1–2B 쓰레기 응답은 4bit NAK와 구별할 수 없다. 끝 roll-over 대조가 그 피해를 줄인다.
+    잘못된 응답 명령은 owner가 먼저 거부하며 이 함수도 nfc_scan_invalid로 막는다.
+    """
+    if type(frame) is not CuFrame or frame.command != 2010:
+        _error("nfc_scan_invalid")
+    data = frame.data
+    if frame.status == 0 and len(data) == 16:
+        return CuUlReply("data", data, 0)
+    if frame.status == 0 and not data:
+        return CuUlReply("nak", None, 0)
+    return CuUlReply("rf_error", None, frame.status)

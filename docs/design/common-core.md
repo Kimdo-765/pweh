@@ -57,7 +57,7 @@
 
 > **구현 상태 (I1, 2026-10-20)**: 코어 구현 — `src/pweh/safety/attestations.py`(`AttestationStore`·`Attestor`), `rt().attest(...)` → `AttestationDecision`
 > (충족이 아니면 `attestation_response(...)`), 사람 명령 `pweh attest <id>`·`pweh attest --list`(`--all`)·`pweh attest --revoke <id>`(모두 TTY 전용),
-> 케이스 사본 `attestations.json`(0400, 증거 아님). 계약은 architecture.md §4, safety.md §3.5·§4 규칙 12. **증명을 요구하는 도구는 I2b 의 `fw_patch_build`(세이브 쓰기 명령을 보여 주기 전 `console-offline`)와 I3b 의 `forensics_acquisition_attest`(SD 카드 이미지를 쓰기 방지 장치로 만들었는지 — `write-blocker`)와 증분 B 의 `emu_start`(가져온 파일의 `provenance-import`)다**.
+> 케이스 사본 `attestations.json`(0400, 증거 아님). 계약은 architecture.md §4, safety.md §3.5·§4 규칙 12. **증명을 요구하는 도구는 I2b 의 `fw_patch_build`(세이브 쓰기 명령을 보여 주기 전 `console-offline`)와 I3b 의 `forensics_acquisition_attest`(SD 카드 이미지를 쓰기 방지 장치로 만들었는지 — `write-blocker`)와 증분 B 의 `emu_start`(가져온 파일의 `provenance-import`)와 증분 7A 의 `nfc_cu_ul_scan`·`nfc_tag_inventory_add`(Ultralight 계열 태그의 `tag-ownership` — 사용자 소유 또는 소유자 서면 허가, subject 는 계열·Ultralight 전용 케이스 솔트 지문·정책 프로필이며 원시 UID 없음, 케이스 바인딩 7일)다**.
 > 설계와 다른 점: 사람 쪽은 `pweh approve` 의 증명 화면이 아니라 별도 명령 `pweh attest` 다. `require` 에 서버가 지금 묻는 질문을 넘겨 질문이 늘면 예전 증명을 쓰지 않는다.
 > 유효 기간은 범위별 코드 기본값(case 7일·connection 12시간·job 24시간·instrument 는 철회까지, 서버가 `valid_seconds` 60초~90일), pending 은 `approval_ttl_seconds`,
 > 확인 경로는 `safety.approval_methods`(새 설정 키 없음)다. 연결 해제·재연결·장치 시리얼 변화에 따른 무효화는 바인딩·subject 지문으로만 된다(연결 토큰을 쓰는 서버가 아직 없다).
@@ -70,7 +70,8 @@
 물리 부작용이 있는 MODIFY 의 전제 조건을 에이전트가 스스로 채울 수 없게 해야 한다. 기존 승인(ApprovalStore)은 **한 번 쓰면 사라지고(consume) 900초 만료**라 재사용 증명에 맞지 않는다.
 
 - **위치**: 코어 `src/pweh/safety/attestations.py`, 레코드는 `.pweh/state/attestations/`(승인 파일처럼 에이전트 수정 금지 — AGENTS.md·safety.md 에 명시). 자기 id 접두(`att-…`).
-- **레코드**: `kind`(예: `tag-purpose`, `wiring`, `console-offline`, `payment-locked`, `hdmi-source`, `bridge-serial`, `write-blocker`, `provenance-import`, `instrument-pin`, `radio-target`, `module-kc`), `subject`(UID+ATQA+SAK, 배선 계획 해시+측정 전압, 브리지 iSerial, 계측기 MAC, 캡처 소스, 파일 sha256 …),
+- **레코드**: `kind`(예: `tag-purpose`, `tag-ownership`, `wiring`, `console-offline`, `payment-locked`, `hdmi-source`, `bridge-serial`, `write-blocker`, `provenance-import`, `instrument-pin`, `radio-target`, `module-kc`), `subject`(태그 계열+케이스 솔트 지문(원시 UID·ATQA·SAK는 넣지 않음), 배선 계획 해시+측정 전압, 브리지 iSerial, 계측기 MAC, 캡처 소스, 파일 sha256 …),
+  레코드 전체(subject 포함)가 케이스 사본 `cases/<id>/attestations.json`·`pweh attest` 화면에 그대로 보이므로 subject 에 원시 태그 식별값을 넣지 않는다(2026-11-02 정정: 이전 문구 "UID+ATQA+SAK"는 구현과 다르다).
   `binding`(케이스 전체 / 연결 토큰(JTAGulator 처럼 연결마다) / job / 계측기 전역(철회할 때까지)), `expires_at`, `answers`(사람이 항목마다 y/n 한 기록과 **사람이 입력한 값** — 측정 전압, MAC 등), `decided_via`(cli-tty 또는 elicitation).
 - **요청**: 서버가 필요한 증명이 없으면 `status: "attestation_required"` 와 `attestation_id`, 확인 항목 목록을 돌려준다. 사람이 `pweh approve <id>` 하면 **증명 전용 화면**(항목마다 y/n)이 뜬다.
   이름은 기존 `pweh case attest`(소유/허가 증명)와 구별한다(예: `pweh attest <id>`).

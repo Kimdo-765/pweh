@@ -8,7 +8,10 @@
 구현 검증은 가짜 transport·합성 응답으로 했다. 실제 RC522·실물 카드에서의 동작은 아직 확인하지 않았다.
 
 교통·결제·출입·호텔·신분 자격증명은 [설계 §1.3](../design/game-console-flipper-rf.md#13-범위-밖-항상-거부--코드-규칙으로-만든다)에 따라
-항상 범위 밖이다. `policy`가 `attestation_required`여도 그런 카드에는 사람 증명으로 범위를 넓히지 않는다.
+범위 밖이다. `policy`가 `attestation_required`여도 그런 카드에는 사람 증명으로 범위를 넓히지 않는다.
+**예외(2026-11-02 개정)**: Ultralight 계열(`ultralight_*` 다섯 family)은 사람이 `tag-ownership` 증명으로 사용자 본인 소유(또는 소유자의 서면 허가)라고
+확인한 한 장이면 사용한 교통 승차권 같은 자격증명이어도 `nfc_cu_ul_scan`으로 scan·inventory에 올릴 수 있다(읽기 전용 페이지 스냅샷 대상, 쓰기·복제·에뮬레이션·인증 없음).
+이 예외는 다른 계열로 넓히지 않는다.
 식별은 "무슨 계열인가"만 알려 주며, 그 카드를 더 다뤄도 된다는 허가가 아니다.
 
 ## 공개 흐름
@@ -122,8 +125,10 @@ GET_VERSION에 응답하지 않은 원조 Ultralight·UL C는 IDLE/HALT로 돌�
 | `mifare_classic_2k`, `mifare_classic_4k`, `mifare_plus_sl2`, `iso14443_4` | `refused` |
 | `none`, `multiple`, `other` | `not_applicable` |
 
-`policy`는 정보다. 현재 PWEH는 NTAG213/215/216만 scan·inventory·읽기를 지원한다. `attestation_required` 계열을
-다루는 도구나 사람 증명 종류는 아직 없으므로 그런 카드에서는 식별 결과를 보고하고 멈춘다.
+`policy`는 정보다. 현재 PWEH는 NTAG213/215/216의 scan·inventory·읽기와, Ultralight 계열(`ultralight_ev1_mf0ul11`, `ultralight_ev1_mf0ulh11`,
+`ultralight_ev1_mf0ul21`, `ultralight_ev1_mf0ulh21`, `ultralight_or_ultralight_c`)의 `tag-ownership` 증명 뒤 READ 없는 scan(`nfc_cu_ul_scan`)·inventory를 지원한다.
+Ultralight 페이지 스냅샷 읽기는 다음 단계다. `type2_other_version`·`type2_version_unreadable`(페이지 배치 미상)과 Classic 계열은
+다루는 도구·사람 증명 종류가 아직 없으므로 식별 결과를 보고하고 멈춘다.
 `refused`는 더 조작하지 않는다. `allowed`도 기존 `nfc_cu_scan`의 별도 MODIFY 게이트를 다시 거친다.
 
 ## 식별 결과
@@ -155,6 +160,7 @@ firmware status `0x01`(RF timeout)은 transport timeout과 다르며 위 표의 
 - SAK `0x08`은 Classic 1K 외에 MIFARE Plus SL1 2K/SE(1K)도, `0x18`은 Plus SL1 4K도 같은 값이다(Table 4).
   `0x18`은 어느 쪽이든 거부지만 `0x08`의 Plus SL1은 §6.2의 Plus 거부 행에 해당할 수 있다. `mifare_classic_1k`는 "Classic 1K 또는 Plus SL1"로 읽는다.
 - GET_VERSION의 status `0x01`에는 scan과 auto-select 사이에 카드가 field를 벗어난 경우도 섞인다. 그 경우도 `ultralight_or_ultralight_c`로 보인다.
+  `nfc_cu_ul_scan`도 같은 표를 쓰므로 그 한 번의 응답으로 다른 Type 2 태그가 원조 UL/UL C scan 사실로 남을 수 있다. 원조 UL/UL C 결과는 다시 식별해 확인한다.
 - `type2_version_unreadable`은 응답 손상이라 같은 카드로 다시 식별하면 다른 계열이 나올 수 있다. 첫 결과와 다시 식별한 결과를 모두 보고한다.
 - scan과 GET_VERSION은 서로 다른 선택(WUPA)이다. version을 낸 카드가 scan의 카드와 같은 실물인지는 검증하지 않는다.
 - 4bit NAK가 status0x00·빈 payload가 되는 경로는 소스에서 확인했지만 실제 RC522에서는 확인하지 않았다.

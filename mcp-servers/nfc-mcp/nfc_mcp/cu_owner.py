@@ -26,7 +26,7 @@ _CODES = frozenset((
     'cu_protocol_invalid', 'cu_model_unsupported', 'cu_firmware_unsupported',
     'cu_reader_required', 'cu_identity_unknown', 'cu_cleanup_unknown',
     'nfc_input_invalid', 'nfc_scan_invalid', 'nfc_family_unsupported', 'nfc_identity_mismatch',
-    'time_limit', 'cancelled', 'busy', 'authorization_required', 'instrument_port',
+    'nfc_attestation_required', 'time_limit', 'cancelled', 'busy', 'authorization_required', 'instrument_port',
     'instrument_identity_unknown', 'port_role_unknown', 'port_role_conflict',
     'port_busy', 'port_lock_busy', 'route_changed',
 ))

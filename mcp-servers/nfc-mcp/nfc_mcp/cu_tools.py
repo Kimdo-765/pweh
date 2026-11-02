@@ -1,4 +1,4 @@
-"""CU 고정 reader 연결·NTAG probe·HF/LF 식별·상태 조회·정리의 MCP 입구."""
+"""CU 고정 reader 연결·NTAG probe·HF/LF 식별·Ultralight 소유 증명 scan·상태 조회·정리의 MCP 입구."""
 from __future__ import annotations
 
 import re
@@ -9,13 +9,13 @@ from typing import Annotated
 import anyio
 from pydantic import Field, StrictStr
 
-from pweh import cu_protocol as CU, nfc_inventory as I, schemas
+from pweh import cu_protocol as CU, nfc_inventory as I, nfc_ul_inventory as UL, schemas
 from pweh.case import CASE_ID_RE
 from pweh.errors import PwehError
 from pweh.mcpkit import (ANN_DEVICE, ANN_LOCAL_WRITE, Context, gate_response,
                          run_blocking, run_blocking_cancellable, safe_tool)
 from pweh.nfc_formats import _NfcFileIdentity
-from pweh.safety import Classification, Risk
+from pweh.safety import Classification, Risk, attestation_response
 
 CaseId = Annotated[StrictStr, Field(max_length=80, pattern=CASE_ID_RE.pattern)]
 SessionId = Annotated[StrictStr, Field(min_length=1, max_length=128)]
@@ -27,13 +27,15 @@ IDENTIFY_SECONDS = 45
 LF_IDENTIFY_SECONDS = 20
 STATUS_SECONDS = 5
 CLOSE_SECONDS = 10
+# UL scan 사실 기록(원장 잠금 안의 색인·증명 재확인)의 별도 예산. 사람 증명을 기다리는 시간은 포함하지 않는다.
+UL_RECORD_SECONDS = 5
 _CODES = frozenset((
     'cu_protocol_invalid', 'cu_model_unsupported', 'cu_firmware_unsupported',
     'cu_reader_required', 'cu_identity_unknown', 'cu_cleanup_unknown',
     'nfc_input_invalid', 'nfc_input_limit', 'nfc_scan_invalid', 'nfc_family_unsupported',
     'nfc_identity_mismatch', 'nfc_provenance_invalid', 'nfc_failed',
     'nfc_snapshot_invalid', 'nfc_source_mismatch', 'nfc_artifact_registration_failed',
-    'nfc_scan_required', 'nfc_input_changed', 'nfc_cleanup_pending',
+    'nfc_scan_required', 'nfc_input_changed', 'nfc_cleanup_pending', 'nfc_attestation_required',
     'cancelled', 'time_limit', 'authorization_required', 'not_found', 'case_error', 'config_error',
     'safety_denied', 'instrument_port', 'instrument_identity_unknown', 'port_role_conflict',
     'port_role_unknown', 'port_scope_unknown', 'port_lease_invalid', 'route_changed', 'busy',
@@ -97,6 +99,14 @@ def approval_action(owner):
 def identify_approval_action(owner):
     """HF 식별의 정확 세션과 고정 식별 recipe만 승인 지문에 추가한다. 페이지 READ·인증은 0이다."""
     return {**owner.action, 'operation': 'hf_identify', 'session_id': owner.session_id,
+            'identify_profile': CU.IDENTIFY.profile, 'identify_profile_sha256': CU.IDENTIFY.profile_sha256,
+            'version_requests_max': 1, 'page_reads': 0, 'authentication': False}
+
+
+def ul_scan_approval_action(owner):
+    """Ultralight scan의 정확 세션·UL 프로필·식별 recipe를 승인 지문에 추가한다. 페이지 READ·인증은 0이다."""
+    return {**owner.action, 'operation': 'ul_scan', 'session_id': owner.session_id,
+            'ul_profile': CU.UL_READ.profile, 'ul_profile_sha256': CU.UL_READ.profile_sha256,
             'identify_profile': CU.IDENTIFY.profile, 'identify_profile_sha256': CU.IDENTIFY.profile_sha256,
             'version_requests_max': 1, 'page_reads': 0, 'authentication': False}
 
@@ -288,6 +298,106 @@ async def _status(namespace, case_id, session_id, ctx):
         summary='CU 배터리·활성 slot·HF14A 설정 조회', run=run)
 
 
+def _ul_observation(result, session_id, reader_binding):
+    """HF 식별 결과에서 Ultralight 계열만 내부 관찰로 바꾼다. 다른 계열은 증명 요청 없이 거부한다."""
+    from .cu_owner import CuIdentify
+    if (type(result) is not CuIdentify or result.session_id != session_id
+            or result.profile != CU.IDENTIFY.profile or type(result.scan) is not CU.CuHfScan
+            or type(result.family) is not str or result.family not in CU.HF_FAMILIES
+            or type(result.get_version_sent) is not bool
+            or result.get_version_sent != (result.scan.scan_class == 'type2')):
+        raise _error('nfc_scan_invalid')
+    if result.family not in CU.UL_FAMILIES:
+        raise _error('nfc_family_unsupported')
+    scan, version = result.scan, result.version
+    if (scan.scan_class != 'type2' or not result.get_version_sent or type(version) is not CU.CuHfVersion
+            or version.family != result.family):
+        raise _error('nfc_scan_invalid')
+    identity = UL.UlIdentity(scan.uid, scan.atqa_msb, bytes((scan.sak,)), version.version)
+    return UL.UlScanObservation(session_id, reader_binding, identity, result.family)
+
+
+async def _ul_scan(namespace, case_id, session_id, approval_id, ctx):
+    """예약→gate→READ 없는 식별 frame→사용권 해제→소유 증명 확인→scan 사실 기록 순서다.
+
+    사람 증명은 CU 사용권을 놓은 뒤 ctx 없이 확인하므로 호출 안에서 사람 응답을 기다리지 않는다.
+    증명이 없으면 관찰한 원시 identity를 버리고 attestation_required를 돌려준다(scan 사실 없음).
+    """
+    cancelled, lock, holder = threading.Event(), threading.Lock(), {}
+    completed = False
+
+    def cancel():
+        cancelled.set()
+        with lock:
+            use = holder.get('use')
+        if use is not None:
+            use.cancel()
+
+    try:
+        _args(case_id, session_id=session_id, approval_id=approval_id)
+        runtime = namespace['rt']()
+        def prepare():
+            from .cu_owner import get_cu_session
+            runtime.case(case_id, hardware=True)
+            owner = get_cu_session(case_id, session_id)
+            use = owner.reserve_use(cancel=cancelled.is_set)
+            with lock:
+                holder['use'] = use
+                abandoned = cancelled.is_set()
+            if abandoned:
+                use.cancel()
+                raise _error('cancelled')
+            return owner, use
+
+        owner, use = await run_blocking_cancellable(prepare, on_cancel=cancel)
+        decision = await runtime.authorize(tool='nfc_cu_ul_scan', action=ul_scan_approval_action(owner),
+            classification=Classification(Risk.MODIFY, 'cu.ul-scan',
+                '고정14A scan과 단독 GET_VERSION 한 번(READ·인증 없음), Ultralight 계열만 사람 증명 뒤 scan 사실 기록'),
+            case_id=case_id, approval_id=approval_id, ctx=ctx,
+            summary='CU Ultralight 계열 확인과 소유 증명 뒤 scan 사실 기록(페이지 읽기 없음)')
+        if not decision.allowed:
+            return gate_response(decision)
+
+        def work():
+            if not use.claim():
+                raise _error('cancelled')
+            try:
+                runtime.case(case_id, hardware=True)
+                result = owner.identify_hf(use, deadline=time.monotonic() + IDENTIFY_SECONDS)
+                observation = _ul_observation(result, session_id, owner._binding())
+                digest = UL.ul_identity_digest(runtime, case_id, observation.identity, observation.family)
+                return observation, digest
+            finally:
+                use.finish()
+
+        observation, digest = await run_blocking_cancellable(work, on_cancel=cancel)
+        # 여기부터 CU 사용권은 없다. 사람 증명은 즉시 결과만 돌려주며 기다리지 않는다.
+        attestation = await UL.ul_attest(runtime, case_id, observation.family, digest, tool='nfc_cu_ul_scan')
+        if not attestation.satisfied:
+            completed = True
+            return attestation_response(attestation, family=observation.family, ul_identity_digest=digest,
+                                        page_reads_sent=False, scan_fact_recorded=False)
+
+        def finish():
+            case = runtime.case(case_id, hardware=True)
+            ref = UL.record_ul_scan(runtime, case, observation, attestation.attestation_id,
+                                    deadline=time.monotonic() + UL_RECORD_SECONDS, cancel=cancelled.is_set)
+            result = ref.to_dict()
+            schemas.validate('nfc-ul-scan', result)
+            if result.get('profile') != CU.UL_READ.profile or result['family'] != observation.family:
+                raise _error('nfc_scan_invalid')
+            return result
+
+        result = await run_blocking_cancellable(finish, on_cancel=cancelled.set)
+        completed = True
+        return result
+    except Exception as exc:
+        raise _fixed(exc) from None
+    finally:
+        if not completed:
+            cancel()
+
+
 def _observation(probe, session_id):
     from .cu_owner import CuProbe
     if (type(probe) is not CuProbe or probe.session_id != session_id
@@ -440,7 +550,7 @@ async def _scan(namespace, case_id, session_id, approval_id, ctx):
 
 
 def register_cu_tools(server, namespace):
-    """기존 NFC 서버에 고정 CU 여섯 도구만 더한다. strict metadata는 서버의 공통 등록 단계가 적용한다."""
+    """기존 NFC 서버에 고정 CU 일곱 도구만 더한다. strict metadata는 서버의 공통 등록 단계가 적용한다."""
     @server.tool(description=(
         '명시 USB CDC CU 포트를 전체 장치 범위로 잠근 뒤 MODIFY gate를 거쳐 연결한다. '
         '115200 8N1/DTR=true/RTS=false이며 모델 Ultra·APP2.3·GIT 정확 v2.3.0·현재 reader 모드를 고정 조회한다. '
@@ -476,7 +586,8 @@ def register_cu_tools(server, namespace):
         '결과는 family·§6.2 policy·UID 길이·ATS 유무·계열별 케이스 솔트 지문이며 원시 UID/ATQA/SAK/version과 scan 사실·inventory는 만들지 않는다. '
         '잘 형성된 분류(none·multiple 포함)는 세션을 ready로 두고 잘못된 응답·transport timeout·취소는 terminal이다. '
         'scan 중 firmware가 SAK bit0x20 태그에 RATS를 보낼 수 있고 RF off·동일 실물은 검증하지 않는다. '
-        '교통·결제·출입 자격증명은 policy와 관계없이 범위 밖이다. '
+        '교통·결제·출입 자격증명은 policy와 관계없이 범위 밖이다. 예외: 사용자 소유(또는 소유자 서면 허가) Ultralight 계열 태그는 '
+        '사용한 교통 승차권도 nfc_cu_ul_scan의 tag-ownership 사람 증명 뒤 scan·inventory(읽기 전용 페이지 snapshot 대상)에 올릴 수 있다. '
         'approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.'
     ), annotations=ANN_DEVICE)
     @safe_tool
@@ -501,6 +612,27 @@ def register_cu_tools(server, namespace):
     async def nfc_cu_lf_identify(case_id: CaseId, session_id: SessionId,
             approval_id: ApprovalId | None = None, ctx: Context | None = None) -> dict:
         return await _lf_identify(namespace, case_id, session_id, approval_id, ctx)
+
+    @server.tool(description=(
+        '정확한 case/session의 ready CU reader에서 MODIFY gate 뒤 nfc_cu_identify와 같은 mode(1002)·고정14A scan과 '
+        'UID7/ATQA0044/SAK00/ATS0 Type 2 후보의 단독 GET_VERSION(f4, keep=0) 하나만 보내 Ultralight 계열 '
+        '(원조 UL/UL C, EV1 MF0UL11/MF0ULH11/MF0UL21/MF0ULH21)인지 확인한다. READ(0x30)·인증·쓰기·RATS 직접 송신은 없다. '
+        'Ultralight 계열이 아니면(NTAG·Classic·none·type2_other_version 등) 사람 증명 요청·scan 사실 없이 '
+        'nfc_family_unsupported로 끝나고 세션은 ready로 남는다. Ultralight 계열이면 CU 사용권을 놓은 뒤 tag-ownership '
+        '사람 증명(이 태그가 사용자 소유이거나 소유자의 서면 허가를 받음)을 찾고 없으면 기다리지 않고 attestation_required를 '
+        '돌려준다. 사람이 별도 터미널에서 pweh attest <id>로 답한 뒤 같은 인자로 다시 호출하면 frame을 새로 보내 같은 계열·'
+        '지문·케이스일 때만 scan 사실(US- scan_ref)을 남긴다. 거부(denied)면 다시 호출하지 말고 보고한다. '
+        '사용자 소유 태그는 사용한 교통 승차권 같은 자격증명도 읽기 전용 범위에 들어가며 쓰기·복제·에뮬레이션·인증·키 탐색은 없다. '
+        '원시 UID·version은 반환하지 않고 Ultralight 전용 domain의 케이스 솔트 지문 ul_identity_digest만 돌려준다. '
+        'GET_VERSION status0x01·빈 응답은 원조 UL의 무응답과 scan 뒤 태그가 field를 벗어난 경우가 섞여 원조 UL/UL C로 보이므로 '
+        '그 결과는 태그를 움직이지 않은 채 nfc_cu_identify로 다시 확인한다. '
+        'scan_ref는 nfc_tag_inventory_add로 inventory(UT- tag_ref)에 올린다. 페이지 snapshot 읽기는 아직 없다. '
+        'approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.'
+    ), annotations=ANN_DEVICE)
+    @safe_tool
+    async def nfc_cu_ul_scan(case_id: CaseId, session_id: SessionId,
+            approval_id: ApprovalId | None = None, ctx: Context | None = None) -> dict:
+        return await _ul_scan(namespace, case_id, session_id, approval_id, ctx)
 
     @server.tool(description=(
         '정확한 case/session의 ready CU에 RF 없이 mode(1002)·배터리(1025)·활성 slot(1018)·HF14A 설정(2200) getter만 보내고 '
@@ -541,5 +673,5 @@ def register_cu_tools(server, namespace):
 
     namespace.update(nfc_cu_connect=nfc_cu_connect, nfc_cu_scan=nfc_cu_scan,
                      nfc_cu_identify=nfc_cu_identify, nfc_cu_lf_identify=nfc_cu_lf_identify,
-                     nfc_cu_status=nfc_cu_status,
+                     nfc_cu_ul_scan=nfc_cu_ul_scan, nfc_cu_status=nfc_cu_status,
                      nfc_cu_disconnect=nfc_cu_disconnect)

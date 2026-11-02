@@ -1,11 +1,11 @@
 ---
 name: nfc-behavior-analysis
-description: 소유·허가된 PWEH 케이스에서 NTAG213/215/216 스캔을 inventory에 등록하고 CU 페이지 스냅샷을 읽거나 보유 NFC 파일의 구조·저장 페이지 차이를 검사한다. CU로 READ 없이 HF 카드 계열이나 125 kHz LF 카드 계열(ID 마스킹)을 식별하거나 배터리·slot 같은 장치 상태를 확인할 때도 쓴다. NFC 파일 분석, CU 읽기, 카드 종류 확인, NTAG inventory, 두 덤프 비교에 사용한다. 쓰기·인증·에뮬레이션과 게임 반응 확인은 수행하지 않는다.
+description: 소유·허가된 PWEH 케이스에서 NTAG213/215/216 스캔을 inventory에 등록하고 CU 페이지 스냅샷을 읽거나 보유 NFC 파일의 구조·저장 페이지 차이를 검사한다. CU로 READ 없이 HF 카드 계열이나 125 kHz LF 카드 계열(ID 마스킹)을 식별하거나 배터리·slot 같은 장치 상태를 확인할 때도 쓴다. 사용자 소유(또는 소유자 서면 허가) Ultralight 계열 태그(사용한 종이 승차권 포함)를 사람 소유 증명 뒤 READ 없이 scan·inventory에 올릴 때도 쓴다. NFC 파일 분석, CU 읽기, 카드 종류 확인, NTAG inventory, 두 덤프 비교에 사용한다. 쓰기·인증·에뮬레이션과 게임 반응 확인은 수행하지 않는다.
 ---
 
 # 스캔 기록에 결속한 NFC 파일 분석
 
-현재 지원 범위는 NTAG213/215/216의 서버 스캔 기록, CU 페이지 스냅샷 읽기와 보유 파일의 저장 표현 검사다. Skill 이름의 “동작”을 실제 콘솔 반응·게임 해금·실물 진품 확인으로 해석하지 않는다. [입구 계약](../../docs/references/nfc-inventory-analysis.md)과 기존 [파일 프로필](../../docs/references/nfc-file-profile.md)을 따른다.
+현재 지원 범위는 NTAG213/215/216의 서버 스캔 기록, CU 페이지 스냅샷 읽기와 보유 파일의 저장 표현 검사, 그리고 사람이 소유를 증명한 Ultralight 계열 태그의 READ 없는 scan·inventory 등록이다(Ultralight 페이지 스냅샷 읽기는 아직 없다). Skill 이름의 “동작”을 실제 콘솔 반응·게임 해금·실물 진품 확인으로 해석하지 않는다. [입구 계약](../../docs/references/nfc-inventory-analysis.md)과 기존 [파일 프로필](../../docs/references/nfc-file-profile.md)을 따른다.
 
 ## 준비와 스캔
 
@@ -15,7 +15,7 @@ description: 소유·허가된 PWEH 케이스에서 NTAG213/215/216 스캔을 in
 4. `flipper_nfc_probe(case_id)`로 고정 SELECT·GET_VERSION을 수행한다. 이 작업은 Flipper SD에 작은 임시 파일을 만들고 제거하므로 MODIFY다. 페이지 READ나 태그 메모리 쓰기는 하지 않는다. 정상 응답의 실제 `scan_ref`만 `nfc_tag_inventory_add`에 전달하고 반환 `tag_ref`를 보존한다.
 5. `approval_required`이면 반환 id와 영향을 설명하고 사람이 별도 터미널에서 `pweh approve <id>`로 승인한 뒤 같은 인자와 `approval_id`로 재호출한다. 에이전트가 승인 명령을 실행하지 않는다. `denied`·지원 밖 계열은 우회하지 않으며 raw 명령·다른 앱으로 대신하지 않는다.
 
-CU Ultra를 사용하는 새 스캔은 [CU 계약](../../docs/references/cu-ntag-read-provider.md)을 따른다. 허가된 reader의 명시 포트로 `nfc_cu_connect(case_id, port)`를 호출하고 실제 반환한 `session_id`로 `nfc_cu_scan(case_id, session_id)`을 호출한다. 두 도구는 MODIFY 게이트를 적용하며 위 승인 규칙을 따른다. CU는 현재 reader 모드의 공식 v2.3.0(APP2.3·GIT 정확 `v2.3.0`)만 받으며 mode/slot을 변경하지 않는다. `cu_firmware_unsupported`(v2.2.0이나 dev build 등)이면 우회하지 않고 사람이 공식 release를 확인하게 한다. scan은 단독 GET_VERSION과 새 선택 READ0/1의 UID/BCC를 확인하고, 실제 scan_ref를 같은 `nfc_tag_inventory_add`로 등록한다. 원조 Ultralight·Ultralight C·EV1처럼 NTAG가 아닌 태그는 고정 오류 nfc_family_unsupported로 끝나며 인증·다른 명령으로 대신하지 않는다. CU 페이지 읽기가 필요하면 아래 절로 진행한다.
+CU Ultra를 사용하는 새 스캔은 [CU 계약](../../docs/references/cu-ntag-read-provider.md)을 따른다. 허가된 reader의 명시 포트로 `nfc_cu_connect(case_id, port)`를 호출하고 실제 반환한 `session_id`로 `nfc_cu_scan(case_id, session_id)`을 호출한다. 두 도구는 MODIFY 게이트를 적용하며 위 승인 규칙을 따른다. CU는 현재 reader 모드의 공식 v2.3.0(APP2.3·GIT 정확 `v2.3.0`)만 받으며 mode/slot을 변경하지 않는다. `cu_firmware_unsupported`(v2.2.0이나 dev build 등)이면 우회하지 않고 사람이 공식 release를 확인하게 한다. scan은 단독 GET_VERSION과 새 선택 READ0/1의 UID/BCC를 확인하고, 실제 scan_ref를 같은 `nfc_tag_inventory_add`로 등록한다. 원조 Ultralight·Ultralight C·EV1처럼 NTAG가 아닌 태그는 고정 오류 nfc_family_unsupported로 끝나며 인증·다른 명령으로 대신하지 않는다. Ultralight 계열은 아래 "CU Ultralight 소유 증명 scan" 절의 `nfc_cu_ul_scan`을 쓴다. CU 페이지 읽기가 필요하면 아래 절로 진행한다.
 
 ## CU HF 카드 식별과 장치 상태
 
@@ -25,11 +25,12 @@ CU Ultra를 사용하는 새 스캔은 [CU 계약](../../docs/references/cu-ntag
 2. 사람에게 다른 카드를 치우고 카드 한 장만 reader에 올려 달라고 요청하고, 완료 확인 뒤 `nfc_cu_identify(case_id, session_id)`를 호출한다. 이 도구는 MODIFY 게이트를 따르며 위 승인 규칙이 같다. scan2000과, Type 2 후보일 때만 GET_VERSION 하나를 보낸다.
 3. 반환된 family와 policy를 그대로 보고한다. family를 추측해 바꾸거나 READ·인증·다른 명령으로 더 나누지 않는다.
    - allowed(NTAG213/215/216)이면 필요할 때 위의 `nfc_cu_scan`으로 이어간다.
-   - attestation_required이면 이 계열을 다루는 도구가 아직 없다. 결과만 보고하고 멈춘다. ultralight_or_ultralight_c는 원조 Ultralight와 Ultralight C를 나누지 않은 결과다. type2_version_unreadable은 GET_VERSION 응답이 손상되어 계열을 정하지 못한 결과다.
+   - attestation_required이고 family가 ultralight_로 시작하는 다섯 계열(ultralight_ev1_mf0ul11·ultralight_ev1_mf0ulh11·ultralight_ev1_mf0ul21·ultralight_ev1_mf0ulh21·ultralight_or_ultralight_c)이면 사용자가 원할 때 아래 "CU Ultralight 소유 증명 scan" 절로 이어간다. ultralight_or_ultralight_c는 원조 Ultralight와 Ultralight C를 나누지 않은 결과다.
+   - 그 밖의 attestation_required(type2_other_version·type2_version_unreadable·Classic Mini/1K/TNP3xxx)는 다루는 도구가 아직 없다. 결과만 보고하고 멈춘다. type2_version_unreadable은 GET_VERSION 응답이 손상되어 계열을 정하지 못한 결과다.
    - refused(Classic 2K/4K, MIFARE Plus SL2, ISO14443-4)이면 더 조작하지 않는다.
    - none·multiple은 배치 문제일 수 있다. 카드가 정확히 한 장인지 사람에게 확인받은 뒤 같은 세션으로 다시 식별할 수 있다. none을 "카드가 없다"는 사실로 보고하지 않는다. ATQA가 다른 카드 여러 장도 none이 될 수 있다.
    - other는 잘 형성된 레코드가 표에 없는 값이었다는 뜻이다. 배치를 바꿔 다시 시도하지 않고 그대로 보고하고 멈춘다.
-4. 교통·결제·출입·호텔·신분 자격증명(예: 교통 티켓)은 policy와 관계없이 범위 밖이다. 사람 증명으로도 넓히지 않는다.
+4. 교통·결제·출입·호텔·신분 자격증명(예: 교통 티켓)은 policy와 관계없이 범위 밖이다. 사람 증명으로도 넓히지 않는다. 예외는 하나뿐이다(설계 §1.3·§6.2의 2026-11-02 개정): 사용자 본인 소유(또는 소유자 서면 허가)의 Ultralight 계열 태그는 사용한 교통 승차권 같은 자격증명이어도 아래 소유 증명 절차로 읽기 전용 scan·inventory에 올릴 수 있다. 다른 계열에는 이 예외를 쓰지 않는다.
 5. 잘 형성된 분류는 세션을 ready로 둔다. 고정 오류(잘못된 응답·timeout·취소·mode 변화)는 세션을 terminal로 만든다. 그러면 `nfc_cu_disconnect`로 정리하고 새로 연결한다. 여러 장의 카드도 nfc_scan_invalid가 될 수 있으므로 다시 연결하기 전에 카드가 한 장인지 확인받는다. physical_same_tag_verified와 rf_off_verified는 false로 보고한다.
 6. 결과는 아래 "정리와 요약"의 `nfc-analysis` 요약에 mode `cu-hf-identify`로 기록한다. 식별 반환값의 operation·profile·family·policy·uid_length·ats_present·get_version_sent·page_reads_sent·identity_digest를 `identifications`에, 상태 반환값의 배터리·slot·mode·hf14a_config_default·버전·model을 `device_status`에 그대로 옮긴다(operation은 "cu-identify"). 원시 UID나 사용자가 말한 카드 이름을 family 대신 쓰지 않는다.
 
@@ -46,6 +47,20 @@ CU Ultra를 사용하는 새 스캔은 [CU 계약](../../docs/references/cu-ntag
 4. 교통·결제·출입·호텔·신분 자격증명은 policy와 관계없이 범위 밖이다.
 5. 감지·none은 세션을 ready로 둔다. 고정 오류(잘못된 응답·mode 오류·timeout·취소)는 세션을 terminal로 만든다. 그러면 `nfc_cu_disconnect`로 정리하고 새로 연결한다. physical_same_tag_verified는 false, lf_field_off_by_firmware는 true(firmware 소스 경로이며 물리 측정이 아님)로 보고한다.
 6. 결과는 아래 "정리와 요약"의 `nfc-analysis` 요약에 mode `cu-lf-identify`로 기록한다. 반환값의 profile·family·variant·policy·scans_sent·identity_digest(항상 null)·id_returned를 `lf_identifications`에 그대로 옮긴다(operation은 "cu-lf-identify"). identity_digest에 다른 값을 채우지 않는다. 같은 실행의 HF 식별 결과는 `identifications`, 상태 조회는 `device_status`에 함께 넣는다.
+
+## CU Ultralight 소유 증명 scan
+
+사용자가 자기 Ultralight 계열 태그(사용했거나 만료된 GVB 종이 승차권 같은 EV1 MF0UL11 포함)를 등록하려 할 때 쓴다. 같은 연결 세션을 쓴다. 이 단계는 페이지를 읽지 않는다.
+
+1. 사람에게 다른 카드를 치우고 그 태그 한 장만 reader에 올려 달라고 요청하고 완료를 확인한다. 먼저 반드시 `nfc_cu_identify`를 호출해 family가 ultralight_로 시작하는 계열인지 확인한다(이 식별 결과가 9번 요약의 근거가 된다). 다른 계열이면 이 절로 가지 않는다.
+2. `nfc_cu_ul_scan(case_id, session_id)`를 호출한다. MODIFY 게이트를 따르며 위 승인 규칙이 같다. 식별과 같은 scan2000과 GET_VERSION 하나만 보내고 READ·인증·쓰기는 보내지 않는다.
+3. family가 Ultralight 계열이 아니면 고정 오류 nfc_family_unsupported로 끝나며 증명 요청도 기록도 없다. 결과를 보고하고 멈춘다(NTAG면 위의 `nfc_cu_scan`을 쓴다). 세션은 ready로 남는다. 반환 family가 1번 `nfc_cu_identify`의 family와 다르면 증명을 요청하지 말고 멈춰 보고한다. family가 ultralight_or_ultralight_c이면 주의한다: GET_VERSION status 0x01·빈 응답은 원조 UL의 무응답과 scan 뒤 태그가 field를 벗어난 경우가 섞여, NTAG 같은 다른 태그도 이 계열로 보일 수 있다. 태그를 움직이지 않게 한 채 `nfc_cu_identify`를 한 번 더 불러 같은 계열인지 확인한 뒤 진행한다.
+4. `attestation_required`이면 반환된 family·ul_identity_digest와 질문(owned_tag: "방금 CU 리더에 올려 스캔한 태그 한 장(위 대상의 계열·지문)은 내가 소유했거나 소유자의 서면 허가를 받은 것이다")을 사용자에게 설명한다. 사람이 **별도 터미널**에서 `pweh attest <id>`를 실행해 직접 답하게 한다. 에이전트는 이 명령을 실행하지 않고 `.pweh/state/`를 고치지 않으며 attested_* 인자나 케이스 파일로 증명을 대신하지 않는다. 서버는 응답을 기다리지 않으므로 태그를 reader에 그대로 두게 하고, 사람이 끝났다고 알리면 같은 인자로 `nfc_cu_ul_scan`을 다시 호출한다. 다시 호출하면 frame을 새로 보내며 같은 태그·계열·케이스일 때만 증명이 맞는다.
+5. 사람이 "아니오"로 답했으면(denied) 다시 호출하지 않고 그 결과를 보고하고 멈춘다. 다시 호출한 결과가 `attestation_required`여도 `previous.status`가 "denied"이면 사람의 거부로 본다. 새로 생긴 pending 요청에 답해 달라고 요청하지 않고 멈춰 보고하며, 사용자가 명시적으로 다시 시도하기를 원할 때만 진행한다. 설득하거나 다른 도구로 우회하지 않는다.
+6. 성공하면 실제 반환 `scan_ref`(US-)를 `nfc_tag_inventory_add(case_id, scan_ref)`에 넘기고 반환 `tag_ref`(UT-)를 보존한다. 이 도구도 같은 증명을 다시 확인하며, 그사이 철회·만료되었으면 `attestation_required`를 돌려주므로 4번과 같이 진행한다.
+7. Ultralight 페이지 스냅샷 읽기는 아직 없다. `nfc_cu_read_start`·`nfc_parse_file`·`nfc_diff_dumps`는 NT- tag_ref만 받으므로 UT- tag_ref를 넘기지 않는다. `nfc_cu_scan`·raw 명령으로 Ultralight 페이지를 읽으려 하지 않는다.
+8. 범위: 사용자 소유 태그면 자격증명도 읽기 전용으로만 다룬다. 쓰기·매직 UID 쓰기·복제·에뮬레이션·재생·PWD_AUTH·UL C 인증·키 복구는 하지 않고 제안하지 않는다. physical_same_tag_verified와 rf_off_verified는 false로 보고한다. 원시 UID는 반환되지 않으며 요약에도 넣지 않는다.
+9. Ultralight 결과는 아직 `nfc-analysis` 요약의 tags 칸에 넣을 수 없다(NT-만 받는다). 실제 반환값의 scan_ref·tag_ref·family·ul_identity_digest·attestation_id(와 inventory_attestation_id)를 `case_record_step(skill="nfc-behavior-analysis", step="ul-inventory", ...)`의 data에 그대로 기록하고, 요약은 같은 실행의 `nfc_cu_identify` 결과로 mode `cu-hf-identify`에 기록한다. UT-/US- 참조로 tags를 꾸며 넣지 않는다.
 
 ## CU 페이지 스냅샷 읽기
 

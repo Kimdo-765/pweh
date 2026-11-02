@@ -84,6 +84,7 @@ _AGENT_CLAIM_RE = re.compile(r"^attested", re.IGNORECASE)
 
 _KINDS: dict[str, str] = {
     "tag-purpose": "태그의 목적·소유 (이 케이스의 콘솔과 쓰는 게임·장난감 태그이며 결제·교통·출입·호텔·신분 자격증명이 아님)",
+    "tag-ownership": "태그 소유 (사용자 본인 소유이거나 소유자의 서면 허가를 받은 태그 — 읽기 전용 페이지 스냅샷용, 쓰기·복제·에뮬레이션·인증 없음)",
     "wiring": "배선 = 채널 라벨, 사람이 멀티미터로 잰 전압 (배선 계획 해시에 묶임)",
     "console-offline": "콘솔 네트워크 차단(오프라인)",
     "payment-locked": "결제 수단 제거 또는 구매 PIN 설정",

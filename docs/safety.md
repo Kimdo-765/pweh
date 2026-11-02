@@ -343,7 +343,9 @@ pweh-emu 의 고정 argv 허용 목록 위반도 `gate.via: "emu-policy"`, `stat
 
 - **사람 증명**은 에이전트가 확인할 수 없는 사실을 사람이 직접 답한 기록이다(콘솔 오프라인, 결제 수단 제거, 배선과 멀티미터로 잰 전압, 태그의 목적·소유,
   쓰기 방지 장치 사용, 가져온 파일의 출처 …). 증명을 요구하는 도구는 `fw_patch_build`(세이브 쓰기 명령을 보여 주기 전 — 네트워크 차단·재부팅 없음·변경 의사·판매 토큰 콘텐츠 아님)와
-  `forensics_acquisition_attest`(SD 카드 이미지를 쓰기 방지 장치로 만들었는지 — 아래), `emu_start`(가져온 펌웨어의 출처)다. 요약·질문의 제어 문자는 이스케이프해 보여 준다.
+  `forensics_acquisition_attest`(SD 카드 이미지를 쓰기 방지 장치로 만들었는지 — 아래), `emu_start`(가져온 펌웨어의 출처),
+  `nfc_cu_ul_scan`·`nfc_tag_inventory_add`(Ultralight 계열 태그의 `tag-ownership` — 사용자 소유 또는 소유자 서면 허가, subject 는 계열·Ultralight 전용
+  케이스 솔트 지문·정책 프로필이며 원시 UID 없음, 케이스 바인딩 7일, 아래 CU 절)다. 요약·질문의 제어 문자는 이스케이프해 보여 준다.
   서버가 `status: "attestation_required"` 와 `attestation_id` 를 돌려주면, 사람이 **별도 터미널**에서 `pweh attest <id>` 를 실행해
   종류·대상·바인딩을 확인하고 항목마다 y/n 또는 직접 잰 값을 입력한다. 승인이 되는 답이면 화면의 4자리 확인 코드도 입력한다(대화형 터미널 전용).
   클라이언트가 elicitation 을 지원하면 같은 항목이 확인 폼으로 뜬다(4자리 확인 코드. 폼을 거절·취소하면 거부로 기록된다).
@@ -922,7 +924,7 @@ Flipper probe의 원시 CLI·UID·ATQA·SAK·version·페이지·PWD/PACK는 공
 
 ### CU 고정 NTAG 읽기
 
-`nfc_cu_connect`, `nfc_cu_scan`, `nfc_cu_identify`, `nfc_cu_lf_identify`, `nfc_cu_read_start`는 소유/허가·명시 세션·현재 CDC 신원·전체 USB lease와
+`nfc_cu_connect`, `nfc_cu_scan`, `nfc_cu_identify`, `nfc_cu_lf_identify`, `nfc_cu_ul_scan`, `nfc_cu_read_start`는 소유/허가·명시 세션·현재 CDC 신원·전체 USB lease와
 MODIFY 게이트를 따른다. `nfc_cu_status`는 같은 세션·lease·frame별 재검증을 따르는 INTERACT다. 공식 v2.3.0 release의 Ultra APP2.3/GIT 정확 `v2.3.0`·reader 모드만 받으며
 v2.2.0과 tag 뒤 dev build(`v2.3.0-N-g…`)는 RF 명령 전에 거부한다. 모드·slot을 바꾸지 않는다.
 연결 설정 DTR=true의 영향과 live reader profile/hash는 승인 지문에 포함하므로 이전 승인은 다시 쓰지 못한다.
@@ -961,9 +963,23 @@ snapshot diff는 거부한다.
 `nfc_cu_identify`는 같은 세션의 MODIFY 게이트 뒤 mode·scan2000과 UID7/ATQA0044/SAK00/ATS0 후보의 keep=0 GET_VERSION 하나만 보낸다.
 0x30 READ·0x1A/0x1B 인증·RATS 직접 송신이 없으므로 원조 Ultralight와 Ultralight C를 나누지 않고 하나로 보고한다.
 GET_VERSION의 CRC 오류는 3B 이상 응답이 왔다는 뜻이라 Ultralight로 보지 않고 `type2_version_unreadable`로 둔다. MIFARE Plus SL2(SAK 0x10/0x11)는 §6.2의 Plus 행대로 `refused`다.
-결과의 `policy`는 설계 §6.2 표의 정보일 뿐이며, 교통·결제·출입·호텔·신분 자격증명은 policy와 관계없이 항상 범위 밖이다(§1.3).
-`attestation_required` 계열을 다루는 도구·증명 종류는 아직 없으므로 식별 결과를 보고하고 멈춘다. 원시 UID·SAK·version은
+결과의 `policy`는 설계 §6.2 표의 정보일 뿐이며, 교통·결제·출입·호텔·신분 자격증명은 policy와 관계없이 범위 밖이다(§1.3).
+예외는 아래 Ultralight 소유 증명 scan 하나뿐이다. 그 밖의 `attestation_required` 계열(`type2_other_version`·`type2_version_unreadable`·Classic)은
+다루는 도구·증명 종류가 아직 없으므로 식별 결과를 보고하고 멈춘다. 원시 UID·SAK·version은
 반환하지 않고 계열별 domain을 분리한 케이스 솔트 지문만 돌려준다. scan 사실·inventory를 만들지 않으며 잘 형성된 분류는 세션을 ready로 둔다.
+`nfc_cu_ul_scan`은 같은 세션의 MODIFY 게이트(`cu.ul-scan`) 뒤 `nfc_cu_identify`와 같은 mode·scan2000·keep=0 GET_VERSION 하나만 보낸다.
+0x30 READ·PWD_AUTH(0x1B)·UL C 인증(0x1A)·CU 2018–2022·쓰기(0xA2/0xA0)·READ_SIG/READ_CNT/FAST_READ/CHECK_TEARING/VCSL은 보내지 않는다.
+Ultralight 계열이 아니면 증명 요청·원장 기록 없이 `nfc_family_unsupported`다. Ultralight 계열이면 **CU 사용권을 놓은 뒤** `tag-ownership` 사람 증명
+(사용자 본인 소유 또는 소유자의 서면 허가, 질문 `owned_tag` 하나)을 ctx 없이 찾는다. 호출 안에서 사람 응답을 기다리지 않고 바로 `attestation_required`를 돌려주며,
+사람이 별도 터미널에서 `pweh attest <id>`로 답한 뒤 같은 인자로 다시 부르면 frame을 새로 보내 같은 계열·지문·케이스일 때만 UL scan 사실을 남긴다.
+거부(denied)면 다시 부르지 않고 보고한다. 증명 subject는 계열·Ultralight 전용 domain의 케이스 솔트 지문·정책 프로필이며 원시 UID를 넣지 않는다
+(레코드 전체가 케이스 사본과 `pweh attest` 화면에 보이기 때문이다). 원장 잠금 안에서 같은 증명 id를 다시 확인하므로 그사이 철회·만료되면 기록하지 않는다.
+`nfc_tag_inventory_add`의 `US-` scan_ref도 같은 증명을 다시 확인한다. UL 확인 지점은 저장소 대조(질문 id·type·expected)에 더해 기록의 질문 문구 전체와
+`decided_via`(recipe의 고정 목록 cli-tty·elicitation)를 확인하므로 문구가 다른 기록이나 새 결정 경로의 기록은 받지 않는다.
+GET_VERSION의 status `0x01`·빈 payload(`01-empty`)는 원조 Ultralight의 무응답과, scan 뒤 auto-select 전에 태그가 field를 벗어난 경우(firmware는 auto-select 실패 때 scan 상태 `0x01`을 돌려준다)가 섞인다. 그래서 그 한 번의 응답으로 NTAG213 같은 다른 Type 2 태그도 `ultralight_or_ultralight_c` UL scan 사실·inventory로 남을 수 있다. 원조 UL/UL C 결과는 태그를 움직이지 않은 채 `nfc_cu_identify`로 다시 확인하고, 다음 단계(페이지 읽기)는 읽기 직전 GET_VERSION의 `01-empty`를 의심해 다룬다(하드웨어 확인 항목).
+설계 §1.3·§6.2의 2026-11-02 개정에 따라 사용자 소유 태그면 사용한 교통 승차권 같은
+자격증명도 이 읽기 전용 경로에 들어가지만, 쓰기·매직 UID 쓰기·복제·에뮬레이션·재생·인증·키 복구는 여전히 없고 다른 계열로 넓히지 않는다.
+Ultralight 페이지 스냅샷 읽기는 다음 단계이며 이 단계의 어떤 도구도 Ultralight 태그에 READ를 보내지 않는다.
 `nfc_cu_status`는 RF 없는 getter 1002/1025/1018/2200만 보내는 INTERACT(명령을 보내지만 상태를 바꾸지 않음. 다른 CU 장치 도구의 MODIFY와 다른 의도한 선택이며 근거는 HF 식별·상태 계약)이며 BLE PIN(1031/1034)·장치 식별자(1011/1012)·slot 별명
 (1008/1038)·slot/emulator 정보·setter는 보내지 않는다. 표와 근거는 [HF 식별·상태 계약](references/cu-hf-identify.md)에 있다.
 

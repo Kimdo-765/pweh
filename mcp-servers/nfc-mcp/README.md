@@ -1,6 +1,6 @@
 # pweh-nfc
 
-CU 고정 연결·스캔·HF/LF 계열 식별·장치 상태 조회·페이지 스냅샷 읽기와 같은 케이스의 Flipper/CU scan 사실에 결속한 파일 분석 서버다. NTAG213/215/216만 inventory에 등록하며, 파일 내용을 태그에 쓰거나 인증·키 탐색·에뮬레이션을 수행하지 않는다.
+CU 고정 연결·스캔·HF/LF 계열 식별·Ultralight 소유 증명 scan·장치 상태 조회·페이지 스냅샷 읽기와 같은 케이스의 Flipper/CU scan 사실에 결속한 파일 분석 서버다. NTAG213/215/216과, 사람이 `tag-ownership`으로 소유(또는 소유자 서면 허가)를 증명한 Ultralight 계열 태그만 inventory에 등록하며, 파일 내용을 태그에 쓰거나 인증·키 탐색·에뮬레이션을 수행하지 않는다.
 
 | 도구 | 입력 | 결과 |
 |---|---|---|
@@ -8,18 +8,20 @@ CU 고정 연결·스캔·HF/LF 계열 식별·장치 상태 조회·페이지 �
 | `nfc_cu_scan` | `case_id`, `session_id`, `approval_id=None` | 새 scan·단독 GET_VERSION·새 선택 READ0/1 검증 뒤 마스킹 scan_ref |
 | `nfc_cu_identify` | `case_id`, `session_id`, `approval_id=None` | READ·인증 없는 HF 계열 분류(family·§6.2 policy·UID 길이·ATS 유무·계열별 솔트 지문). 세션은 ready 유지 |
 | `nfc_cu_lf_identify` | `case_id`, `session_id`, `approval_id=None` | 125 kHz 고정 scan을 첫 감지에서 멈추며 LF 계열 분류(family·EM410x variant·§6.2 policy·scans_sent). 감지 계열은 모두 refused, 원시 ID·지문 등 ID 파생 값은 반환하지 않음(`identity_digest`는 항상 null). 세션은 ready 유지 |
+| `nfc_cu_ul_scan` | `case_id`, `session_id`, `approval_id=None` | READ·인증 없는 Ultralight 계열 확인 뒤 `tag-ownership` 증명이 있으면 UL scan 사실과 `US-` scan_ref(`nfc-ul-scan`), 없으면 기다리지 않고 `attestation_required`(계열·`ul_identity_digest`만). Ultralight가 아니면 `nfc_family_unsupported`. 세션은 ready 유지 |
 | `nfc_cu_status` | `case_id`, `session_id` | RF 없는 배터리 mV·추정 percent·0부터 센 활성 slot·HF14A 설정 기본값 여부와 연결 때의 모델·APP·GIT |
 | `nfc_cu_read_start` | `case_id`, `session_id`, `tag_ref`, `approval_id=None` | 유한 페이지 snapshot job·전용 device-read 원장·artifact 등록 |
 | `nfc_job_status` | `job_id`, `wait_seconds=0.0`, `case_id=None` | 작업·저장 기록과 실제 결과 조회 |
 | `nfc_job_cancel` | `job_id` | 취소 요청, 실제 commit 결과 보존 |
 | `nfc_jobs` | `active_only=False`, `case_id=None` | 작업 목록·저장 기록 복구 상태 |
 | `nfc_cu_disconnect` | `case_id`, `session_id` | 같은 세션의 worker·transport·lease 정리 결과 |
-| `nfc_tag_inventory_add` | `case_id`, `scan_ref` | `tag_ref`, `scan_ref`, family, 케이스 솔트 지문, scan/inventory 원장 seq·SHA |
+| `nfc_tag_inventory_add` | `case_id`, `scan_ref` | `tag_ref`, `scan_ref`, family, 케이스 솔트 지문, scan/inventory 원장 seq·SHA. `US-` scan_ref는 `tag-ownership` 증명을 다시 확인한 뒤 `UT-` tag_ref(`nfc-ul-inventory`), 증명이 철회·만료되면 `attestation_required` |
 | `nfc_parse_file` | `case_id`, `artifact_id`, `tag_ref`, `max_seconds=5` | 기존 순수 검사 결과와 출처 결속, 실제 저장 경로·SHA |
 | `nfc_diff_dumps` | `case_id`, `before_artifact_id`, `after_artifact_id`, `tag_ref`, `max_seconds=5` | 저장 페이지 비교 결과와 두 파일의 출처 결속, 실제 저장 경로·SHA. CU snapshot은 같은 reader 프로필끼리만 |
 
 CU는 명시 COM/tty와 현재 USB CDC 신원·전체 sibling 잠금 아래 MODIFY 게이트를 거친다. [고정 CU 계약](../../docs/references/cu-ntag-read-provider.md)의 시작5초·스캔45초·명령2초·close10초를 따르며 실패 뒤 자동 RF-off/재접속을 하지 않는다. v2.2.0 reader 프로필은 이전 scan·snapshot의 검증 전용이다.
-`nfc_cu_identify`는 MODIFY 게이트 뒤 scan2000과 Type 2 후보의 단독 GET_VERSION 하나로 닫힌 표를 적용하며 scan 사실·inventory를 만들지 않는다. `nfc_cu_status`는 RF 없는 getter만 보내는 INTERACT다. 분류표·근거·한계는 [HF 식별·상태 계약](../../docs/references/cu-hf-identify.md)을 따른다. 교통·결제·출입 자격증명은 policy와 관계없이 범위 밖이다.
+`nfc_cu_identify`는 MODIFY 게이트 뒤 scan2000과 Type 2 후보의 단독 GET_VERSION 하나로 닫힌 표를 적용하며 scan 사실·inventory를 만들지 않는다. `nfc_cu_status`는 RF 없는 getter만 보내는 INTERACT다. 분류표·근거·한계는 [HF 식별·상태 계약](../../docs/references/cu-hf-identify.md)을 따른다. 교통·결제·출입 자격증명은 policy와 관계없이 범위 밖이다. 예외(설계 §1.3·§6.2의 2026-11-02 개정): 사용자 소유(또는 소유자 서면 허가) Ultralight 계열 태그는 사용한 교통 승차권도 `nfc_cu_ul_scan`의 `tag-ownership` 증명 뒤 scan·inventory(읽기 전용 페이지 스냅샷 대상)에 올릴 수 있다.
+`nfc_cu_ul_scan`은 MODIFY 게이트(`cu.ul-scan`) 뒤 `nfc_cu_identify`와 같은 mode·scan2000·keep=0 GET_VERSION 하나만 보내고 0x30 READ·PWD_AUTH·UL C 인증·쓰기는 보내지 않는다. CU 사용권을 놓은 뒤 ctx 없이 증명을 찾아 호출 안에서 사람을 기다리지 않는다. 사람이 `pweh attest <id>`로 답한 뒤 같은 인자로 다시 부르면 frame을 새로 보내 같은 계열·지문·케이스일 때만 원장 잠금 안의 증명 재확인 뒤 기록한다. 증명 subject에는 원시 UID가 없다. GET_VERSION status0x01·빈 응답은 원조 UL의 무응답과 scan 뒤 태그가 field를 벗어난 경우가 섞여 원조 UL/UL C로 보이므로 그 결과는 `nfc_cu_identify`로 다시 확인한다. UL 원장 행(`nfc-ultralight-cu-scan-v1`·`nfc-ultralight-inventory-v1`)은 NTAG 행과 키가 겹치지 않아 NTAG 흐름과 NTAG cache(`nfc/inventory.json`)를 바꾸지 않는다. Ultralight 페이지 스냅샷 읽기는 다음 단계다.
 `nfc_cu_lf_identify`는 MODIFY 게이트(`cu.lf-identify`) 뒤 mode1002와 EM410x→HID Prox→ioProx→Viking→PAC→Jablotron→Pyramid scan을 첫 감지에서 멈추며 보낸다. scan마다 125 kHz field를 약0.5초 켜고 firmware가 끈다(물리 미측정). T55xx·EM4x05(LOGIN)·쓰기·스니프·emulator 명령은 없다. ID는 지문으로도 남기지 않는다(24–40비트 125 kHz ID는 솔트를 읽는 같은 OS 계정이 솔트 지문을 전수 대입으로 되돌릴 수 있어서 `identity_digest`는 항상 null이다). 근거 줄은 [LF 식별 계약](../../docs/references/cu-lf-identify.md)을 따른다.
 GET_VERSION은 단독 keep=0 activation이며 NTAG213/215/216이 아니면 READ 없이 거부한다. 읽기 job은 새 admission 뒤 같은 field에서 시작 페이지4B를 모으고 [스냅샷 계약](../../docs/references/cu-read-snapshot.md)의 전용 원장·파일 등록으로 연결한다. wire45초 뒤 host 검증/저장5초를 한 번 사용한다.
 
@@ -37,4 +39,4 @@ GET_VERSION은 단독 keep=0 activation이며 NTAG213/215/216이 아니면 READ 
 
 CU snapshot은 `nfc/cu-read-NNN.json`·최대64KiB·0444로 저장한다. 원장 commit 뒤 등록 실패는 파일과 실제 원장 receipt를 보존하며 `registered=false` partial_result를 반환한다. `registered=true`의 artifact ID로만 분석한다. imported와 CU snapshot은 각각 기존 사람 증명과 전용 device-read 원장을 요구하고 혼합 diff는 거부한다. 양쪽 관찰 페이지만 비교하며 양쪽 읽기와 전체 비교가 끝나야 `stored_pages_equal`이 bool이다. read receipt는 inspect/diff 요약으로 대신하지 않는다.
 
-개발 시험은 합성 Flipper/CU wire와 격리 케이스만 사용한다: `tests/servers/test_nfc_mcp.py`, `tests/servers/test_nfc_analysis.py`, `tests/servers/test_nfc_cu_identify.py`, `tests/core/test_cu_identify_protocol.py`, `tests/servers/test_nfc_cu_lf_identify.py`, `tests/core/test_cu_lf_identify_protocol.py`. 전체 공용 계약은 [architecture](../../docs/architecture.md), 운영 흐름은 [NFC 분석](../../docs/references/nfc-inventory-analysis.md)을 따른다.
+개발 시험은 합성 Flipper/CU wire와 격리 케이스만 사용한다: `tests/servers/test_nfc_mcp.py`, `tests/servers/test_nfc_analysis.py`, `tests/servers/test_nfc_cu_identify.py`, `tests/core/test_cu_identify_protocol.py`, `tests/servers/test_nfc_cu_lf_identify.py`, `tests/core/test_cu_lf_identify_protocol.py`, `tests/servers/test_nfc_cu_ul_scan.py`, `tests/core/test_cu_ultralight_protocol.py`, `tests/core/test_nfc_ul_inventory.py`. 전체 공용 계약은 [architecture](../../docs/architecture.md), 운영 흐름은 [NFC 분석](../../docs/references/nfc-inventory-analysis.md)을 따른다.

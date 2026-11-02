@@ -58,3 +58,20 @@ LF `identity_digest`는 항상 null이다. 125 kHz 출입 ID는 24–40비트라
 LF 식별은 지문을 포함한 ID 파생 값을 만들지 않는다. 그래서 LF 결과끼리나 HF 식별·inventory 지문과 같은 카드인지 비교·결속하지 않는다.
 감지 계열의 `policy`는 모두 refused다. §6.2의 장난감·동물·시험 태그 사람 증명 예외는 아직 없으므로 사람 증명으로 바꾸지 않는다.
 원시 ID·FC/CN·HID format은 반환되지 않으므로 요약에도 넣지 않는다. 근거와 한계는 [LF 식별 계약](../../docs/references/cu-lf-identify.md)에 있다.
+
+## CU Ultralight 소유 증명 scan·inventory 기록
+
+`nfc_cu_ul_scan`과 `nfc_tag_inventory_add`(US- scan_ref)의 결과는 아직 `nfc-analysis` 요약 칸이 없다(tags는 NT-/NS- 참조만 받는다).
+그래서 `case_record_step(skill="nfc-behavior-analysis", step="ul-inventory", status="success", ...)`의 data에 반환값만 옮긴다.
+
+| data 필드 | 근거 |
+|---|---|
+| `scan_ref` | `nfc_cu_ul_scan` 성공 결과의 US- 참조 |
+| `tag_ref` | US- scan_ref로 호출한 `nfc_tag_inventory_add` 결과의 UT- 참조 |
+| `family`·`ul_identity_digest`·`policy_profile` | 두 결과의 같은 이름 필드 |
+| `attestation_id` | 결과 `attestation.attestation_id`(이번 호출에서 다시 확인한 현재 tag-ownership 증명 id) |
+| `inventory_attestation_id` | `nfc_tag_inventory_add` 결과 `attestation.inventory_attestation_id`(inventory 행에 기록된 증명 id. 재증명 뒤 같은 scan을 다시 추가하면 기존 행을 돌려주므로 `attestation_id`와 다를 수 있다) |
+| `page_read_performed` | `nfc_cu_ul_scan`의 false를 그대로 둔다 |
+
+`ul_identity_digest`는 Ultralight 전용 domain의 케이스 솔트 지문이며 HF 식별·NTAG inventory의 `identity_digest`와 같은 값이 아니다. 서로 비교해 결속하지 않는다.
+증명은 사람이 `pweh attest <id>`로 답한 기록이며 태그 소유를 서버가 확인한 사실이 아니다. 같은 실행의 요약은 `nfc_cu_identify` 결과로 mode `cu-hf-identify`에 기록한다.

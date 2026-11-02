@@ -25,13 +25,14 @@ from . import analysis as A
 
 SERVER_NAME = 'nfc-mcp'
 _TOOLS = ('nfc_tag_inventory_add', 'nfc_parse_file', 'nfc_diff_dumps',
-          'nfc_cu_connect', 'nfc_cu_scan', 'nfc_cu_identify', 'nfc_cu_lf_identify', 'nfc_cu_status',
+          'nfc_cu_connect', 'nfc_cu_scan', 'nfc_cu_identify', 'nfc_cu_lf_identify', 'nfc_cu_ul_scan', 'nfc_cu_status',
           'nfc_cu_disconnect', 'nfc_cu_read_start',
           'nfc_job_status', 'nfc_job_cancel', 'nfc_jobs')
 CaseId = Annotated[StrictStr, Field(max_length=80, pattern=CASE_ID_RE.pattern)]
 ArtifactId = Annotated[StrictStr, Field(pattern=r'^A-[0-9]{4,8}$', max_length=10)]
 TagRef = Annotated[StrictStr, Field(pattern=r'^NT-[0-9a-f]{32}$', max_length=35)]
-ScanRef = Annotated[StrictStr, Field(pattern=r'^NS-[0-9a-f]{32}$', max_length=35)]
+# NS-는 NTAG scan(기존 흐름 그대로), US-는 Ultralight scan(tag-ownership 증명 재확인 뒤 UL inventory)이다.
+ScanRef = Annotated[StrictStr, Field(pattern=r'^(NS|US)-[0-9a-f]{32}$', max_length=35)]
 Seconds = Annotated[StrictInt | StrictFloat, Field(gt=0, le=5)]
 _ERRORS = {code: 'NFC 요청을 완료하지 못했습니다.' for code in A._CODES}
 _ERRORS.update({
@@ -130,9 +131,12 @@ def _case_id(value):
 
 server = create_server(SERVER_NAME, title='PWEH NFC scan 결속 분석', instructions=(
     'flipper_nfc_probe 또는 nfc_cu_connect→nfc_cu_scan의 같은 케이스 scan_ref를 nfc_tag_inventory_add로 등록한다. '
+    'nfc_cu_ul_scan은 READ 없이 Ultralight 계열을 확인하고 tag-ownership 사람 증명(사용자 소유 또는 소유자 서면 허가) 뒤에만 '
+    'US- scan_ref를 남기며 같은 nfc_tag_inventory_add가 UT- tag_ref로 등록한다. attestation_required이면 사람이 '
+    '`pweh attest <id>`로 답한 뒤 같은 인자로 다시 호출하고 denied면 멈춘다. '
     'nfc_parse_file/nfc_diff_dumps는 등록한 파일과 보호 scan·inventory의 신원을 비교한다. '
     'nfc_cu_read_start는 같은 inventory에 결속한 snapshot을 등록하며 nfc_job_status로 확인한다. '
-    'CU는 고정 Ultra v2.3.0 reader·NTAG21x만 허용하며 끝나면 같은 session_id로 nfc_cu_disconnect한다. '
+    'CU 페이지 읽기는 고정 Ultra v2.3.0 reader·NTAG21x만 허용하며 끝나면 같은 session_id로 nfc_cu_disconnect한다. '
     'nfc_cu_identify는 페이지 READ·인증 없이 HF 카드 계열과 §6.2 정책만 분류하고 nfc_cu_status는 RF 없이 배터리·slot·설정을 조회한다. '
     'nfc_cu_lf_identify는 고정 125 kHz scan을 첫 감지에서 멈추며 LF 계열과 정책(감지 계열은 모두 refused, ID 마스킹)만 분류한다. '
     '가져온 파일은 기존 provenance-import 사람 증명이 필요하다. raw UID·LF ID·페이지·키 값은 반환하지 않는다. '
@@ -141,7 +145,9 @@ server = create_server(SERVER_NAME, title='PWEH NFC scan 결속 분석', instruc
 
 
 @server.tool(description=(
-    '같은 케이스 flipper_nfc_probe 또는 nfc_cu_scan의 보호된 scan_ref를 NTAG213/215/216 inventory로 등록한다. '
+    '같은 케이스 flipper_nfc_probe 또는 nfc_cu_scan의 보호된 NS- scan_ref를 NTAG213/215/216 inventory로 등록한다. '
+    'nfc_cu_ul_scan의 US- scan_ref는 같은 케이스의 tag-ownership 사람 증명을 다시 확인한 뒤 Ultralight inventory(UT- tag_ref)로 '
+    '등록하며, 증명이 철회·만료되었으면 기다리지 않고 attestation_required를 돌려준다(사람이 pweh attest <id> 후 같은 인자로 재호출). '
     '사용자 UID/family나 cache로 scan을 대신하지 않는다. 공개 tag_ref·scan_ref·케이스 솔트 지문과 '
     'scan/inventory 원장 seq/hash만 반환한다. 물리적으로 같은 태그인지는 검증하지 않는다.'
 ), annotations=ANN_LOCAL_WRITE)
@@ -150,6 +156,8 @@ async def nfc_tag_inventory_add(case_id: CaseId, scan_ref: ScanRef) -> dict:
     cancel = threading.Event()
     try:
         _case_id(case_id)
+        if type(scan_ref) is str and re.fullmatch(r'US-[0-9a-f]{32}', scan_ref) is not None:
+            return await _ul_inventory_add(case_id, scan_ref, cancel)
         if type(scan_ref) is not str or re.fullmatch(r'NS-[0-9a-f]{32}', scan_ref) is None:
             raise A._error('nfc_input_invalid')
         def work():
@@ -163,6 +171,31 @@ async def nfc_tag_inventory_add(case_id: CaseId, scan_ref: ScanRef) -> dict:
         return await run_blocking_cancellable(work, on_cancel=cancel.set)
     except Exception as exc:
         raise _fixed_error(exc) from None
+
+
+async def _ul_inventory_add(case_id, scan_ref, cancel):
+    """US- scan: 검증한 원장 행에서 증명 대상 계산→ctx 없는 증명 확인(대기 없음)→원장 잠금 안 재확인과 UL inventory 기록."""
+    from pweh import nfc_ul_inventory as UL
+    runtime = rt()
+    def prepare():
+        case = runtime.case(case_id, hardware=True)
+        return UL.resolve_ul_scan(runtime, case, scan_ref, deadline=time.monotonic() + 5, cancel=cancel.is_set)
+    target = await run_blocking_cancellable(prepare, on_cancel=cancel.set)
+    decision = await UL.ul_attest(runtime, case_id, target.family, target.ul_identity_digest,
+                                  tool='nfc_tag_inventory_add')
+    if not decision.satisfied:
+        return attestation_response(decision, scan_ref=scan_ref, family=target.family,
+                                    ul_identity_digest=target.ul_identity_digest, inventory_recorded=False)
+    def finish():
+        case = runtime.case(case_id, hardware=True)
+        bound = UL.add_ul_inventory(runtime, case, scan_ref, decision.attestation_id,
+                                    deadline=time.monotonic() + 5, cancel=cancel.is_set)
+        if bound.family != target.family or bound.ul_identity_digest != target.ul_identity_digest:
+            raise A._error('nfc_identity_mismatch')
+        result = bound.to_dict(decision.attestation_id)
+        schemas.validate('nfc-ul-inventory', result)
+        return result
+    return await run_blocking_cancellable(finish, on_cancel=cancel.set)
 
 
 async def _analyze(case_id, ids, tag_ref, max_seconds, ctx, tool):

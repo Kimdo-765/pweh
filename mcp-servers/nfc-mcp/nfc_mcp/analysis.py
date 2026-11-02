@@ -28,7 +28,7 @@ _CODES = frozenset({"nfc_input_invalid", "nfc_input_limit", "nfc_input_changed",
                     "nfc_scan_invalid", "nfc_family_unsupported", "nfc_identity_mismatch",
                     "nfc_provenance_required", "nfc_provenance_invalid", "nfc_failed",
                     "nfc_cleanup_pending", "nfc_snapshot_invalid", "nfc_source_mismatch",
-                    "nfc_artifact_registration_failed", "cancelled", "time_limit"})
+                    "nfc_artifact_registration_failed", "nfc_attestation_required", "cancelled", "time_limit"})
 
 
 def _error(code: str) -> PwehError:
