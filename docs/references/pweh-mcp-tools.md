@@ -444,7 +444,7 @@
 - **`nfc_cu_disconnect(case_id, session_id)`**  
   정확한 case/session의 CU worker를 취소하고 물리 transport 종료 및 사용권0 뒤 lease를 해제한다. 허가 철회 뒤에도 정리 가능하며 최대10초의 정리 미확인은 세션·잠금을 보존한다. 추가 RF-off·mode 변경 명령은 보내지 않고 RF off나 장치 명령 종료를 검증했다고 하지 않는다.
 - **`nfc_cu_read_start(case_id, session_id, tag_ref, approval_id?)`**  
-  같은 케이스의 ready CU session_id와 현재 tag_ref에 결속해 NTAG213/215/216 저장 페이지 읽기 job을 시작한다. 고정 Ultra v2.3.0 reader만 사용하며 페이지 범위·임의 명령·인증·쓰기는 받지 않는다. 단독 GET_VERSION 뒤 READ0부터 새 선택으로 읽으며 읽기 중 실패는 field를 남길 수 있다. wire45초와 별도 host 게시5
+  같은 케이스의 ready CU session_id와 현재 tag_ref에 결속해 저장 페이지 읽기 job을 시작한다. NT- tag_ref는 NTAG213/215/216이다. 고정 Ultra v2.3.0 reader만 사용하며 페이지 범위·임의 명령·인증·쓰기는 받지 않는다. 단독 GET_VERSION 뒤 READ0부터 새 선택으로 읽으며 읽기 중 실패는 field를 남길 수 있다. wire
 - **`nfc_job_status(job_id, wait_seconds?, case_id?)`**  
   백그라운드 작업 상태 조회. status(queued|running|cancelling|succeeded|failed|cancelled), progress(0~1), eta_seconds, message, result/error, 최근 로그를 반환한다. wait_seconds>0 이면 이 프로세스의 작업만 최대 50초 기다린다. case_id를 주면 해당 케이스의 저장 기록도 조회하고, 소유
 - **`nfc_job_cancel(job_id)`**  

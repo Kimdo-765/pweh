@@ -140,6 +140,47 @@ async def test_denied_ownership_stops_without_fact_or_read(cu_setup, monkeypatch
         await close(client, env, owner)
 
 
+IDENTIFY_ITEM_KEYS = ('profile', 'family', 'policy', 'uid_length', 'ats_present', 'get_version_sent',
+                      'page_reads_sent', 'identity_digest')
+
+
+@pytest.mark.parametrize('tag', ['mf0icu1-nak', 'ul-ev1'])
+async def test_stopped_ul_run_summary_comes_from_recorded_identify(cu_setup, monkeypatch, tag):
+    """Skill의 UL 흐름: nfc_cu_identify → step="ul-identify" 기록 → nfc_cu_ul_scan. 사람이 거부해 inventory 전에 멈추면
+    그 기록의 identifications로 만든 mode cu-hf-identify 요약이 스키마를 통과하고 기록된다(설계 개정 G — 멈춘 실행도 요약 가능)."""
+    from case_mcp import server as CS
+    env = cu_setup
+    env.fake = FakeCu(tag=tag)
+    monkeypatch.setattr(S, 'rt', lambda: env.runtime)
+    async with Client(S.server) as client, Client(CS.server) as cc:
+        owner = await connect(client, env)
+        ident = await call(client, 'nfc_cu_identify', case_id=env.case.id, session_id=owner.session_id)
+        assert ident.get('ok') and ident['family'].startswith('ultralight_'), ident
+        item = {'operation': 'cu-identify', **{key: ident[key] for key in IDENTIFY_ITEM_KEYS}}
+        recorded = await call(cc, 'case_record_step', case_id=env.case.id, skill='nfc-behavior-analysis',
+                              step='ul-identify', status='success', summary='UL 식별(READ 없음)',
+                              data={'identifications': [item]})
+        assert recorded.get('ok'), recorded
+        first = await ul_scan(client, env, owner)
+        assert_pending(first, ident['family'])
+        assert decide(env, first['attestation_id'], answer='no')['status'] == 'denied'
+        assert env.runtime.provenance.entries(env.case) == []
+        steps = await call(cc, 'case_get_step_results', case_id=env.case.id, skill='nfc-behavior-analysis',
+                           summaries_only=False)
+        assert steps.get('ok'), steps
+        saved = json.dumps(steps, ensure_ascii=False)
+        assert '"ul-identify"' in saved and UID.hex() not in saved
+        summary = {'schema': 'pweh.nfc-analysis/v1', 'mode': 'cu-hf-identify', 'tags': [], 'results': [],
+                   'identifications': [item], 'physical_same_tag_verified': False, 'tag_content_written': False,
+                   'authentication_attempted': False, 'emulation_performed': False}
+        schemas.validate('nfc-analysis', summary)
+        done = await call(cc, 'case_record_step', case_id=env.case.id, skill='nfc-behavior-analysis', step='summary',
+                          status='partial', summary='소유 증명 거부로 inventory 전에 멈춤', data=summary)
+        assert done.get('ok'), done
+        assert_no_read(env.fake)
+        await close(client, env, owner)
+
+
 async def test_tag_purpose_record_does_not_satisfy_the_ultralight_gate(cu_setup, monkeypatch):
     env = cu_setup
     env.fake = FakeCu(tag='ul-ev1')

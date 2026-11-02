@@ -590,3 +590,20 @@ async def test_sigrok_inputs_refuse_emu_session_files(fake):
             r = await call(c, "sigrok_file_info", case_id=cid, input_path=path)
             assert "_error" in r, (path, r)
     assert not any("emu-001" in a or "innocent" in a or "theirs" in a for argv in fake.calls() for a in argv), fake.calls()
+
+
+async def test_sigrok_inputs_refuse_cu_page_snapshots(fake):
+    """자동 허용 sigrok 도구는 nfc/ 의 CU 페이지 스냅샷(원시 UID·페이지)도 읽지 않는다 — signals/ 의 링크로 가리켜도 막는다."""
+    from sigrok_mcp.server import server
+
+    cid = make_case()
+    cdir = case_dir(cid)
+    target = cdir / "nfc" / "cu-ul-read-001.json"
+    write_uart_sr(target, BOOT_BANNER[:30], baud=115200, samplerate=1_000_000)
+    (cdir / "signals").mkdir(exist_ok=True)
+    (cdir / "signals" / "innocent.sr").symlink_to(target)
+    async with Client(server) as c:
+        for path in ("nfc/cu-ul-read-001.json", str(target), "signals/innocent.sr"):
+            r = await call(c, "sigrok_file_info", case_id=cid, input_path=path)
+            assert "validation_failed" in r["_error"] and "CU 페이지 스냅샷" in r["_error"], (path, r)
+    assert not any("cu-ul-read" in a or "innocent" in a for argv in fake.calls() for a in argv), fake.calls()

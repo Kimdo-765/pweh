@@ -126,8 +126,9 @@ GET_VERSION에 응답하지 않은 원조 Ultralight·UL C는 IDLE/HALT로 돌�
 | `none`, `multiple`, `other` | `not_applicable` |
 
 `policy`는 정보다. 현재 PWEH는 NTAG213/215/216의 scan·inventory·읽기와, Ultralight 계열(`ultralight_ev1_mf0ul11`, `ultralight_ev1_mf0ulh11`,
-`ultralight_ev1_mf0ul21`, `ultralight_ev1_mf0ulh21`, `ultralight_or_ultralight_c`)의 `tag-ownership` 증명 뒤 READ 없는 scan(`nfc_cu_ul_scan`)·inventory를 지원한다.
-Ultralight 페이지 스냅샷 읽기는 다음 단계다. `type2_other_version`·`type2_version_unreadable`(페이지 배치 미상)과 Classic 계열은
+`ultralight_ev1_mf0ul21`, `ultralight_ev1_mf0ulh21`, `ultralight_or_ultralight_c`)의 `tag-ownership` 증명 뒤 READ 없는 scan(`nfc_cu_ul_scan`)·inventory와
+읽기 전용 페이지 스냅샷·분석(`nfc_cu_read_start`·`nfc_parse_file`·`nfc_diff_dumps`에 UT- tag_ref, [Ultralight 스냅샷 계약](cu-ultralight-read.md))을 지원한다.
+`type2_other_version`·`type2_version_unreadable`(페이지 배치 미상)과 Classic 계열은
 다루는 도구·사람 증명 종류가 아직 없으므로 식별 결과를 보고하고 멈춘다.
 `refused`는 더 조작하지 않는다. `allowed`도 기존 `nfc_cu_scan`의 별도 MODIFY 게이트를 다시 거친다.
 

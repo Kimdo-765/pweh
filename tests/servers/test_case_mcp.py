@@ -616,3 +616,56 @@ async def test_case_import_macos_getpath_and_unknown_fd_path(workspace, auth, tm
         result = await call(client, "case_import_file", case_id=cid, source_path=str(second))
         assert "경로를 확인할 수 없어" in result.get("_error", ""), result
         assert not (case.dir / "dumps/unknown.bin").exists()
+
+
+NFC_UID = "04112233445566"
+
+
+def _nfc_refused(r: dict) -> bool:
+    return ("validation_failed" in r.get("_error", "") and "CU 페이지 스냅샷" in r["_error"] and "nfc_parse_file" in r["_error"]
+            and NFC_UID not in str(r))
+
+
+async def test_case_tools_refuse_cu_page_snapshots(workspace, auth, monkeypatch):
+    """nfc/ 의 CU 페이지 스냅샷(원시 UID·페이지)은 자동 허용 case 도구가 해시·등록·가져오기로 읽지 않는다(nfc_parse_file·nfc_diff_dumps 로만).
+    링크·다른 케이스·연 뒤 실제 경로까지 emu/ 와 같게 보고, nfc/ 의 다른 파일은 그대로 다룬다."""
+    from case_mcp import server as srv
+
+    async with Client(srv.server) as c:
+        cid = (await call(c, "case_create", title="nfc", authorization=auth))["case"]["id"]
+        other = (await call(c, "case_create", title="nfc2", authorization=auth))["case"]["id"]
+        cdir = workspace["cases_dir"] / cid
+        snap = cdir / "nfc" / "cu-ul-read-001.json"
+        snap.parent.mkdir(exist_ok=True)
+        snap.write_text('{"identity":{"uid":"%s"}}\n' % NFC_UID, encoding="utf-8")
+        (cdir / "nfc" / "tag.nfc").write_text("Filetype: Flipper NFC device\n", encoding="utf-8")
+        for path in ("nfc/cu-ul-read-001.json", str(snap)):
+            r = await call(c, "case_hash_file", case_id=cid, path=path, offset=0, length=4)
+            assert _nfc_refused(r), r
+            r = await call(c, "case_register_artifact", case_id=cid, path=path, kind="other")
+            assert _nfc_refused(r), r
+        (cdir / "dumps").mkdir(exist_ok=True)
+        (cdir / "dumps" / "innocent.json").symlink_to(snap)
+        r = await call(c, "case_hash_file", case_id=cid, path="dumps/innocent.json")
+        assert _nfc_refused(r), r
+        # case_import_file: 이 케이스·다른 케이스의 스냅샷, 케이스 밖 링크로 가리켜도 가져오지 않는다
+        osnap = workspace["cases_dir"] / other / "nfc" / "cu-read-001.json"
+        osnap.parent.mkdir(exist_ok=True)
+        osnap.write_text(NFC_UID, encoding="utf-8")
+        link = workspace["root"] / "innocent-snapshot.json"
+        link.symlink_to(osnap)
+        for src in (snap, osnap, link):
+            r = await call(c, "case_import_file", case_id=cid, source_path=str(src))
+            assert _nfc_refused(r), r
+        assert not list((cdir / "dumps").glob("cu-*"))
+        # 연 뒤 실제 경로로 다시 본다
+        (cdir / "dumps" / "ok.bin").write_bytes(b"hello world")
+        with monkeypatch.context() as m:
+            m.setattr(srv.safeio, "fd_real_path", lambda fd: str(snap))
+            r = await call(c, "case_hash_file", case_id=cid, path="dumps/ok.bin")
+            assert _nfc_refused(r), r
+        # nfc/ 의 다른 파일(가져온 Flipper 파일)은 그대로 해시·가져오기한다
+        r = await call(c, "case_hash_file", case_id=cid, path="nfc/tag.nfc")
+        assert r.get("ok"), r
+        r = await call(c, "case_import_file", case_id=cid, source_path=str(cdir / "nfc" / "tag.nfc"), dest_subdir="dumps")
+        assert r.get("ok"), r

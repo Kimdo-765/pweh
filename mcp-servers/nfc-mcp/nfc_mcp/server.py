@@ -30,7 +30,8 @@ _TOOLS = ('nfc_tag_inventory_add', 'nfc_parse_file', 'nfc_diff_dumps',
           'nfc_job_status', 'nfc_job_cancel', 'nfc_jobs')
 CaseId = Annotated[StrictStr, Field(max_length=80, pattern=CASE_ID_RE.pattern)]
 ArtifactId = Annotated[StrictStr, Field(pattern=r'^A-[0-9]{4,8}$', max_length=10)]
-TagRef = Annotated[StrictStr, Field(pattern=r'^NT-[0-9a-f]{32}$', max_length=35)]
+# NT-는 NTAG inventory(기존 흐름 그대로), UT-는 Ultralight inventory(tag-ownership 증명 재확인 뒤 UL snapshot 분석)다.
+TagRef = Annotated[StrictStr, Field(pattern=r'^(NT|UT)-[0-9a-f]{32}$', max_length=35)]
 # NS-는 NTAG scan(기존 흐름 그대로), US-는 Ultralight scan(tag-ownership 증명 재확인 뒤 UL inventory)이다.
 ScanRef = Annotated[StrictStr, Field(pattern=r'^(NS|US)-[0-9a-f]{32}$', max_length=35)]
 Seconds = Annotated[StrictInt | StrictFloat, Field(gt=0, le=5)]
@@ -136,7 +137,9 @@ server = create_server(SERVER_NAME, title='PWEH NFC scan 결속 분석', instruc
     '`pweh attest <id>`로 답한 뒤 같은 인자로 다시 호출하고 denied면 멈춘다. '
     'nfc_parse_file/nfc_diff_dumps는 등록한 파일과 보호 scan·inventory의 신원을 비교한다. '
     'nfc_cu_read_start는 같은 inventory에 결속한 snapshot을 등록하며 nfc_job_status로 확인한다. '
-    'CU 페이지 읽기는 고정 Ultra v2.3.0 reader·NTAG21x만 허용하며 끝나면 같은 session_id로 nfc_cu_disconnect한다. '
+    'CU 페이지 읽기는 고정 Ultra v2.3.0 reader의 NTAG21x(NT-)와 소유 증명한 Ultralight 계열(UT-, 사용권 예약 전 증명 재확인, '
+    'page마다 단독 activation, PWD/PACK·UL C 키 페이지 보류, 인증 없음)만 허용하며 끝나면 같은 session_id로 nfc_cu_disconnect한다. '
+    'UT- tag_ref의 nfc_parse_file/nfc_diff_dumps도 같은 증명을 다시 확인한다. snapshot 파일은 에이전트가 직접 열지 않는다. '
     'nfc_cu_identify는 페이지 READ·인증 없이 HF 카드 계열과 §6.2 정책만 분류하고 nfc_cu_status는 RF 없이 배터리·slot·설정을 조회한다. '
     'nfc_cu_lf_identify는 고정 125 kHz scan을 첫 감지에서 멈추며 LF 계열과 정책(감지 계열은 모두 refused, ID 마스킹)만 분류한다. '
     '가져온 파일은 기존 provenance-import 사람 증명이 필요하다. raw UID·LF ID·페이지·키 값은 반환하지 않는다. '
@@ -198,12 +201,35 @@ async def _ul_inventory_add(case_id, scan_ref, cancel):
     return await run_blocking_cancellable(finish, on_cancel=cancel.set)
 
 
+async def _ul_analyze(case_id, ids, tag_ref, max_seconds, tool, cancel):
+    """UT-: 입구(모든 FD 닫음)→ctx 없는 소유 증명 확인(대기 없음)→같은 id 동기 재확인과 분석·저장."""
+    from pweh import nfc_ul_inventory as UL
+    from . import ul_analysis as U
+    runtime = rt()
+    def prepare():
+        case = runtime.case(case_id, hardware=True)
+        return U.prepare_ul_admission(runtime, case, ids, tag_ref, deadline=time.monotonic() + max_seconds,
+                                      cancel=cancel.is_set)
+    admission = await run_blocking_cancellable(prepare, on_cancel=cancel.set)
+    decision = await UL.ul_attest(runtime, case_id, admission.family, admission.ul_identity_digest, tool=tool)
+    if not decision.satisfied:
+        return attestation_response(decision, tag_ref=tag_ref, family=admission.family,
+                                    ul_identity_digest=admission.ul_identity_digest, analysis_recorded=False)
+    def finish():
+        case = runtime.case(case_id, hardware=True)
+        return U.analyze_ul_files(runtime, case, ids, tag_ref, admission, decision.attestation_id,
+                                  max_seconds=max_seconds, cancel=cancel.is_set)
+    return await run_blocking_cancellable(finish, on_cancel=cancel.set)
+
+
 async def _analyze(case_id, ids, tag_ref, max_seconds, ctx, tool):
     cancel = threading.Event()
     try:
         _case_id(case_id)
         if type(max_seconds) not in (int, float) or not 0 < max_seconds <= 5:
             raise A._error('nfc_input_invalid')
+        if type(tag_ref) is str and re.fullmatch(r'UT-[0-9a-f]{32}', tag_ref) is not None:
+            return await _ul_analyze(case_id, ids, tag_ref, max_seconds, tool, cancel)
         runtime = rt()
         def prepare():
             case = runtime.case(case_id, hardware=True)
@@ -234,7 +260,10 @@ async def _analyze(case_id, ids, tag_ref, max_seconds, ctx, tool):
     'CU snapshot은 현재 inventory와 전용 device-read 원장을 대조하고 새 import 증명 없이 분석한다. '
     '대기 중 입력 FD를 보유하지 않는다. max_seconds는0초 초과5초 이하(기본5); 각 입구/최종 분석 worker에 적용하고 '
     '분석 후 최종 재검증·저장에는 별도5초를 사용한다. read<total은 페이지 배치를 추정하지 않는다. '
-    'analysis/nfc-file-NNN.json에 마스킹 결과·전체 입력 SHA·원장/증명 결속을0444로 저장하며 실제 생성 경로를 반환한다.'
+    'analysis/nfc-file-NNN.json에 마스킹 결과·전체 입력 SHA·원장/증명 결속을0444로 저장하며 실제 생성 경로를 반환한다. '
+    'UT- tag_ref(Ultralight inventory)는 서버가 만든 nfc/cu-ul-read-NNN.json snapshot만 받고(가져온 v4·NTAG snapshot은 nfc_source_mismatch) '
+    '입구 뒤 tag-ownership 사람 증명을 다시 확인해 없으면 기다리지 않고 attestation_required를 돌려준다(pweh attest <id> 후 재호출). '
+    '결과는 analysis/nfc-ul-file-NNN.json(구조·관찰 범위·read_end·변형 추정, 원시 UID·페이지 없음)이다.'
 ), annotations=ANN_LOCAL_WRITE)
 @safe_tool
 async def nfc_parse_file(case_id: CaseId, artifact_id: ArtifactId, tag_ref: TagRef,
@@ -249,7 +278,9 @@ async def nfc_parse_file(case_id: CaseId, artifact_id: ArtifactId, tag_ref: TagR
     'v4는 각각1MiB 이하·현재 provenance-import 증명이 필요하고 CU는64KiB 이하·현재 전용 device-read 결속을 확인한다. '
     'read<total·ISO 헤더·불완전 layout에서는 비교 불가/null을 유지한다. raw UID·페이지·Counter·PWD/PACK은 반환하지 않는다. '
     'max_seconds는0초 초과5초 이하이며 분석 후 별도5초 최종 검증·등록을 수행한다. '
-    'analysis/nfc-diff-NNN.json의 실제 경로와 해시를 반환한다. 태그 쓰기·인증·에뮬레이션은 수행하지 않는다.'
+    'analysis/nfc-diff-NNN.json의 실제 경로와 해시를 반환한다. 태그 쓰기·인증·에뮬레이션은 수행하지 않는다. '
+    'UT- tag_ref는 같은 Ultralight inventory의 CU snapshot 둘만 비교하고 tag-ownership 증명을 다시 확인한다(없으면 attestation_required). '
+    '양쪽 관찰한 보류되지 않은 페이지의 변경 번호·read_end 변화만 analysis/nfc-ul-diff-NNN.json에 저장한다.'
 ), annotations=ANN_LOCAL_WRITE)
 @safe_tool
 async def nfc_diff_dumps(case_id: CaseId, before_artifact_id: ArtifactId, after_artifact_id: ArtifactId,

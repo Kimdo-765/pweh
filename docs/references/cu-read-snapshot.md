@@ -4,6 +4,8 @@
 읽고, 같은 케이스 inventory에 결속한 snapshot을 만든다. 읽기 전에 새 scan·단독 GET_VERSION·
 새 선택의 READ0/1 UID/BCC를 대조한다. 실제 USB/RF 호환성과 물리 동일 태그는 합성 시험으로 확인하지 않는다.
 reader 연결과 wire 규칙은 [CU 전송 계약](cu-ntag-read-provider.md)을 따른다.
+Ultralight 계열(UT- tag_ref)은 같은 도구의 별도 분기다: 사용권 예약 전 `tag-ownership` 증명 재확인, page마다 f4 단독 activation,
+PWD/PACK·UL C 키 페이지 보류(null), NAK 정상 끝, `nfc/cu-ul-read-NNN.json`과 증명 id를 담은 device-read 원장이다([Ultralight 스냅샷 계약](cu-ultralight-read.md)).
 
 ## 읽기와 분석 순서
 

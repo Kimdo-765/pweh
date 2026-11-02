@@ -117,6 +117,30 @@ class CuRead:
 
 
 @dataclass(frozen=True, repr=False)
+class CuUlRead:
+    """Ultralight 계열 페이지 읽기의 닫힌 결과. pages는 검증한 페이지 첫4B만 담고 나머지·보류 페이지는 None이다.
+
+    read_end는 (kind, page)다. kind는 end_of_targets·nak_with_rollover·nak_without_rollover·stopped 중 하나다.
+    READ 응답의 뒤 12B(다음 세 페이지)는 겹침·roll-over 대조에만 쓰고 보관하지 않는다.
+    """
+    identity: object
+    family: str
+    pages_total: int
+    read_last_target: int
+    pages: tuple
+    pages_observed: int
+    read_end: tuple
+    read_complete: bool
+    stop_reason: str | None
+    observed_variant: str
+    reader_binding: dict
+    profile: str
+    physical_same_tag_verified: bool = False
+    device_command_termination_verified: bool = False
+    rf_off_verified: bool = False
+
+
+@dataclass(frozen=True, repr=False)
 class CuIdentify:
     """HF 식별의 닫힌 결과. 원시 식별값은 scan/version 안에만 있고 공개 투영이 지문으로 바꾼다."""
     session_id: str
@@ -305,6 +329,9 @@ class CuOwner:
             wire, expected = P.build_ntag_version(keep_field=False), 2010
         elif kind == 'read':
             wire, expected = P.build_ntag_read(family, page, last=last, select=select), 2010
+        elif kind == 'ul_read':
+            # Ultralight READ는 고정 표의 행과 page만으로 f4(auto-select·keep=0) 단독 activation frame을 만든다.
+            wire, expected = P.build_ul_read(family, page), 2010
         else:
             raise error()
         position = 0
@@ -432,6 +459,86 @@ class CuOwner:
         return CuRead(identity, family, family.pages_total, tuple(pages),
                       sum(value is not None for value in pages), reason is None,
                       reason, self._binding(), P.LIVE.profile)
+
+    def read_ultralight(self, use, expected, spec, *, deadline):
+        """mode→scan2000→f4 GET_VERSION→page마다 f4 단독 activation READ(0x30 p)를 0..last_target 순서로 보낸다.
+
+        READ마다 firmware가 auto-select(WUPA)로 태그를 새로 깨우고 keep=0으로 끝에서 field를 끈다. 인증·쓰기·
+        READ_SIG/READ_CNT/FAST_READ·keep=1 option은 보내지 않으며 PWD/PACK·UL C 키 페이지는 READ 시작 page로 쓰지 않는다.
+        page0은 UID·BCC0·BCC1을, page≥1은 앞 응답의 4–8B와 겹침을 대조한다(태그 교체도 이 대조로 막는다).
+        정상 끝(end_of_targets)과 NAK 끝은 firmware가 field를 끈 잘 형성된 끝이라 세션을 ready로 둔다.
+        rf 오류·시간 한도는 검증한 prefix를 stopped로 돌려주고 terminal이다. scan/version/UID/BCC/겹침 불일치·
+        NAK<3·취소·재검증·route·decoder 오류는 결과 없이 terminal이다.
+        """
+        from pweh.nfc_cu_ul_snapshot import expected_variant
+        from pweh.nfc_ul_inventory import UlIdentity
+        try:
+            if (type(expected) is not UlIdentity or type(spec) is not P.CuUlSpec
+                    or P.UL_SPECS.get(spec.family) is not spec):
+                raise error('nfc_input_invalid')
+            end = _end(deadline, OPERATION_SECONDS)
+            if use.owner is not self or use.opening or self.state != 'ready':
+                raise error()
+            self._mode(use, end)
+            scan = P.classify_cu_scan(self._request(use, P.CuQuery.SCAN_14A, end))
+            if (scan.scan_class != 'type2' or (scan.uid, scan.atqa_msb, bytes((scan.sak,)))
+                    != (expected.uid, expected.atqa_msb, expected.sak)):
+                raise error('nfc_identity_mismatch')
+            version = P.classify_type2_version(self._request(use, 'version', end))
+            # 원조 UL/UL C는 00-empty·01-empty만 이 계열로 분류되며 8B·03-empty는 다른 계열이 된다.
+            if version.family != spec.family or version.version != spec.version or version.version != expected.version:
+                raise error('nfc_identity_mismatch')
+        except Exception as exc:
+            self._terminal()
+            raise public_error(exc) from None
+        uid = expected.uid
+        pages = [None] * spec.pages_total
+        retained, previous, end_kind, reason = [], None, None, None
+        try:
+            for page in range(spec.last_target + 1):
+                reply = P.classify_ul_read(self._request(use, 'ul_read', end, family=spec, page=page))
+                if reply.kind == 'rf_error':
+                    reason = 'nfc_scan_invalid'
+                    break
+                if reply.kind == 'nak':
+                    if page < 3:
+                        raise error('nfc_identity_mismatch')
+                    wrapped = previous[4:16] == retained[0] + retained[1] + retained[2]
+                    end_kind = 'nak_with_rollover' if wrapped else 'nak_without_rollover'
+                    break
+                data = reply.data
+                if page == 0:
+                    if (data[0:3] != uid[0:3] or data[3] != (0x88 ^ uid[0] ^ uid[1] ^ uid[2])
+                            or data[4:8] != uid[3:7] or data[8] != (uid[3] ^ uid[4] ^ uid[5] ^ uid[6])):
+                        raise error('nfc_identity_mismatch')
+                elif data[0:4] != previous[4:8]:
+                    raise error('nfc_identity_mismatch')
+                retained.append(data[0:4])
+                previous = data
+            else:
+                end_kind = 'end_of_targets'
+        except Exception as exc:
+            self._terminal()
+            code = public_error(exc).code
+            if code != 'time_limit':
+                raise error(code) from None
+            reason = 'time_limit'
+        observed = len(retained)
+        for index, value in enumerate(retained):
+            pages[index] = value
+        if reason is not None:
+            self._terminal()
+            read_end = ('stopped', observed)
+        elif end_kind == 'end_of_targets':
+            read_end = ('end_of_targets', None)
+        else:
+            read_end = (end_kind, observed)
+            if end_kind == 'nak_without_rollover':
+                reason = 'tag_nak'
+        complete = reason is None
+        return CuUlRead(expected, spec.family, spec.pages_total, spec.last_target, tuple(pages), observed,
+                        read_end, complete, reason, expected_variant(spec.family, read_end, observed),
+                        self._binding(), P.UL_READ.profile)
 
     def identify_hf(self, use, *, deadline):
         """mode→scan2000→(Type 2 후보만) f4 GET_VERSION 한 번. READ·인증·RATS 명령은 보내지 않는다.

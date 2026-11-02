@@ -240,6 +240,13 @@ async def test_exact_fourteen_tools_annotations_and_closed_sdk():
         assert t.annotations.open_world_hint is (t.name in {'nfc_cu_connect','nfc_cu_scan','nfc_cu_identify',
                                                             'nfc_cu_lf_identify','nfc_cu_ul_scan',
                                                             'nfc_cu_status','nfc_cu_read_start'})
+    # 참조 namespace: scan_ref는 NS-/US-, tag_ref는 NT-/UT-만 받는다(Ultralight는 별도 namespace).
+    patterns={(t.name,k):v.get('pattern') for t in tools for k,v in t.input_schema['properties'].items()
+              if k in ('scan_ref','tag_ref')}
+    assert patterns=={('nfc_tag_inventory_add','scan_ref'):'^(NS|US)-[0-9a-f]{32}$',
+                      ('nfc_parse_file','tag_ref'):'^(NT|UT)-[0-9a-f]{32}$',
+                      ('nfc_diff_dumps','tag_ref'):'^(NT|UT)-[0-9a-f]{32}$',
+                      ('nfc_cu_read_start','tag_ref'):'^(NT|UT)-[0-9a-f]{32}$'}
 
 
 @pytest.mark.parametrize('mode',['deny','expired','revoked'])

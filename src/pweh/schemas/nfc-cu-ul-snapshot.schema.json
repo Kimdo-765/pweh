@@ -1,0 +1,646 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.nfc-cu-ul-snapshot/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "profile",
+    "binding",
+    "attestation",
+    "reader",
+    "identity",
+    "pages_total",
+    "read_last_target",
+    "withheld_pages",
+    "pages",
+    "pages_observed",
+    "read_end",
+    "observed_variant",
+    "read_complete",
+    "stop_reason",
+    "activation_per_page",
+    "unobserved_fields",
+    "snapshot_atomic",
+    "physical_same_tag_verified",
+    "device_command_termination_verified",
+    "rf_off_verified",
+    "host_crc_verified",
+    "tag_content_written",
+    "authentication_attempted",
+    "emulation_performed",
+    "read_sig_sent",
+    "read_cnt_sent"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pweh.nfc-cu-ul-snapshot/v1"
+    },
+    "profile": {
+      "const": "cu-ultralight-pages-v1"
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ul_tag_ref",
+        "ul_scan_ref",
+        "ul_identity_digest",
+        "scan_seq",
+        "scan_entry_sha256",
+        "inventory_seq",
+        "inventory_entry_sha256"
+      ],
+      "properties": {
+        "ul_tag_ref": {
+          "type": "string",
+          "pattern": "^UT-[0-9a-f]{32}$(?![\\s\\S])"
+        },
+        "ul_scan_ref": {
+          "type": "string",
+          "pattern": "^US-[0-9a-f]{32}$(?![\\s\\S])"
+        },
+        "ul_identity_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{16}$(?![\\s\\S])"
+        },
+        "scan_seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "scan_entry_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+        },
+        "inventory_seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "inventory_entry_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+        }
+      }
+    },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "attestation_id"
+      ],
+      "properties": {
+        "kind": {
+          "const": "tag-ownership"
+        },
+        "attestation_id": {
+          "type": "string",
+          "pattern": "^att-[0-9a-f]{10}$(?![\\s\\S])"
+        }
+      }
+    },
+    "reader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "profile_sha256",
+        "firmware_commit",
+        "app_version",
+        "git_version"
+      ],
+      "properties": {
+        "profile": {
+          "const": "cu-ultralight-v2.3.0-v1"
+        },
+        "profile_sha256": {
+          "const": "fde75c1da05251b816628e491b9e554d556857f455b39dc439df46a78225b728"
+        },
+        "firmware_commit": {
+          "const": "4e1a5b267b9ed33559e0e2c9dad61d61eaf64ba1"
+        },
+        "app_version": {
+          "const": "2.3"
+        },
+        "git_version": {
+          "const": "v2.3.0"
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "uid",
+        "atqa_msb",
+        "sak",
+        "mifare_version"
+      ],
+      "properties": {
+        "family": {
+          "enum": [
+            "ultralight_ev1_mf0ul11",
+            "ultralight_ev1_mf0ulh11",
+            "ultralight_ev1_mf0ul21",
+            "ultralight_ev1_mf0ulh21",
+            "ultralight_or_ultralight_c"
+          ]
+        },
+        "uid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{14}$(?![\\s\\S])"
+        },
+        "atqa_msb": {
+          "const": "0044"
+        },
+        "sak": {
+          "const": "00"
+        },
+        "mifare_version": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{16}$(?![\\s\\S])"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "pages_total": {
+      "enum": [
+        20,
+        41,
+        48
+      ]
+    },
+    "read_last_target": {
+      "enum": [
+        17,
+        38,
+        43
+      ]
+    },
+    "withheld_pages": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 4,
+        "items": {
+          "type": "integer",
+          "minimum": 18,
+          "maximum": 47
+        }
+      }
+    },
+    "pages": {
+      "type": "array",
+      "minItems": 20,
+      "maxItems": 48,
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}$(?![\\s\\S])"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "pages_observed": {
+      "type": "integer",
+      "minimum": 3,
+      "maximum": 44
+    },
+    "read_end": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "page"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "end_of_targets",
+            "nak_with_rollover",
+            "nak_without_rollover",
+            "stopped"
+          ]
+        },
+        "page": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 3,
+              "maximum": 43
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "end_of_targets"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "page": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "page": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "observed_variant": {
+      "enum": [
+        "ultralight_ev1_mf0ul11",
+        "ultralight_ev1_mf0ulh11",
+        "ultralight_ev1_mf0ul21",
+        "ultralight_ev1_mf0ulh21",
+        "ultralight_or_ultralight_c",
+        "ultralight_c"
+      ]
+    },
+    "read_complete": {
+      "type": "boolean"
+    },
+    "stop_reason": {
+      "enum": [
+        null,
+        "tag_nak",
+        "time_limit",
+        "nfc_scan_invalid"
+      ]
+    },
+    "activation_per_page": {
+      "const": true
+    },
+    "unobserved_fields": {
+      "const": [
+        "signature",
+        "counters",
+        "tearing"
+      ]
+    },
+    "snapshot_atomic": {
+      "const": false
+    },
+    "physical_same_tag_verified": {
+      "const": false
+    },
+    "device_command_termination_verified": {
+      "const": false
+    },
+    "rf_off_verified": {
+      "const": false
+    },
+    "host_crc_verified": {
+      "const": false
+    },
+    "tag_content_written": {
+      "const": false
+    },
+    "authentication_attempted": {
+      "const": false
+    },
+    "emulation_performed": {
+      "const": false
+    },
+    "read_sig_sent": {
+      "const": false
+    },
+    "read_cnt_sent": {
+      "const": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "read_complete": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "stop_reason": {
+            "type": "null"
+          },
+          "read_end": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "end_of_targets",
+                  "nak_with_rollover"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "stop_reason": {
+            "enum": [
+              "tag_nak",
+              "time_limit",
+              "nfc_scan_invalid"
+            ]
+          },
+          "read_end": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "nak_without_rollover",
+                  "stopped"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "family": {
+                "const": "ultralight_ev1_mf0ul11"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "mifare_version": {
+                "const": "0004030101000b03"
+              }
+            }
+          },
+          "pages_total": {
+            "const": 20
+          },
+          "read_last_target": {
+            "const": 17
+          },
+          "withheld_pages": {
+            "const": {
+              "pwd_pack_readback_zero": [
+                18,
+                19
+              ]
+            }
+          },
+          "pages": {
+            "minItems": 20,
+            "maxItems": 20
+          },
+          "pages_observed": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 18
+          },
+          "observed_variant": {
+            "const": "ultralight_ev1_mf0ul11"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "family": {
+                "const": "ultralight_ev1_mf0ulh11"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "mifare_version": {
+                "const": "0004030201000b03"
+              }
+            }
+          },
+          "pages_total": {
+            "const": 20
+          },
+          "read_last_target": {
+            "const": 17
+          },
+          "withheld_pages": {
+            "const": {
+              "pwd_pack_readback_zero": [
+                18,
+                19
+              ]
+            }
+          },
+          "pages": {
+            "minItems": 20,
+            "maxItems": 20
+          },
+          "pages_observed": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 18
+          },
+          "observed_variant": {
+            "const": "ultralight_ev1_mf0ulh11"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "family": {
+                "const": "ultralight_ev1_mf0ul21"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "mifare_version": {
+                "const": "0004030101000e03"
+              }
+            }
+          },
+          "pages_total": {
+            "const": 41
+          },
+          "read_last_target": {
+            "const": 38
+          },
+          "withheld_pages": {
+            "const": {
+              "pwd_pack_readback_zero": [
+                39,
+                40
+              ]
+            }
+          },
+          "pages": {
+            "minItems": 41,
+            "maxItems": 41
+          },
+          "pages_observed": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 39
+          },
+          "observed_variant": {
+            "const": "ultralight_ev1_mf0ul21"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "family": {
+                "const": "ultralight_ev1_mf0ulh21"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "mifare_version": {
+                "const": "0004030201000e03"
+              }
+            }
+          },
+          "pages_total": {
+            "const": 41
+          },
+          "read_last_target": {
+            "const": 38
+          },
+          "withheld_pages": {
+            "const": {
+              "pwd_pack_readback_zero": [
+                39,
+                40
+              ]
+            }
+          },
+          "pages": {
+            "minItems": 41,
+            "maxItems": 41
+          },
+          "pages_observed": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 39
+          },
+          "observed_variant": {
+            "const": "ultralight_ev1_mf0ulh21"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "family": {
+                "const": "ultralight_or_ultralight_c"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "identity": {
+            "properties": {
+              "mifare_version": {
+                "type": "null"
+              }
+            }
+          },
+          "pages_total": {
+            "const": 48
+          },
+          "read_last_target": {
+            "const": 43
+          },
+          "withheld_pages": {
+            "const": {
+              "key_never_readable": [
+                44,
+                45,
+                46,
+                47
+              ]
+            }
+          },
+          "pages": {
+            "minItems": 48,
+            "maxItems": 48
+          },
+          "pages_observed": {
+            "type": "integer",
+            "minimum": 3,
+            "maximum": 44
+          },
+          "observed_variant": {
+            "enum": [
+              "ultralight_or_ultralight_c",
+              "ultralight_c"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

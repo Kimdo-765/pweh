@@ -38,6 +38,40 @@ UL_SCAN_MODELS = {'mf0icu1': ('mf0icu1-nak', 'ultralight_or_ultralight_c'),
                   'mf0ulh21': ('ul-ev1-mf0ulh21', 'ultralight_ev1_mf0ulh21')}
 # 합성 EV1 MF0UL11 일회용 종이 승차권 모델의 UID. 실제 승차권 값이 아니다.
 TICKET_UID = bytes.fromhex('04c0ffee5a1e7b')
+# Ultralight READ 모델(합성 내용이며 실제 덤프가 아니다). (GET_VERSION 응답, 물리 페이지 수, decode 끝, 모델 번호,
+# READ 시작 page로 요청하면 위반인 page 집합). 원조 UL/UL C는 0x2C 이상, EV1은 PWD·PACK 두 페이지가 위반이다.
+UL_MODELS = {
+    'mf0icu1': ((0x00, b''), 16, 0x10, 1, frozenset(range(0x2c, 0x100))),
+    'mf0icu1-silent': ((0x01, b''), 16, 0x10, 2, frozenset(range(0x2c, 0x100))),
+    'mf0icu2': ((0x00, b''), 48, 0x2c, 3, frozenset(range(0x2c, 0x100))),
+    'mf0ul11': ((0x00, bytes.fromhex('0004030101000b03')), 20, 20, 4, frozenset((0x12, 0x13))),
+    'mf0ulh11': ((0x00, bytes.fromhex('0004030201000b03')), 20, 20, 5, frozenset((0x12, 0x13))),
+    'mf0ul21': ((0x00, bytes.fromhex('0004030101000e03')), 41, 41, 6, frozenset((0x27, 0x28))),
+    'mf0ulh21': ((0x00, bytes.fromhex('0004030201000e03')), 41, 41, 7, frozenset((0x27, 0x28))),
+}
+UL_FAMILY_OF = {'mf0icu1': 'ultralight_or_ultralight_c', 'mf0icu1-silent': 'ultralight_or_ultralight_c',
+                'mf0icu2': 'ultralight_or_ultralight_c', 'mf0ul11': 'ultralight_ev1_mf0ul11',
+                'mf0ulh11': 'ultralight_ev1_mf0ulh11', 'mf0ul21': 'ultralight_ev1_mf0ul21',
+                'mf0ulh21': 'ultralight_ev1_mf0ulh21'}
+# recipe의 never_sent_opcodes. Ultralight 모델에 이 opcode의 RAW가 오면 위반이다(인증·쓰기·서명·카운터·FAST_READ 등).
+UL_NEVER_SENT = frozenset((0x1a, 0x1b, 0x39, 0x3a, 0x3c, 0x3e, 0x4b, 0xa0, 0xa2))
+_UL_READ_PREFIX = bytes.fromhex('f40064001030')
+UL_OTP = bytes.fromhex('f00d0000')
+
+
+def ul_pages(model, uid, number=None):
+    """page0=UID[0:3]+BCC0, page1=UID[3:7], page2=BCC1·0x48·00·00, page3=OTP, 나머지는 (i, 0x55, 모델 번호, 0xA5)."""
+    _, total, _, model_number, _ = UL_MODELS[model]
+    number = model_number if number is None else number
+    pages = [bytes((i, 0x55, number, 0xa5)) for i in range(total)]
+    pages[0] = uid[:3] + bytes((0x88 ^ uid[0] ^ uid[1] ^ uid[2],))
+    pages[1] = uid[3:7]
+    pages[2] = bytes((uid[3] ^ uid[4] ^ uid[5] ^ uid[6], 0x48, 0, 0))
+    pages[3] = UL_OTP
+    if UL_MODELS[model][4] and model.startswith('mf0ul'):
+        for page in UL_MODELS[model][4]:
+            pages[page] = bytes(4)  # PWD/PACK는 읽으면 00h다(MF0ULX1 §8.6.1).
+    return pages
 # 공식 v2.3.0 data_cmd.h(L103-L123·L199-L216)의 LF 쓰기(T55xx 복제·블록 쓰기)·EM4x05 LOGIN scan·스니프·원시 ADC·
 # ioProx 변환·emulator ID 명령. LF 식별을 포함한 어떤 경로도 보내면 안 된다.
 LF_DENIED = frozenset((3001, 3003, 3005, 3006, 3007, 3008, 3009, 3011, 3012, 3013, 3015, 3016, 3018, 3020,
@@ -106,7 +140,8 @@ class FakeCu:
     위반은 owner가 고정 오류로 감싸 숨길 수 있으므로 violations에 남기고 fixture 정리에서 검사한다.
     """
     def __init__(self, *, family=213, chunk=17, write_chunk=4096, firmware='v2.3.0', tag=None, scan=None, lf=None,
-                 uid=None):
+                 uid=None, ul=None, auth0=None, prot=False, swap_after_page=None, inject=None, no_rollover=False,
+                 coincident=False):
         self.family, self.chunk, self.write_chunk = family, chunk, write_chunk
         self.app, self.git = FIRMWARES[firmware]
         self.tag, self.scan_model = tag, scan
@@ -131,6 +166,23 @@ class FakeCu:
         self.open_calls = self.close_calls = self.cancel_calls = 0
         self.before_open = self.before_read = self.before_write = self.before_close = None
         self.field = False
+        # Ultralight READ 모델. ul_reads_allowed는 시험이 사람 증명(decide) 뒤에만 켠다. 꺼진 동안 0x30은 위반이다.
+        self.ul, self.ul_reads_allowed = ul, False
+        self.ul_state, self.ul_log = 'off', []
+        if ul is not None:
+            self.ul_uid = UID if uid is None else uid
+            self.version_status, self.version = UL_MODELS[ul][0]
+            self.ul_pages = ul_pages(ul, self.ul_uid)
+            # 보호 경계: AUTH0 이상이 READ 보호(EV1 PROT=1, UL C AUTH1 bit0=0)일 때만 decode 끝보다 앞당긴다.
+            self.ul_auth0, self.ul_prot = auth0, prot
+            if coincident:
+                # 사용자 페이지가 우연히 page0–2와 같아도 겹침 대조·끝 판정이 맞아야 한다.
+                self.ul_pages[4:7] = self.ul_pages[0:3]
+            self.ul_swap_after = swap_after_page
+            # 교체 태그 B: 다른 UID와 다른 모델 번호라 사용자 페이지 내용도 다르다.
+            self.ul_swap_pages = ul_pages(ul, bytes.fromhex('04d1d2d3d4d5d6'), number=0x7b)
+            self.ul_inject = dict(inject or {})
+            self.ul_no_rollover = no_rollover
         self._lock = threading.RLock()
         _CREATED.append(self)
 
@@ -179,6 +231,11 @@ class FakeCu:
             return
         if len(payload) < 5 or payload[0] not in RAW_OPTIONS:
             self.violation('고정 option 이외 RAW')
+        if self.ul is not None:
+            if payload[0] != 0xf4:
+                self.violation('Ultralight 모델에 f4 이외 RAW option')
+            if len(payload) > 5 and payload[5] in UL_NEVER_SENT:
+                self.violation('Ultralight 모델에 금지 opcode')
         option = payload[0]
         if option & 0x10:
             self.field = True
@@ -194,6 +251,11 @@ class FakeCu:
             self.field = False
         elif command == 2010 and payload and not payload[0] & 0x08:
             self.field = False
+        if self.ul is not None and command in (2000, 2010):
+            if not self.field:
+                self.ul_state = 'off'
+            elif self.field:
+                self.violation('Ultralight frame 뒤 field가 켜져 있음')
         self.field_log.append((command, payload[:1], self.field))
 
     def write(self, data):
@@ -242,6 +304,8 @@ class FakeCu:
             if self.lf_found is not None and self.lf_found[0] == command:
                 return frame(command, self.lf_found[1], status=0x40)
             return frame(command, b'', status=0x41)
+        if command == 2010 and self.ul is not None:
+            return self._ul_response(command, payload)
         if command == 2010 and payload == VERSION_WIRE:
             return frame(command, self.version, status=self.version_status)
         if command == 2010 and len(payload) == 7 and payload[1:6] == bytes.fromhex('0064001030'):
@@ -255,6 +319,48 @@ class FakeCu:
             data = self.pages[payload[6]] + b'UNTRUSTED123'
             return frame(command, data, status=0)
         self.violation('고정 명령 이외 송신')
+
+    def _ul_response(self, command, payload):
+        """off→idle(field on)→active(auto-select)만 거친다. NAK·원조 GET_VERSION 뒤 idle, keep=0 뒤 off다."""
+        if payload[0] & 0x10:
+            self.ul_state = 'active'
+        if payload == VERSION_WIRE:
+            if self.version_status != 0 or not self.version:
+                self.ul_state = 'idle'
+            return frame(command, self.version, status=self.version_status)
+        if len(payload) != 7 or payload[:6] != _UL_READ_PREFIX:
+            self.violation('Ultralight 모델에 고정 READ·GET_VERSION 이외 RAW')
+        page = payload[6]
+        self.ul_log.append(page)
+        if not self.ul_reads_allowed:
+            self.violation('사람 증명 전 Ultralight READ')
+        if page >= 0x2c or page in UL_MODELS[self.ul][4]:
+            self.violation('보류·키 페이지 또는 0x2C 이상 READ')
+        if self.ul_state != 'active':
+            self.violation('선택되지 않은 태그에 READ')
+        if page in self.ul_inject:
+            status, data = self.ul_inject[page]
+            return frame(command, data, status=status)
+        _, _, decode_end, _, _ = UL_MODELS[self.ul]
+        boundary = decode_end
+        if self.ul_prot and self.ul_auth0 is not None:
+            boundary = min(boundary, self.ul_auth0)
+        if page >= boundary:
+            self.ul_state = 'idle'
+            return frame(command, b'', status=0)
+        swapped = self.ul_swap_after is not None and page > self.ul_swap_after
+        store = self.ul_swap_pages if swapped else self.ul_pages
+        data = b''
+        for index in range(page, page + 4):
+            if index >= boundary:
+                data += bytes(4) if self.ul_no_rollover else store[index % boundary]
+            else:
+                data += store[index]
+        return frame(command, data, status=0)
+
+    def ul_reads(self):
+        """Ultralight 모델에 실제로 보낸 READ 시작 page 순서."""
+        return list(self.ul_log)
 
     def cancel_read(self):
         self.cancel_calls += 1

@@ -149,3 +149,51 @@ async def test_case_without_forensics_folder_is_unchanged(workspace, auth):
     async with Client(server) as c:
         r = await call(c, "fw_strings_hunt", case_id=case.id, path_or_dir=".")
         assert r.get("ok"), r
+
+
+NFC_UID = "04112233445566"
+
+
+def _nfc_refused(r: dict) -> bool:
+    return ("validation_failed" in r.get("_error", "") and "CU 페이지 스냅샷" in r["_error"] and "nfc_parse_file" in r["_error"]
+            and NFC_UID not in str(r))
+
+
+async def test_fwtriage_refuses_cu_page_snapshots_but_reads_other_nfc_files(workspace, auth):
+    """nfc/ 의 CU 페이지 스냅샷 이름(원시 UID·페이지)은 자동 허용 fwtriage 로 읽거나 훑지 않는다. nfc/ 의 다른 파일(가져온 Flipper
+    파일)과 스냅샷이 없는 케이스의 루트는 그대로 읽는다 — nfc/ 전체를 막지 않는다."""
+    from fwtriage_mcp.server import server
+    from pweh.case import CaseStore
+
+    case = CaseStore(workspace["cases_dir"]).create(title="nfc guard", authorization=auth, case_id="nfccase")
+    nfc = case.dir / "nfc"
+    nfc.mkdir(exist_ok=True)
+    (nfc / "tag.nfc").write_text("Filetype: Flipper NFC device\nUID: 04 AA BB CC DD EE FF\n", encoding="utf-8")
+    async with Client(server) as c:
+        ok = await call(c, "fw_strings_hunt", case_id=case.id, path_or_dir=".", patterns=["lit:Flipper NFC"])
+        assert ok.get("ok"), ok  # 스냅샷이 없는 케이스의 루트는 훑는다
+        for name in ("cu-ul-read-001.json", "cu-read-002.json"):
+            (nfc / name).write_text('{"identity":{"uid":"%s"},"pages":["041122bf","33445566"]}\n' % NFC_UID,
+                                    encoding="utf-8")
+            (nfc / name).chmod(0o444)
+        for path in ("nfc/cu-ul-read-001.json", "nfc/cu-read-002.json", str(nfc / "cu-ul-read-001.json")):
+            r = await call(c, "fw_strings_hunt", case_id=case.id, path_or_dir=path,
+                           patterns=[f"lit:{NFC_UID}", r're:"pages":\[[^\]]*\]'])
+            assert _nfc_refused(r), r
+            r = await call(c, "fw_identify", case_id=case.id, path=path)
+            assert _nfc_refused(r), r
+        # 다른 이름의 링크(파일·디렉터리)로 돌아가도 막는다
+        (case.dir / "dumps" / "innocent.json").symlink_to(nfc / "cu-ul-read-001.json")
+        r = await call(c, "fw_entropy", case_id=case.id, path="dumps/innocent.json")
+        assert _nfc_refused(r), r
+        (case.dir / "dumps" / "tags").symlink_to(nfc)
+        # 스냅샷을 품은 디렉터리(nfc/·링크를 푼 nfc/·케이스 루트)는 훑지 않는다
+        for d in ("nfc", "dumps/tags", ".", str(case.dir)):
+            r = await call(c, "fw_strings_hunt", case_id=case.id, path_or_dir=d, patterns=[f"lit:{NFC_UID}"])
+            assert _nfc_refused(r), (d, r)
+        r = await call(c, "fw_elf_info", case_id=case.id, path=".")
+        assert _nfc_refused(r), r
+        # 가져온 NFC 파일 하나는 그대로 읽는다
+        ok = await call(c, "fw_strings_hunt", case_id=case.id, path_or_dir="nfc/tag.nfc", patterns=["lit:Flipper NFC"])
+        assert ok.get("ok"), ok
+        assert NFC_UID not in str(ok)

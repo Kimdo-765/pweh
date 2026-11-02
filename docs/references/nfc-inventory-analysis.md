@@ -11,6 +11,7 @@
 |---|---|---|
 | `flipper_nfc_probe` | `case_id, approval_id=None` | 기존 ready Flipper 세션에서 고정 probe·GET_VERSION·임시 SD 파일 정리 후 scan 사실 등록 |
 | `nfc_tag_inventory_add` | `case_id, scan_ref` | 같은 케이스 보호 원장의 허용 scan을 inventory에 결속. `US-` scan_ref(`nfc_cu_ul_scan`)는 `tag-ownership` 증명을 다시 확인한 뒤 UL inventory(`UT-`)로 결속 |
+| `nfc_parse_file`·`nfc_diff_dumps`(UT-) | `tag_ref` UT- | Ultralight CU snapshot만 받고 `tag-ownership` 증명을 다시 확인(없으면 `attestation_required`)한 뒤 `nfc-ul-file-analysis` 저장 |
 | `nfc_parse_file` | `case_id, artifact_id, tag_ref, max_seconds=5` | 같은 inventory와 출처 증명에 결속한 파일의 기존 구조 검사 |
 | `nfc_diff_dumps` | `case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds=5` | 두 파일 각각의 결속을 확인한 뒤 기존 저장 페이지 비교 |
 
@@ -118,5 +119,11 @@ UL scan 행의 프로필은 닫힌 UL 프로필 집합(`UL_KNOWN`)의 정확한 
 UL recipe를 다시 고정할 때는 새 이름을 쓰고 이전 행을 검증 전용으로 남기므로 이미 기록한 UL scan·inventory 행은 그대로 검증된다.
 inventory 결과의 `attestation.attestation_id`는 이번 호출에서 다시 확인한 현재 증명 id, `attestation.inventory_attestation_id`는 inventory 행의 id다(재증명 뒤에는 다를 수 있다).
 UL 확인 지점은 기록의 질문 문구 전체와 recipe의 `decided_via` 목록(cli-tty·elicitation)도 확인한다.
-한계: GET_VERSION의 status `0x01`·빈 payload(`01-empty`)는 원조 Ultralight의 무응답과, scan 뒤 auto-select 전에 태그가 field를 벗어난 경우(firmware는 auto-select 실패 때 scan 상태 `0x01`을 돌려준다)가 섞인다. 그래서 그 한 번의 응답으로 NTAG213 같은 다른 Type 2 태그도 `ultralight_or_ultralight_c` UL scan 사실·inventory로 남을 수 있다. 원조 UL/UL C 결과는 태그를 움직이지 않은 채 `nfc_cu_identify`로 다시 확인하고, 다음 단계(페이지 읽기)는 읽기 직전 GET_VERSION의 `01-empty`를 의심해 다룬다(하드웨어 확인 항목).
-`UT-` tag_ref의 페이지 스냅샷·parse/diff는 아직 없다(다음 단계).
+한계: GET_VERSION의 status `0x01`·빈 payload(`01-empty`)는 원조 Ultralight의 무응답과, scan 뒤 auto-select 전에 태그가 field를 벗어난 경우(firmware는 auto-select 실패 때 scan 상태 `0x01`을 돌려준다)가 섞인다. 그래서 그 한 번의 응답으로 NTAG213 같은 다른 Type 2 태그도 `ultralight_or_ultralight_c` UL scan 사실·inventory로 남을 수 있다. 원조 UL/UL C 결과는 태그를 움직이지 않은 채 `nfc_cu_identify`로 다시 확인한다. 페이지 읽기는 읽기 직전 GET_VERSION이 다시 원조 계열이어야 하므로
+8B로 답하는 태그는 READ 없이 멈춘다(두 번 모두 `01-empty`인 경우는 하드웨어 확인 항목).
+
+`UT-` tag_ref는 `nfc_cu_read_start`·`nfc_parse_file`·`nfc_diff_dumps`에서 별도 분기다([Ultralight 스냅샷 계약](cu-ultralight-read.md)).
+NTAG와 다른 점: 읽기 전·frame 전·원장 append 직전·등록 check와 parse/diff 입구·분석 단계마다 `tag-ownership` 증명을 같은 id로 다시 확인(엄격 재확인,
+없으면 `attestation_required`), page마다 f4 단독 activation과 겹침 대조, PWD/PACK·UL C 키 페이지는 요청하지 않는 보류(null), NAK는 정상 끝,
+snapshot은 `nfc/cu-ul-read-NNN.json`(device-read 원장에 읽기 때 증명 id), 보고서는 `pweh.nfc-ul-file-analysis/v1`(`analysis/nfc-ul-file|diff-NNN.json`)이다.
+가져온 v4·NTAG snapshot은 UT- 흐름에서, UL snapshot은 NT- 흐름에서 `nfc_source_mismatch`다.

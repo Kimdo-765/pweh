@@ -626,7 +626,8 @@ def register_cu_tools(server, namespace):
         '원시 UID·version은 반환하지 않고 Ultralight 전용 domain의 케이스 솔트 지문 ul_identity_digest만 돌려준다. '
         'GET_VERSION status0x01·빈 응답은 원조 UL의 무응답과 scan 뒤 태그가 field를 벗어난 경우가 섞여 원조 UL/UL C로 보이므로 '
         '그 결과는 태그를 움직이지 않은 채 nfc_cu_identify로 다시 확인한다. '
-        'scan_ref는 nfc_tag_inventory_add로 inventory(UT- tag_ref)에 올린다. 페이지 snapshot 읽기는 아직 없다. '
+        'scan_ref는 nfc_tag_inventory_add로 inventory(UT- tag_ref)에 올리고, 그 tag_ref로 nfc_cu_read_start(읽기 전용 페이지 snapshot)와 '
+        'nfc_parse_file/nfc_diff_dumps를 쓴다. 호출 전에 같은 세션·같은 태그 배치로 nfc_cu_identify를 먼저 불러 family가 ultralight_ 계열인지 확인한다. '
         'approval_required이면 사람이 승인 후 같은 인자와 approval_id로 재호출한다.'
     ), annotations=ANN_DEVICE)
     @safe_tool

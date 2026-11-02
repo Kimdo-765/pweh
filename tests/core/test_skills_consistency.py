@@ -968,3 +968,20 @@ def test_shell_dump_device_path_restriction_documented():
     dump = _skill_text("firmware-dump-via-uart")
     s7 = dump[dump.index("### 7."): dump.index("### 8.")]
     assert "이 장치는 덤프하지 않습니다" in s7 and "job_command_denied" in s7 and "authorization_required" in s7
+
+
+def test_nfc_ultralight_flow_records_identify_before_scan():
+    """Ultralight 절은 nfc_cu_identify → step="ul-identify" 기록 → nfc_cu_ul_scan 순서이고, 멈춘 실행의 요약은 그 기록에서 만든다.
+    (scan-bound-offline 요약은 식별 배열을 받지 않으므로 식별했다는 흔적은 이 단계 기록이다 — 설계 개정 G)"""
+    text = _skill_text("nfc-behavior-analysis")
+    ul = _section(text, "## CU Ultralight")
+    identify = ul.index("`nfc_cu_identify`")
+    record = ul.index('step="ul-identify"')
+    scan = ul.index("`nfc_cu_ul_scan(case_id, session_id)`")
+    assert identify < record < scan, (identify, record, scan)
+    assert "`ul-identify` 기록이 없으면 `nfc_cu_ul_scan`을 호출하지 않는다" in ul
+    step9 = ul[ul.index("9. 요약"):]
+    assert "`ul-identify` 기록의 `identifications`" in step9 and "`cu-hf-identify`" in step9
+    ref = _read(SKILLS / "nfc-behavior-analysis" / "reference.md")
+    ul_ref = ref[ref.index("## CU Ultralight"):]
+    assert 'step="ul-identify"' in ul_ref and "`ul-identify` 기록의 `identifications`로 mode `cu-hf-identify`" in ul_ref

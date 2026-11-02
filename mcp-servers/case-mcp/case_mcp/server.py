@@ -46,14 +46,18 @@ _FORENSICS_HINT = "카드 이미지·복구 파일은 pweh-forensics 도구로�
 
 def _refuse_case_protected(path: str | Path, what: str) -> None:
     """어느 케이스든 보호 폴더(pweh.evidence.PROTECTED_DIRS) 아래면 거부한다 — 자동 허용 도구가 읽지 않게, 링크를 풀어 판단:
-    증거 폴더(forensics/ — 카드 이미지·복구한 녹화)와 에뮬레이터 세션 폴더(emu/ — 마스킹하지 않은 원시 콘솔, 콘솔은 emu_read 로만)."""
-    from pweh.evidence import EMU_REFUSAL_HINT, EMU_REFUSAL_MESSAGE, under_any_case_protected
+    증거 폴더(forensics/ — 카드 이미지·복구한 녹화)와 에뮬레이터 세션 폴더(emu/ — 마스킹하지 않은 원시 콘솔, 콘솔은 emu_read 로만).
+    nfc/ 의 CU 페이지 스냅샷(cu-read-NNN.json·cu-ul-read-NNN.json — 원시 UID·페이지)도 거부한다(nfc_parse_file·nfc_diff_dumps 로만)."""
+    from pweh.evidence import (EMU_REFUSAL_HINT, EMU_REFUSAL_MESSAGE, NFC_SNAPSHOT_REFUSAL_HINT, NFC_SNAPSHOT_REFUSAL_MESSAGE,
+                               under_any_case_nfc_snapshot, under_any_case_protected)
 
     hit = under_any_case_protected(path, rt().config.cases_dir)
     if hit == "emu":
         raise ValidationFailed(EMU_REFUSAL_MESSAGE, hint=EMU_REFUSAL_HINT)
     if hit is not None:
         raise ValidationFailed(f"케이스의 증거 폴더(forensics/)에 있는 파일은 {what}.", hint=_FORENSICS_HINT)
+    if under_any_case_nfc_snapshot(path, rt().config.cases_dir):
+        raise ValidationFailed(NFC_SNAPSHOT_REFUSAL_MESSAGE, hint=NFC_SNAPSHOT_REFUSAL_HINT)
 
 
 def _open_case_regular(case, p: Path, refuse_what: str, verb: str) -> tuple[int, os.stat_result]:
@@ -383,7 +387,9 @@ def case_import_file(case_id: str, source_path: str, kind: str = "firmware-image
         )
     # 케이스의 증거 폴더(forensics/ — 카드 이미지·복구한 녹화)는 pweh-forensics 로만, 에뮬레이터 세션 폴더(emu/ — 마스킹하지 않은
     # 원시 콘솔)는 emu_read 로만 다룬다. 자동 허용 도구(pweh-fwtriage 등)가 읽는 dumps/ 로 복사하는 우회를 막는다(docs/safety.md).
-    from pweh.evidence import EMU_REFUSAL_HINT, EMU_REFUSAL_MESSAGE, under_any_case_protected
+    # nfc/ 의 CU 페이지 스냅샷(원시 UID·페이지)도 같은 이유로 복사하지 않는다(nfc_parse_file·nfc_diff_dumps 로만).
+    from pweh.evidence import (EMU_REFUSAL_HINT, EMU_REFUSAL_MESSAGE, NFC_SNAPSHOT_REFUSAL_HINT, NFC_SNAPSHOT_REFUSAL_MESSAGE,
+                               under_any_case_nfc_snapshot, under_any_case_protected)
 
     hit = under_any_case_protected(raw, rt().config.cases_dir) or under_any_case_protected(src, rt().config.cases_dir)
     if hit == "emu":
@@ -393,6 +399,8 @@ def case_import_file(case_id: str, source_path: str, kind: str = "firmware-image
             "케이스의 증거 폴더(forensics/)에 있는 파일은 가져올 수 없습니다.",
             hint="카드 이미지·복구 파일은 pweh-forensics 도구(forensics_*)로만 다룬다. 원본 이미지를 새로 접수하려면 forensics_intake_start 를 쓴다.",
         )
+    if under_any_case_nfc_snapshot(raw, rt().config.cases_dir) or under_any_case_nfc_snapshot(src, rt().config.cases_dir):
+        raise ValidationFailed(NFC_SNAPSHOT_REFUSAL_MESSAGE, hint=NFC_SNAPSHOT_REFUSAL_HINT)
     try:
         fd, _ = safeio.open_regular(src, what="가져올 파일", reject_hardlinks=True)
     except FileNotFoundError:

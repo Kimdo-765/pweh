@@ -59,19 +59,25 @@ LF 식별은 지문을 포함한 ID 파생 값을 만들지 않는다. 그래서
 감지 계열의 `policy`는 모두 refused다. §6.2의 장난감·동물·시험 태그 사람 증명 예외는 아직 없으므로 사람 증명으로 바꾸지 않는다.
 원시 ID·FC/CN·HID format은 반환되지 않으므로 요약에도 넣지 않는다. 근거와 한계는 [LF 식별 계약](../../docs/references/cu-lf-identify.md)에 있다.
 
-## CU Ultralight 소유 증명 scan·inventory 기록
+## CU Ultralight scan·inventory·snapshot 기록
 
-`nfc_cu_ul_scan`과 `nfc_tag_inventory_add`(US- scan_ref)의 결과는 아직 `nfc-analysis` 요약 칸이 없다(tags는 NT-/NS- 참조만 받는다).
-그래서 `case_record_step(skill="nfc-behavior-analysis", step="ul-inventory", status="success", ...)`의 data에 반환값만 옮긴다.
+Ultralight 결과는 `nfc-analysis` 요약 mode `scan-bound-offline`의 tags·results에 **UL 항목**으로 넣는다(NTAG 항목과 섞이지 않는 닫힌 형식).
+UL 흐름은 `nfc_cu_ul_scan` 전에 처음 호출한 `nfc_cu_identify` 반환값을 `step="ul-identify"`(`data.identifications`, 아래 HF 식별 항목과 같은 필드)로
+먼저 기록한다. 이 기록 없이 `nfc_cu_ul_scan`을 부르지 않는다. inventory까지 성공했으면 결과가 없어도(results 빈 배열) tags 하나로 요약할 수 있고,
+`scan-bound-offline`은 식별 배열을 받지 않으므로 식별 근거는 `ul-identify` 기록에 남는다. inventory 전에 멈췄으면(denied·계열 불일치·오류)
+`ul-identify` 기록의 `identifications`로 mode `cu-hf-identify` 요약을 쓰고, 멈춘 이유와 고정 오류를 summary 문장과 `step="attempt"`에 남긴다.
 
-| data 필드 | 근거 |
+| 요약 필드 | 근거 |
 |---|---|
-| `scan_ref` | `nfc_cu_ul_scan` 성공 결과의 US- 참조 |
-| `tag_ref` | US- scan_ref로 호출한 `nfc_tag_inventory_add` 결과의 UT- 참조 |
-| `family`·`ul_identity_digest`·`policy_profile` | 두 결과의 같은 이름 필드 |
-| `attestation_id` | 결과 `attestation.attestation_id`(이번 호출에서 다시 확인한 현재 tag-ownership 증명 id) |
-| `inventory_attestation_id` | `nfc_tag_inventory_add` 결과 `attestation.inventory_attestation_id`(inventory 행에 기록된 증명 id. 재증명 뒤 같은 scan을 다시 추가하면 기존 행을 돌려주므로 `attestation_id`와 다를 수 있다) |
-| `page_read_performed` | `nfc_cu_ul_scan`의 false를 그대로 둔다 |
+| `tags[].tag_ref` | US- scan_ref로 호출한 `nfc_tag_inventory_add` 결과의 UT- 참조 |
+| `tags[].scan_ref` | 같은 결과의 US- 참조(`nfc_cu_ul_scan` 성공 결과와 같다) |
+| `tags[].family`·`tags[].ul_identity_digest` | inventory 결과의 같은 이름 필드 |
+| `tags[].tag_ownership_attestation_id` | inventory 결과 `attestation.attestation_id`(그 호출에서 다시 확인한 현재 tag-ownership 증명 id) |
+| `results[].artifact_id/path/sha256` | UT- tag_ref로 부른 parse/diff 응답의 `analysis.artifact_id/path/sha256`(`analysis/nfc-ul-file|diff-NNN.json`) |
+| `results[].operation/status/tag_ref` | `report.operation/status/source.tag_ref`(status는 ok·partial) |
 
 `ul_identity_digest`는 Ultralight 전용 domain의 케이스 솔트 지문이며 HF 식별·NTAG inventory의 `identity_digest`와 같은 값이 아니다. 서로 비교해 결속하지 않는다.
-증명은 사람이 `pweh attest <id>`로 답한 기록이며 태그 소유를 서버가 확인한 사실이 아니다. 같은 실행의 요약은 `nfc_cu_identify` 결과로 mode `cu-hf-identify`에 기록한다.
+UL 항목에 `identity_digest`를 넣거나 NT-/NS- 참조를 UL 항목에 넣지 않는다. 식별 배열(`identifications`)은 `scan-bound-offline` 요약에 넣지 않는다.
+inventory 결과의 `inventory_attestation_id`, read receipt의 `attestation_id`·`read_end`·`observed_variant`, 보고서의 `files[].read_attestation_id`는
+요약 칸이 아니므로 summary 문장이나 일반 단계 기록(`step="ul-read"` 등)에 반환값 그대로 적는다. read receipt를 results로 대신하지 않는다.
+증명은 사람이 `pweh attest <id>`로 답한 기록이며 태그 소유를 서버가 확인한 사실이 아니다. 원시 UID·페이지·PWD/PACK은 어디에도 넣지 않는다.

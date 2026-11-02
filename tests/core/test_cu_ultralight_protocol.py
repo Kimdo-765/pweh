@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import struct
 import sys
 from types import MappingProxyType
@@ -380,7 +381,9 @@ def test_read_reply_classification(status, data, kind):
     reply = C.classify_ul_read(C.CuFrame(2010, status, data))
     assert reply.kind == kind and reply.status == status
     assert (reply.data == data) if kind == "data" else reply.data is None
-    assert data.hex() not in repr(reply) or not data
+    # repr=False 인 dataclass 는 object.__repr__ 로 떨어져 메모리 주소(16진)가 나온다. 그 주소에 우연히 '0a' 같은 값이 들어갈 수 있으므로
+    # 주소를 지운 뒤 본다(데이터가 repr 에 나오지 않는지만 확인한다).
+    assert data.hex() not in re.sub(r" at 0x[0-9a-fA-F]+>", ">", repr(reply)) or not data
 
 
 @pytest.mark.parametrize("value", [C.CuFrame(2000, 0, bytes(16)), C.CuFrame(1002, 0x68, b"\x01"),

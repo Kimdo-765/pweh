@@ -226,3 +226,58 @@ def test_lf_identity_digest_is_null_only_for_every_family():
             schemas.validate("nfc-analysis", lf_summary(lf_identifications=[dict(row, identity_digest="sha256:" + "a" * 16)]))
     # HF 식별 항목의 지문 규칙은 그대로다(문자열 지문 허용).
     schemas.validate("nfc-analysis", summary())
+
+
+# --- Ultralight 계열 snapshot(scan-bound-offline의 UL tags·results 항목) ---------------------------------
+UL_TAG = {"tag_ref": "UT-" + "1" * 32, "scan_ref": "US-" + "2" * 32, "family": "ultralight_ev1_mf0ul11",
+          "ul_identity_digest": "sha256:" + "3" * 16, "tag_ownership_attestation_id": "att-0123456789"}
+UL_RESULT = {"artifact_id": "A-0007", "path": "analysis/nfc-ul-file-001.json", "sha256": "4" * 64,
+             "operation": "inspect", "status": "partial", "tag_ref": "UT-" + "1" * 32}
+NT_RESULT = {"artifact_id": "A-0003", "path": "analysis/nfc-file-001.json", "sha256": "0" * 64,
+             "operation": "inspect", "status": "ok", "tag_ref": "NT-" + "0" * 32}
+
+
+def ul_summary(**over):
+    base = {"schema": "pweh.nfc-analysis/v1", "mode": "scan-bound-offline", "tags": [copy.deepcopy(UL_TAG)],
+            "results": [copy.deepcopy(UL_RESULT)], **FLAGS}
+    base.update(over)
+    return base
+
+
+def test_ultralight_tag_and_result_items_validate_alone_and_mixed():
+    schemas.validate("nfc-analysis", ul_summary())
+    schemas.validate("nfc-analysis", ul_summary(results=[]))
+    diff = dict(UL_RESULT, operation="diff", path="analysis/nfc-ul-diff-002.json", status="ok")
+    schemas.validate("nfc-analysis", ul_summary(results=[UL_RESULT, diff]))
+    schemas.validate("nfc-analysis", ul_summary(tags=[UL_TAG, TAG], results=[UL_RESULT, NT_RESULT]))
+    for family in CU.UL_FAMILIES:
+        schemas.validate("nfc-analysis", ul_summary(tags=[dict(UL_TAG, family=family)]))
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda d: d["tags"][0].update(tag_ref="NT-" + "1" * 32),
+    lambda d: d["tags"][0].update(scan_ref="NS-" + "2" * 32),
+    lambda d: d["tags"][0].update(family="ntag213"),
+    lambda d: d["tags"][0].update(identity_digest="sha256:" + "3" * 16),
+    lambda d: d["tags"][0].pop("tag_ownership_attestation_id"),
+    lambda d: d["tags"][0].update(tag_ownership_attestation_id="att-1"),
+    lambda d: d["tags"][0].update(uid="04A1B2C3D4E5F6"),
+    lambda d: d["tags"].append(dict(TAG, ul_identity_digest="sha256:" + "3" * 16)),
+    lambda d: d["results"][0].update(tag_ref="NT-" + "1" * 32, path="analysis/nfc-ul-file-001.json"),
+    lambda d: d["results"][0].update(path="analysis/nfc-ul-diff-001.json"),
+    lambda d: d["results"][0].update(status="malformed"),
+    lambda d: d["results"].append(dict(NT_RESULT, tag_ref="UT-" + "1" * 32)),
+    lambda d: d.update(identifications=[IDENT]),
+])
+def test_ultralight_items_reject_mixed_namespaces_and_raw_values(mutate):
+    doc = ul_summary()
+    mutate(doc)
+    with pytest.raises(Exception):
+        schemas.validate("nfc-analysis", doc)
+
+
+def test_ultralight_item_constants_follow_the_frozen_profile():
+    tag = SCHEMA["properties"]["tags"]["items"]["oneOf"][1]["properties"]
+    assert set(tag["family"]["enum"]) == set(CU.UL_FAMILIES)
+    old = SCHEMA["properties"]["tags"]["items"]["oneOf"][0]["properties"]
+    assert set(old["family"]["enum"]) == {"ntag213", "ntag215", "ntag216"}

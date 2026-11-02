@@ -352,8 +352,9 @@ if not decision.allowed:
   증명을 요구하는 도구는 `fw_patch_build`(세이브 쓰기 명령을 보여 주기 전 `console-offline` — 네트워크 차단·재부팅 없음·변경 의사·판매 토큰 콘텐츠 아님, 30분 유효, 패치·백업·편집·선언에 묶임)와
   `forensics_acquisition_attest`(카드 이미징의 `write-blocker` — 쓰기 방지 장치 사용·모델·시험 여부·이미징 도구, 증거 id·sha256·크기에 묶임, 90일. 결과를 보관 기록에 남길 뿐 다른 도구를 막지 않는다 — §6.8),
   `emu_start`(가져온 펌웨어의 `provenance-import` — 케이스·파일 sha256 에 묶임, §6.9),
-  `nfc_cu_ul_scan`·`nfc_tag_inventory_add`(Ultralight 계열 태그의 `tag-ownership` — 사용자 소유 또는 소유자 서면 허가, subject 는 계열·Ultralight 전용
-  케이스 솔트 지문·정책 프로필이며 원시 UID 없음, 케이스 바인딩 7일, ctx 없이 요청해 호출 안에서 기다리지 않음, §6.14)이다.
+  `nfc_cu_ul_scan`·`nfc_tag_inventory_add`와 UT- tag_ref의 `nfc_cu_read_start`·`nfc_parse_file`·`nfc_diff_dumps`(Ultralight 계열 태그의 `tag-ownership` —
+  사용자 소유 또는 소유자 서면 허가, subject 는 계열·Ultralight 전용 케이스 솔트 지문·정책 프로필이며 원시 UID 없음, 케이스 바인딩 7일, ctx 없이 요청해
+  호출 안에서 기다리지 않음. 읽기는 사용권 예약 전·frame 전·원장 append 직전·등록 직전, 분석은 입구 뒤·분석 단계·등록 check에서 같은 id를 다시 확인, §6.14)이다.
   `tag-purpose`(게임·장난감 태그이며 자격증명 아님)는 닫힌 집합에 그대로 있지만 아직 요구하는 도구가 없다.
   사람에게 보이는 요약·질문은 `display_text` 로 제어·서식 문자를 이스케이프한다(`pweh attest` 화면, elicitation 폼 — 기기에서 온 문자열이 화면을 조작하지 못하게).
   - 레코드: `.pweh/state/attestations/att-<16진 10자>.json`(`pweh.attestation/v1`). `kind` 는 닫힌 집합이다(`tag-purpose`, `tag-ownership`, `wiring`, `console-offline`,
@@ -414,7 +415,7 @@ if not decision.allowed:
     올바른 `prev` 로 끝에 줄을 덧붙이거나, 레코드를 처음부터 위조하는 것은 막지 못한다(docs/safety.md §3.5). 보호 상태는 케이스 id 로만 묶인다
     — 사람이 `cases/<id>` 를 지운 뒤 같은 id 로 케이스를 다시 만들면 예전 원장·증명·솔트를 이어받는다.
   - `case_import_file` 은 state_dir 안의 파일을 가져오지 않는다(보호 상태를 케이스로 복사해 읽어 내지 못하게). 대상은 `O_EXCL` 로 새로 만든다(같은 이름의 파일·링크가 있으면 거부).
-    어느 케이스의 `forensics/`·`emu/` 아래 파일도 가져오지 않는다(풀기 전 경로와 링크를 푼 경로를 모두 본다 — 보호 폴더 자체가 링크여도 그 아래 경로로 부르면 막는다. 카드 이미지·추출물을 자동 허용 도구가 읽는 `dumps/` 같은 곳으로 옮기지 못하게, 아래 SD 카드 증거).
+    어느 케이스의 `forensics/`·`emu/` 아래 파일과 `nfc/` 의 CU 페이지 스냅샷(`cu-read-NNN.json`·`cu-ul-read-NNN.json`)도 가져오지 않는다(풀기 전 경로와 링크를 푼 경로를 모두 본다 — 보호 폴더 자체가 링크여도 그 아래 경로로 부르면 막는다. 카드 이미지·추출물을 자동 허용 도구가 읽는 `dumps/` 같은 곳으로 옮기지 못하게, 아래 SD 카드 증거).
     확인한 뒤 원본을 경로로 다시 열어 복사하므로 그 사이에 같은 계정 프로세스가 이름을 바꿔치기하는 것은 막지 못한다(docs/safety.md §3.6).
 - **비밀값 마스킹** — `src/pweh/safety/masking.py`. 게이트 `action` 과 `classification.matched` 에는 원문 대신 `rt().secret_digest(case_id, 값)`
   (`sha256:` + sha256(케이스 솔트 ‖ 값)의 앞 16 hex) 또는 `<given>` 만 넣는다. 그러면 승인 지문·감사 로그·승인 레코드·`approval_status` 응답에 원문이 남지 않는다.
@@ -445,6 +446,12 @@ if not decision.allowed:
 - **보호 하위 트리**: `pweh.evidence.PROTECTED_DIRS = ("forensics", "emu")`. `under_any_case_protected`·`is_protected_path`·`contains_protected_dir` 는 SD 증거와 에뮬레이터 원시 콘솔 경계를 함께 검사한다.
   위 `case_import_file`·`case_hash_file`·`case_register_artifact`, pweh-fwtriage 입력/디렉터리 순회, pweh-sigrok 입력의 거부는 `emu/` 에도 적용된다(다른 케이스·심볼릭 링크 포함).
   종전 `*_forensics*` 함수는 호환성을 위해 SD 경계만 검사한다. 에이전트 파일 도구·REA 및 별도 복사본은 이 경계 밖이므로 운영 규칙도 필요하다(안전 가이드 §3.7).
+- **CU 페이지 스냅샷 이름**: `nfc/cu-read-NNN.json`(NTAG)·`nfc/cu-ul-read-NNN.json`(Ultralight)에는 원시 UID·페이지가 있다. 폴더가 아니라 이름으로 막는다
+  (`pweh.evidence.NFC_SNAPSHOT_RE`, 케이스 루트 바로 아래 `nfc/` 만). `under_any_case_nfc_snapshot`·`is_nfc_snapshot_path`·`contains_nfc_snapshot` 을 위와 같은
+  자동 허용 입력 검사(`case_import_file`·`case_hash_file`·`case_register_artifact`·`case_image_hints`, pweh-fwtriage 파일 입력과 그 이름을 품은 디렉터리
+  순회 — `nfc/`·케이스 루트, pweh-sigrok 입력)가 쓴다(풀기 전 경로와 링크를 푼 경로, 다른 케이스 포함). `nfc/` 의 다른 파일(가져온 NFC 파일 등)은
+  그대로 읽는다. `PROTECTED_DIRS`·`under_any_case_protected` 는 바꾸지 않는다(pweh-nfc 가 자기 snapshot 입력에 쓴다). 스냅샷 분석은
+  `nfc_parse_file`·`nfc_diff_dumps` 로만 하고, 에이전트 파일 도구·REA·하드링크는 이 경계 밖이라 운영 규칙(직접 열지 않음)이 필요하다.
 
 ## 5. 코딩 규칙
 
@@ -514,7 +521,7 @@ if not decision.allowed:
   tftpput·SPI 클립으로 받은 파일과 UART 덤프의 같은 구간 비교, 기기 측 `md5sum`/`crc32` 값과 대조.
 - 보호 하위 트리 가드(§4): `case_hash_file`·`case_register_artifact` 는 어느 케이스의 `forensics/`·`emu/` 아래 파일도 다루지 않는다(링크를 푼 경로로 판단, `validation_failed`).
   파일은 `pweh.safeio` 로 일반 파일만 열고(FIFO·장치는 열지 않아 거기서 멈추지 않는다 — `validation_failed`), 실제로 연 fd 의 경로로 증거 폴더 여부를 다시 본 뒤 그 fd 로 해시한다(`case_register_artifact` 의 디렉터리는 해시하지 않는다).
-  `case_import_file` 은 state_dir 와 어느 케이스의 `forensics/`·`emu/` 아래 파일을 가져오지 않는다(보호 폴더는 풀기 전 경로와 링크를 푼 경로 모두 — §4). 확인한 뒤 원본을 경로로 다시 열어 복사한다(그 사이의 바꿔치기 한계 — docs/safety.md §3.6).
+  `case_import_file` 은 state_dir 와 어느 케이스의 `forensics/`·`emu/` 아래 파일, `nfc/` 의 CU 페이지 스냅샷 이름을 가져오지 않는다(보호 폴더·스냅샷 이름은 풀기 전 경로와 링크를 푼 경로 모두 — §4). 확인한 뒤 원본을 경로로 다시 열어 복사한다(그 사이의 바꿔치기 한계 — docs/safety.md §3.6).
 - `pipeline_environment` 은 실행 환경 보고서(`pweh.hostenv/v1` — `kind`, `wsl{version, networking_mode, interop}`, `windows{build, uac_enabled, interop_elevated, smart_app_control, usbipd, tools.esptool_win}`, `linux`, `warnings`, `overridden`)와 장치 종류별 `routes[]`(`now` = 지금 되는 경로·사람 단계, `target{route, phase}` = 다음 단계 경로)를 돌려준다(OBSERVE, 기기 미접촉). 모르는 값은 `null`, 휘발 목록(COM 포트·usbipd attach 상태)은 넣지 않는다. WSL 첫 감지는 powershell.exe 고정 스크립트 smoke 로 몇 초, 이후 캐시(성공한 smoke 300 초, 실패한 감지는 30 초 뒤 다시), `refresh=true` 면 다시 감지. 표준 위치가 아닌 `$PATH` 의 usbipd 는 `windows.usbipd.found_elsewhere` 로 표시만 하고 실행하지 않는다(Windows 프로그램은 실제 경로가 정확히 맞는 System32 powershell·Program Files usbipd 만). 사람은 같은 내용을 `pweh env` 로 본다.
   설정 `hostenv.disable`은 좁히기만 한다: `interop`은 Windows 실행, `windows_tools`는 Windows 도구, `serial_helper`는 COM helper를 끈다. 세 값 모두 새 helper 실행을 막지만 이미 실행한 helper의 종료 확인은 계속한다. 알 수 없는 값은 경고와 함께 무시한다.
   `windows.serial_helper{present,path,source,problem,trusted,trust_check}`는 정적 설치 흔적이다. `trusted=null`, `trust_check="pre-execution"`이며 `pipeline_environment`는 helper를 실행하지 않는다. `pweh doctor`만 고정 pin을 검증한 뒤 포트 없는 `--version`을 제한 시간 내 확인한다.
@@ -1485,14 +1492,14 @@ RAW 파일이면 반환 artifact ID를 `sdr_analyze`로 넘긴다. [전송 계�
 | `nfc_cu_lf_identify(case_id, session_id, approval_id=None)` | 정확한 ready 세션의 MODIFY 게이트(`cu.lf-identify`) 뒤 mode1002와 125 kHz 고정 scan을 3000→3002(1B `00`)→3010(1B `00`)→3004→3014→3019→3021 순서로 보내 첫 `0x40`에서 멈춘다. family(EM410x는 variant)·§6.2 `policy`(감지 계열은 모두 `refused`, 미감지는 family `none`·policy `not_applicable`)·`scans_sent`만 반환한다. `identity_digest`는 모든 계열에서 null이며 원시 ID·지문 등 ID 파생 값·HID format·scan 사실·inventory는 만들지 않는다. 감지·none은 세션을 ready로 두고 잘못된 응답·`0x66`·timeout·취소는 terminal이다. |
 | `nfc_cu_ul_scan(case_id, session_id, approval_id=None)` | 정확한 ready 세션의 MODIFY 게이트(`cu.ul-scan`) 뒤 `nfc_cu_identify`와 같은 mode·scan2000·단독 GET_VERSION(`f4`) 하나만 보낸다(READ·인증 없음). Ultralight 계열이 아니면 증명 요청·scan 사실 없이 `nfc_family_unsupported`이고 세션은 ready다. Ultralight 계열이면 CU 사용권을 놓은 뒤 `tag-ownership` 증명을 ctx 없이 찾고, 없으면 기다리지 않고 `attestation_required`(계열·`ul_identity_digest`만)를 돌려준다. 증명이 있으면 원장 잠금 안에서 같은 증명 id를 다시 확인하고 UL scan 사실(`nfc-ultralight-cu-scan-v1`, `US-` scan_ref, 원장 `attestation_id`)을 기록해 `nfc-ul-scan`을 반환한다. GET_VERSION `01-empty`(status0x01·빈 응답)는 원조 UL의 무응답과 scan 뒤 태그가 field를 벗어난 경우가 섞여 원조 UL/UL C로 보이므로 그 결과는 `nfc_cu_identify`로 다시 확인한다. |
 | `nfc_cu_status(case_id, session_id)` | 정확한 ready 세션에 RF 없이 mode1002·배터리1025·활성 slot1018(0부터)·HF14A 설정2200 getter만 보낸다. INTERACT(`cu.status`)로 항상 허용·감사 기록하며 percent는 전압 추정이다. |
-| `nfc_cu_read_start(case_id, session_id, tag_ref, approval_id=None)` | 기존 세션·현재 inventory와 MODIFY 게이트 뒤 유한 페이지 읽기 job을 시작한다. 전용 device-read 원장 기록 후 snapshot artifact를 등록한다. |
+| `nfc_cu_read_start(case_id, session_id, tag_ref, approval_id=None)` | 기존 세션·현재 inventory와 MODIFY 게이트 뒤 유한 페이지 읽기 job을 시작한다. 전용 device-read 원장 기록 후 snapshot artifact를 등록한다. `UT-` tag_ref는 사용권 예약 전에 `tag-ownership` 증명을 ctx 없이 다시 확인하고(없으면 frame·예약 없이 `attestation_required`) 결속을 다시 풀어 같은 id를 동기 확인한 뒤 예약·MODIFY 게이트(`cu.ul-read`)를 거쳐 같은 kind(`nfc-cu-read`) job을 시작한다. job은 frame 전 증명 재확인 → mode·scan2000·keep=0 GET_VERSION(같은 태그·계열) → page마다 `f4` 단독 activation READ(0x30)를 0..last_target 순서로 보낸다(PWD/PACK·UL C 키 페이지 보류, NAK 정상 끝, page0 UID/BCC·겹침 대조). 결과는 `nfc/cu-ul-read-NNN.json`(`nfc-cu-ul-snapshot`)과 읽기 때 증명 id를 담은 device-read 원장이며 receipt에 `read_end`·`observed_variant`·`attestation_id`를 더한다. |
 | `nfc_job_status(job_id, wait_seconds=0.0, case_id=None)` | 작업과 저장 기록 조회. wait_seconds는0..50초다. |
 | `nfc_job_cancel(job_id)` | 실행 중 작업 취소 요청. 실제 commit 이후 결과는 보존한다. |
 | `nfc_jobs(active_only=False, case_id=None)` | 작업 목록·저장 기록 복구 상태 조회. |
 | `nfc_cu_disconnect(case_id, session_id)` | 허가 철회 뒤에도 같은 세션의 읽기 작업을 취소하고 정리한다. worker·물리 close·lease를 각각 확인하며 미확인 owner는 보존한다. |
 | `nfc_tag_inventory_add(case_id, scan_ref)` | 같은 케이스의 고정 성공 scan을 검사하고 inventory 사실을 등록한다. 같은 scan 재등록은 기존 tag_ref를 반환한다. nfc/inventory.json은 최근32개 마스킹 조회 사본이다. `US-` scan_ref는 같은 케이스의 `tag-ownership` 증명을 다시 확인(없으면 `attestation_required`)한 뒤 UL inventory(`nfc-ultralight-inventory-v1`, `UT-` tag_ref)를 기록해 `nfc-ul-inventory`를 반환하며 NTAG cache는 쓰지 않는다. 결과 `attestation.attestation_id`는 이번 호출에서 다시 확인한 현재 증명 id이고 `attestation.inventory_attestation_id`는 inventory 행에 기록된 id다(같은 scan을 재증명 뒤 다시 추가하면 기존 행을 돌려주므로 둘이 다를 수 있다). |
-| `nfc_parse_file(case_id, artifact_id, tag_ref, max_seconds=5)` | 등록 일반 파일≤1MiB의 전체 SHA·private 식별값·최신 출처를 확인한다. imported-v4는 기존 사람 증명, CU snapshot은 전용 device-read 원장을 요구한다. |
-| `nfc_diff_dumps(case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds=5)` | 두 파일 합≤2MiB, 같은 inventory와 각 출처를 확인한다. imported끼리 또는 같은 reader 프로필의 CU snapshot끼리만 비교하며 혼합은 거부한다. |
+| `nfc_parse_file(case_id, artifact_id, tag_ref, max_seconds=5)` | 등록 일반 파일≤1MiB의 전체 SHA·private 식별값·최신 출처를 확인한다. imported-v4는 기존 사람 증명, CU snapshot은 전용 device-read 원장을 요구한다. `UT-` tag_ref는 Ultralight CU snapshot(`nfc/cu-ul-read-NNN.json`)만 받고(가져온 v4·NTAG snapshot은 `nfc_source_mismatch`, NT- 흐름도 UL snapshot을 거부) 입구 뒤 `tag-ownership` 증명을 ctx 없이 다시 확인한다(없으면 `attestation_required`). 결과는 `nfc-ul-file-analysis`(`analysis/nfc-ul-file-NNN.json`)이며 현재 증명 id와 읽기 때 증명 id를 함께 기록한다. |
+| `nfc_diff_dumps(case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds=5)` | 두 파일 합≤2MiB, 같은 inventory와 각 출처를 확인한다. imported끼리 또는 같은 reader 프로필의 CU snapshot끼리만 비교하며 혼합은 거부한다. `UT-` tag_ref는 같은 UL inventory의 Ultralight snapshot 둘만 비교하고(같은 계열·identity·binding·reader·read_last_target) 양쪽 관찰한 보류되지 않은 page만 비교해 `analysis/nfc-ul-diff-NNN.json`에 저장한다. |
 
 inventory·parse·diff는 소유/허가 확인 뒤 로컬 결과를 쓰는 `ANN_LOCAL_WRITE`다.
 임의 UID·계열·키·attested 인자는 없다. imported 증명 대기 전에 FD를 닫고 새 worker에서
@@ -1512,7 +1519,7 @@ import 시 hash 대조로 고정한다. 검증기는 `known_reader_profile`의 �
 Ultralight 프로필 `cu-ultralight-v2.3.0-v1`도 `KNOWN` 밖의 별도 canonical recipe·hash이며 HF 식별 recipe hash에 결속한다. 다섯 Ultralight 계열의
 GET_VERSION 값·전체 페이지·마지막 READ 시작 page(UL11/H11 0x11, UL21/H21 0x26, UL/UL C 0x2B)·보류 페이지(EV1 PWD/PACK, UL C 키 0x2C–0x2F)·
 `tag-ownership` 질문 hash·지문 domain `pweh.nfc-ultralight-tag/v1`을 담는다. READ builder는 `f4`(keep=0) 단독 activation과 0x2C 미만의 보류되지 않은 page만 만들며
-이번 단계의 어떤 도구도 아직 READ를 보내지 않는다. UL 원장 행은 `ul_scan_ref`·`ul_tag_ref` 키만 쓰므로 NTAG 색인은 그 행을 건너뛰고,
+READ는 UT- tag_ref의 `nfc_cu_read_start` job에서만 보낸다([Ultralight 스냅샷 계약](references/cu-ultralight-read.md)). UL 원장 행은 `ul_scan_ref`·`ul_tag_ref` 키만 쓰므로 NTAG 색인은 그 행을 건너뛰고,
 UL 키를 가진 다른 kind 행이나 UL kind의 형식 오류는 UL 색인 전체를 오염으로 본다. UL scan 행은 live 프로필 하나가 아니라 닫힌 UL 프로필 집합
 (`UL_KNOWN`)의 정확한 이름 조회 뒤 hash·commit 전체 일치로 검증한다. 다시 고정할 때는 새 이름을 쓰고 이전 행을 검증 전용으로 남기므로
 이미 기록한 UL 행이 그대로 검증된다(같은 이름의 다른 hash는 이전 행 전체를 오염으로 만든다). import 단계는 계열 행마다 datasheet 기하

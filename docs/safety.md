@@ -344,8 +344,9 @@ pweh-emu 의 고정 argv 허용 목록 위반도 `gate.via: "emu-policy"`, `stat
 - **사람 증명**은 에이전트가 확인할 수 없는 사실을 사람이 직접 답한 기록이다(콘솔 오프라인, 결제 수단 제거, 배선과 멀티미터로 잰 전압, 태그의 목적·소유,
   쓰기 방지 장치 사용, 가져온 파일의 출처 …). 증명을 요구하는 도구는 `fw_patch_build`(세이브 쓰기 명령을 보여 주기 전 — 네트워크 차단·재부팅 없음·변경 의사·판매 토큰 콘텐츠 아님)와
   `forensics_acquisition_attest`(SD 카드 이미지를 쓰기 방지 장치로 만들었는지 — 아래), `emu_start`(가져온 펌웨어의 출처),
-  `nfc_cu_ul_scan`·`nfc_tag_inventory_add`(Ultralight 계열 태그의 `tag-ownership` — 사용자 소유 또는 소유자 서면 허가, subject 는 계열·Ultralight 전용
-  케이스 솔트 지문·정책 프로필이며 원시 UID 없음, 케이스 바인딩 7일, 아래 CU 절)다. 요약·질문의 제어 문자는 이스케이프해 보여 준다.
+  `nfc_cu_ul_scan`·`nfc_tag_inventory_add`와 UT- tag_ref 분기의 `nfc_cu_read_start`·`nfc_parse_file`·`nfc_diff_dumps`(Ultralight 계열 태그의
+  `tag-ownership` — 사용자 소유 또는 소유자 서면 허가, subject 는 계열·Ultralight 전용 케이스 솔트 지문·정책 프로필이며 원시 UID 없음,
+  케이스 바인딩 7일, 아래 CU 절)다. 요약·질문의 제어 문자는 이스케이프해 보여 준다.
   서버가 `status: "attestation_required"` 와 `attestation_id` 를 돌려주면, 사람이 **별도 터미널**에서 `pweh attest <id>` 를 실행해
   종류·대상·바인딩을 확인하고 항목마다 y/n 또는 직접 잰 값을 입력한다. 승인이 되는 답이면 화면의 4자리 확인 코드도 입력한다(대화형 터미널 전용).
   클라이언트가 elicitation 을 지원하면 같은 항목이 확인 폼으로 뜬다(4자리 확인 코드. 폼을 거절·취소하면 거부로 기록된다).
@@ -976,10 +977,23 @@ Ultralight 계열이 아니면 증명 요청·원장 기록 없이 `nfc_family_u
 (레코드 전체가 케이스 사본과 `pweh attest` 화면에 보이기 때문이다). 원장 잠금 안에서 같은 증명 id를 다시 확인하므로 그사이 철회·만료되면 기록하지 않는다.
 `nfc_tag_inventory_add`의 `US-` scan_ref도 같은 증명을 다시 확인한다. UL 확인 지점은 저장소 대조(질문 id·type·expected)에 더해 기록의 질문 문구 전체와
 `decided_via`(recipe의 고정 목록 cli-tty·elicitation)를 확인하므로 문구가 다른 기록이나 새 결정 경로의 기록은 받지 않는다.
-GET_VERSION의 status `0x01`·빈 payload(`01-empty`)는 원조 Ultralight의 무응답과, scan 뒤 auto-select 전에 태그가 field를 벗어난 경우(firmware는 auto-select 실패 때 scan 상태 `0x01`을 돌려준다)가 섞인다. 그래서 그 한 번의 응답으로 NTAG213 같은 다른 Type 2 태그도 `ultralight_or_ultralight_c` UL scan 사실·inventory로 남을 수 있다. 원조 UL/UL C 결과는 태그를 움직이지 않은 채 `nfc_cu_identify`로 다시 확인하고, 다음 단계(페이지 읽기)는 읽기 직전 GET_VERSION의 `01-empty`를 의심해 다룬다(하드웨어 확인 항목).
+GET_VERSION의 status `0x01`·빈 payload(`01-empty`)는 원조 Ultralight의 무응답과, scan 뒤 auto-select 전에 태그가 field를 벗어난 경우(firmware는 auto-select 실패 때 scan 상태 `0x01`을 돌려준다)가 섞인다. 그래서 그 한 번의 응답으로 NTAG213 같은 다른 Type 2 태그도 `ultralight_or_ultralight_c` UL scan 사실·inventory로 남을 수 있다. 원조 UL/UL C 결과는 태그를 움직이지 않은 채 `nfc_cu_identify`로 다시 확인한다. 페이지 읽기는 읽기 직전 GET_VERSION이 다시 원조 계열이어야 하므로 8B로 답하는 태그는 READ 없이 멈춘다(두 번 모두 `01-empty`인 경우는 하드웨어 확인 항목).
 설계 §1.3·§6.2의 2026-11-02 개정에 따라 사용자 소유 태그면 사용한 교통 승차권 같은
 자격증명도 이 읽기 전용 경로에 들어가지만, 쓰기·매직 UID 쓰기·복제·에뮬레이션·재생·인증·키 복구는 여전히 없고 다른 계열로 넓히지 않는다.
-Ultralight 페이지 스냅샷 읽기는 다음 단계이며 이 단계의 어떤 도구도 Ultralight 태그에 READ를 보내지 않는다.
+UT- tag_ref의 `nfc_cu_read_start`(MODIFY `cu.ul-read`)는 CU 사용권을 예약하기 **전에** 같은 증명을 ctx 없이 다시 확인한다(없으면 frame·예약 없이 `attestation_required`).
+job 안에서도 frame 전·원장 append 직전·artifact 등록 check마다 같은 증명 id를 동기 확인한다. frame 전에 철회·만료되면 frame을 보내지 않고,
+원장 append 직전이면 device-read 행·파일을 남기지 않는다. 원장 append 뒤 artifact 등록 check에서 철회·만료가 드러나면(등록 실패와 같다)
+device-read 행 하나와 0444 snapshot 파일은 남고 job은 실패하며 partial receipt는 `registered=false`(artifact_id null, `artifact_registration_incomplete`)다.
+등록되지 않은 snapshot은 분석 artifact가 아니므로 `nfc_parse_file`·`nfc_diff_dumps`가 받지 않는다.
+wire는 mode·scan2000·keep=0 GET_VERSION(같은 태그·계열 확인) 뒤 page마다 `2010 f4 0064 0010 30 p` 하나(auto-select·keep=0 단독 activation)이며
+firmware가 READ마다 끝에서 field를 끈다(물리 확인은 아님, `rf_off_verified=false`). PWD/PACK(EV1)·UL C 키 페이지(0x2C–0x2F)는 READ 시작 page로 쓰지 않고
+null로 보류하며 builder가 만들 수 없다. 인증(0x1B·0x1A·CU 2018–2022)·쓰기(0xA2/0xA0)·READ_SIG/READ_CNT/FAST_READ/CHECK_TEARING/VCSL과 keep=1 option(fc/ec/e4)은
+어떤 UL 경로도 보내지 않는다. NAK는 정상 끝이고(사용한 승차권은 AUTH0 보호 위에서 NAK로 끝난 부분 snapshot이 정상) 인증으로 더 읽지 않는다.
+결과 파일(`nfc/cu-ul-read-NNN.json`)은 로컬 케이스에만 있고 에이전트가 열지 않으며 job·분석 결과에는 원시 UID·페이지가 없다.
+스냅샷 이름(`nfc/cu-read-NNN.json`·`nfc/cu-ul-read-NNN.json`)은 자동 허용 pweh-case·pweh-fwtriage·pweh-sigrok 입력 검사가 거부한다
+(파일·그 이름을 품은 디렉터리 순회·가져오기 복사, 링크·다른 케이스 포함 — 가져온 NFC 파일 같은 `nfc/` 의 다른 파일은 그대로 읽는다).
+에이전트 파일 도구(Read·Bash)·REA·하드링크는 이 검사 밖이므로 직접 열지 않는 규칙은 여전히 운영 규칙이다(`emu/` 와 같은 한계).
+`nfc_parse_file`·`nfc_diff_dumps`의 UT- 분기도 같은 증명을 다시 확인한다. 규칙 전체는 [Ultralight 스냅샷 계약](references/cu-ultralight-read.md)이다.
 `nfc_cu_status`는 RF 없는 getter 1002/1025/1018/2200만 보내는 INTERACT(명령을 보내지만 상태를 바꾸지 않음. 다른 CU 장치 도구의 MODIFY와 다른 의도한 선택이며 근거는 HF 식별·상태 계약)이며 BLE PIN(1031/1034)·장치 식별자(1011/1012)·slot 별명
 (1008/1038)·slot/emulator 정보·setter는 보내지 않는다. 표와 근거는 [HF 식별·상태 계약](references/cu-hf-identify.md)에 있다.
 

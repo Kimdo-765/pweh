@@ -152,7 +152,7 @@ def ul_ownership_target(case_id, family, ul_identity_digest):
 
 
 def _summary(family):
-    return f"Ultralight 계열 태그의 소유 확인(family={family}, 페이지 읽기 전)"
+    return f"Ultralight 계열 태그의 소유 확인(family={family}, 읽기 전용 scan·페이지 snapshot·분석, 쓰기·인증 없음)"
 
 
 async def ul_attest(runtime, case_id, family, digest, *, tool):

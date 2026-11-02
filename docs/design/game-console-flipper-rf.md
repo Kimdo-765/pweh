@@ -28,7 +28,7 @@
 | 시판 콘솔(Switch/PS/Xbox) | 가능(태그 쪽만) | 정적 분석 불가(암호화) | **불가** — 세이브가 암호화·서명돼 있어 수정은 복제 방지 우회 경계를 넘는다 | 가능(입력 경로가 맞으면) | 캡처 카드, 입력 방식 |
 | 아케이드 기판 | 해당 없음이 많음 | 가능(덤프가 있으면) | 구현: NVRAM 원시 파일 비교·체크섬 후보 분석·명시 값의 로컬 계획. 기기 쓰기 준비는 후속 | 가능(free-play 설정, 동전 라인 금지) | JAMMA 접점 |
 
-NFC·플레이 열의 “가능”은 후속 설계의 기대치다. 현재 NFC 구현은 NTAG21x 스캔과 등록 파일 검사·비교, 그리고 소유 증명(`tag-ownership`)을 받은 Ultralight 계열 태그의 READ 없는 scan·inventory 등록에 한정된다(Ultralight 페이지 스냅샷 읽기는 다음 단계). 현재 세이브 도구의 입력·패치 제한은 §3.5를 따른다.
+NFC·플레이 열의 “가능”은 후속 설계의 기대치다. 현재 NFC 구현은 NTAG21x 스캔과 등록 파일 검사·비교, 그리고 소유 증명(`tag-ownership`)을 받은 Ultralight 계열 태그의 scan·inventory 등록과 읽기 전용 페이지 스냅샷·구조 분석([계약](../references/cu-ultralight-read.md))에 한정된다. 현재 세이브 도구의 입력·패치 제한은 §3.5를 따른다.
 
 ### 1.3 범위 밖 (항상 거부 — 코드 규칙으로 만든다)
 
@@ -37,7 +37,8 @@ NFC·플레이 열의 “가능”은 후속 설계의 기대치다. 현재 NFC 
   - **개정(2026-11-02, 저장소 소유자 결정)**: 소유자는 "not credential이어도 본인 소유면 상관없음", "현재 GVB 카드로 진행"이라고 결정했다.
     그래서 **MIFARE Ultralight 계열**(MF0ICU1, MF0ICU2의 공개 페이지, EV1 MF0UL11/MF0UL21/MF0ULH11/MF0ULH21)에 한해, 사람이 `tag-ownership`
     증명으로 "사용자 본인 소유이거나 소유자의 서면 허가를 받은 태그"라고 확인한 한 장은 자격증명(예: 사용자 본인의 사용했거나 만료된 GVB 종이 승차권,
-    EV1 MF0UL11)이어도 저장 페이지를 **읽기 전용**으로 스냅샷할 수 있다. 첫 단계는 READ 없는 scan·inventory 등록이고 페이지 읽기는 다음 단계다.
+    EV1 MF0UL11)이어도 저장 페이지를 **읽기 전용**으로 스냅샷할 수 있다. 첫 단계는 READ 없는 scan·inventory 등록이고, 둘째 단계(같은 날)는
+    page마다 단독 activation READ로 공개 페이지 snapshot을 만들고 구조·관찰 범위만 분석한다(PWD/PACK·UL C 키 페이지는 요청하지 않고 인증하지 않는다).
     그대로 금지인 동작: 모든 쓰기(0xA2/0xA0)·매직 UID 쓰기, 에뮬레이션·복제·재생, PWD_AUTH(0x1B), UL C 3DES 인증(0x1A)과 CU 2018–2022,
     키 복구, READ_SIG/READ_CNT/FAST_READ/CHECK_TEARING/VCSL.
     기존 §6.2 판정이 그대로인 계열: LF 125 kHz(거부·ID 마스킹), MIFARE Classic(Mini/1K/TNP3xxx는 기존 목적+소유 증명 행, 2K/4K는 거부), Plus·ISO14443-4·EMV·DESFire(거부).

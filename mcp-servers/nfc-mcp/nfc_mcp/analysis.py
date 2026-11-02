@@ -115,6 +115,19 @@ def _mode(rows):
     for item in rows:
         row = item['row']
         meta = row['_registration']
+        # Ultralight snapshot 경로·등록 type은 NTAG 경로보다 먼저 닫힌 규칙으로 판정한다(가져온 v4로 떨어지지 않는다).
+        ul = (row['path'].startswith('nfc/cu-ul-read-')
+              or type(meta['extra']) is dict and meta['extra'].get('type') == 'nfc-cu-ul-snapshot')
+        if ul:
+            match = re.fullmatch(r'nfc/cu-ul-read-([0-9]{3,5})\.json', row['path'])
+            if (match is None or not 1 <= int(match[1]) <= 99999
+                    or match[1] != f'{int(match[1]):03d}'
+                    or meta != {'kind': 'other', 'producer': 'pweh-nfc', 'extra': {'type': 'nfc-cu-ul-snapshot'}}
+                    or not 1 <= row['size'] <= CU.MAX_INPUT_BYTES
+                    or item['seal'][5] & 0o777 != 0o444):
+                raise _error('nfc_source_mismatch')
+            modes.append('cu-ul-snapshot')
+            continue
         special = (row['path'].startswith('nfc/cu-read-')
                    or type(meta['extra']) is dict and meta['extra'].get('type') == 'nfc-cu-snapshot')
         if special:
@@ -411,6 +424,9 @@ def prepare_admission(runtime, case, artifact_ids, tag_ref, *, deadline, cancel=
         bound = resolve_inventory(runtime, case, tag_ref, deadline=deadline, cancel=cancel)
         inputs = _Inputs(case, artifact_ids, deadline, cancel)
         mode = _mode(inputs.rows)
+        if mode not in ('imported-v4', 'cu-snapshot'):
+            # NT- 흐름은 Ultralight snapshot을 받지 않는다.
+            raise _error('nfc_source_mismatch')
         if mode == 'cu-snapshot':
             _cu_sources(runtime, case, inputs, bound, _entries(runtime, case, deadline, cancel), deadline, cancel)
         else:
@@ -579,7 +595,7 @@ def analyze_files(runtime, case, artifact_ids, tag_ref, admission, *, max_second
         if tuple((i['row']['id'], i['row']['sha256']) for i in inputs.rows) != admission.artifacts:
             raise _error('nfc_input_changed')
         mode = _mode(inputs.rows)
-        if mode != admission.mode:
+        if mode != admission.mode or mode not in ('imported-v4', 'cu-snapshot'):
             raise _error('nfc_source_mismatch')
         entries = _entries(runtime, case, deadline, cancel)
         files = []

@@ -20,6 +20,7 @@
 페이지·바이트 번호는 0부터 시작한다. 공통 static lock은 page 2 bytes 2–3, capability container는 page 3이다. dynamic lock 페이지의 byte 3과 PACK 페이지의 bytes 2–3은 reserved로 분류한다. CFG 비트값·락 활성·AUTH0/PROT·인증 가능 여부를 해석하지 않는다. UID/BCC·서명·NDEF·제조사 식별·내용 해독도 범위 밖이다.
 
 다른 형식·버전·계열·NTAG 모델의 **명시적인 선언**은 unsupported다. 임의 binary를 CU 형식으로 자동 식별하거나 CU binary를 파싱하지 않는다. `.nfc`/`.shd` 파일명을 받지 않으며 companion 파일 병합·실제 에뮬레이션 이력 인증도 없다.
+Ultralight 계열 파일(Flipper `.nfc`의 Ultralight·UL C·EV1 선언)도 이 프로필에서 unsupported다. UT- tag_ref는 서버가 만든 [Ultralight snapshot](cu-ultralight-read.md)만 받는다.
 
 ## Python API
 

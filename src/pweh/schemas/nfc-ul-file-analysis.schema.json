@@ -1,0 +1,800 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pweh.nfc-ul-file-analysis/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "operation",
+    "status",
+    "source",
+    "params",
+    "inspection",
+    "inventory_binding_verified",
+    "physical_same_tag_verified"
+  ],
+  "properties": {
+    "schema": {
+      "const": "pweh.nfc-ul-file-analysis/v1"
+    },
+    "operation": {
+      "enum": [
+        "inspect",
+        "diff"
+      ]
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "partial"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "tag_ref",
+        "scan_ref",
+        "scan_entry_sha256",
+        "inventory_entry_sha256",
+        "tag_ownership_attestation_id",
+        "files"
+      ],
+      "properties": {
+        "kind": {
+          "const": "case-artifact"
+        },
+        "tag_ref": {
+          "type": "string",
+          "pattern": "^UT-[0-9a-f]{32}$(?![\\s\\S])"
+        },
+        "scan_ref": {
+          "type": "string",
+          "pattern": "^US-[0-9a-f]{32}$(?![\\s\\S])"
+        },
+        "scan_entry_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+        },
+        "inventory_entry_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+        },
+        "tag_ownership_attestation_id": {
+          "type": "string",
+          "pattern": "^att-[0-9a-f]{10}$(?![\\s\\S])"
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "artifact_id",
+              "size",
+              "sha256",
+              "provenance_kind",
+              "ledger_seq",
+              "ledger_entry_sha256",
+              "read_attestation_id"
+            ],
+            "properties": {
+              "artifact_id": {
+                "type": "string",
+                "pattern": "^A-[0-9]{4,8}$(?![\\s\\S])"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65536
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+              },
+              "provenance_kind": {
+                "const": "device-read"
+              },
+              "ledger_seq": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9223372036854775807
+              },
+              "ledger_entry_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+              },
+              "read_attestation_id": {
+                "type": "string",
+                "pattern": "^att-[0-9a-f]{10}$(?![\\s\\S])"
+              }
+            }
+          }
+        }
+      }
+    },
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "max_seconds"
+      ],
+      "properties": {
+        "profile": {
+          "const": "cu-ultralight-snapshot-analysis-v1"
+        },
+        "max_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 5
+        }
+      }
+    },
+    "inspection": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "operation",
+            "status",
+            "profile",
+            "summary",
+            "coverage",
+            "limitations"
+          ],
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "status": {
+              "enum": [
+                "ok",
+                "partial"
+              ]
+            },
+            "profile": {
+              "const": "cu-ultralight-snapshot-analysis-v1"
+            },
+            "limitations": {
+              "const": [
+                "stored_page_responses_only",
+                "validated_prefix_pages_only",
+                "signature_counters_tearing_unobserved",
+                "withheld_pages_not_observed",
+                "per_page_activation_not_atomic",
+                "nak_boundary_inferred_unverified",
+                "variant_inferred_from_read_behaviour",
+                "physical_same_tag_not_verified",
+                "console_causality_not_verified",
+                "tag_ownership_is_human_statement"
+              ]
+            },
+            "operation": {
+              "const": "inspect"
+            },
+            "summary": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "family",
+                "observed_variant",
+                "pages_total",
+                "read_last_target",
+                "pages_observed",
+                "withheld_pages_count",
+                "read_end",
+                "read_complete",
+                "stop_reason",
+                "unobserved_fields"
+              ],
+              "properties": {
+                "family": {
+                  "enum": [
+                    "ultralight_ev1_mf0ul11",
+                    "ultralight_ev1_mf0ulh11",
+                    "ultralight_ev1_mf0ul21",
+                    "ultralight_ev1_mf0ulh21",
+                    "ultralight_or_ultralight_c"
+                  ]
+                },
+                "observed_variant": {
+                  "enum": [
+                    "ultralight_ev1_mf0ul11",
+                    "ultralight_ev1_mf0ulh11",
+                    "ultralight_ev1_mf0ul21",
+                    "ultralight_ev1_mf0ulh21",
+                    "ultralight_or_ultralight_c",
+                    "ultralight_c"
+                  ]
+                },
+                "pages_total": {
+                  "enum": [
+                    20,
+                    41,
+                    48
+                  ]
+                },
+                "read_last_target": {
+                  "enum": [
+                    17,
+                    38,
+                    43
+                  ]
+                },
+                "pages_observed": {
+                  "type": "integer",
+                  "minimum": 3,
+                  "maximum": 44
+                },
+                "withheld_pages_count": {
+                  "enum": [
+                    2,
+                    4
+                  ]
+                },
+                "read_end": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "page"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "end_of_targets",
+                        "nak_with_rollover",
+                        "nak_without_rollover",
+                        "stopped"
+                      ]
+                    },
+                    "page": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 3,
+                          "maximum": 43
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "allOf": [
+                    {
+                      "if": {
+                        "properties": {
+                          "kind": {
+                            "const": "end_of_targets"
+                          }
+                        }
+                      },
+                      "then": {
+                        "properties": {
+                          "page": {
+                            "type": "null"
+                          }
+                        }
+                      },
+                      "else": {
+                        "properties": {
+                          "page": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
+                  ]
+                },
+                "read_complete": {
+                  "type": "boolean"
+                },
+                "stop_reason": {
+                  "enum": [
+                    null,
+                    "tag_nak",
+                    "time_limit",
+                    "nfc_scan_invalid"
+                  ]
+                },
+                "unobserved_fields": {
+                  "const": [
+                    "signature",
+                    "counters",
+                    "tearing"
+                  ]
+                }
+              }
+            },
+            "coverage": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "input_bytes",
+                "consumed_bytes",
+                "unexamined_bytes",
+                "input_exhausted",
+                "pages_unobserved",
+                "pages_withheld",
+                "reasons"
+              ],
+              "properties": {
+                "input_bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65536
+                },
+                "consumed_bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65536
+                },
+                "unexamined_bytes": {
+                  "const": 0
+                },
+                "input_exhausted": {
+                  "const": true
+                },
+                "pages_unobserved": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 41
+                },
+                "pages_withheld": {
+                  "enum": [
+                    2,
+                    4
+                  ]
+                },
+                "reasons": {
+                  "type": "array",
+                  "maxItems": 1,
+                  "items": {
+                    "const": "read_partial"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "schema_version",
+            "operation",
+            "status",
+            "profile",
+            "summary",
+            "coverage",
+            "limitations"
+          ],
+          "properties": {
+            "schema_version": {
+              "const": 1
+            },
+            "status": {
+              "enum": [
+                "ok",
+                "partial"
+              ]
+            },
+            "profile": {
+              "const": "cu-ultralight-snapshot-analysis-v1"
+            },
+            "limitations": {
+              "const": [
+                "stored_page_responses_only",
+                "validated_prefix_pages_only",
+                "signature_counters_tearing_unobserved",
+                "withheld_pages_not_observed",
+                "per_page_activation_not_atomic",
+                "nak_boundary_inferred_unverified",
+                "variant_inferred_from_read_behaviour",
+                "physical_same_tag_not_verified",
+                "console_causality_not_verified",
+                "tag_ownership_is_human_statement"
+              ]
+            },
+            "operation": {
+              "const": "diff"
+            },
+            "summary": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "family",
+                "pages_total",
+                "read_last_target",
+                "before",
+                "after",
+                "pages_compared",
+                "before_only_pages",
+                "after_only_pages",
+                "neither_observed_pages",
+                "withheld_pages",
+                "comparison_unexamined_pages",
+                "changed_pages",
+                "read_end_changed",
+                "stored_pages_equal"
+              ],
+              "properties": {
+                "family": {
+                  "enum": [
+                    "ultralight_ev1_mf0ul11",
+                    "ultralight_ev1_mf0ulh11",
+                    "ultralight_ev1_mf0ul21",
+                    "ultralight_ev1_mf0ulh21",
+                    "ultralight_or_ultralight_c"
+                  ]
+                },
+                "pages_total": {
+                  "enum": [
+                    20,
+                    41,
+                    48
+                  ]
+                },
+                "read_last_target": {
+                  "enum": [
+                    17,
+                    38,
+                    43
+                  ]
+                },
+                "before": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "pages_observed",
+                    "read_end",
+                    "read_complete",
+                    "stop_reason",
+                    "observed_variant"
+                  ],
+                  "properties": {
+                    "pages_observed": {
+                      "type": "integer",
+                      "minimum": 3,
+                      "maximum": 44
+                    },
+                    "read_end": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "page"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "end_of_targets",
+                            "nak_with_rollover",
+                            "nak_without_rollover",
+                            "stopped"
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 3,
+                              "maximum": 43
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "allOf": [
+                        {
+                          "if": {
+                            "properties": {
+                              "kind": {
+                                "const": "end_of_targets"
+                              }
+                            }
+                          },
+                          "then": {
+                            "properties": {
+                              "page": {
+                                "type": "null"
+                              }
+                            }
+                          },
+                          "else": {
+                            "properties": {
+                              "page": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "read_complete": {
+                      "type": "boolean"
+                    },
+                    "stop_reason": {
+                      "enum": [
+                        null,
+                        "tag_nak",
+                        "time_limit",
+                        "nfc_scan_invalid"
+                      ]
+                    },
+                    "observed_variant": {
+                      "enum": [
+                        "ultralight_ev1_mf0ul11",
+                        "ultralight_ev1_mf0ulh11",
+                        "ultralight_ev1_mf0ul21",
+                        "ultralight_ev1_mf0ulh21",
+                        "ultralight_or_ultralight_c",
+                        "ultralight_c"
+                      ]
+                    }
+                  }
+                },
+                "after": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "pages_observed",
+                    "read_end",
+                    "read_complete",
+                    "stop_reason",
+                    "observed_variant"
+                  ],
+                  "properties": {
+                    "pages_observed": {
+                      "type": "integer",
+                      "minimum": 3,
+                      "maximum": 44
+                    },
+                    "read_end": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "page"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "enum": [
+                            "end_of_targets",
+                            "nak_with_rollover",
+                            "nak_without_rollover",
+                            "stopped"
+                          ]
+                        },
+                        "page": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 3,
+                              "maximum": 43
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "allOf": [
+                        {
+                          "if": {
+                            "properties": {
+                              "kind": {
+                                "const": "end_of_targets"
+                              }
+                            }
+                          },
+                          "then": {
+                            "properties": {
+                              "page": {
+                                "type": "null"
+                              }
+                            }
+                          },
+                          "else": {
+                            "properties": {
+                              "page": {
+                                "type": "integer"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "read_complete": {
+                      "type": "boolean"
+                    },
+                    "stop_reason": {
+                      "enum": [
+                        null,
+                        "tag_nak",
+                        "time_limit",
+                        "nfc_scan_invalid"
+                      ]
+                    },
+                    "observed_variant": {
+                      "enum": [
+                        "ultralight_ev1_mf0ul11",
+                        "ultralight_ev1_mf0ulh11",
+                        "ultralight_ev1_mf0ul21",
+                        "ultralight_ev1_mf0ulh21",
+                        "ultralight_or_ultralight_c",
+                        "ultralight_c"
+                      ]
+                    }
+                  }
+                },
+                "pages_compared": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 48
+                },
+                "before_only_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 48
+                },
+                "after_only_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 48
+                },
+                "neither_observed_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 48
+                },
+                "withheld_pages": {
+                  "enum": [
+                    2,
+                    4
+                  ]
+                },
+                "comparison_unexamined_pages": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 48
+                },
+                "changed_pages": {
+                  "type": "array",
+                  "maxItems": 44,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 43
+                  }
+                },
+                "read_end_changed": {
+                  "type": "boolean"
+                },
+                "stored_pages_equal": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "coverage": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "input_bytes",
+                "consumed_bytes",
+                "unexamined_bytes",
+                "comparison_complete",
+                "changes_complete",
+                "changed_pages_count_is_lower_bound",
+                "reasons"
+              ],
+              "properties": {
+                "input_bytes": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 131072
+                },
+                "consumed_bytes": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 131072
+                },
+                "unexamined_bytes": {
+                  "const": 0
+                },
+                "comparison_complete": {
+                  "type": "boolean"
+                },
+                "changes_complete": {
+                  "type": "boolean"
+                },
+                "changed_pages_count_is_lower_bound": {
+                  "type": "boolean"
+                },
+                "reasons": {
+                  "type": "array",
+                  "maxItems": 2,
+                  "uniqueItems": true,
+                  "items": {
+                    "enum": [
+                      "read_partial",
+                      "time_limit"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "inventory_binding_verified": {
+      "const": true
+    },
+    "physical_same_tag_verified": {
+      "const": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "inspect"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "source": {
+            "properties": {
+              "files": {
+                "minItems": 1,
+                "maxItems": 1
+              }
+            }
+          },
+          "inspection": {
+            "properties": {
+              "operation": {
+                "const": "inspect"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "source": {
+            "properties": {
+              "files": {
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          },
+          "inspection": {
+            "properties": {
+              "operation": {
+                "const": "diff"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

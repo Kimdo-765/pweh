@@ -167,11 +167,14 @@ def _refuse_protected(case: Case, p: Path) -> None:
     """케이스의 보호 폴더(pweh.evidence.PROTECTED_DIRS)는 이 서버가 읽지 않는다(링크를 풀어 판단):
     - forensics/ — SD 카드 이미지·복구한 녹화. pweh-forensics 로만 다룬다.
     - emu/ — 에뮬레이터 세션 파일(마스킹하지 않은 원시 콘솔·stderr). 콘솔은 emu_read 로만 본다.
+    - nfc/ 의 CU 페이지 스냅샷 이름(cu-read-NNN.json·cu-ul-read-NNN.json — 원시 UID·페이지). nfc_parse_file·nfc_diff_dumps 로만 본다.
+      nfc/ 의 다른 파일(가져온 NFC 파일 등)은 읽는다.
 
-    이 서버는 자동 허용이고 결과 문자열(fw_strings_hunt 의 일치 문맥 등)을 에이전트에게 돌려주므로, 녹화 내용이나 원시 콘솔이
-    전용 도구(emu_read 는 마스킹한다)를 거치지 않고 문맥에 들어가지 않게 한다. 보호 폴더를 품은 디렉터리(케이스 루트 등)도 훑지 않는다.
+    이 서버는 자동 허용이고 결과 문자열(fw_strings_hunt 의 일치 문맥 등)을 에이전트에게 돌려주므로, 녹화 내용이나 원시 콘솔·태그 페이지가
+    전용 도구(emu_read 는 마스킹한다)를 거치지 않고 문맥에 들어가지 않게 한다. 보호 폴더·스냅샷을 품은 디렉터리(케이스 루트 등)도 훑지 않는다.
     """
-    from pweh.evidence import EMU_REFUSAL_HINT, EMU_REFUSAL_MESSAGE, contains_protected_dir, is_protected_path
+    from pweh.evidence import (EMU_REFUSAL_HINT, EMU_REFUSAL_MESSAGE, NFC_SNAPSHOT_REFUSAL_HINT, NFC_SNAPSHOT_REFUSAL_MESSAGE,
+                               contains_nfc_snapshot, contains_protected_dir, is_nfc_snapshot_path, is_protected_path)
 
     hit = is_protected_path(case, p)
     if hit == "emu":
@@ -181,6 +184,8 @@ def _refuse_protected(case: Case, p: Path) -> None:
             "케이스의 증거 폴더(forensics/ — SD 카드 이미지·복구한 녹화)는 펌웨어 도구로 읽지 않습니다.",
             hint="카드 이미지는 pweh-forensics 도구(forensics_*)로만 다룬다. 녹화 내용은 에이전트가 열지 않는다.",
         )
+    if is_nfc_snapshot_path(case, p):
+        raise ValidationFailed(NFC_SNAPSHOT_REFUSAL_MESSAGE, hint=NFC_SNAPSHOT_REFUSAL_HINT)
     try:
         is_dir = p.is_dir()
     except OSError:
@@ -195,6 +200,12 @@ def _refuse_protected(case: Case, p: Path) -> None:
         raise ValidationFailed(
             "이 디렉터리 아래에 증거 폴더(forensics/)가 있어 훑지 않습니다.",
             hint="펌웨어 추출 트리(예: extract/rootfs-001)처럼 forensics/ 를 포함하지 않는 하위 디렉터리를 지정하세요.",
+        )
+    if is_dir and contains_nfc_snapshot(case, p):
+        raise ValidationFailed(
+            "이 디렉터리 아래에 CU 페이지 스냅샷(nfc/cu-read-NNN.json·nfc/cu-ul-read-NNN.json)이 있어 훑지 않습니다. " + NFC_SNAPSHOT_REFUSAL_MESSAGE,
+            hint="펌웨어 추출 트리(예: extract/rootfs-001)처럼 nfc/ 를 포함하지 않는 하위 디렉터리나 가져온 NFC 파일 하나를 지정하세요. "
+                 + NFC_SNAPSHOT_REFUSAL_HINT,
         )
 
 

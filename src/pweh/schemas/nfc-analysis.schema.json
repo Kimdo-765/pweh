@@ -29,35 +29,77 @@
       "minItems": 0,
       "maxItems": 32,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "tag_ref",
-          "scan_ref",
-          "family",
-          "identity_digest"
-        ],
-        "properties": {
-          "tag_ref": {
-            "type": "string",
-            "pattern": "^NT-[0-9a-f]{32}$"
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tag_ref",
+              "scan_ref",
+              "family",
+              "identity_digest"
+            ],
+            "properties": {
+              "tag_ref": {
+                "type": "string",
+                "pattern": "^NT-[0-9a-f]{32}$"
+              },
+              "scan_ref": {
+                "type": "string",
+                "pattern": "^NS-[0-9a-f]{32}$"
+              },
+              "family": {
+                "enum": [
+                  "ntag213",
+                  "ntag215",
+                  "ntag216"
+                ]
+              },
+              "identity_digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{16}$"
+              }
+            }
           },
-          "scan_ref": {
-            "type": "string",
-            "pattern": "^NS-[0-9a-f]{32}$"
-          },
-          "family": {
-            "enum": [
-              "ntag213",
-              "ntag215",
-              "ntag216"
-            ]
-          },
-          "identity_digest": {
-            "type": "string",
-            "pattern": "^sha256:[0-9a-f]{16}$"
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "tag_ref",
+              "scan_ref",
+              "family",
+              "ul_identity_digest",
+              "tag_ownership_attestation_id"
+            ],
+            "properties": {
+              "tag_ref": {
+                "type": "string",
+                "pattern": "^UT-[0-9a-f]{32}$"
+              },
+              "scan_ref": {
+                "type": "string",
+                "pattern": "^US-[0-9a-f]{32}$"
+              },
+              "family": {
+                "enum": [
+                  "ultralight_ev1_mf0ul11",
+                  "ultralight_ev1_mf0ulh11",
+                  "ultralight_ev1_mf0ul21",
+                  "ultralight_ev1_mf0ulh21",
+                  "ultralight_or_ultralight_c"
+                ]
+              },
+              "ul_identity_digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{16}$"
+              },
+              "tag_ownership_attestation_id": {
+                "type": "string",
+                "pattern": "^att-[0-9a-f]{10}$"
+              }
+            }
           }
-        }
+        ]
       }
     },
     "results": {
@@ -65,82 +107,164 @@
       "minItems": 0,
       "maxItems": 32,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "artifact_id",
-          "path",
-          "sha256",
-          "operation",
-          "status",
-          "tag_ref"
-        ],
-        "properties": {
-          "artifact_id": {
-            "type": "string",
-            "pattern": "^A-[0-9]{4,8}$"
-          },
-          "path": {
-            "type": "string",
-            "pattern": "^analysis/nfc-(file|diff)-[0-9]{3,5}\\.json$"
-          },
-          "sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$"
-          },
-          "operation": {
-            "enum": [
-              "inspect",
-              "diff"
-            ]
-          },
-          "status": {
-            "enum": [
-              "ok",
-              "partial",
-              "malformed",
-              "unsupported"
-            ]
-          },
-          "tag_ref": {
-            "type": "string",
-            "pattern": "^NT-[0-9a-f]{32}$"
-          }
-        },
-        "allOf": [
+        "oneOf": [
           {
-            "if": {
-              "properties": {
-                "operation": {
-                  "const": "inspect"
-                }
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "artifact_id",
+              "path",
+              "sha256",
+              "operation",
+              "status",
+              "tag_ref"
+            ],
+            "properties": {
+              "artifact_id": {
+                "type": "string",
+                "pattern": "^A-[0-9]{4,8}$"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^analysis/nfc-(file|diff)-[0-9]{3,5}\\.json$"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "operation": {
+                "enum": [
+                  "inspect",
+                  "diff"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "partial",
+                  "malformed",
+                  "unsupported"
+                ]
+              },
+              "tag_ref": {
+                "type": "string",
+                "pattern": "^NT-[0-9a-f]{32}$"
               }
             },
-            "then": {
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "pattern": "^analysis/nfc-file-[0-9]{3,5}\\.json$"
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "operation": {
+                      "const": "inspect"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^analysis/nfc-file-[0-9]{3,5}\\.json$"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "operation": {
+                      "const": "diff"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^analysis/nfc-diff-[0-9]{3,5}\\.json$"
+                    }
+                  }
                 }
               }
-            }
+            ]
           },
           {
-            "if": {
-              "properties": {
-                "operation": {
-                  "const": "diff"
-                }
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "artifact_id",
+              "path",
+              "sha256",
+              "operation",
+              "status",
+              "tag_ref"
+            ],
+            "properties": {
+              "artifact_id": {
+                "type": "string",
+                "pattern": "^A-[0-9]{4,8}$"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^analysis/nfc-ul-(file|diff)-[0-9]{3,5}\\.json$"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "operation": {
+                "enum": [
+                  "inspect",
+                  "diff"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "partial"
+                ]
+              },
+              "tag_ref": {
+                "type": "string",
+                "pattern": "^UT-[0-9a-f]{32}$"
               }
             },
-            "then": {
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "pattern": "^analysis/nfc-diff-[0-9]{3,5}\\.json$"
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "operation": {
+                      "const": "inspect"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^analysis/nfc-ul-file-[0-9]{3,5}\\.json$"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "operation": {
+                      "const": "diff"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^analysis/nfc-ul-diff-[0-9]{3,5}\\.json$"
+                    }
+                  }
                 }
               }
-            }
+            ]
           }
         ]
       }

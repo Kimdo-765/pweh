@@ -47,6 +47,9 @@
 케이스의 보호 폴더(``PROTECTED_DIRS`` = forensics/·emu/) 판정도 여기 있다: ``under_any_case_protected``·``is_protected_path``·
 ``contains_protected_dir`` 는 맞은 폴더 이름을 돌려주고, 자동 허용 도구(pweh-fwtriage·pweh-case·pweh-sigrok)와 pweh-emu 의 입력 검사가 쓴다.
 emu/ 에는 에뮬레이터의 마스킹하지 않은 원시 콘솔이 있다(콘솔은 emu_read 로만 — 설계 docs/design/emulation.md).
+CU 페이지 스냅샷(``nfc/cu-read-NNN.json``·``nfc/cu-ul-read-NNN.json`` — 원시 UID·페이지)은 폴더가 아니라 이름으로 보호한다:
+``under_any_case_nfc_snapshot``·``is_nfc_snapshot_path``·``contains_nfc_snapshot`` 를 같은 자동 허용 도구의 입력 검사가 쓴다.
+nfc/ 전체를 막지 않는다(가져온 NFC 파일은 그대로 읽는다). pweh-nfc 는 자기 입력에 이 판정을 쓰지 않는다(전용 분석 도구이므로).
 """
 
 from __future__ import annotations
@@ -87,6 +90,14 @@ PROTECTED_DIRS = (FORENSICS_DIR, EMU_DIR)
 #: emu/ 를 거부할 때 모든 서버가 같은 문구를 쓴다 (forensics/ 문구는 서버마다 그대로 둔다)
 EMU_REFUSAL_MESSAGE = "에뮬레이터 세션 파일(emu/)에는 마스킹하지 않은 원시 콘솔이 있어 이 도구로 읽지 않습니다."
 EMU_REFUSAL_HINT = "콘솔은 emu_read 로만 본다 — 끝난 세션도 emu_read(session_id, case_id=…) 가 마스킹한 기록을 돌려준다."
+#: CU 페이지 스냅샷 (pweh-nfc nfc_cu_read_start 가 쓴다 — NTAG ``cu-read-NNN.json``·Ultralight ``cu-ul-read-NNN.json``,
+#: 원시 UID·페이지가 있다). 케이스 루트 바로 아래 ``nfc/`` 의 이 이름만 보호한다 — 가져온 NFC 파일(Flipper .nfc 등)과
+#: 마스킹 inventory 사본(nfc/inventory.json)은 자동 허용 도구로 그대로 읽을 수 있다. 스냅샷은 nfc_parse_file·nfc_diff_dumps 로만 본다.
+NFC_DIR = "nfc"
+NFC_SNAPSHOT_RE = re.compile(r"^cu-(?:ul-)?read-[0-9]{3,}\.json$")
+NFC_SNAPSHOT_REFUSAL_MESSAGE = ("CU 페이지 스냅샷(nfc/cu-read-NNN.json·nfc/cu-ul-read-NNN.json)에는 원시 UID·페이지가 있어 "
+                                "이 도구로 읽지 않습니다.")
+NFC_SNAPSHOT_REFUSAL_HINT = "스냅샷은 pweh-nfc 의 nfc_parse_file·nfc_diff_dumps(구조·관찰 범위만 반환)로만 분석하고 에이전트가 직접 열지 않는다."
 IMAGES_DIR = "images"
 QUARANTINE_DIR = "aborted-intakes"
 CUSTODY_FILE = "custody.jsonl"
@@ -321,6 +332,83 @@ def contains_protected_dir(case: Case, directory: str | Path) -> str | None:
         if d == base or d in base.parents:
             return name
     return None
+
+
+# CU 페이지 스냅샷 — 보호 폴더(PROTECTED_DIRS)와 달리 폴더가 아니라 ``<케이스>/nfc/`` 바로 아래의 서버 스냅샷 이름(NFC_SNAPSHOT_RE)만 본다.
+# under_any_case_protected·is_protected_path 는 바꾸지 않는다: pweh-nfc 가 자기 snapshot 입력에 under_any_case_protected 를 쓰기 때문이다.
+
+
+def _nfc_snapshot_under(p: Path, case_dir: Path) -> bool:
+    """p 가 ``case_dir/nfc/<스냅샷 이름>`` 인가 (경로 비교만 — 파일이 없어도 이름으로 본다)."""
+    try:
+        rel = p.relative_to(case_dir)
+    except ValueError:
+        return False
+    return len(rel.parts) == 2 and rel.parts[0] == NFC_DIR and NFC_SNAPSHOT_RE.fullmatch(rel.parts[1]) is not None
+
+
+def under_any_case_nfc_snapshot(path: str | Path, cases_root: str | Path) -> bool:
+    """``<cases_root>/<케이스>/nfc/cu-read-NNN.json``·``cu-ul-read-NNN.json`` 이면 True.
+
+    under_any_case_protected 와 같은 방식이다: 링크를 풀기 전 경로(정규화만)를 먼저 보고, 그다음 링크를 푼 경로를 본다 — nfc/ 가 다른 곳을
+    가리키는 링크여도 그 아래 경로로 부르면 막고, 다른 이름의 링크가 스냅샷을 가리켜도 막는다. 판단 중 오류(링크 루프 등)는 False 다
+    (under_any_case_protected 와 같다 — 그런 경로는 뒤이은 열기도 실패한다)."""
+    def _hit(p: Path, root: Path) -> bool:
+        try:
+            rel = p.relative_to(root)
+        except ValueError:
+            return False
+        return len(rel.parts) >= 1 and _nfc_snapshot_under(p, root / rel.parts[0])
+
+    try:
+        root_abs = Path(os.path.abspath(os.fspath(cases_root)))
+        if _hit(Path(os.path.abspath(os.fspath(path))), root_abs):
+            return True
+        return _hit(Path(path).resolve(), Path(cases_root).resolve())
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def is_nfc_snapshot_path(case: Case, path: str | Path) -> bool:
+    """이 케이스의 CU 페이지 스냅샷이면 True — 풀기 전 경로(정규화만)와 링크를 푼 경로를 모두 본다. 상대 경로는 케이스 디렉터리 기준.
+
+    판단할 수 없으면(링크 루프 등) 막는 쪽(True)이다(is_protected_path 와 같은 fail closed)."""
+    raw = _case_relative(case, path)
+    try:
+        if _nfc_snapshot_under(Path(os.path.abspath(os.fspath(raw))), Path(os.path.abspath(os.fspath(case.dir)))):
+            return True
+        p = raw.resolve()
+        if NFC_SNAPSHOT_RE.fullmatch(p.name) is None:
+            return False
+        # nfc/ 자체가 링크여도(그 실제 위치) 같은 스냅샷이다
+        return p.parent in (case.dir.resolve() / NFC_DIR, (case.dir / NFC_DIR).resolve())
+    except (OSError, RuntimeError, ValueError):
+        return True
+
+
+def contains_nfc_snapshot(case: Case, directory: str | Path) -> bool:
+    """디렉터리를 훑으면 이 케이스 nfc/ 의 CU 페이지 스냅샷을 지나게 되는가 (그 디렉터리가 nfc/ 자체이거나 그 조상 — 케이스 루트 등).
+
+    nfc/ 에 스냅샷 이름(링크도 — 이름만 본다)이 없으면 False 라서 스냅샷이 없는 케이스의 루트·nfc/ 는 훑을 수 있다.
+    비교는 풀기 전 경로(정규화만)와 링크를 푼 경로 둘 다로 한다. 상대 경로는 케이스 디렉터리 기준. 판단할 수 없으면 막는 쪽(True)."""
+    nfc = case.dir / NFC_DIR
+    try:
+        names = os.listdir(nfc)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    except OSError:
+        return True
+    if not any(NFC_SNAPSHOT_RE.fullmatch(name) for name in names):
+        return False
+    raw = _case_relative(case, directory)
+    try:
+        d_raw, base_raw = Path(os.path.abspath(os.fspath(raw))), Path(os.path.abspath(os.fspath(nfc)))
+        if d_raw == base_raw or d_raw in base_raw.parents:
+            return True
+        d, base = raw.resolve(), nfc.resolve()
+        return d == base or d in base.parents
+    except (OSError, RuntimeError, ValueError):
+        return True
 
 
 def evidence_dir(case: Case, evidence_id: str) -> Path:
@@ -1985,6 +2073,10 @@ __all__ = [
     "FORENSICS_NOTICE",
     "HASH_ALGORITHMS",
     "IntegrityProblem",
+    "NFC_DIR",
+    "NFC_SNAPSHOT_RE",
+    "NFC_SNAPSHOT_REFUSAL_HINT",
+    "NFC_SNAPSHOT_REFUSAL_MESSAGE",
     "OpenedEvidence",
     "PROTECTED_DIRS",
     "QUARANTINE_DIR",
@@ -1998,6 +2090,7 @@ __all__ = [
     "claim_evidence_id",
     "compare_log_hashes",
     "contains_forensics_dir",
+    "contains_nfc_snapshot",
     "contains_protected_dir",
     "ensure_forensics_dir",
     "entry_hash",
@@ -2014,6 +2107,7 @@ __all__ = [
     "image_hints_checkpoint",
     "image_hints_deadline",
     "is_forensics_path",
+    "is_nfc_snapshot_path",
     "is_protected_path",
     "latest_intake",
     "load_record",
@@ -2038,6 +2132,7 @@ __all__ = [
     "store_image_hints",
     "strict_rel",
     "under_any_case_forensics",
+    "under_any_case_nfc_snapshot",
     "under_any_case_protected",
     "validate_record",
     "write_record",

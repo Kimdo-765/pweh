@@ -57,7 +57,7 @@
 
 > **구현 상태 (I1, 2026-10-20)**: 코어 구현 — `src/pweh/safety/attestations.py`(`AttestationStore`·`Attestor`), `rt().attest(...)` → `AttestationDecision`
 > (충족이 아니면 `attestation_response(...)`), 사람 명령 `pweh attest <id>`·`pweh attest --list`(`--all`)·`pweh attest --revoke <id>`(모두 TTY 전용),
-> 케이스 사본 `attestations.json`(0400, 증거 아님). 계약은 architecture.md §4, safety.md §3.5·§4 규칙 12. **증명을 요구하는 도구는 I2b 의 `fw_patch_build`(세이브 쓰기 명령을 보여 주기 전 `console-offline`)와 I3b 의 `forensics_acquisition_attest`(SD 카드 이미지를 쓰기 방지 장치로 만들었는지 — `write-blocker`)와 증분 B 의 `emu_start`(가져온 파일의 `provenance-import`)와 증분 7A 의 `nfc_cu_ul_scan`·`nfc_tag_inventory_add`(Ultralight 계열 태그의 `tag-ownership` — 사용자 소유 또는 소유자 서면 허가, subject 는 계열·Ultralight 전용 케이스 솔트 지문·정책 프로필이며 원시 UID 없음, 케이스 바인딩 7일)다**.
+> 케이스 사본 `attestations.json`(0400, 증거 아님). 계약은 architecture.md §4, safety.md §3.5·§4 규칙 12. **증명을 요구하는 도구는 I2b 의 `fw_patch_build`(세이브 쓰기 명령을 보여 주기 전 `console-offline`)와 I3b 의 `forensics_acquisition_attest`(SD 카드 이미지를 쓰기 방지 장치로 만들었는지 — `write-blocker`)와 증분 B 의 `emu_start`(가져온 파일의 `provenance-import`)와 증분 7A 의 `nfc_cu_ul_scan`·`nfc_tag_inventory_add`와 증분 7B 의 UT- tag_ref 분기 `nfc_cu_read_start`·`nfc_parse_file`·`nfc_diff_dumps`(Ultralight 계열 태그의 `tag-ownership` — 사용자 소유 또는 소유자 서면 허가, subject 는 계열·Ultralight 전용 케이스 솔트 지문·정책 프로필이며 원시 UID 없음, 케이스 바인딩 7일)다**.
 > 설계와 다른 점: 사람 쪽은 `pweh approve` 의 증명 화면이 아니라 별도 명령 `pweh attest` 다. `require` 에 서버가 지금 묻는 질문을 넘겨 질문이 늘면 예전 증명을 쓰지 않는다.
 > 유효 기간은 범위별 코드 기본값(case 7일·connection 12시간·job 24시간·instrument 는 철회까지, 서버가 `valid_seconds` 60초~90일), pending 은 `approval_ttl_seconds`,
 > 확인 경로는 `safety.approval_methods`(새 설정 키 없음)다. 연결 해제·재연결·장치 시리얼 변화에 따른 무효화는 바인딩·subject 지문으로만 된다(연결 토큰을 쓰는 서버가 아직 없다).

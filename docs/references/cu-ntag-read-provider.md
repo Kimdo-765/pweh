@@ -15,6 +15,8 @@
 
 같은 세션의 `nfc_cu_identify`(READ 없는 HF 계열 분류)와 `nfc_cu_status`(RF 없는 배터리·slot·설정 조회)는
 [HF 식별·상태 계약](cu-hf-identify.md)을 따른다. `nfc_cu_lf_identify`(125 kHz 고정 scan, ID 마스킹)는 [LF 식별 계약](cu-lf-identify.md)을 따른다.
+Ultralight 계열의 `nfc_cu_ul_scan`과 UT- tag_ref의 `nfc_cu_read_start`는 [Ultralight 스냅샷 계약](cu-ultralight-read.md)을 따른다. NTAG 읽기의 keep=1 연쇄와 달리
+page마다 f4(keep=0) 단독 activation이라 NAK·오류 뒤에도 firmware가 field를 끈다(NTAG 경로의 field 잔류 한계는 그대로다).
 
 connect의 실제 `session_id`로 scan을 호출하고, 실제 `scan_ref`를
 `nfc_tag_inventory_add`에 전달한다. 기존 `nfc_parse_file`/`nfc_diff_dumps`의 파일

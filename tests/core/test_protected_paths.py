@@ -176,3 +176,108 @@ def test_contains_protected_dir_follows_a_link_named_emu(workspace, auth, tmp_pa
     dangling = store.create(title="끊긴 링크", case_id="dangling")
     (dangling.dir / "emu").symlink_to(dangling.dir / "dumps" / "gone")
     assert E.contains_protected_dir(dangling, dangling.dir) == "emu"  # 이름이 있으면 센다(막는 쪽)
+
+
+# CU 페이지 스냅샷(nfc/cu-read-NNN.json·nfc/cu-ul-read-NNN.json) — 폴더가 아니라 이름으로 보호한다. nfc/ 의 다른 파일은 읽을 수 있다.
+
+
+def _snapshot(case, name: str = "cu-ul-read-001.json") -> Path:
+    """pweh-nfc 스냅샷 모양만 흉내 낸다(서버 없이). 내용은 합성 값."""
+    d = case.dir / "nfc"
+    d.mkdir(exist_ok=True)
+    p = d / name
+    p.write_text('{"pages":["04112233"]}\n', encoding="utf-8")
+    p.chmod(0o444)
+    return p
+
+
+def test_nfc_snapshot_constants_and_exports():
+    assert E.NFC_DIR == "nfc" and E.PROTECTED_DIRS == ("forensics", "emu")  # 보호 폴더 목록은 그대로
+    for name in ("cu-read-001.json", "cu-ul-read-001.json", "cu-ul-read-1234.json", "cu-read-10000.json"):
+        assert E.NFC_SNAPSHOT_RE.fullmatch(name), name
+    for name in ("cu-read-01.json", "cu-ul-read-001.json.tmp", "inventory.json", "tag.nfc", "cu-lf-read-001.json",
+                 "cu-ul-read-abc.json", "x-cu-read-001.json"):
+        assert E.NFC_SNAPSHOT_RE.fullmatch(name) is None, name
+    assert E.NFC_SNAPSHOT_REFUSAL_MESSAGE.startswith("CU 페이지 스냅샷")
+    for name in ("NFC_DIR", "NFC_SNAPSHOT_RE", "NFC_SNAPSHOT_REFUSAL_MESSAGE", "NFC_SNAPSHOT_REFUSAL_HINT",
+                 "under_any_case_nfc_snapshot", "is_nfc_snapshot_path", "contains_nfc_snapshot"):
+        assert name in E.__all__
+
+
+def test_under_any_case_nfc_snapshot(case, workspace, tmp_path):
+    root = case.dir.parent
+    snap = _snapshot(case)
+    ntag = _snapshot(case, "cu-read-002.json")
+    (case.dir / "nfc" / "tag.nfc").write_text("Filetype: Flipper NFC device\n", encoding="utf-8")
+    assert E.under_any_case_nfc_snapshot(snap, root) is True
+    assert E.under_any_case_nfc_snapshot(ntag, root) is True
+    assert E.under_any_case_nfc_snapshot(case.dir / "nfc" / "cu-ul-read-009.json", root) is True  # 없는 이름도
+    assert E.under_any_case_nfc_snapshot(case.dir / "nfc" / "tag.nfc", root) is False  # 가져온 NFC 파일
+    assert E.under_any_case_nfc_snapshot(case.dir / "nfc" / "inventory.json", root) is False
+    assert E.under_any_case_nfc_snapshot(case.dir / "nfc", root) is False
+    assert E.under_any_case_nfc_snapshot(case.dir / "dumps" / "cu-ul-read-001.json", root) is False  # nfc/ 밖의 같은 이름
+    assert E.under_any_case_nfc_snapshot(case.dir / "extract" / "x" / "nfc" / "cu-read-001.json", root) is False
+    assert E.under_any_case_nfc_snapshot(tmp_path / "nfc" / "cu-read-001.json", root) is False  # 케이스 밖
+    # 다른 케이스·'..'·다른 이름의 링크
+    other = CaseStore(root).create(title="다른 케이스", case_id="othernfc")
+    assert E.under_any_case_nfc_snapshot(_snapshot(other), root) is True
+    assert E.under_any_case_nfc_snapshot(case.dir / "dumps" / ".." / "nfc" / "cu-ul-read-001.json", root) is True
+    (case.dir / "dumps" / "innocent.json").symlink_to(snap)
+    assert E.under_any_case_nfc_snapshot(case.dir / "dumps" / "innocent.json", root) is True
+    outside = tmp_path / "out-link.json"
+    outside.symlink_to(snap)
+    assert E.under_any_case_nfc_snapshot(outside, root) is True
+
+
+def test_is_nfc_snapshot_path_and_contains(case, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # 상대 경로는 케이스 기준
+    (case.dir / "nfc").mkdir(exist_ok=True)
+    (case.dir / "nfc" / "tag.nfc").write_text("Filetype: Flipper NFC device\n", encoding="utf-8")
+    # 스냅샷이 없으면 케이스 루트·nfc/ 도 훑을 수 있다
+    assert E.contains_nfc_snapshot(case, case.dir) is False and E.contains_nfc_snapshot(case, "nfc") is False
+    snap = _snapshot(case)
+    assert E.is_nfc_snapshot_path(case, snap) is True
+    assert E.is_nfc_snapshot_path(case, "nfc/cu-ul-read-001.json") is True
+    assert E.is_nfc_snapshot_path(case, "nfc/cu-read-003.json") is True
+    assert E.is_nfc_snapshot_path(case, "nfc/tag.nfc") is False
+    assert E.is_nfc_snapshot_path(case, "nfc") is False
+    assert E.is_nfc_snapshot_path(case, "dumps/cu-ul-read-001.json") is False
+    (case.dir / "dumps" / "renamed.json").symlink_to(snap)
+    (case.dir / "dumps" / "nfclink").symlink_to(case.dir / "nfc")
+    assert E.is_nfc_snapshot_path(case, "dumps/renamed.json") is True
+    assert E.is_nfc_snapshot_path(case, "dumps/nfclink/cu-ul-read-001.json") is True
+    assert E.is_nfc_snapshot_path(case, "dumps/nfclink/tag.nfc") is False
+    # 훑기: nfc/ 자체와 그 조상(케이스 루트)은 막고, 다른 하위 디렉터리는 허용한다
+    assert E.contains_nfc_snapshot(case, case.dir) is True
+    assert E.contains_nfc_snapshot(case, ".") is True
+    assert E.contains_nfc_snapshot(case, "nfc") is True
+    assert E.contains_nfc_snapshot(case, "dumps/nfclink") is True  # 링크를 푼 nfc/
+    assert E.contains_nfc_snapshot(case, "dumps") is False and E.contains_nfc_snapshot(case, "extract") is False
+
+
+def test_nfc_snapshot_checks_fail_closed(case, monkeypatch):
+    _snapshot(case)
+
+    def broken(self, strict=False):
+        raise RuntimeError("Symlink loop")
+
+    monkeypatch.setattr(Path, "resolve", broken)
+    assert E.is_nfc_snapshot_path(case, case.dir / "dumps" / "x.bin") is True
+    assert E.contains_nfc_snapshot(case, case.dir / "dumps") is True
+
+
+def test_nfc_snapshot_in_a_linked_nfc_dir(workspace, auth):
+    """nfc/ 가 케이스 안의 다른 곳을 가리키는 링크여도 그 실제 위치의 스냅샷 이름을 막는다."""
+    store = CaseStore(workspace["cases_dir"])
+    linked = store.create(title="링크 nfc", case_id="nfclinked")
+    hidden = linked.dir / "dumps" / "hidden"
+    hidden.mkdir(parents=True)
+    import shutil
+    shutil.rmtree(linked.dir / "nfc")
+    (linked.dir / "nfc").symlink_to(hidden)
+    (hidden / "cu-ul-read-001.json").write_text("{}\n", encoding="utf-8")
+    assert E.is_nfc_snapshot_path(linked, hidden / "cu-ul-read-001.json") is True
+    assert E.is_nfc_snapshot_path(linked, "nfc/cu-ul-read-001.json") is True
+    assert E.contains_nfc_snapshot(linked, linked.dir / "dumps") is True
+    assert E.contains_nfc_snapshot(linked, linked.dir) is True
+    assert E.under_any_case_nfc_snapshot(linked.dir / "nfc" / "cu-ul-read-001.json", linked.dir.parent) is True
