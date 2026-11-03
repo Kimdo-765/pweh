@@ -16,7 +16,7 @@ READ 없는 계열 식별은 [HF 식별 계약](cu-hf-identify.md), UL scan·inv
   키 복구, READ_SIG/READ_CNT/FAST_READ/CHECK_TEARING/VCSL, LF 125 kHz(마스킹·거부), Classic/Plus/ISO14443-4/EMV/DESFire(기존 정책 그대로).
   "소유면 충분하다"는 이 Ultralight 읽기 전용 예외 밖의 다른 계열·도구로 넓히지 않는다.
 - snapshot 파일은 로컬 케이스에만 있다. 에이전트는 snapshot을 직접 열지 않는다. 도구·job 결과에는 원시 UID·페이지 바이트가 없고
-  분석은 구조·관찰 범위만 돌려준다. 자동 허용 pweh-case·pweh-fwtriage·pweh-sigrok는 `nfc/cu-ul-read-NNN.json`·`nfc/cu-read-NNN.json` 이름을
+  분석은 구조·관찰 범위와 데이터시트 표준 필드(잠금 비트·OTP 켜진 비트 수·사용자 영역 빈/기록 page 번호·EV1 설정 AUTH0·PROT·CFGLCK·AUTHLIM·VCTID)만 돌려주며 사용자 영역·OTP의 값은 넣지 않는다. 자동 허용 pweh-case·pweh-fwtriage·pweh-sigrok는 `nfc/cu-ul-read-NNN.json`·`nfc/cu-read-NNN.json` 이름을
   입력·디렉터리 순회(`nfc/`·케이스 루트)·가져오기 복사에서 거부한다(`pweh.evidence.NFC_SNAPSHOT_RE`). 파일 도구·REA는 그 검사 밖이라 규칙으로 지킨다.
 
 어떤 Ultralight 경로도 보내지 않는 명령:
@@ -114,14 +114,32 @@ roll-over로 경계를 추정하는 것과 읽기 동작으로 변형을 추정�
   NT- 흐름도 UL snapshot을 `nfc_source_mismatch`로 거부한다. 입구(모든 FD 닫음) 뒤 ctx 없이 증명을 다시 확인하고(없으면 `attestation_required`,
   `analysis_recorded=false`) 분석 단계와 등록 check에서 같은 id를 동기 재확인한다. 철회·만료 뒤에는 기존 snapshot도 다시 증명할 때까지 분석하지 않는다.
   현재 id가 읽기 때 id와 달라도 받으며 둘 다 기록한다(`source.tag_ownership_attestation_id`, `files[].read_attestation_id`).
-- 보고서 schema `pweh.nfc-ul-file-analysis/v1`(profile `cu-ultralight-snapshot-analysis-v1`), 출력 `analysis/nfc-ul-file-NNN.json`·`nfc-ul-diff-NNN.json`.
-  inspect 요약은 family·observed_variant·pages_total·read_last_target·pages_observed·withheld_pages_count·read_end·read_complete·stop_reason·미관찰 필드다.
+- 보고서 schema `pweh.nfc-ul-file-analysis/v1`, 출력 `analysis/nfc-ul-file-NNN.json`·`nfc-ul-diff-NNN.json`. 새 결과의 profile은
+  `cu-ultralight-snapshot-analysis-v2`다(2026-11-03). 이전 `…-v1` 결과는 schema가 계속 받으며 `fields`가 없고 한계 목록에 마지막 항목이 없다.
+  inspect 요약은 family·observed_variant·pages_total·read_last_target·pages_observed·withheld_pages_count·read_end·read_complete·stop_reason·미관찰 필드와
+  v2의 `fields`다. `fields`는 관찰한 page의 데이터시트 표준 필드만 해석한 저장 값이다(명령으로 보호 동작을 확인하지 않는다).
+
+  | 키 | 위치 | 내용 |
+  |---|---|---|
+  | `static_lock` | page 2 byte 2–3 | `otp_locked`(L-OTP), `block_lock_otp`·`block_lock_pages_4_9`·`block_lock_pages_10_15`(BL 비트), `locked_pages`(L4–L15가 켜진 page 번호) |
+  | `otp` | page 3 | `observed`, `bits_set`(켜진 비트 수 0–32). 값은 넣지 않는다 |
+  | `user_memory` | EV1 11/H11·원조 UL 4–0x0F, EV1 21/H21 4–0x23, UL C(추정 `ultralight_c`) 4–0x27 | 관찰 page 수, 모두 0x00인 page 번호(`blank_pages`)와 나머지(`nonblank_pages`) |
+  | `dynamic_lock` | EV1 21/H21 page 0x24 byte 0–2, UL C page 0x28 byte 0–1 | `observed`, 켜진 잠금 비트 수(page 대응은 해석하지 않는다). 다른 계열은 null |
+  | `configuration` | EV1 11/H11 CFG0 0x10·CFG1 0x11, EV1 21/H21 0x25·0x26 | `auth0`, `password_protection_enabled`(AUTH0 ≤ 마지막 page 주소), `strg_mod_en`(MOD bit 2, 50 pF H 부품만 — MF0UL11/21은 null이고 그 비트는 RFUI로 센다), `prot_read_and_write`(ACCESS bit 7), `cfglck`(bit 6), `authlim`(bit 2–0), `vctid`, `rfui_nonzero`(두 page 모두 관찰했을 때 RFUI 비트 여부). 관찰하지 않은 page의 값은 null. 원조 UL·UL C는 null(UL C AUTH0/AUTH1은 해석하지 않는다) |
+
+  schema는 각 `observed` 플래그와 값의 null 여부를 묶는다(관찰했으면 값, 아니면 null; `rfui_nonzero`는 CFG 두 page를 모두 관찰했을 때만 bool).
+  `params.profile`과 `inspection.profile`도 같아야 한다. 서버는 저장 직전에 같은 snapshot으로 `fields`를 다시 계산해 타입까지 같은지 대조한다.
+  OTP를 탑승마다 한 비트씩 켜는 승차권에서는 `bits_set`이 사용 횟수를 드러낼 수 있다(바이트 값은 싣지 않는다).
+  diff 결과는 `fields`가 없지만 같은 한계 목록(마지막 항목 포함)을 쓴다.
+- 보고서(`report_generate`) §8.2는 nfc-behavior-analysis 최신 요약 results의 `analysis/nfc-ul-*.json` 중 pweh-nfc가
+  `extra.type=nfc-ul-file-analysis`로 등록한 같은 id·경로·sha256 파일만 `pweh.safeio`로 읽어 schema 검증 뒤 싣는다.
+  snapshot(`nfc/`)은 열지 않는다.
   diff는 같은 family·identity·binding·reader·snapshot 프로필·read_last_target이어야 하고 양쪽 관찰한 보류되지 않은 page만 비교한다.
   `pages_compared + before_only + after_only + neither_observed + withheld + comparison_unexamined = pages_total`, `changed_pages`(번호만),
   `read_end_changed`, `stored_pages_equal`(양쪽 완료·같은 read_end·비교 완료일 때만 bool, 아니면 null).
 - 한계 목록: `stored_page_responses_only`, `validated_prefix_pages_only`, `signature_counters_tearing_unobserved`, `withheld_pages_not_observed`,
   `per_page_activation_not_atomic`, `nak_boundary_inferred_unverified`, `variant_inferred_from_read_behaviour`, `physical_same_tag_not_verified`,
-  `console_causality_not_verified`, `tag_ownership_is_human_statement`.
+  `console_causality_not_verified`, `tag_ownership_is_human_statement`, v2의 `standard_fields_are_stored_values`.
 - Skill 요약(`nfc-analysis`, mode `scan-bound-offline`)의 tags·results에 UL 항목(`UT-`/`US-`, family, ul_identity_digest,
   tag_ownership_attestation_id / `analysis/nfc-ul-(file|diff)-NNN.json`)을 넣을 수 있다. NTAG 항목과 서로 섞이지 않는 닫힌 oneOf다.
 

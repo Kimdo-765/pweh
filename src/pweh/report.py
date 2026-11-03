@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from . import __version__
 from .case import PIPELINE_PHASES, SEVERITY_ORDER, Case, phase_sort_key
+from .errors import PwehError
 from .fsutil import atomic_write_text, read_json, sha256_file, utcnow_iso
 
 _SEV_LABEL = {"critical": "치명", "high": "높음", "medium": "중간", "low": "낮음", "info": "정보"}
@@ -135,6 +139,165 @@ def _evidence_section(case: Case, anchor_dir: Path | None) -> list[str]:
     out.append(f"> {evidence.FORENSICS_NOTICE}")
     out.append("")
     return out
+
+
+_NFC_UL_RESULT_RE = re.compile(r"analysis/(nfc-ul-(?:file|diff)-[0-9]{3,5}\.json)")
+_NFC_RESULT_MAX_BYTES = 256 * 1024
+# pweh-nfc 가 등록할 때만 붙이는 extra.type (case_register_artifact 는 extra 를 받지 않는다)
+_NFC_UL_ARTIFACT_TYPE = "nfc-ul-file-analysis"
+_YN = {True: "예", False: "아니오", None: "미관찰"}
+
+
+def _page_ranges(pages: list[int]) -> str:
+    """[4,5,6,9] → '4–6, 9'. 빈 목록은 '없음'."""
+    pages = sorted(set(pages))
+    if not pages:
+        return "없음"
+    out, start, prev = [], pages[0], pages[0]
+    for page in pages[1:] + [None]:
+        if page is not None and page == prev + 1:
+            prev = page
+            continue
+        out.append(f"{start}" if start == prev else f"{start}–{prev}")
+        if page is not None:
+            start = prev = page
+    return ", ".join(out)
+
+
+def _registered_nfc_artifact(case: Case, entry: dict[str, Any], rel: str) -> bool:
+    """요약 항목이 pweh-nfc 가 등록한 같은 id·경로·sha256 의 분석 아티팩트를 가리키는지."""
+    for art in case.load().get("artifacts") or []:
+        if (art.get("id") == entry.get("artifact_id") and art.get("path") == rel
+                and art.get("sha256") == entry.get("sha256") and art.get("producer") == "pweh-nfc"
+                and (art.get("extra") or {}).get("type") == _NFC_UL_ARTIFACT_TYPE):
+            return True
+    return False
+
+
+def _load_nfc_result(case: Case, entry: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    """요약 results 항목의 분석 JSON 을 등록·sha256·schema 대조 뒤 돌려준다. snapshot(nfc/)은 열지 않는다."""
+    from . import safeio, schemas
+
+    rel = entry.get("path")
+    match = _NFC_UL_RESULT_RE.fullmatch(rel) if type(rel) is str else None
+    if match is None:
+        return None, "지원하지 않는 경로"
+    if not _registered_nfc_artifact(case, entry, rel):
+        return None, "pweh-nfc 가 등록한 분석 결과가 아님"
+    try:
+        # 링크·FIFO·장치·하드 링크를 거부하고 상한까지만 읽는다(safeio).
+        folder = safeio.open_dir_chain(case.dir, ["analysis"])
+        try:
+            data = safeio.read_regular(match.group(1), dir_fd=folder, max_bytes=_NFC_RESULT_MAX_BYTES,
+                                       what="NFC 분석 결과", reject_hardlinks=True)
+        finally:
+            os.close(folder)
+    except (OSError, PwehError):
+        return None, "파일 없음, 링크이거나 일반 파일이 아님"
+    if hashlib.sha256(data).hexdigest() != entry.get("sha256"):
+        return None, "sha256 불일치"
+    try:
+        report = json.loads(data.decode("utf-8"))
+        schemas.validate("nfc-ul-file-analysis", report)
+    except Exception:  # noqa: BLE001 — 보고서 생성은 계속하고 검증 실패만 적는다
+        return None, "schema 검증 실패"
+    return report, None
+
+
+def _nfc_ul_lines(report: dict[str, Any]) -> list[str]:
+    inspection = report["inspection"]
+    summary, coverage = inspection["summary"], inspection["coverage"]
+    out: list[str] = []
+    if inspection["operation"] == "diff":
+        before, after = summary["before"], summary["after"]
+        equal = summary["stored_pages_equal"]
+        equal_text = "판단 안 함(읽기·비교가 완료되지 않았거나 읽기 끝이 달라짐)" if equal is None else _YN[equal]
+        changed = _page_ranges(summary["changed_pages"])
+        if coverage["changed_pages_count_is_lower_bound"]:
+            changed += " (비교가 끝나지 않아 일부만)"
+        out.append(f"- 비교: 읽은 page {before['pages_observed']} → {after['pages_observed']}, "
+                   f"비교 {summary['pages_compared']} page, 비교하지 못한 page {summary['comparison_unexamined_pages']}, "
+                   f"바뀐 page {changed}, 읽기 끝 달라짐 {_YN[summary['read_end_changed']]}, 저장 page 동일 {equal_text}")
+        return out
+    targets = summary["read_last_target"] + 1
+    out.append(f"- 계열 {summary['family']} (읽기 동작 추정 {summary['observed_variant']}), "
+               f"읽기 대상 {targets} page 중 {summary['pages_observed']} page 관찰, 보류 {summary['withheld_pages_count']} page, "
+               f"끝 {summary['read_end']['kind']}, 완료 {_YN[summary['read_complete']]}")
+    out.append(f"- 관찰하지 않은 값: {', '.join(summary['unobserved_fields'])}")
+    fields = summary.get("fields")
+    if fields is None:
+        out.append("- 표준 필드 해석 없음(분석 프로필 v1). 유효한 tag-ownership 증명이 있을 때 같은 snapshot 을 "
+                   "nfc_parse_file 로 다시 분석하면 생긴다.")
+        return out
+    lock, otp, user = fields["static_lock"], fields["otp"], fields["user_memory"]
+    out += ["", "| 영역 | 해석(저장 값, 동작으로 확인하지 않음) |", "|---|---|"]
+    blocks = [name for key, name in (("block_lock_otp", "OTP"), ("block_lock_pages_4_9", "4–9"),
+                                     ("block_lock_pages_10_15", "10–15")) if lock[key]]
+    out.append(f"| 정적 잠금 (page 2) | 잠긴 사용자 page {_page_ranges(lock['locked_pages'])}; "
+               f"OTP 잠금 {_YN[lock['otp_locked']]}; 잠금 비트 고정(block-lock) {', '.join(blocks) or '없음'} |")
+    out.append("| OTP (page 3) | " + (f"32비트 중 {int(otp['bits_set'])}비트 켜짐(한 번 켠 비트는 끌 수 없다)"
+                                     if otp["observed"] else "미관찰") + " |")
+    out.append(f"| 사용자 영역 (page {user['first_page']}–{user['last_page']}) | 관찰 {int(user['pages_observed'])} page: "
+               f"기록 {_page_ranges(user['nonblank_pages'])}, 모두 0x00 {_page_ranges(user['blank_pages'])} |")
+    dyn = fields["dynamic_lock"]
+    if dyn is not None:
+        out.append(f"| 동적 잠금 (page {dyn['page']}) | " + (f"켜진 잠금 비트 {int(dyn['bits_set'])}개(page 대응은 해석하지 않음)"
+                                                         if dyn["observed"] else "미관찰") + " |")
+    cfg = fields["configuration"]
+    if cfg is not None:
+        if cfg["cfg0_observed"]:
+            auth0 = int(cfg["auth0"])
+            if not cfg["password_protection_enabled"]:
+                protection = "꺼짐(AUTH0 가 마지막 page 보다 큼)"
+            elif auth0 > summary["read_last_target"]:
+                protection = f"켜짐 — page 0x{auth0:02X} 부터(읽기 대상 밖 PWD/PACK page 만 해당)"
+            else:
+                protection = f"켜짐 — page 0x{auth0:02X} 부터"
+            strg = "해당 없음(17 pF 부품)" if cfg["strg_mod_en"] is None else _YN[cfg["strg_mod_en"]]
+            out.append(f"| 설정 CFG0 (page {cfg['cfg0_page']}) | AUTH0=0x{auth0:02X}, 비밀번호 보호 {protection}; "
+                       f"강한 변조(STRG_MOD_EN) {strg} |")
+        else:
+            out.append(f"| 설정 CFG0 (page {cfg['cfg0_page']}) | 미관찰 |")
+        if cfg["cfg1_observed"]:
+            prot = "읽기·쓰기 모두" if cfg["prot_read_and_write"] else "쓰기만"
+            out.append(f"| 설정 CFG1 (page {cfg['cfg1_page']}) | 보호 범위(PROT) {prot}; 설정 잠금(CFGLCK) {_YN[cfg['cfglck']]}; "
+                       f"인증 실패 제한(AUTHLIM) {int(cfg['authlim']) or '없음'}; VCTID=0x{int(cfg['vctid']):02X} |")
+        else:
+            out.append(f"| 설정 CFG1 (page {cfg['cfg1_page']}) | 미관찰 |")
+        if cfg["rfui_nonzero"]:
+            out.append("| 설정 RFUI | 예약 비트가 켜져 있음 |")
+    return out
+
+
+def _nfc_section(case: Case, summaries: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
+    """nfc-behavior-analysis 최신 요약의 Ultralight 분석 결과(analysis/nfc-ul-*.json)를 싣는다. (본문, §10 한계)."""
+    nfc = next((s for s in summaries if s.get("skill") == "nfc-behavior-analysis"), None)
+    entries = [e for e in ((nfc or {}).get("data") or {}).get("results") or []
+               if isinstance(e, dict) and str(e.get("path", "")).startswith("analysis/nfc-ul-")]
+    if not entries:
+        return [], []
+    out = ["## 8.2 NFC 분석 결과", "",
+           "pweh-nfc 가 만든 Ultralight 계열 snapshot 분석 결과다. 원시 UID·사용자 영역·OTP 값은 싣지 않는다.", ""]
+    gaps: list[str] = []
+    for entry in entries:
+        rel = _md_escape(entry.get("path"))
+        report, problem = _load_nfc_result(case, entry)
+        body: list[str] = []
+        if report is not None:
+            try:
+                body = _nfc_ul_lines(report)
+            except Exception:  # noqa: BLE001 — schema 는 통과했지만 값이 서로 맞지 않는 파일
+                report, problem = None, "표시 실패(값이 서로 맞지 않음)"
+        if report is None:
+            out += [f"### `{rel}`", "", f"- 싣지 않음: {problem}", ""]
+            gaps.append(f"NFC 분석 `{rel}` 을 보고서에 싣지 못함({problem}).")
+            continue
+        inspection = report["inspection"]
+        out += [f"### `{rel}` ({inspection['operation']}, {inspection['status']}, {inspection['profile']})", ""]
+        out += body
+        out.append("")
+        gaps.append(f"NFC 분석 `{rel}` 한계: {', '.join(inspection['limitations'])}")
+    return out, gaps
 
 
 def render_report(case: Case, anchor_dir: Path | None = None) -> str:
@@ -373,6 +536,10 @@ def render_report(case: Case, anchor_dir: Path | None = None) -> str:
     # 8.1 SD 카드 증거 (forensics/ 가 있을 때만)
     lines.extend(_evidence_section(case, anchor_dir))
 
+    # 8.2 NFC 분석 결과 (nfc-behavior-analysis 요약에 Ultralight 분석 결과가 있을 때만)
+    nfc_lines, nfc_gaps = _nfc_section(case, summaries)
+    lines.extend(nfc_lines)
+
     # 9. 안전/감사
     stats = _audit_stats(case)
     add("## 9. 안전 게이트 및 감사 요약")
@@ -400,6 +567,7 @@ def render_report(case: Case, anchor_dir: Path | None = None) -> str:
         ex = data.get("extraction") or {}
         for g in ex.get("gaps") or []:
             gaps.append(_gap_text(g))
+    gaps.extend(nfc_gaps)
     gaps = list(dict.fromkeys(gaps))  # 순서를 유지하며 중복 제거
     unverified = [f["id"] for f in findings if f.get("status") == "unverified"]
     if unverified:

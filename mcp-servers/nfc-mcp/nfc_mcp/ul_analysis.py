@@ -191,6 +191,8 @@ def _validate_ul_relations(report, snapshots):
                                                     'observed_variant')}, read_summary(first)))
         require(summary['withheld_pages_count'] == withheld == cov['pages_withheld'])
         require(summary['unobserved_fields'] == list(UN.UNOBSERVED_FIELDS))
+        # 표준 필드 해석은 같은 snapshot에서 다시 계산한 값과 타입까지 같아야 한다.
+        require(A._exact(summary['fields'], UN.standard_fields(first)))
         require(cov['pages_unobserved'] == targets - first.pages_observed)
         expected_reasons = ['read_partial'] if read_partial else []
         partial = read_partial

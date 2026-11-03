@@ -97,7 +97,7 @@ NFC_DIR = "nfc"
 NFC_SNAPSHOT_RE = re.compile(r"^cu-(?:ul-)?read-[0-9]{3,}\.json$")
 NFC_SNAPSHOT_REFUSAL_MESSAGE = ("CU 페이지 스냅샷(nfc/cu-read-NNN.json·nfc/cu-ul-read-NNN.json)에는 원시 UID·페이지가 있어 "
                                 "이 도구로 읽지 않습니다.")
-NFC_SNAPSHOT_REFUSAL_HINT = "스냅샷은 pweh-nfc 의 nfc_parse_file·nfc_diff_dumps(구조·관찰 범위만 반환)로만 분석하고 에이전트가 직접 열지 않는다."
+NFC_SNAPSHOT_REFUSAL_HINT = "스냅샷은 pweh-nfc 의 nfc_parse_file·nfc_diff_dumps(구조·관찰 범위·표준 필드만 반환, 원시 값 없음)로만 분석하고 에이전트가 직접 열지 않는다."
 IMAGES_DIR = "images"
 QUARANTINE_DIR = "aborted-intakes"
 CUSTODY_FILE = "custody.jsonl"

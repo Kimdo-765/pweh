@@ -329,3 +329,173 @@ def test_relations_reject_false_equations_after_schema(operation, mutation):
     with pytest.raises(PwehError):
         schemas.validate("nfc-ul-file-analysis", bad)
         A._validate_ul_relations(bad, snaps)
+
+
+# --- 데이터시트 표준 필드 해석(분석 프로필 v2) ---
+
+def _with_pages(value, overrides):
+    """합성 snapshot의 관찰 page 값을 바꾼다(page 0–2의 UID·BCC는 그대로, page 2는 잠금 byte만)."""
+    value = copy.deepcopy(value)
+    for index, raw in overrides.items():
+        if index == 2:
+            raw = bytes.fromhex(value["pages"][2])[:2] + raw
+        value["pages"][index] = raw.hex()
+    return value
+
+
+def _fields(value):
+    return U.inspect_cu_ul_snapshot(parse(value), deadline=end())["summary"]["fields"]
+
+
+def test_ev1_ul11_lock_otp_user_and_config_fields():
+    user = {4: b"\x00" * 4, 5: bytes.fromhex("c0ffee01"), 9: b"\x00" * 4}
+    value = _with_pages(snapshot(), {2: bytes((0x19, 0xf0)), 3: bytes.fromhex("f1f0ffff"), **user,
+                                     16: bytes.fromhex("040000a5"), 17: bytes.fromhex("c3050000")})
+    fields = _fields(value)
+    # lock0 0x19: BL-OTP(bit0)·L-OTP(bit3)·L4(bit4), lock1 0xf0: L12–L15.
+    assert fields["static_lock"] == {"page": 2, "otp_locked": True, "block_lock_otp": True,
+                                     "block_lock_pages_4_9": False, "block_lock_pages_10_15": False,
+                                     "locked_pages": [4, 12, 13, 14, 15]}
+    assert fields["otp"] == {"page": 3, "observed": True, "bits_set": 25}
+    assert fields["user_memory"] == {"first_page": 4, "last_page": 15, "pages_observed": 12,
+                                     "blank_pages": [4, 9], "nonblank_pages": [5, 6, 7, 8, 10, 11, 12, 13, 14, 15]}
+    assert fields["dynamic_lock"] is None
+    # MF0UL11(17 pF)에는 STRG_MOD_EN이 없어 null이고 켜진 MOD bit 2는 RFUI로 센다.
+    assert fields["configuration"] == {"cfg0_page": 16, "cfg0_observed": True, "cfg1_page": 17, "cfg1_observed": True,
+                                       "auth0": 0xa5, "password_protection_enabled": False, "strg_mod_en": None,
+                                       "prot_read_and_write": True, "cfglck": True, "authlim": 3, "vctid": 5,
+                                       "rfui_nonzero": True}
+    text = json.dumps(fields)
+    assert "c0ffee01" not in text and "f1f0ffff" not in text and UID.hex() not in text
+
+
+def test_auth0_inside_tag_enables_protection_and_rfui_bits_are_flagged():
+    value = _with_pages(snapshot(), {16: bytes.fromhex("01000013"), 17: bytes.fromhex("08050001")})
+    config = _fields(value)["configuration"]
+    assert config["auth0"] == 0x13 and config["password_protection_enabled"] is True
+    assert config["strg_mod_en"] is None and config["prot_read_and_write"] is False and config["authlim"] == 0
+    assert config["rfui_nonzero"] is True
+    factory = _with_pages(snapshot(), {16: bytes.fromhex("000000ff"), 17: bytes.fromhex("00050000")})
+    config = _fields(factory)["configuration"]
+    assert config["password_protection_enabled"] is False and config["rfui_nonzero"] is False
+
+
+def test_nak_before_config_pages_leaves_config_unobserved():
+    value = snapshot("ultralight_ev1_mf0ul11", kind="nak_without_rollover", observed=16, reason="tag_nak")
+    fields = _fields(value)
+    assert fields["configuration"] == {"cfg0_page": 16, "cfg0_observed": False, "cfg1_page": 17, "cfg1_observed": False,
+                                       "auth0": None, "password_protection_enabled": None, "strg_mod_en": None,
+                                       "prot_read_and_write": None, "cfglck": None, "authlim": None, "vctid": None,
+                                       "rfui_nonzero": None}
+    one = snapshot("ultralight_ev1_mf0ul11", kind="nak_without_rollover", observed=17, reason="tag_nak")
+    config = _fields(_with_pages(one, {16: bytes.fromhex("00000004")}))["configuration"]
+    assert config["cfg0_observed"] is True and config["auth0"] == 4 and config["password_protection_enabled"] is True
+    assert config["cfg1_observed"] is False and config["vctid"] is None and config["rfui_nonzero"] is None
+    short = _fields(snapshot("ultralight_ev1_mf0ul11", kind="stopped", observed=3, reason="time_limit"))
+    assert short["otp"] == {"page": 3, "observed": False, "bits_set": None}
+    assert short["user_memory"]["pages_observed"] == 0 and short["user_memory"]["blank_pages"] == []
+
+
+def test_ev1_ul21_dynamic_lock_and_config_addresses():
+    value = _with_pages(snapshot("ultralight_ev1_mf0ul21"), {0x24: bytes.fromhex("0f01ffaa"),
+                                                             0x25: bytes.fromhex("000000ff"),
+                                                             0x26: bytes.fromhex("00050000")})
+    fields = _fields(value)
+    assert fields["user_memory"]["last_page"] == 0x23 and fields["user_memory"]["pages_observed"] == 32
+    # 동적 잠금은 byte 0–2만 센다(byte 3 RFUI 제외).
+    assert fields["dynamic_lock"] == {"page": 0x24, "observed": True, "bits_set": 4 + 1 + 8}
+    config = fields["configuration"]
+    assert (config["cfg0_page"], config["cfg1_page"], config["auth0"], config["vctid"]) == (0x25, 0x26, 0xff, 5)
+    assert config["password_protection_enabled"] is False
+    assert _fields(_with_pages(value, {0x25: bytes.fromhex("00000028")}))["configuration"][
+        "password_protection_enabled"] is True
+
+
+def test_legacy_ultralight_and_ultralight_c_layouts():
+    original = _fields(snapshot(LEGACY, kind="nak_with_rollover", observed=0x10))
+    assert original["configuration"] is None and original["dynamic_lock"] is None
+    assert original["user_memory"]["last_page"] == 15 and original["user_memory"]["pages_observed"] == 12
+    ulc = _fields(_with_pages(snapshot(LEGACY), {0x28: bytes.fromhex("0300ffff")}))
+    assert ulc["configuration"] is None and ulc["user_memory"]["last_page"] == 0x27
+    assert ulc["user_memory"]["pages_observed"] == 36
+    assert ulc["dynamic_lock"] == {"page": 0x28, "observed": True, "bits_set": 2}
+
+
+@pytest.mark.parametrize("value", VALID, ids=range(len(VALID)))
+def test_v2_reports_with_fields_match_schema_and_relations(value):
+    from nfc_mcp import ul_analysis as A
+    snaps = [parse(value)]
+    inspection = U.inspect_cu_ul_snapshot(snaps[0], deadline=end())
+    assert inspection["profile"] == "cu-ultralight-snapshot-analysis-v2"
+    assert inspection["limitations"][-1] == "standard_fields_are_stored_values"
+    report = _report(inspection, snaps)
+    schemas.validate("nfc-ul-file-analysis", report)
+    A._validate_ul_relations(report, snaps)
+
+
+def test_fields_tampering_and_profile_mixing_are_rejected():
+    from nfc_mcp import ul_analysis as A
+    snaps = [parse(snapshot())]
+    report = _report(U.inspect_cu_ul_snapshot(snaps[0], deadline=end()), snaps)
+    tampered = copy.deepcopy(report)
+    tampered["inspection"]["summary"]["fields"]["otp"]["bits_set"] = 3
+    schemas.validate("nfc-ul-file-analysis", tampered)
+    with pytest.raises(PwehError):
+        A._validate_ul_relations(tampered, snaps)
+    # v2 프로필은 fields가 필요하고 v1 프로필은 fields를 받지 않는다.
+    missing = copy.deepcopy(report)
+    del missing["inspection"]["summary"]["fields"]
+    with pytest.raises(PwehError):
+        schemas.validate("nfc-ul-file-analysis", missing)
+    old = copy.deepcopy(report)
+    old["params"]["profile"] = old["inspection"]["profile"] = "cu-ultralight-snapshot-analysis-v1"
+    with pytest.raises(PwehError):
+        schemas.validate("nfc-ul-file-analysis", old)
+    del old["inspection"]["summary"]["fields"]
+    old["inspection"]["limitations"] = old["inspection"]["limitations"][:-1]
+    schemas.validate("nfc-ul-file-analysis", old)
+
+
+def test_strg_mod_en_only_on_50pf_parts():
+    for family in ("ultralight_ev1_mf0ulh11", "ultralight_ev1_mf0ulh21"):
+        cfg0 = 0x10 if family.endswith("11") else 0x25
+        on = _fields(_with_pages(snapshot(family), {cfg0: bytes.fromhex("040000ff"), cfg0 + 1: bytes.fromhex("00050000")}))
+        assert on["configuration"]["strg_mod_en"] is True and on["configuration"]["rfui_nonzero"] is False
+        off = _fields(_with_pages(snapshot(family), {cfg0: bytes.fromhex("000000ff"), cfg0 + 1: bytes.fromhex("00050000")}))
+        assert off["configuration"]["strg_mod_en"] is False
+        rfui = _fields(_with_pages(snapshot(family), {cfg0: bytes.fromhex("080000ff"), cfg0 + 1: bytes.fromhex("00050000")}))
+        assert rfui["configuration"]["strg_mod_en"] is False and rfui["configuration"]["rfui_nonzero"] is True
+    plain = _fields(_with_pages(snapshot(), {16: bytes.fromhex("000000ff"), 17: bytes.fromhex("00050000")}))
+    assert plain["configuration"]["strg_mod_en"] is None and plain["configuration"]["rfui_nonzero"] is False
+
+
+@pytest.mark.parametrize("path,value", [
+    (("otp", "bits_set"), None), (("otp", "observed"), False),
+    (("configuration", "auth0"), None), (("configuration", "password_protection_enabled"), None),
+    (("configuration", "vctid"), None), (("configuration", "authlim"), None),
+    (("configuration", "rfui_nonzero"), None), (("configuration", "cfg0_observed"), False),
+    (("configuration", "cfg1_observed"), False)])
+def test_schema_ties_observed_flags_to_values(path, value):
+    snaps = [parse(snapshot())]
+    report = _report(U.inspect_cu_ul_snapshot(snaps[0], deadline=end()), snaps)
+    schemas.validate("nfc-ul-file-analysis", report)
+    bad = copy.deepcopy(report)
+    section, key = path
+    bad["inspection"]["summary"]["fields"][section][key] = value
+    with pytest.raises(PwehError):
+        schemas.validate("nfc-ul-file-analysis", bad)
+
+
+def test_schema_ties_params_profile_to_inspection_profile():
+    snaps = [parse(snapshot())]
+    report = _report(U.inspect_cu_ul_snapshot(snaps[0], deadline=end()), snaps)
+    bad = copy.deepcopy(report)
+    bad["params"]["profile"] = "cu-ultralight-snapshot-analysis-v1"
+    with pytest.raises(PwehError):
+        schemas.validate("nfc-ul-file-analysis", bad)
+    dyn = _report(U.inspect_cu_ul_snapshot(parse(snapshot("ultralight_ev1_mf0ul21")), deadline=end()),
+                  [parse(snapshot("ultralight_ev1_mf0ul21"))])
+    schemas.validate("nfc-ul-file-analysis", dyn)
+    dyn["inspection"]["summary"]["fields"]["dynamic_lock"]["bits_set"] = None
+    with pytest.raises(PwehError):
+        schemas.validate("nfc-ul-file-analysis", dyn)

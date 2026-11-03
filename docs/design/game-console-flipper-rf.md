@@ -38,7 +38,7 @@ NFC·플레이 열의 “가능”은 후속 설계의 기대치다. 현재 NFC 
     그래서 **MIFARE Ultralight 계열**(MF0ICU1, MF0ICU2의 공개 페이지, EV1 MF0UL11/MF0UL21/MF0ULH11/MF0ULH21)에 한해, 사람이 `tag-ownership`
     증명으로 "사용자 본인 소유이거나 소유자의 서면 허가를 받은 태그"라고 확인한 한 장은 자격증명(예: 사용자 본인의 사용했거나 만료된 GVB 종이 승차권,
     EV1 MF0UL11)이어도 저장 페이지를 **읽기 전용**으로 스냅샷할 수 있다. 첫 단계는 READ 없는 scan·inventory 등록이고, 둘째 단계(같은 날)는
-    page마다 단독 activation READ로 공개 페이지 snapshot을 만들고 구조·관찰 범위만 분석한다(PWD/PACK·UL C 키 페이지는 요청하지 않고 인증하지 않는다).
+    page마다 단독 activation READ로 공개 페이지 snapshot을 만들고 구조·관찰 범위와 데이터시트 표준 필드(잠금·OTP 비트 수·설정)만 분석한다(PWD/PACK·UL C 키 페이지는 요청하지 않고 인증하지 않는다).
     그대로 금지인 동작: 모든 쓰기(0xA2/0xA0)·매직 UID 쓰기, 에뮬레이션·복제·재생, PWD_AUTH(0x1B), UL C 3DES 인증(0x1A)과 CU 2018–2022,
     키 복구, READ_SIG/READ_CNT/FAST_READ/CHECK_TEARING/VCSL.
     기존 §6.2 판정이 그대로인 계열: LF 125 kHz(거부·ID 마스킹), MIFARE Classic(Mini/1K/TNP3xxx는 기존 목적+소유 증명 행, 2K/4K는 거부), Plus·ISO14443-4·EMV·DESFire(거부).

@@ -375,4 +375,8 @@ async def test_ul_summary_validates_and_records_with_ul_tags_and_results(cu_setu
             assert saved.get('ok'), saved
             report = await call(case_client, 'report_generate', case_id=env.case.id)
             assert report.get('ok'), report
+        # 서버가 만든 v2 분석은 보고서 §8.2 에 표준 필드 표로 실리고 '싣지 않음'이 없다.
+        text = (env.case.dir / 'report.md').read_text(encoding='utf-8')
+        section = text[text.index('## 8.2 NFC 분석 결과'):text.index('## 9.')]
+        assert '| 정적 잠금 (page 2) |' in section and '싣지 않음' not in section
         await disconnect(client, env, owner)

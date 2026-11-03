@@ -263,7 +263,8 @@ async def _analyze(case_id, ids, tag_ref, max_seconds, ctx, tool):
     'analysis/nfc-file-NNN.json에 마스킹 결과·전체 입력 SHA·원장/증명 결속을0444로 저장하며 실제 생성 경로를 반환한다. '
     'UT- tag_ref(Ultralight inventory)는 서버가 만든 nfc/cu-ul-read-NNN.json snapshot만 받고(가져온 v4·NTAG snapshot은 nfc_source_mismatch) '
     '입구 뒤 tag-ownership 사람 증명을 다시 확인해 없으면 기다리지 않고 attestation_required를 돌려준다(pweh attest <id> 후 재호출). '
-    '결과는 analysis/nfc-ul-file-NNN.json(구조·관찰 범위·read_end·변형 추정, 원시 UID·페이지 없음)이다.'
+    '결과는 analysis/nfc-ul-file-NNN.json(구조·관찰 범위·read_end·변형 추정과 데이터시트 표준 필드(잠금 비트·OTP 켜진 비트 수·사용자 영역 빈/기록 page 번호·EV1 설정 AUTH0·PROT·CFGLCK·AUTHLIM·VCTID), '
+    '원시 UID·사용자 영역·OTP 값 없음)이며 표준 필드는 저장 값이고 보호 동작을 명령으로 확인하지 않는다.'
 ), annotations=ANN_LOCAL_WRITE)
 @safe_tool
 async def nfc_parse_file(case_id: CaseId, artifact_id: ArtifactId, tag_ref: TagRef,

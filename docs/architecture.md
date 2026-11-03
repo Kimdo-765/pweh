@@ -124,7 +124,9 @@ cases/<case_id>/
   jobs/<job_id>.json   백그라운드 작업 상태
   notes/               보드 사진 같은 사람 자료 (case_import_file(dest_subdir="notes")). case_add_note 메모는 case.json 에 저장
   findings.json        발견사항 목록 (각 항목은 schemas/finding.schema.json)
-  report.md            report_generate 결과 (forensics/ 가 있으면 §8.1 SD 카드 증거: 보관 기록 상태(고정점 대조)·증거 표(상태 칸은 status_label)·고지)
+  report.md            report_generate 결과 (forensics/ 가 있으면 §8.1 SD 카드 증거: 보관 기록 상태(고정점 대조)·증거 표(상태 칸은 status_label)·고지;
+                       nfc-behavior-analysis 요약 results 에 analysis/nfc-ul-*.json 이 있으면 §8.2 NFC 분석 결과: pweh-nfc 등록(extra.type)·sha256·schema 대조와
+                       safeio 읽기 뒤 inspect v2 는 표준 필드 표, v1 은 해석 없음 한 줄, diff 는 비교 한 줄, 실패는 '싣지 않음'; 한계는 §10)
   patches/             세이브 패치 이미지(fw_patch_build — 계획·쓰기 준비. 권위 기록은 출처 원장의 patch-plan)
                        imported-save-plan-NNN/{planned.bin,manifest.json}: 가져온 세이브의 로컬 계획, manifest 하나만 등록
   emu/<session_id>/    에뮬레이션 세션(처음 실행할 때 생성, 디렉터리 0700·파일 0600): console.bin(원시 UART),
@@ -1498,7 +1500,7 @@ RAW 파일이면 반환 artifact ID를 `sdr_analyze`로 넘긴다. [전송 계�
 | `nfc_jobs(active_only=False, case_id=None)` | 작업 목록·저장 기록 복구 상태 조회. |
 | `nfc_cu_disconnect(case_id, session_id)` | 허가 철회 뒤에도 같은 세션의 읽기 작업을 취소하고 정리한다. worker·물리 close·lease를 각각 확인하며 미확인 owner는 보존한다. |
 | `nfc_tag_inventory_add(case_id, scan_ref)` | 같은 케이스의 고정 성공 scan을 검사하고 inventory 사실을 등록한다. 같은 scan 재등록은 기존 tag_ref를 반환한다. nfc/inventory.json은 최근32개 마스킹 조회 사본이다. `US-` scan_ref는 같은 케이스의 `tag-ownership` 증명을 다시 확인(없으면 `attestation_required`)한 뒤 UL inventory(`nfc-ultralight-inventory-v1`, `UT-` tag_ref)를 기록해 `nfc-ul-inventory`를 반환하며 NTAG cache는 쓰지 않는다. 결과 `attestation.attestation_id`는 이번 호출에서 다시 확인한 현재 증명 id이고 `attestation.inventory_attestation_id`는 inventory 행에 기록된 id다(같은 scan을 재증명 뒤 다시 추가하면 기존 행을 돌려주므로 둘이 다를 수 있다). |
-| `nfc_parse_file(case_id, artifact_id, tag_ref, max_seconds=5)` | 등록 일반 파일≤1MiB의 전체 SHA·private 식별값·최신 출처를 확인한다. imported-v4는 기존 사람 증명, CU snapshot은 전용 device-read 원장을 요구한다. `UT-` tag_ref는 Ultralight CU snapshot(`nfc/cu-ul-read-NNN.json`)만 받고(가져온 v4·NTAG snapshot은 `nfc_source_mismatch`, NT- 흐름도 UL snapshot을 거부) 입구 뒤 `tag-ownership` 증명을 ctx 없이 다시 확인한다(없으면 `attestation_required`). 결과는 `nfc-ul-file-analysis`(`analysis/nfc-ul-file-NNN.json`)이며 현재 증명 id와 읽기 때 증명 id를 함께 기록한다. |
+| `nfc_parse_file(case_id, artifact_id, tag_ref, max_seconds=5)` | 등록 일반 파일≤1MiB의 전체 SHA·private 식별값·최신 출처를 확인한다. imported-v4는 기존 사람 증명, CU snapshot은 전용 device-read 원장을 요구한다. `UT-` tag_ref는 Ultralight CU snapshot(`nfc/cu-ul-read-NNN.json`)만 받고(가져온 v4·NTAG snapshot은 `nfc_source_mismatch`, NT- 흐름도 UL snapshot을 거부) 입구 뒤 `tag-ownership` 증명을 ctx 없이 다시 확인한다(없으면 `attestation_required`). 결과는 `nfc-ul-file-analysis`(`analysis/nfc-ul-file-NNN.json`, profile `cu-ultralight-snapshot-analysis-v2`: inspect에 데이터시트 표준 필드(잠금 비트·OTP 켜진 비트 수·사용자 영역 빈/기록 page 번호·EV1 설정 AUTH0·PROT·CFGLCK·AUTHLIM·VCTID), 원시 값 없음)이며 현재 증명 id와 읽기 때 증명 id를 함께 기록한다. |
 | `nfc_diff_dumps(case_id, before_artifact_id, after_artifact_id, tag_ref, max_seconds=5)` | 두 파일 합≤2MiB, 같은 inventory와 각 출처를 확인한다. imported끼리 또는 같은 reader 프로필의 CU snapshot끼리만 비교하며 혼합은 거부한다. `UT-` tag_ref는 같은 UL inventory의 Ultralight snapshot 둘만 비교하고(같은 계열·identity·binding·reader·read_last_target) 양쪽 관찰한 보류되지 않은 page만 비교해 `analysis/nfc-ul-diff-NNN.json`에 저장한다. |
 
 inventory·parse·diff는 소유/허가 확인 뒤 로컬 결과를 쓰는 `ANN_LOCAL_WRITE`다.

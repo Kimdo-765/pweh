@@ -125,7 +125,10 @@
       ],
       "properties": {
         "profile": {
-          "const": "cu-ultralight-snapshot-analysis-v1"
+          "enum": [
+            "cu-ultralight-snapshot-analysis-v1",
+            "cu-ultralight-snapshot-analysis-v2"
+          ]
         },
         "max_seconds": {
           "type": "number",
@@ -159,21 +162,13 @@
               ]
             },
             "profile": {
-              "const": "cu-ultralight-snapshot-analysis-v1"
+              "enum": [
+                "cu-ultralight-snapshot-analysis-v1",
+                "cu-ultralight-snapshot-analysis-v2"
+              ]
             },
             "limitations": {
-              "const": [
-                "stored_page_responses_only",
-                "validated_prefix_pages_only",
-                "signature_counters_tearing_unobserved",
-                "withheld_pages_not_observed",
-                "per_page_activation_not_atomic",
-                "nak_boundary_inferred_unverified",
-                "variant_inferred_from_read_behaviour",
-                "physical_same_tag_not_verified",
-                "console_causality_not_verified",
-                "tag_ownership_is_human_statement"
-              ]
+              "type": "array"
             },
             "operation": {
               "const": "inspect"
@@ -310,6 +305,472 @@
                     "counters",
                     "tearing"
                   ]
+                },
+                "fields": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "static_lock",
+                    "otp",
+                    "user_memory",
+                    "dynamic_lock",
+                    "configuration"
+                  ],
+                  "properties": {
+                    "static_lock": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "page",
+                        "otp_locked",
+                        "block_lock_otp",
+                        "block_lock_pages_4_9",
+                        "block_lock_pages_10_15",
+                        "locked_pages"
+                      ],
+                      "properties": {
+                        "page": {
+                          "const": 2
+                        },
+                        "otp_locked": {
+                          "type": "boolean"
+                        },
+                        "block_lock_otp": {
+                          "type": "boolean"
+                        },
+                        "block_lock_pages_4_9": {
+                          "type": "boolean"
+                        },
+                        "block_lock_pages_10_15": {
+                          "type": "boolean"
+                        },
+                        "locked_pages": {
+                          "type": "array",
+                          "maxItems": 12,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "integer",
+                            "minimum": 4,
+                            "maximum": 15
+                          }
+                        }
+                      }
+                    },
+                    "otp": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "page",
+                        "observed",
+                        "bits_set"
+                      ],
+                      "properties": {
+                        "page": {
+                          "const": 3
+                        },
+                        "observed": {
+                          "type": "boolean"
+                        },
+                        "bits_set": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 32
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "allOf": [
+                        {
+                          "if": {
+                            "properties": {
+                              "observed": {
+                                "const": true
+                              }
+                            },
+                            "required": [
+                              "observed"
+                            ]
+                          },
+                          "then": {
+                            "properties": {
+                              "bits_set": {
+                                "type": "integer"
+                              }
+                            }
+                          },
+                          "else": {
+                            "properties": {
+                              "bits_set": {
+                                "type": "null"
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "user_memory": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "first_page",
+                        "last_page",
+                        "pages_observed",
+                        "blank_pages",
+                        "nonblank_pages"
+                      ],
+                      "properties": {
+                        "first_page": {
+                          "const": 4
+                        },
+                        "last_page": {
+                          "enum": [
+                            15,
+                            35,
+                            39
+                          ]
+                        },
+                        "pages_observed": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 36
+                        },
+                        "blank_pages": {
+                          "type": "array",
+                          "maxItems": 36,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "integer",
+                            "minimum": 4,
+                            "maximum": 39
+                          }
+                        },
+                        "nonblank_pages": {
+                          "type": "array",
+                          "maxItems": 36,
+                          "uniqueItems": true,
+                          "items": {
+                            "type": "integer",
+                            "minimum": 4,
+                            "maximum": 39
+                          }
+                        }
+                      }
+                    },
+                    "dynamic_lock": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "page",
+                            "observed",
+                            "bits_set"
+                          ],
+                          "properties": {
+                            "page": {
+                              "enum": [
+                                36,
+                                40
+                              ]
+                            },
+                            "observed": {
+                              "type": "boolean"
+                            },
+                            "bits_set": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 24
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "allOf": [
+                            {
+                              "if": {
+                                "properties": {
+                                  "observed": {
+                                    "const": true
+                                  }
+                                },
+                                "required": [
+                                  "observed"
+                                ]
+                              },
+                              "then": {
+                                "properties": {
+                                  "bits_set": {
+                                    "type": "integer"
+                                  }
+                                }
+                              },
+                              "else": {
+                                "properties": {
+                                  "bits_set": {
+                                    "type": "null"
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "configuration": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "cfg0_page",
+                            "cfg0_observed",
+                            "cfg1_page",
+                            "cfg1_observed",
+                            "auth0",
+                            "password_protection_enabled",
+                            "strg_mod_en",
+                            "prot_read_and_write",
+                            "cfglck",
+                            "authlim",
+                            "vctid",
+                            "rfui_nonzero"
+                          ],
+                          "properties": {
+                            "cfg0_page": {
+                              "enum": [
+                                16,
+                                37
+                              ]
+                            },
+                            "cfg0_observed": {
+                              "type": "boolean"
+                            },
+                            "cfg1_page": {
+                              "enum": [
+                                17,
+                                38
+                              ]
+                            },
+                            "cfg1_observed": {
+                              "type": "boolean"
+                            },
+                            "auth0": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 255
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "password_protection_enabled": {
+                              "anyOf": [
+                                {
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "strg_mod_en": {
+                              "anyOf": [
+                                {
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "prot_read_and_write": {
+                              "anyOf": [
+                                {
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "cfglck": {
+                              "anyOf": [
+                                {
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "authlim": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 7
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "vctid": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 255
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "rfui_nonzero": {
+                              "anyOf": [
+                                {
+                                  "type": "boolean"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "allOf": [
+                            {
+                              "if": {
+                                "properties": {
+                                  "cfg0_observed": {
+                                    "const": true
+                                  }
+                                },
+                                "required": [
+                                  "cfg0_observed"
+                                ]
+                              },
+                              "then": {
+                                "properties": {
+                                  "auth0": {
+                                    "type": "integer"
+                                  },
+                                  "password_protection_enabled": {
+                                    "type": "boolean"
+                                  }
+                                }
+                              },
+                              "else": {
+                                "properties": {
+                                  "auth0": {
+                                    "type": "null"
+                                  },
+                                  "password_protection_enabled": {
+                                    "type": "null"
+                                  },
+                                  "strg_mod_en": {
+                                    "type": "null"
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "if": {
+                                "properties": {
+                                  "cfg1_observed": {
+                                    "const": true
+                                  }
+                                },
+                                "required": [
+                                  "cfg1_observed"
+                                ]
+                              },
+                              "then": {
+                                "properties": {
+                                  "prot_read_and_write": {
+                                    "type": "boolean"
+                                  },
+                                  "cfglck": {
+                                    "type": "boolean"
+                                  },
+                                  "authlim": {
+                                    "type": "integer"
+                                  },
+                                  "vctid": {
+                                    "type": "integer"
+                                  }
+                                }
+                              },
+                              "else": {
+                                "properties": {
+                                  "prot_read_and_write": {
+                                    "type": "null"
+                                  },
+                                  "cfglck": {
+                                    "type": "null"
+                                  },
+                                  "authlim": {
+                                    "type": "null"
+                                  },
+                                  "vctid": {
+                                    "type": "null"
+                                  }
+                                }
+                              }
+                            },
+                            {
+                              "if": {
+                                "properties": {
+                                  "cfg0_observed": {
+                                    "const": true
+                                  },
+                                  "cfg1_observed": {
+                                    "const": true
+                                  }
+                                },
+                                "required": [
+                                  "cfg0_observed",
+                                  "cfg1_observed"
+                                ]
+                              },
+                              "then": {
+                                "properties": {
+                                  "rfui_nonzero": {
+                                    "type": "boolean"
+                                  }
+                                }
+                              },
+                              "else": {
+                                "properties": {
+                                  "rfui_nonzero": {
+                                    "type": "null"
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
                 }
               }
             },
@@ -362,7 +823,67 @@
                 }
               }
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "profile": {
+                    "const": "cu-ultralight-snapshot-analysis-v1"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "limitations": {
+                    "const": [
+                      "stored_page_responses_only",
+                      "validated_prefix_pages_only",
+                      "signature_counters_tearing_unobserved",
+                      "withheld_pages_not_observed",
+                      "per_page_activation_not_atomic",
+                      "nak_boundary_inferred_unverified",
+                      "variant_inferred_from_read_behaviour",
+                      "physical_same_tag_not_verified",
+                      "console_causality_not_verified",
+                      "tag_ownership_is_human_statement"
+                    ]
+                  },
+                  "summary": {
+                    "not": {
+                      "required": [
+                        "fields"
+                      ]
+                    }
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "limitations": {
+                    "const": [
+                      "stored_page_responses_only",
+                      "validated_prefix_pages_only",
+                      "signature_counters_tearing_unobserved",
+                      "withheld_pages_not_observed",
+                      "per_page_activation_not_atomic",
+                      "nak_boundary_inferred_unverified",
+                      "variant_inferred_from_read_behaviour",
+                      "physical_same_tag_not_verified",
+                      "console_causality_not_verified",
+                      "tag_ownership_is_human_statement",
+                      "standard_fields_are_stored_values"
+                    ]
+                  },
+                  "summary": {
+                    "required": [
+                      "fields"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
         },
         {
           "type": "object",
@@ -387,21 +908,13 @@
               ]
             },
             "profile": {
-              "const": "cu-ultralight-snapshot-analysis-v1"
+              "enum": [
+                "cu-ultralight-snapshot-analysis-v1",
+                "cu-ultralight-snapshot-analysis-v2"
+              ]
             },
             "limitations": {
-              "const": [
-                "stored_page_responses_only",
-                "validated_prefix_pages_only",
-                "signature_counters_tearing_unobserved",
-                "withheld_pages_not_observed",
-                "per_page_activation_not_atomic",
-                "nak_boundary_inferred_unverified",
-                "variant_inferred_from_read_behaviour",
-                "physical_same_tag_not_verified",
-                "console_causality_not_verified",
-                "tag_ownership_is_human_statement"
-              ]
+              "type": "array"
             },
             "operation": {
               "const": "diff"
@@ -737,7 +1250,55 @@
                 }
               }
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "profile": {
+                    "const": "cu-ultralight-snapshot-analysis-v1"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "limitations": {
+                    "const": [
+                      "stored_page_responses_only",
+                      "validated_prefix_pages_only",
+                      "signature_counters_tearing_unobserved",
+                      "withheld_pages_not_observed",
+                      "per_page_activation_not_atomic",
+                      "nak_boundary_inferred_unverified",
+                      "variant_inferred_from_read_behaviour",
+                      "physical_same_tag_not_verified",
+                      "console_causality_not_verified",
+                      "tag_ownership_is_human_statement"
+                    ]
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "limitations": {
+                    "const": [
+                      "stored_page_responses_only",
+                      "validated_prefix_pages_only",
+                      "signature_counters_tearing_unobserved",
+                      "withheld_pages_not_observed",
+                      "per_page_activation_not_atomic",
+                      "nak_boundary_inferred_unverified",
+                      "variant_inferred_from_read_behaviour",
+                      "physical_same_tag_not_verified",
+                      "console_causality_not_verified",
+                      "tag_ownership_is_human_statement",
+                      "standard_fields_are_stored_values"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
         }
       ]
     },
@@ -790,6 +1351,41 @@
             "properties": {
               "operation": {
                 "const": "diff"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "params": {
+            "properties": {
+              "profile": {
+                "const": "cu-ultralight-snapshot-analysis-v1"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "inspection": {
+            "properties": {
+              "profile": {
+                "const": "cu-ultralight-snapshot-analysis-v1"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "inspection": {
+            "properties": {
+              "profile": {
+                "const": "cu-ultralight-snapshot-analysis-v2"
               }
             }
           }
